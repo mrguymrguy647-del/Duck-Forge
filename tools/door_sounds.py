@@ -253,7 +253,23 @@ def music(seconds):
     return fade_out(out, 1.5)
 
 
+def s_coins():
+    """A shower of coins: lots of short metallic clinks, thinning out as they settle."""
+    out = np.zeros(int(1.8 * SR))
+    at = 0.0
+    while at < 1.6:
+        freq = rng.uniform(2600, 5200)
+        length = 0.12
+        t = t_axis(length)
+        clink = sum(np.sin(2 * np.pi * freq * m * t) * a for m, a in [(1, 1), (1.47, 0.6), (2.09, 0.35)])
+        clink = attack(clink * np.exp(-t / 0.03), 0.001)
+        mix_at(out, clink * rng.uniform(0.08, 0.2) * (1 - at / 1.8), at)
+        at += rng.uniform(0.015, 0.05) + at * 0.06
+    return out
+
+
 SOUNDS = {
+    "coins": s_coins,
     "pop": s_pop,
     "title": s_title,
     "whoosh": s_whoosh,
