@@ -28,6 +28,10 @@ name = "breakout"
 test = true
 
 [[example]]
+name = "duckling_parade"
+test = true
+
+[[example]]
 name = "stress3d"
 test = true
 

@@ -19,6 +19,7 @@ language through this engine's code and explains how every part works.
 <img src="docs/world3d.png" width="49%" alt="The 3D playground: crates, balls and a floating pyramid on a checkerboard">
 <img src="docs/physics.png" width="49%" alt="The physics sandbox: balls and boxes falling through pegs">
 <img src="docs/breakout.png" width="49%" alt="Breakout">
+<img src="docs/duckling_parade.png" width="49%" alt="Duckling Parade: a duck leads a line of ducklings to the nest while pike hunt">
 <img src="docs/shapes.png" width="49%" alt="The shapes demo">
 </p>
 
@@ -31,6 +32,7 @@ cargo run --example world3d    # 3D world with physics: fly around, throw balls
 cargo run --release --example stress3d   # thousands of spinning 3D shapes
 cargo run --example physics    # 2D physics sandbox: click to drop balls and boxes
 cargo run --example breakout   # the classic game
+cargo run --release --example duckling_parade   # lead ducklings home past hungry pike
 cargo run --example hello      # the smallest possible game
 cargo run --example shapes     # every 2D drawing function, animated
 cargo test                     # run the tests
@@ -50,6 +52,7 @@ cargo run --no-default-features --example breakout -- --headless --frames 600 --
 | `world3d`  | W/A/S/D move · Q/E down/up · Shift faster · arrows or right-drag to look · Space or click throws a ball · B drops a crate · R resets |
 | `physics`  | Left click drops a ball · right click drops a box · Space drops a shower · C clears |
 | `breakout` | Left/Right or A/D move · Space launches · P pauses · R restarts |
+| `duckling_parade` | Arrows or WASD swim · Enter starts · P pauses · R restarts |
 | `hello`    | Arrow keys or WASD move · click to teleport |
 | `stress3d` | 1–6 pick 500 to 20,000 objects · O toggles orbit/fly |
 | every game | **F3** shows the FPS · **F12** saves a screenshot (PNG) · Escape quits |
