@@ -28,6 +28,10 @@ name = "breakout"
 test = true
 
 [[example]]
+name = "door_short"
+test = true
+
+[[example]]
 name = "duckling_parade"
 test = true
 
