@@ -177,6 +177,7 @@ impl<G: Game> Simulation<G> {
     }
 
     /// Makes exactly `keys` the held keys: presses the new ones and releases the rest.
+    #[cfg_attr(not(feature = "window"), allow(dead_code))] // only the window uses it
     pub(crate) fn hold_keys(&mut self, keys: &[Key]) {
         for key in self.keys_down.clone() {
             if !keys.contains(&key) {
@@ -189,6 +190,7 @@ impl<G: Game> Simulation<G> {
     }
 
     /// Makes exactly `buttons` the held mouse buttons.
+    #[cfg_attr(not(feature = "window"), allow(dead_code))] // only the window uses it
     pub(crate) fn hold_mouse_buttons(&mut self, buttons: &[MouseButton]) {
         for button in self.mouse_buttons_down.clone() {
             if !buttons.contains(&button) {
@@ -249,12 +251,14 @@ impl<G: Game> Simulation<G> {
 
     /// Draws the game and hands over the canvas, so the window can add the
     /// FPS counter on top before showing it.
+    #[cfg_attr(not(feature = "window"), allow(dead_code))] // only the window uses it
     pub(crate) fn draw_for_screen(&mut self) -> &mut Canvas {
         self.draw();
         self.drawn_frame = None; // about to be drawn on, so no longer clean
         &mut self.canvas
     }
 
+    #[cfg_attr(not(feature = "window"), allow(dead_code))] // only the window uses it
     pub(crate) fn measure_frame(&mut self, frame_time: f32) {
         self.ctx.measure_frame(frame_time);
     }

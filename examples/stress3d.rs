@@ -52,9 +52,11 @@ struct Options {
 }
 
 impl Options {
-    /// Reads `--objects N`, `--seconds S` and `--renderer NAME` from the command line.
+    /// Reads `--objects N`, `--seconds S` and `--renderer NAME` from the
+    /// command line. `game_args` leaves out the engine's own options, like
+    /// `--headless`, which `run` reads.
     fn from_args() -> Result<Options, String> {
-        Options::parse(std::env::args().skip(1)) // skip the program's own name
+        Options::parse(duckforge::game_args().into_iter())
     }
 
     /// Reads the options from a list of words (separate from `from_args`, so
@@ -303,6 +305,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(message) => {
             eprintln!("{message}");
             eprintln!("usage: stress3d [--objects N] [--seconds S] [--renderer gpu|cpu|auto]");
+            eprintln!("(plus the options every duckforge game has: see --help)");
             std::process::exit(2);
         }
     };

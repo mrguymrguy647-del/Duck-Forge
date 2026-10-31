@@ -368,6 +368,56 @@ impl Canvas {
         (longest * font::ADVANCE - 1) as f32 * scale as f32
     }
 
+    /// Saves the canvas as a `.png` image. PNG files are much smaller than
+    /// BMP (they're compressed, without losing anything), and every phone,
+    /// browser and image viewer can show them.
+    pub fn save_png(&self, path: impl AsRef<Path>) -> io::Result<()> {
+        let file = File::create(path)?;
+        let mut out = BufWriter::new(file);
+        self.write_png(&mut out)?;
+        out.flush()
+    }
+
+    /// Writes the canvas as a PNG: 8 bits each of red, green and blue per
+    /// pixel. The `png` crate does the compressing.
+    pub(crate) fn write_png(&self, out: &mut impl Write) -> io::Result<()> {
+        let invalid = |message| io::Error::new(io::ErrorKind::InvalidInput, message);
+        let width = u32::try_from(self.width).map_err(|_| invalid("image too wide for PNG"))?;
+        let height = u32::try_from(self.height).map_err(|_| invalid("image too tall for PNG"))?;
+        if width == 0 || height == 0 {
+            return Err(invalid("a PNG needs at least 1 x 1 pixels"));
+        }
+        let mut encoder = png::Encoder::new(out, width, height);
+        encoder.set_color(png::ColorType::Rgb);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header()?;
+
+        // Each pixel 0x00RRGGBB becomes the three bytes R, G, B.
+        let mut bytes = Vec::with_capacity(self.pixels.len() * 3);
+        for &pixel in &self.pixels {
+            let [_, r, g, b] = pixel.to_be_bytes();
+            bytes.extend_from_slice(&[r, g, b]);
+        }
+        writer.write_image_data(&bytes)?;
+        writer.finish()?;
+        Ok(())
+    }
+
+    /// Reads a PNG written by [`Canvas::save_png`], to check what was saved.
+    #[cfg(test)]
+    pub(crate) fn load_png_for_tests(path: &Path) -> Canvas {
+        let file = io::BufReader::new(File::open(path).unwrap());
+        let mut reader = png::Decoder::new(file).read_info().unwrap();
+        let mut bytes = vec![0; reader.output_buffer_size().unwrap()];
+        let info = reader.next_frame(&mut bytes).unwrap();
+        assert_eq!(info.color_type, png::ColorType::Rgb);
+        let mut canvas = Canvas::new(info.width as usize, info.height as usize);
+        for (pixel, rgb) in canvas.pixels.iter_mut().zip(bytes.chunks_exact(3)) {
+            *pixel = u32::from_be_bytes([0, rgb[0], rgb[1], rgb[2]]);
+        }
+        canvas
+    }
+
     /// Saves the canvas as a `.bmp` image, a format every image viewer can open.
     pub fn save_bmp(&self, path: impl AsRef<Path>) -> io::Result<()> {
         let file = File::create(path)?;
@@ -652,5 +702,26 @@ mod tests {
         let mut unix = Canvas::new(20, 20);
         unix.draw_text("A\nB", vec2(0.0, 0.0), 1, Color::WHITE);
         assert_eq!(windows.pixels(), unix.pixels());
+    }
+
+    #[test]
+    fn png_round_trip_keeps_every_pixel() {
+        let mut canvas = Canvas::new(5, 3);
+        canvas.set_pixel(0, 0, Color::rgb(255, 0, 0));
+        canvas.set_pixel(4, 2, Color::rgb(1, 2, 3));
+        canvas.set_pixel(2, 1, Color::WHITE);
+        let path = std::env::temp_dir().join(format!("duckforge-png-{}.png", std::process::id()));
+        canvas.save_png(&path).unwrap();
+        let loaded = Canvas::load_png_for_tests(&path);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!((loaded.width(), loaded.height()), (5, 3));
+        assert_eq!(loaded.pixels(), canvas.pixels());
+    }
+
+    #[test]
+    fn an_empty_canvas_cant_be_a_png() {
+        let mut bytes = Vec::new();
+        let err = Canvas::new(0, 4).write_png(&mut bytes).unwrap_err();
+        assert!(err.to_string().contains("at least 1 x 1"));
     }
 }

@@ -85,3 +85,67 @@ functions like `sin` can round the last bit differently, so a long game
 can slowly drift. A game also stops being repeatable if it makes decisions
 with its own clock (`std::time::Instant`) or with the order of items in a
 `HashMap`. Use `ctx.dt()`, `ctx.time()` and `ctx.rng` instead.
+
+## Step 2: Running without a screen
+
+The goal: build and run games on a plain Linux machine (like a cloud server
+where an AI writes games) with no screen, no window libraries and no
+graphics card, and still see what the game drew.
+
+**The window is a cargo feature, `window`, on by default.** All the code
+that uses minifb moved into `src/window.rs`, which is only compiled with
+the feature. `cargo build --no-default-features` leaves out both the window
+and the GPU renderer; the engine then needs nothing from the system but the
+C library. We checked this two ways: `cargo tree` shows no window crates,
+and `ldd` shows the program links no X11, Wayland or graphics libraries.
+
+**Every game gets command-line options for free.** `run()` reads the
+command line itself, so `--headless`, `--frames`, `--out`, `--seed` and
+`--help` work in every game without changing its code. We thought about
+making games opt in, but the point is that an AI (or a person) can test
+*any* game the same way.
+
+**Options the engine doesn't know are left for the game.** The stress test
+has its own options (`--objects`, `--seconds`, `--renderer`). So unknown
+words aren't errors; they're handed to the game, which reads them with
+`duckforge::game_args()` (the command line minus the engine's options).
+
+**...but near-misses of engine options are errors.** If unknown options
+were silently ignored, a typo like `--frame 60` would run the default 600
+frames, and you might not notice. So a word within two letters of an
+engine option stops the program: `unknown option --frame: did you mean
+--frames?`.
+
+**`--frames` works in a window too**: the window closes after that many
+updates. Handy for scripted checks. `--out` only makes sense without a
+window, so using it there is an error rather than being ignored.
+
+**Headless runs as fast as it can, not in real time.** There's nobody
+watching, so there's no reason to wait: 10 seconds of Breakout takes a
+few milliseconds. Because steps are fixed (step 1), the result is the same
+as playing in real time.
+
+**Headless always draws with the CPU**, even when the GPU feature is on,
+for the same reasons as `Simulation` in step 1: the same picture on every
+computer, and no graphics card needed.
+
+**A headless run with no seed uses seed 1.** Running the same command twice
+should give the same result; for a different game, pass `--seed`.
+
+**Headless saves to `duckforge-out/` unless told otherwise**, and prints
+exactly what it ran and which files it saved, so whoever ran it (person or
+AI) knows where to look. The folder is in `.gitignore`.
+
+**PNG, not BMP, for pictures.** PNG files are compressed without losing
+anything (a Breakout frame is about 1.3 KB as PNG and 300 KB as BMP), and
+every phone and browser can show them. We used the small `png` crate
+rather than writing our own encoder: PNG needs a compression algorithm
+(deflate) and checksums, which would be a big detour. F12 screenshots are
+now PNG too. `Canvas::save_bmp` still works.
+
+**Clear errors, printed without quotes.** When `main` returns an error,
+Rust prints it with `{:?}`, which puts quotes around a plain string and
+shows line breaks as `\n`. The engine's errors use a small `EngineError`
+type that prints the message as it is. And if a window can't open, the
+error now suggests `--headless`, because that's what you need on a
+machine without a screen.

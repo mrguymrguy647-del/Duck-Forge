@@ -6,13 +6,18 @@ rust-version = "1.87"
 description = "A small game engine (2D, 3D and physics), written for learning Rust"
 
 [features]
-default = ["gpu"]
-# Draw 3D on the graphics card with wgpu. Build with `--no-default-features`
-# for a smaller, faster-compiling engine that draws everything on the CPU.
+default = ["window", "gpu"]
+# Open a window to play in (with minifb). Without it, the engine builds on
+# a machine with no screen and no window libraries, and games run with
+# `--headless`. `--no-default-features` turns off both features.
+window = ["dep:minifb"]
+# Draw 3D on the graphics card with wgpu. Without it, the engine is smaller,
+# compiles faster and draws everything on the CPU.
 gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 
 [dependencies]
-minifb = "0.28"
+minifb = { version = "0.28", optional = true }
+png = "0.18"
 wgpu = { version = "30", optional = true }
 pollster = { version = "1", optional = true }
 bytemuck = { version = "1", features = ["derive"], optional = true }

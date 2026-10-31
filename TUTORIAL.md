@@ -44,11 +44,12 @@ Keep the source files open next to this guide. When you see a file like
   - [21. Moving 3D to the GPU](#21-moving-3d-to-the-gpu)
 - **Part 3: Games without a screen**
   - [22. Same inputs, same game](#22-same-inputs-same-game)
+  - [23. Running without a screen](#23-running-without-a-screen)
 - **Part 4: Your turn**
-  - [23. Exercises](#23-exercises)
-  - [24. Common compiler errors](#24-common-compiler-errors)
-  - [25. What a code review found](#25-what-a-code-review-found)
-  - [26. Where to go next](#26-where-to-go-next)
+  - [24. Exercises](#24-exercises)
+  - [25. Common compiler errors](#25-common-compiler-errors)
+  - [26. What a code review found](#26-what-a-code-review-found)
+  - [27. Where to go next](#27-where-to-go-next)
 
 ---
 
@@ -104,7 +105,11 @@ second, or FPS), and **F12** saves a screenshot.
 Cargo.toml          project name, Rust edition, dependencies, build settings
 src/
   lib.rs            the front door: lists the modules, defines the prelude
-  engine.rs         the Game trait and the game loop (the only file that uses minifb)
+  engine.rs         the Game trait, Config, Context, and run()
+  simulation.rs     runs a game one update at a time, with no window or clock
+  window.rs         the window and the real-time game loop (the only file that uses minifb)
+  headless.rs       running a game without a window, saving pictures
+  cli.rs            the command-line options every game understands
   canvas.rs         the pixel buffer: 2D drawing, triangles, the depth buffer
   font.rs           a tiny 3x5 pixel font
   input.rs          keyboard and mouse
@@ -141,11 +146,13 @@ rust-version = "1.87"
 description = "A small game engine (2D, 3D and physics), written for learning Rust"
 
 [features]
-default = ["gpu"]
+default = ["window", "gpu"]
+window = ["dep:minifb"]
 gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 
 [dependencies]
-minifb = "0.28"
+minifb = { version = "0.28", optional = true }
+png = "0.18"
 wgpu = { version = "30", optional = true }
 pollster = { version = "1", optional = true }
 bytemuck = { version = "1", features = ["derive"], optional = true }
@@ -162,15 +169,19 @@ opt-level = 1
   compiler that can build the project.
 - `[dependencies]` lists other crates to download from
   [crates.io](https://crates.io). **minifb** opens a window, shows pixels
-  and reports key presses. The other three are only for the GPU renderer
+  and reports key presses. **png** saves pictures as PNG files
+  ([chapter 23](#23-running-without-a-screen)). The other three are only
+  for the GPU renderer
   ([chapter 21](#21-moving-3d-to-the-gpu)): **wgpu** talks to the graphics
   card, **pollster** waits for its `async` setup, and **bytemuck** turns
   data into raw bytes for it. Everything else we write ourselves, because
   that's the point of the exercise.
 - `[features]` are optional parts of a crate. `gpu` switches on the three
   `optional = true` dependencies (`dep:wgpu` means "the wgpu dependency"),
-  and `default = ["gpu"]` turns it on unless you say otherwise.
-  `cargo build --no-default-features` builds a smaller, CPU-only engine.
+  and `window` switches on minifb. `default = ["window", "gpu"]` turns both
+  on unless you say otherwise. `cargo build --no-default-features` builds
+  an engine with no window and no GPU code, for machines without a screen
+  ([chapter 23](#23-running-without-a-screen)).
 - `[profile.dev]` changes how normal (debug) builds are compiled.
   `opt-level = 1` turns on light optimization, because code that touches
   every pixel is very slow without any.
@@ -498,7 +509,7 @@ added, and the slot's generation goes up by one. So an old id still points
 at the right slot, but its generation doesn't match any more, and looking
 it up finds nothing instead of the wrong body. This trick is called a
 *generational index*, and most game engines use it to name their objects.
-(Chapter 25 tells the story of the bug that led to it.)
+(Chapter 26 tells the story of the bug that led to it.)
 
 ## 5. Enums and pattern matching
 
@@ -550,7 +561,7 @@ This is great when a program grows: add a variant, then let the compiler
 show you every place that needs updating.
 
 To deliberately ignore the rest, use the `_` wildcard. `convert_key` in
-`src/engine.rs` translates the keys games can use and ignores the rest
+`src/window.rs` translates the keys games can use and ignores the rest
 (like Num Lock):
 
 ```rust
@@ -718,11 +729,11 @@ you.
 **The borrowing rule:** at any moment you can have *either* any number of
 `&` borrows, *or* exactly one `&mut` borrow. Never both.
 
-Look at the heart of the game loop in `src/engine.rs`:
+Look at where the engine calls your game, in `src/simulation.rs`:
 
 ```rust
-game.update(&mut ctx);
-game.draw(&mut canvas);
+self.game.update(&mut self.ctx);
+self.game.draw(&mut self.canvas);
 ```
 
 And the `Game` trait:
@@ -1390,7 +1401,7 @@ A failed screenshot shouldn't crash the game, so `save_screenshot` deals
 with the error itself:
 
 ```rust
-match canvas.save_bmp(&path) {
+match canvas.save_png(&path) {
     Ok(()) => println!("Saved {path}"),
     Err(err) => eprintln!("Could not save {path}: {err}"),
 }
@@ -1464,8 +1475,11 @@ you fix a bug, try writing a test that would have caught it.
             |
             v
 +------------------------- duckforge --------------------------+
-|  engine.rs    run(): the game loop, Context, Config            |
+|  engine.rs    run(), Game, Context, Config                     |
+|  simulation.rs  runs the game: update, draw (window or not)    |
+|  window.rs    the real-time game loop in a window              |
 |               <- the ONLY file that knows minifb exists        |
+|  headless.rs  runs a game with no window, saves PNG pictures   |
 |                                                                |
 |  canvas.rs    pixels, 2D drawing, triangles, depth buffer      |
 |  font.rs      the pixel font that canvas.rs draws text with    |
@@ -1489,7 +1503,8 @@ Four design decisions shape everything:
    `update` and `draw`; the game never has to know how windows work.
 2. **Only one file touches the window library.** Games use our own `Key`
    type, not minifb's. To switch to another library (like SDL2 or winit),
-   you'd rewrite `engine.rs` and nothing else.
+   you'd rewrite `window.rs` and nothing else. Leaving it out entirely
+   works too ([chapter 23](#23-running-without-a-screen)).
 3. **Everything ends up in one `Vec<u32>` of pixels.** 2D is always drawn
    by our own code. 3D is drawn either by our own code on the CPU (so you can
    read every step) or by the graphics card (for big scenes). Either way,
@@ -1502,7 +1517,7 @@ Four design decisions shape everything:
 ## 13. The game loop
 
 Every game engine, from this one to Unreal, is built around a loop that
-runs once per frame. Here's ours, from `run` in `src/engine.rs`:
+runs once per frame. Here's ours, from `run` in `src/window.rs`:
 
 ```rust
 while window.is_open() && !sim.quit_requested() {
@@ -1696,7 +1711,7 @@ a lot on 1960s hardware.
 Before stepping, the line is *clipped*: cut down to the part that's on the
 canvas (see `clip_line`). Without that, a line to a point far off-screen
 would step through millions of invisible pixels, and could even crash (see
-[chapter 25](#25-what-a-code-review-found)).
+[chapter 26](#26-what-a-code-review-found)).
 
 ### Triangles
 
@@ -1747,7 +1762,9 @@ pub fn is_lit(glyph: &Glyph, col: usize, row: usize) -> bool {
 
 ### Screenshots
 
-Press **F12** in any game to save a `.bmp` file. BMP is one of the simplest
+Press **F12** in any game to save a `.png` file (see
+[chapter 23](#23-running-without-a-screen)). `Canvas::save_bmp` can also
+save a `.bmp` file, and it's worth a look, because BMP is one of the simplest
 image formats: a 54-byte header describing the size, then the raw pixels.
 `write_bmp` writes each number with `to_le_bytes()` ("little-endian": least
 significant byte first), which is what the format requires. Our
@@ -1808,7 +1825,7 @@ the window and centered, with black bars if their shapes don't match:
   +-------+--------------------------------+-------+
 ```
 
-`window_to_canvas` in `src/engine.rs` undoes the centering, then the scaling:
+`window_to_canvas` in `src/window.rs` undoes the centering, then the scaling:
 
 ```rust
 let scale = (window_w / canvas_w).min(window_h / canvas_h);
@@ -2649,7 +2666,7 @@ so `ctx.dt()` is always exactly 1/60.
 The screen still draws as often as it can, though. What if the computer
 only manages 30 frames per second? Then the loop must run two updates
 before each frame, or the game would play at half speed. That's the job of
-the `Pacer` in `src/engine.rs`. It works like a piggy bank: every frame
+the `Pacer` in `src/window.rs`. It works like a piggy bank: every frame
 pays the real time in, and every update takes one step out:
 
 ```rust
@@ -2681,7 +2698,7 @@ Two details make it work well:
 stress test uses it, because it counts updates to measure frames per
 second.
 
-Look at the pacer's tests in `src/engine.rs`: they feed it made-up frame
+Look at the pacer's tests in `src/window.rs`: they feed it made-up frame
 times, like `[0.0, 0.0155, 0.0178, 0.0160]`. That's easy because the pacer
 only does arithmetic and never reads a clock itself. It's a pattern worth
 copying: keep the code that *decides* apart from the code that *touches
@@ -2698,12 +2715,20 @@ pub seed: Option<u32>,
 ```
 
 `Some(42)` gives the same numbers every run, and `None` means "pick one
-for me". In a window, `run` picks one from the clock:
+for me". In a window, the game loop picks one from the clock:
 
 ```rust
-config.seed = Some(config.seed.unwrap_or_else(rng::seed_from_clock));
+config.seed = Some(
+    options
+        .seed
+        .or(config.seed)
+        .unwrap_or_else(rng::seed_from_clock),
+);
 ```
 
+Read it as a chain of fallbacks: the `--seed` from the command line
+([chapter 23](#23-running-without-a-screen)) if there is one, `or` else
+the config's seed, or else (`unwrap_or_else`) one from the clock.
 `unwrap_or_else` takes a function and calls it only if the `Option` is
 `None`. You can pass a closure (`|| 42`) or, as here, the name of a
 function that takes no arguments.
@@ -2739,7 +2764,7 @@ and shifting right pulls the high bits back down. After a few rounds,
 changing one bit of the seed changes about half the bits of the result.
 Notice `wrapping_mul`: the multiplication overflows on purpose, and in a
 debug build a plain `*` would panic when it overflows
-([chapter 25](#25-what-a-code-review-found)). `wrapping_mul` says "wrap
+([chapter 26](#26-what-a-code-review-found)). `wrapping_mul` says "wrap
 around, that's what I want".
 
 A new test in `src/rng.rs` checks that the first numbers from seeds 1 to
@@ -2834,9 +2859,259 @@ promise if it makes decisions with its own clock (`std::time::Instant`) or
 the order of a `HashMap`'s items. Use `ctx.dt()`, `ctx.time()` and
 `ctx.rng`, and the engine keeps the promise for you.
 
+## 23. Running without a screen
+
+A cloud server has no screen, no window system and no graphics card. An
+AI writing games there still needs to build the engine, run a game and
+see what it drew. This chapter makes that work, in three parts: a build
+without the window library, a `--headless` option that every game
+understands, and PNG pictures.
+
+Try it first. This builds the engine with no window code at all, runs ten
+seconds of Breakout in a few milliseconds, and saves the last frame:
+
+```sh
+cargo run --no-default-features --example breakout -- --headless --frames 600 --out shots
+```
+
+```text
+duckforge: ran "Breakout - duckforge" without a window for 600 frames (10.0 s of game time) in 0.00 s, seed 1
+duckforge: saved shots/last.png
+```
+
+### Cargo features: leaving code out
+
+[Chapter 1](#1-cargo-rusts-build-tool) showed the `gpu` feature. The
+window is now a feature too:
+
+```toml
+[features]
+default = ["window", "gpu"]
+window = ["dep:minifb"]
+gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
+
+[dependencies]
+minifb = { version = "0.28", optional = true }
+```
+
+`optional = true` means minifb is only downloaded and built when a feature
+asks for it, and `--no-default-features` turns both features off.
+
+Inside the code, `#[cfg(...)]` decides what gets compiled. Everything that
+uses minifb moved from `engine.rs` into a new file, `src/window.rs`, and
+`lib.rs` only includes that file when the feature is on:
+
+```rust
+#[cfg(feature = "window")]
+mod window;
+```
+
+Without the feature, `window.rs` isn't compiled at all: as far as the
+compiler knows, it doesn't exist. So code that calls it needs a second
+version for when it's missing. `engine.rs` has two functions with the same
+name, and exactly one of them is ever compiled:
+
+```rust
+#[cfg(feature = "window")]
+fn run_window<G: Game>(config: Config, game: G, options: &Options) -> Result<(), Box<dyn Error>> {
+    crate::window::run(config, game, options)
+}
+
+#[cfg(not(feature = "window"))]
+fn run_window<G: Game>(_: Config, _: G, _: &Options) -> Result<(), Box<dyn Error>> {
+    Err(EngineError(String::from(
+        "this copy of duckforge was built without a window (the \"window\" feature is off), \
+         so games can only run with --headless. ...",
+    ))
+    .into())
+}
+```
+
+The `_` parameters say "I take these arguments but don't use them".
+
+How do we know the window really is gone? Two commands check it.
+`cargo tree --no-default-features` lists every crate the build uses: no
+minifb, nothing about X11. And on Linux, `ldd` lists the system libraries a
+program needs when it starts:
+
+```text
+$ ldd target/debug/examples/breakout
+    libgcc_s.so.1
+    libm.so.6
+    libc.so.6
+```
+
+Only the C library basics. The program will start on any Linux machine.
+
+One more `cfg` trick: some `Simulation` helpers are only used by the
+window, so without it the compiler warns that they're never used.
+`#[cfg_attr(not(feature = "window"), allow(dead_code))]` means "when the
+window feature is off, add `#[allow(dead_code)]`".
+
+### Options for every game
+
+We want every game to understand `--headless`, without its author writing
+anything. Every game calls `duckforge::run`, so `run` reads the command
+line itself:
+
+```rust
+pub fn run<G: Game>(config: Config, game: G) -> Result<(), Box<dyn Error>> {
+    let options = Options::from_command_line().map_err(EngineError)?;
+    if options.help {
+        print!("{}", cli::help());
+        return Ok(());
+    }
+    if options.headless {
+        headless::run_from_command_line(config, game, &options).map_err(EngineError)?;
+        return Ok(());
+    }
+    run_window(config, game, &options)
+}
+```
+
+`std::env::args()` gives the words the program was started with, the
+program's own name first (hence `.skip(1)`). `src/cli.rs` reads them one at
+a time. Two Rust features make that tidy:
+
+```rust
+// `--frames=600` works as well as `--frames 600`.
+let (name, attached) = match word.split_once('=') {
+    Some((name, value)) => (name.to_string(), Some(value.to_string())),
+    None => (word.clone(), None),
+};
+let Some(option) = find(&name) else {
+    // not one of ours: it belongs to the game
+    game.push(word);
+    continue;
+};
+```
+
+`split_once` cuts a string at the first `=`, giving `Some((before,
+after))`, or `None` if there's no `=`. And `let ... else` is the
+"unwrap or leave" pattern: if `find` returns `Some`, `option` is the value
+inside, and if not, the `else` block runs, and it must leave (here with
+`continue`).
+
+Words the engine doesn't know belong to the game: the stress test has its
+own `--objects` and `--renderer`. It gets them from `duckforge::game_args()`,
+which is the command line minus the engine's options.
+
+But what about typos? `--frame 60` isn't an engine option, so it would go
+to the game, which ignores it, and you'd get 600 frames without noticing.
+So the engine also checks whether an unknown word is *nearly* one of its
+options:
+
+```text
+Error: unknown option --frame: did you mean --frames?
+```
+
+"Nearly" means an **edit distance** of at most 2: the number of single
+letters you'd have to add, remove or change to turn one word into the
+other. `edit_distance` in `src/cli.rs` is a classic piece of *dynamic
+programming*: it fills in a table of the answers for every pair of
+beginnings of the two words, each built from its neighbours, keeping just
+one row at a time.
+
+### `run_headless`
+
+The headless run itself is short, because `Simulation` (chapter 22)
+already does the work:
+
+```rust
+pub fn run_headless<G: Game>(
+    mut config: Config,
+    game: G,
+    options: &HeadlessOptions,
+) -> Result<Simulation<G>, String> {
+    config.check()?;
+    config.seed = options.seed.or(config.seed);
+    let mut sim = Simulation::new(config, game);
+    sim.run(options.frames);
+
+    if let Some(folder) = &options.out {
+        fs::create_dir_all(folder)
+            .map_err(|err| format!("could not create the folder {}: {err}", folder.display()))?;
+        save_png(&mut sim, &folder.join("last.png"))?;
+    }
+    Ok(sim)
+}
+```
+
+Some things to notice:
+
+- `mut config` in the parameter list: the function owns the config, so it
+  may change its own copy.
+- `options.seed.or(config.seed)`: `Option::or` keeps the first `Some`. A
+  seed from the command line wins over one in the game's `Config`.
+- `map_err` turns an `io::Error` ("Permission denied") into a message that
+  also says *which* folder, then `?` returns it. An error without the file
+  name is a puzzle; with it, it's a fix.
+- It returns the finished `Simulation`, so code that calls it (like a
+  test) can look at the game and its last picture afterwards.
+
+`HeadlessOptions` has a `Default`, so you only write what's different, with
+the struct update syntax from chapter 4:
+
+```rust
+let options = HeadlessOptions {
+    frames: 120,
+    out: Some("shots".into()),
+    ..HeadlessOptions::default()
+};
+let sim = duckforge::run_headless(config, game, &options)?;
+```
+
+### PNG pictures
+
+F12 used to save BMP files (chapter 15), which are simple but big: 300 KB
+for one 320 x 240 frame. The same frame as PNG is about 1.3 KB, and any
+phone or browser can show it. PNG squeezes the pixels with a compression
+algorithm called *deflate* and adds checksums, which is a lot of code to
+write, so this is a job for a crate: `png` in `Cargo.toml`.
+`Canvas::write_png` only has to hand it the pixels as bytes, three per
+pixel:
+
+```rust
+for &pixel in &self.pixels {
+    let [_, r, g, b] = pixel.to_be_bytes();
+    bytes.extend_from_slice(&[r, g, b]);
+}
+```
+
+`to_be_bytes` splits a `u32` into its four bytes, biggest first ("big
+endian"), so `0x00RRGGBB` becomes `[0x00, RR, GG, BB]`. The pattern
+`[_, r, g, b]` takes the array apart and drops the unused first byte.
+
+A test saves a canvas, loads it back with the same crate's decoder, and
+checks every pixel survived the trip.
+
+### Errors from `main`, without quotes
+
+When `main` returns an error, Rust prints `Error: ` followed by the error
+formatted with `{:?}`, the *Debug* format. For a `String`, Debug adds
+quotes and writes line breaks as `\n`, which is fine for a programmer's
+log but ugly in a message meant for people. So the engine wraps its
+messages in a small type whose Debug format is just the text:
+
+```rust
+pub(crate) struct EngineError(pub(crate) String);
+
+impl fmt::Debug for EngineError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+```
+
+`Display` (the `{}` format) is written the same way, and an empty
+`impl Error for EngineError {}` makes it a proper error that fits in a
+`Box<dyn Error>`. One more kindness: if a window can't be opened, the
+message now ends with "On a computer without a screen, run the game with
+--headless instead."
+
 # Part 4: Your turn
 
-## 23. Exercises
+## 24. Exercises
 
 Do them in order. After each change, run the game and see what happened.
 When the compiler complains, **read the whole error message**: Rust's error
@@ -2957,7 +3232,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     to a ball body) across floating platforms, with the camera following
     it. Or 3D Breakout, with a `PhysicsWorld<Vec3>`.
 
-## 24. Common compiler errors
+## 25. Common compiler errors
 
 | Error    | Message (short)                                   | Usually means                                                 |
 |----------|---------------------------------------------------|---------------------------------------------------------------|
@@ -2972,7 +3247,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 For a long explanation of any error, run `rustc --explain E0502`.
 
-## 25. What a code review found
+## 26. What a code review found
 
 After the engine was built, it got a careful review: every file read line
 by line, looking for bugs, crashes and confusing code. It found about 20
@@ -3123,7 +3398,7 @@ Together, the renderer was back to its old speed, 79 to 81 FPS.
 
 **Lesson:** after fixing something, run the benchmark again.
 
-## 26. Where to go next
+## 27. Where to go next
 
 - **The Rust Programming Language** ("the Book"), free at
   <https://doc.rust-lang.org/book/>. The best way to learn Rust properly.

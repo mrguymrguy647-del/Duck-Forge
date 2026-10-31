@@ -2,11 +2,15 @@
 
 A small game engine written in Rust, covering **2D graphics, 3D graphics
 (on the graphics card, or on the CPU) and physics**, plus six example
-programs. It was written to be read: about 5,900 lines of commented engine
-code, and 99 tests. [minifb](https://crates.io/crates/minifb) opens the
-window and [wgpu](https://wgpu.rs) talks to the graphics card; everything
-else is written from scratch: drawing, text, both 3D renderers, the
-physics solver, input, and random numbers.
+programs. It was written to be read: about 6,600 lines of commented engine
+code, and 112 tests. [minifb](https://crates.io/crates/minifb) opens the
+window, [wgpu](https://wgpu.rs) talks to the graphics card and
+[png](https://crates.io/crates/png) saves pictures; everything else is
+written from scratch: drawing, text, both 3D renderers, the physics
+solver, input, and random numbers.
+
+Games also run **without a screen**: on a cloud server, in a test, or for
+an AI that writes games and needs to see what they draw.
 
 **New to Rust? Start with [TUTORIAL.md](TUTORIAL.md)**. It teaches the
 language through this engine's code and explains how every part works.
@@ -33,6 +37,14 @@ cargo test                     # run the tests
 cargo doc --open               # browse the engine's documentation
 ```
 
+On a machine with no screen (a cloud server, say), build without the window
+and run any game with `--headless`. It runs as fast as it can and saves the
+last frame as a PNG:
+
+```sh
+cargo run --no-default-features --example breakout -- --headless --frames 600 --out shots
+```
+
 | Example    | Controls |
 |------------|----------|
 | `world3d`  | W/A/S/D move · Q/E down/up · Shift faster · arrows or right-drag to look · Space or click throws a ball · B drops a crate · R resets |
@@ -40,12 +52,12 @@ cargo doc --open               # browse the engine's documentation
 | `breakout` | Left/Right or A/D move · Space launches · P pauses · R restarts |
 | `hello`    | Arrow keys or WASD move · click to teleport |
 | `stress3d` | 1–6 pick 500 to 20,000 objects · O toggles orbit/fly |
-| every game | **F3** shows the FPS · **F12** saves a screenshot · Escape quits |
+| every game | **F3** shows the FPS · **F12** saves a screenshot (PNG) · Escape quits |
 
 ## Features
 
 - **2D drawing:** rectangles, circles, lines, triangles, text in a built-in
-  pixel font, color blending, and `.bmp` screenshots.
+  pixel font, color blending, and `.png` or `.bmp` screenshots.
 - **3D rendering:** a camera with ready-made fly controls, meshes (cube,
   pyramid, sphere, checkerboard, or build your own), transforms, sunlight
   shading, a depth buffer, and near-plane clipping.
@@ -63,6 +75,9 @@ cargo doc --open               # browse the engine's documentation
   the computer) and an optional random seed mean the same inputs always
   play out exactly the same way. A `Simulation` runs a game step by step
   without a window, for tests.
+- **Headless:** every game understands `--headless`, `--frames`, `--out`
+  and `--seed` on the command line. The engine builds without any window
+  or graphics libraries (`--no-default-features`), for servers.
 
 ## Writing a game
 
@@ -177,6 +192,31 @@ which picks a new seed from the clock in a window). Run
 and checks both games end on the same picture, pixel for pixel. The
 reasons behind these choices are in [docs/decisions.md](docs/decisions.md).
 
+## Running without a screen
+
+Every game understands these options, with no code of its own (everything
+after `--` goes to the game, not to Cargo):
+
+| Option | What it does |
+|--------|--------------|
+| `--headless` | Run with no window, as fast as possible, drawing with the CPU, and save the last frame as `last.png` |
+| `--frames N` | Stop after N updates (default 600 with `--headless`, which is 10 seconds of game time) |
+| `--out DIR` | Where `--headless` saves its files (default `duckforge-out`) |
+| `--seed N` | The random seed. Headless runs use seed 1 unless told otherwise, so they're repeatable |
+| `--help` | List the options |
+
+```sh
+cargo run --example world3d -- --headless --frames 120 --out shots
+```
+
+`cargo build --no-default-features` builds the engine without the window
+(and without the GPU renderer), so it needs no X11, Wayland or graphics
+libraries at all; then games can only run with `--headless`. From code,
+`duckforge::run_headless(config, game, &options)` does the same and hands
+back the finished `Simulation`. A game with command-line options of its own
+should read them from `duckforge::game_args()`, which leaves out the
+engine's.
+
 ## Choosing a renderer, and benchmarking
 
 By default 3D uses the graphics card when there's a usable one, and the CPU
@@ -195,8 +235,8 @@ Remove-Item Env:DUCKFORGE_RENDERER   # back to the default
 DUCKFORGE_RENDERER=cpu cargo run --release --example world3d
 ```
 
-To build without wgpu at all (faster to compile, CPU only), use
-`cargo build --no-default-features`.
+To build without wgpu (faster to compile, CPU only), use
+`cargo build --no-default-features --features window`.
 
 ### Benchmark: CPU vs GPU on your computer
 
@@ -246,8 +286,11 @@ higher.
 
 | File              | What it does                                                        |
 |-------------------|---------------------------------------------------------------------|
-| `src/engine.rs`   | The `Game` trait, `Config`, `Context`, `Timestep` and the game loop (`run`) |
+| `src/engine.rs`   | The `Game` trait, `Config`, `Context`, `Timestep`, and `run` (window or headless) |
 | `src/simulation.rs` | `Simulation`: runs a game one update at a time, with no window or clock |
+| `src/window.rs`   | The window and the real-time game loop (only built with the `window` feature) |
+| `src/headless.rs` | `run_headless`: runs a game without a window and saves PNG pictures |
+| `src/cli.rs`      | The command-line options every game understands                    |
 | `src/canvas.rs`   | Software renderer: pixels, 2D shapes, text, triangles, depth buffer, screenshots |
 | `src/render3d.rs` | 3D: `Camera3D`, `Mesh`, `Transform`, `Renderer`, and the CPU renderer |
 | `src/gpu.rs`      | The GPU renderer: wgpu setup, mesh cache, instancing, reading the picture back |
@@ -260,5 +303,5 @@ higher.
 | `src/rng.rs`      | A tiny xorshift random number generator                             |
 | `examples/`       | `hello`, `shapes`, `breakout`, `physics`, `world3d` and `stress3d`  |
 
-Only `src/engine.rs` knows minifb exists, so the window library could be
+Only `src/window.rs` knows minifb exists, so the window library could be
 swapped out by rewriting one file.

@@ -30,21 +30,27 @@
 //! ```
 
 pub mod canvas;
+mod cli;
 pub mod color;
 pub mod engine;
 #[cfg(feature = "gpu")]
 mod gpu;
+pub mod headless;
 pub mod input;
 pub mod math;
 pub mod physics;
 pub mod render3d;
 pub mod rng;
 pub mod simulation;
+#[cfg(feature = "window")]
+mod window;
 
 // Not `pub`: the font is an internal detail of `Canvas::draw_text`.
 mod font;
 
+pub use cli::game_args;
 pub use engine::run;
+pub use headless::{HeadlessOptions, run_headless};
 pub use simulation::Simulation;
 
 /// Everything a game usually needs, importable in one line:
