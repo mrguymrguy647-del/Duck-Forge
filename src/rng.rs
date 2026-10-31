@@ -15,19 +15,18 @@ pub struct Rng {
 }
 
 impl Rng {
+    /// A generator that starts from `seed`. Any number works, and seeds
+    /// that are close together (1, 2, 3...) give unrelated sequences.
     pub fn new(seed: u32) -> Self {
-        // xorshift gets stuck forever at 0, so replace a zero seed with any other number.
-        let state = if seed == 0 { 0x9E37_79B9 } else { seed };
+        let state = scramble(seed);
+        // xorshift gets stuck forever at 0, so replace a zero state with any other number.
+        let state = if state == 0 { 0x9E37_79B9 } else { state };
         Self { state }
     }
 
     /// A generator seeded from the clock, so every run of the game is different.
     pub fn from_time() -> Self {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.subsec_nanos())
-            .unwrap_or(1);
-        Self::new(nanos)
+        Self::new(seed_from_clock())
     }
 
     /// The next random 32-bit number. The three shift-and-XOR steps scramble the bits.
@@ -66,6 +65,32 @@ impl Rng {
     }
 }
 
+/// Mixes up the bits of a seed, so that every bit of the input affects
+/// every bit of the output.
+///
+/// xorshift on its own starts badly from small seeds: from 7 or 8 its first
+/// numbers are tiny (about 0.0004 out of 1.0) and almost equal, so seeds 7
+/// and 8 would give nearly the same game. After scrambling, 7 and 8 are as
+/// different as any two numbers. (These steps are the "lowbias32" hash by
+/// Chris Wellons. Each one can be undone, so no two seeds scramble to the
+/// same state.)
+fn scramble(mut x: u32) -> u32 {
+    x ^= x >> 16;
+    x = x.wrapping_mul(0x7FEB_352D);
+    x ^= x >> 15;
+    x = x.wrapping_mul(0x846C_A68B);
+    x ^= x >> 16;
+    x
+}
+
+/// A seed that is different on every run: the nanoseconds part of the clock.
+pub(crate) fn seed_from_clock() -> u32 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or(1)
+}
+
 /// The number `unit` of the way from `min` to `max`, where `unit` is in
 /// `0.0..1.0`, and never `max` itself.
 ///
@@ -93,6 +118,21 @@ mod tests {
         for _ in 0..100 {
             assert_eq!(a.next_u32(), b.next_u32());
         }
+    }
+
+    #[test]
+    fn nearby_seeds_give_unrelated_numbers() {
+        // The first number from seeds 1 to 1000 should be spread over the
+        // whole range 0..1, not bunched up near 0.
+        let firsts: Vec<f32> = (1..=1000).map(|seed| Rng::new(seed).next_f32()).collect();
+        let below_tenth = firsts.iter().filter(|&&x| x < 0.1).count();
+        let average = firsts.iter().sum::<f32>() / firsts.len() as f32;
+        assert!(
+            (50..150).contains(&below_tenth),
+            "{below_tenth} of 1000 were below 0.1"
+        );
+        assert!((0.45..0.55).contains(&average), "average {average}");
+        assert!((Rng::new(7).next_f32() - Rng::new(8).next_f32()).abs() > 0.01);
     }
 
     #[test]

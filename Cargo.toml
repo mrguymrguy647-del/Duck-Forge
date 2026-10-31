@@ -19,6 +19,10 @@ bytemuck = { version = "1", features = ["derive"], optional = true }
 
 # Also run the tests inside these examples with `cargo test`.
 [[example]]
+name = "breakout"
+test = true
+
+[[example]]
 name = "stress3d"
 test = true
 

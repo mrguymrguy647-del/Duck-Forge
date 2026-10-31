@@ -7,7 +7,9 @@ you can run, change and break.
 
 - **Part 1** teaches the Rust language, one idea at a time.
 - **Part 2** explains how the engine works and why it's built that way.
-- **Part 3** has exercises, from "change a number" to "write a new game".
+- **Part 3** shows how a game can run, replay and test itself without a
+  screen.
+- **Part 4** has exercises, from "change a number" to "write a new game".
 
 Keep the source files open next to this guide. When you see a file like
 `src/canvas.rs`, open it and look at the real code.
@@ -40,11 +42,13 @@ Keep the source files open next to this guide. When you see a file like
   - [19. Physics](#19-physics)
   - [20. 3D graphics](#20-3d-graphics)
   - [21. Moving 3D to the GPU](#21-moving-3d-to-the-gpu)
-- **Part 3: Your turn**
-  - [22. Exercises](#22-exercises)
-  - [23. Common compiler errors](#23-common-compiler-errors)
-  - [24. What a code review found](#24-what-a-code-review-found)
-  - [25. Where to go next](#25-where-to-go-next)
+- **Part 3: Games without a screen**
+  - [22. Same inputs, same game](#22-same-inputs-same-game)
+- **Part 4: Your turn**
+  - [23. Exercises](#23-exercises)
+  - [24. Common compiler errors](#24-common-compiler-errors)
+  - [25. What a code review found](#25-what-a-code-review-found)
+  - [26. Where to go next](#26-where-to-go-next)
 
 ---
 
@@ -494,7 +498,7 @@ added, and the slot's generation goes up by one. So an old id still points
 at the right slot, but its generation doesn't match any more, and looking
 it up finds nothing instead of the wrong body. This trick is called a
 *generational index*, and most game engines use it to name their objects.
-(Chapter 24 tells the story of the bug that led to it.)
+(Chapter 25 tells the story of the bug that led to it.)
 
 ## 5. Enums and pattern matching
 
@@ -1501,41 +1505,57 @@ Every game engine, from this one to Unreal, is built around a loop that
 runs once per frame. Here's ours, from `run` in `src/engine.rs`:
 
 ```rust
-while window.is_open() && !ctx.quit_requested {
+while window.is_open() && !sim.quit_requested() {
     // 1. Time.
     let now = Instant::now();
-    let real_dt = now.duration_since(last_frame).as_secs_f32();
+    let frame_time = now.duration_since(last_frame).as_secs_f64();
     last_frame = now;
+    sim.measure_frame(frame_time as f32);
+    let (updates, dt) = pacer.updates_due(frame_time);
 
     // 2. Input: translate the window library's keys and buttons into our own types.
-    let keys = window.get_keys().into_iter().filter_map(convert_key);
-    ctx.begin_frame(real_dt, keys);
-    read_mouse(&window, &canvas, &mut ctx.input);
+    let keys: Vec<Key> = window
+        .get_keys()
+        .into_iter()
+        .filter_map(convert_key)
+        .collect();
+    sim.hold_keys(&keys);
+    read_mouse(&window, (config.width, config.height), &mut sim);
 
-    // 3 + 4. The game's turn.
-    game.update(&mut ctx);
-    game.draw(&mut canvas);
-    canvas.flush_3d(); // make sure any 3D from the graphics card is in the pixels
-    if ctx.renderer_name != canvas.renderer_name() {
-        ctx.renderer_name = canvas.renderer_name().to_string();
+    // 3. The game's turn to update, as many times as are due. On a
+    // computer that keeps up, that's once.
+    for _ in 0..updates {
+        sim.step_by(dt);
+        if sim.quit_requested() {
+            break;
+        }
     }
 
-    if ctx.input.was_pressed(Key::F3) {
+    // 4. The game's turn to draw.
+    let fps = sim.context().fps();
+    let canvas = sim.draw_for_screen();
+    let pressed = |key| keys.contains(&key) && !keys_last_frame.contains(&key);
+    if pressed(Key::F3) {
         show_fps = !show_fps;
     }
     if show_fps {
-        draw_fps(&mut canvas, ctx.fps());
+        draw_fps(canvas, fps);
     }
-    if ctx.input.was_pressed(Key::F12) {
-        save_screenshot(&canvas);
+    if pressed(Key::F12) {
+        save_screenshot(canvas);
     }
 
     // 5. Show the frame. This also collects new keyboard and mouse events from the OS.
     window.update_with_buffer(canvas.pixels(), canvas.width(), canvas.height())?;
+    keys_last_frame = keys;
 }
 ```
 
 At 60 frames per second, this whole thing runs every 16.7 milliseconds.
+The game itself lives inside `sim`, a `Simulation`, which calls your
+game's `update` and `draw`. The loop adds the clock, the keyboard and the
+screen. [Chapter 22](#22-same-inputs-same-game) explains the pacer and why
+the game is wrapped up like this.
 
 ### Delta time (`dt`): frame-rate independence
 
@@ -1566,9 +1586,10 @@ If the game freezes for half a second (you're dragging the window, say),
 the next `dt` would be 0.5, and a ball moving 280 px/s would jump 140
 pixels in one step, straight through the paddle. This is called
 **tunneling**. Capping `dt` means the game briefly runs in slow motion
-instead, which players barely notice. (`Context::begin_frame` applies the
-cap with `self.dt = real_dt.min(MAX_DT);`. The FPS counter uses the real,
-uncapped time.)
+instead, which players barely notice. (In `Timestep::RealTime` mode,
+`Pacer::updates_due` applies the cap with `(frame_time as f32).min(MAX_DT)`.
+The FPS counter uses the real, uncapped time. The default fixed timestep
+has its own limit, `MAX_CATCH_UP`.)
 
 ### Frame pacing
 
@@ -1576,10 +1597,11 @@ uncapped time.)
 frame, so the loop doesn't run thousands of times per second and burn a
 whole CPU core for nothing.
 
-> **Going further:** many engines use a *fixed timestep*: they always update
-> in exact steps of, say, 1/60 s, running 0, 1 or 2 updates per drawn
-> frame. That makes physics perfectly repeatable. It's a nice exercise;
-> search for "Fix Your Timestep" by Glenn Fiedler.
+> **A fixed timestep:** by default, duckforge always updates in exact
+> steps of 1/60 s, running 0, 1 or 2 updates per drawn frame, so `dt` is
+> always the same. That makes the game perfectly repeatable.
+> [Chapter 22](#22-same-inputs-same-game) shows how. (The classic article
+> about it is "Fix Your Timestep" by Glenn Fiedler.)
 
 ## 14. Pixels and the framebuffer
 
@@ -1674,7 +1696,7 @@ a lot on 1960s hardware.
 Before stepping, the line is *clipped*: cut down to the part that's on the
 canvas (see `clip_line`). Without that, a line to a point far off-screen
 would step through millions of invisible pixels, and could even crash (see
-[chapter 24](#24-what-a-code-review-found)).
+[chapter 25](#25-what-a-code-review-found)).
 
 ### Triangles
 
@@ -1825,7 +1847,10 @@ pub fn next_u32(&mut self) -> u32 {
 Three shift-and-XOR steps scramble the bits into a sequence that *looks*
 random. It isn't really random: the same **seed** always gives the same
 sequence. That's useful for tests (`Rng::new(42)`), for replays and for
-debugging. The engine seeds it from the clock so each game is different.
+debugging. In a window, the engine seeds it from the clock so each game is
+different, unless `Config::seed` picks a seed
+([chapter 22](#22-same-inputs-same-game) says why you'd want that, and
+tells the story of a bug in how seeds were used).
 
 Other methods build on `next_u32`: `next_f32` gives `0.0..1.0`, `range`
 scales that to any range, and `chance(0.25)` is true 25% of the time.
@@ -2577,9 +2602,241 @@ higher. Run the benchmark on your own computer to see the real difference.
 
 ---
 
-# Part 3: Your turn
+# Part 3: Games without a screen
 
-## 22. Exercises
+## 22. Same inputs, same game
+
+Part 3 is about letting a program play the game instead of a person: a
+test, a replay of a recording, or an AI building a game on a computer that
+has no screen. All of that rests on one property: **the same inputs must
+always give exactly the same game.** If they don't, a replay drifts away
+from the recording, and a test that passed a minute ago fails for no
+reason.
+
+Two things made every run of a duckforge game different: time and
+randomness.
+
+### Time: a fixed timestep
+
+The game loop used to measure how long the last frame took and pass that
+to `update()` as `dt`. Real frame times wobble (16.4 ms, 17.1 ms,
+16.6 ms...), so the ball took slightly different steps on every run, and
+after a few bounces it was somewhere else.
+
+Now `Config` says how time moves, with an enum:
+
+```rust
+pub enum Timestep {
+    Fixed { updates_per_second: u32 },
+    RealTime,
+}
+```
+
+`Fixed` is a variant with a *named field*, like a small struct inside the
+enum. You write it as `Timestep::Fixed { updates_per_second: 120 }`, and
+`match` takes it apart the same way:
+
+```rust
+match self.timestep {
+    Timestep::Fixed { updates_per_second } => 1.0 / updates_per_second.max(1) as f32,
+    // ...
+}
+```
+
+The default (from `impl Default for Timestep`) is 60 updates per second,
+so `ctx.dt()` is always exactly 1/60.
+
+The screen still draws as often as it can, though. What if the computer
+only manages 30 frames per second? Then the loop must run two updates
+before each frame, or the game would play at half speed. That's the job of
+the `Pacer` in `src/engine.rs`. It works like a piggy bank: every frame
+pays the real time in, and every update takes one step out:
+
+```rust
+self.owed += frame_time;
+let updates = (self.owed / step).floor();
+self.owed -= updates * step;
+(updates as u32, step as f32)
+```
+
+| Screen draws | Time per frame | Updates per frame |
+|--------------|----------------|-------------------|
+| 60 fps       | 16.7 ms        | 1                 |
+| 30 fps       | 33.3 ms        | 2                 |
+| 120 fps      | 8.3 ms         | 1, 0, 1, 0, ...   |
+
+Two details make it work well:
+
+- Frames are never exactly 16.7 ms apart. If the piggy bank were nearly
+  empty, a frame 1 ms early would get 0 updates and the next one 2: a
+  visible stutter. So it starts with one and a half steps in it. The
+  leftover then sits halfway between two updates, and a frame can be up to
+  8 ms early or late and still get exactly one.
+- After a freeze (while you drag the window, say), the game won't catch up
+  on more than 0.1 seconds. Catching up means running lots of updates in a
+  row, which takes time, which puts the game further behind: on a slow
+  computer, a *spiral of death*. Slowing down is better.
+
+`Timestep::RealTime` keeps the old behaviour, for games that want it. The
+stress test uses it, because it counts updates to measure frames per
+second.
+
+Look at the pacer's tests in `src/engine.rs`: they feed it made-up frame
+times, like `[0.0, 0.0155, 0.0178, 0.0160]`. That's easy because the pacer
+only does arithmetic and never reads a clock itself. It's a pattern worth
+copying: keep the code that *decides* apart from the code that *touches
+the outside world*, and the deciding part becomes easy to test.
+
+### Randomness: seeds
+
+Random numbers come from `ctx.rng`, and [chapter 17](#17-random-numbers)
+showed that the same seed always gives the same sequence. So `Config` got
+a seed:
+
+```rust
+pub seed: Option<u32>,
+```
+
+`Some(42)` gives the same numbers every run, and `None` means "pick one
+for me". In a window, `run` picks one from the clock:
+
+```rust
+config.seed = Some(config.seed.unwrap_or_else(rng::seed_from_clock));
+```
+
+`unwrap_or_else` takes a function and calls it only if the `Option` is
+`None`. You can pass a closure (`|| 42`) or, as here, the name of a
+function that takes no arguments.
+
+### A bug the first test found
+
+The first test of this feature played Breakout with seed 7 and again with
+seed 8, and checked that the two games came out *different*. They didn't:
+the last pictures were identical, pixel for pixel.
+
+The cause was xorshift ([chapter 17](#17-random-numbers)). It's fine once
+it gets going, but from a small seed its first numbers are tiny: from seed
+7, the first `next_f32()` is about 0.0004, and from seed 8 almost the
+same. The serve angle is `rng.range(-0.5, 0.5)`, so both balls left the
+paddle at the same angle. And small seeds like 1, 2 and 3 are exactly the
+ones people pick.
+
+The fix *scrambles* the seed before using it:
+
+```rust
+fn scramble(mut x: u32) -> u32 {
+    x ^= x >> 16;
+    x = x.wrapping_mul(0x7FEB_352D);
+    x ^= x >> 15;
+    x = x.wrapping_mul(0x846C_A68B);
+    x ^= x >> 16;
+    x
+}
+```
+
+Multiplying by a big odd number pushes the low bits up into the high ones,
+and shifting right pulls the high bits back down. After a few rounds,
+changing one bit of the seed changes about half the bits of the result.
+Notice `wrapping_mul`: the multiplication overflows on purpose, and in a
+debug build a plain `*` would panic when it overflows
+([chapter 25](#25-what-a-code-review-found)). `wrapping_mul` says "wrap
+around, that's what I want".
+
+A new test in `src/rng.rs` checks that the first numbers from seeds 1 to
+1000 are spread over the whole range. Without `scramble`, all 1000 of them
+were below 0.1.
+
+### `Simulation`: a game without a window
+
+A test needs to run a game with no window and no clock.
+`src/simulation.rs` does exactly that:
+
+```rust
+pub struct Simulation<G> {
+    game: G,
+    ctx: Context,
+    canvas: Canvas,
+    // ...
+}
+```
+
+It's *generic* over `G`, the game, just like `run`: a
+`Simulation<Breakout>` holds a Breakout game. It *owns* the game (the
+field is `G`, not `&G`), so the game lives as long as the simulation. To
+look at it, `game(&self) -> &G` lends it out, and `into_game(self) -> G`
+hands it back for good. Because `into_game` takes `self` by value, the
+simulation is used up afterwards, and the compiler won't let you touch it
+again.
+
+You drive it like a player would:
+
+```rust
+let mut sim = Simulation::new(config, Breakout::new());
+sim.press(Key::Space);
+sim.step(); // one update: the game sees Space go down
+sim.release(Key::Space);
+sim.run(599); // 599 more updates
+let picture = sim.picture();
+```
+
+`picture()` calls the game's `draw` only when you ask for a picture.
+`draw` takes `&self`, so the compiler guarantees drawing can't change the
+game. Skipping it changes nothing, and long test runs get much faster.
+
+The window's loop runs the game inside a `Simulation` too, and just adds a
+clock (the pacer) and a screen. That's on purpose: if tests used a
+different loop from real play, a game could pass its tests and still
+misbehave on screen.
+
+### The test
+
+Breakout's test, at the bottom of `examples/breakout.rs`, plays the same
+short game twice and compares the last frames:
+
+```rust
+#[test]
+fn the_same_seed_and_inputs_give_the_same_game() {
+    let mut first = play(7);
+    let mut second = play(7);
+    assert_eq!(first.context().frame(), 600);
+    let differ = pixels_that_differ(first.picture(), second.picture());
+    assert_eq!(differ, 0, "{differ} pixels are different in the last frame");
+    assert_eq!(first.game().score, second.game().score);
+}
+```
+
+Why count the differences instead of writing
+`assert_eq!(first_pixels, second_pixels)`? Because when that fails, it
+prints both lists: 153,600 numbers. A count is a message a person can
+read. `pixels_that_differ` is one line of iterators:
+
+```rust
+a.pixels().iter().zip(b.pixels()).filter(|(x, y)| x != y).count()
+```
+
+`zip` walks two lists side by side, giving pairs; `filter` keeps the pairs
+that differ; `count` counts them.
+
+Tests inside an example only run with `cargo test` if `Cargo.toml` asks
+for it, with `test = true` under that example's `[[example]]`. Try it:
+
+```sh
+cargo test --example breakout
+```
+
+### What "the same" covers
+
+Same game, same inputs, same seed, same computer and build: the same game,
+down to the last pixel. On a different operating system, a long game can
+still drift by a hair, because maths functions like `sin` come from the
+system and may round the last bit differently. And a game breaks the
+promise if it makes decisions with its own clock (`std::time::Instant`) or
+the order of a `HashMap`'s items. Use `ctx.dt()`, `ctx.time()` and
+`ctx.rng`, and the engine keeps the promise for you.
+
+# Part 4: Your turn
+
+## 23. Exercises
 
 Do them in order. After each change, run the game and see what happened.
 When the compiler complains, **read the whole error message**: Rust's error
@@ -2700,7 +2957,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     to a ball body) across floating platforms, with the camera following
     it. Or 3D Breakout, with a `PhysicsWorld<Vec3>`.
 
-## 23. Common compiler errors
+## 24. Common compiler errors
 
 | Error    | Message (short)                                   | Usually means                                                 |
 |----------|---------------------------------------------------|---------------------------------------------------------------|
@@ -2715,7 +2972,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 For a long explanation of any error, run `rustc --explain E0502`.
 
-## 24. What a code review found
+## 25. What a code review found
 
 After the engine was built, it got a careful review: every file read line
 by line, looking for bugs, crashes and confusing code. It found about 20
@@ -2866,7 +3123,7 @@ Together, the renderer was back to its old speed, 79 to 81 FPS.
 
 **Lesson:** after fixing something, run the benchmark again.
 
-## 25. Where to go next
+## 26. Where to go next
 
 - **The Rust Programming Language** ("the Book"), free at
   <https://doc.rust-lang.org/book/>. The best way to learn Rust properly.

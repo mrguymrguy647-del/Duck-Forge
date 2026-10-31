@@ -2,8 +2,8 @@
 
 A small game engine written in Rust, covering **2D graphics, 3D graphics
 (on the graphics card, or on the CPU) and physics**, plus six example
-programs. It was written to be read: about 5,200 lines of commented engine
-code, and 82 tests. [minifb](https://crates.io/crates/minifb) opens the
+programs. It was written to be read: about 5,900 lines of commented engine
+code, and 99 tests. [minifb](https://crates.io/crates/minifb) opens the
 window and [wgpu](https://wgpu.rs) talks to the graphics card; everything
 else is written from scratch: drawing, text, both 3D renderers, the
 physics solver, input, and random numbers.
@@ -59,6 +59,10 @@ cargo doc --open               # browse the engine's documentation
   contact reports. (Boxes don't rotate.)
 - **Input:** the whole keyboard, and the mouse (position in game pixels,
   buttons, movement and scroll wheel).
+- **Repeatable:** a fixed timestep (60 updates per second, however fast
+  the computer) and an optional random seed mean the same inputs always
+  play out exactly the same way. A `Simulation` runs a game step by step
+  without a window, for tests.
 
 ## Writing a game
 
@@ -144,6 +148,35 @@ world.step(ctx.dt());
 // In `draw`: draw the ball at `world.get(ball).unwrap().position`.
 ```
 
+### Testing a game without a window
+
+A `Simulation` runs a game with no window and no clock: you press the keys
+and step it, one update (1/60 of a second) at a time. With the same seed
+and the same inputs, it plays out exactly the same way every time.
+
+```rust
+#[test]
+fn the_square_moves_and_escape_quits() {
+    let mut sim = Simulation::new(Config::default(), MyGame { x: 0.0 });
+    sim.run(60); // one second of game time
+    assert!((sim.game().x - 50.0).abs() < 0.01);
+
+    sim.press(Key::Escape);
+    sim.step();
+    assert!(sim.quit_requested());
+    // The picture the game would show now: black, except the square.
+    assert_eq!(sim.picture().get_pixel(0, 0), Some(Color::BLACK));
+}
+```
+
+Two `Config` settings control repeatability: `timestep`
+(`Timestep::Fixed { updates_per_second: 60 }` by default, or
+`Timestep::RealTime` to use the clock) and `seed` (`None` by default,
+which picks a new seed from the clock in a window). Run
+`cargo test --example breakout` to see a test that plays Breakout twice
+and checks both games end on the same picture, pixel for pixel. The
+reasons behind these choices are in [docs/decisions.md](docs/decisions.md).
+
 ## Choosing a renderer, and benchmarking
 
 By default 3D uses the graphics card when there's a usable one, and the CPU
@@ -192,7 +225,7 @@ foreach ($n in 500, 2000, 5000, 10000, 20000) {
 Each run prints a line like this (the GPU name is whatever your computer has):
 
 ```text
-stress3d: 5000 objects, 222336 triangles, CPU: 39.8 FPS average (25.15 ms per frame, 319 frames in 8.0 s)
+stress3d: 5000 objects, 222078 triangles, CPU: 39.8 FPS average (25.15 ms per frame, 319 frames in 8.0 s)
 ```
 
 For reference, here are the numbers from the 4-core cloud machine this was
@@ -203,17 +236,18 @@ higher.
 
 | Objects | Triangles | CPU renderer | wgpu on llvmpipe (no real GPU) |
 |---:|---:|---:|---:|
-| 500 | 21,828 | 177 FPS | 104 FPS |
-| 2,000 | 88,728 | 79 FPS | 47 FPS |
-| 5,000 | 222,336 | 40 FPS | 21 FPS |
-| 10,000 | 452,520 | 22 FPS | 13 to 17 FPS |
-| 20,000 | 906,840 | 12 FPS | 8 FPS |
+| 500 | 21,846 | 177 FPS | 104 FPS |
+| 2,000 | 89,412 | 79 FPS | 47 FPS |
+| 5,000 | 222,078 | 40 FPS | 21 FPS |
+| 10,000 | 445,164 | 22 FPS | 13 to 17 FPS |
+| 20,000 | 910,914 | 12 FPS | 8 FPS |
 
 ## What's inside
 
 | File              | What it does                                                        |
 |-------------------|---------------------------------------------------------------------|
-| `src/engine.rs`   | The `Game` trait, `Config`, `Context` and the game loop (`run`)     |
+| `src/engine.rs`   | The `Game` trait, `Config`, `Context`, `Timestep` and the game loop (`run`) |
+| `src/simulation.rs` | `Simulation`: runs a game one update at a time, with no window or clock |
 | `src/canvas.rs`   | Software renderer: pixels, 2D shapes, text, triangles, depth buffer, screenshots |
 | `src/render3d.rs` | 3D: `Camera3D`, `Mesh`, `Transform`, `Renderer`, and the CPU renderer |
 | `src/gpu.rs`      | The GPU renderer: wgpu setup, mesh cache, instancing, reading the picture back |

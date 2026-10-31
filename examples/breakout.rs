@@ -336,12 +336,67 @@ impl Game for Breakout {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = Config {
+fn config() -> Config {
+    Config {
         title: String::from("Breakout - duckforge"),
         width: WIDTH as usize,
         height: HEIGHT as usize,
         ..Config::default()
-    };
-    duckforge::run(config, Breakout::new())
+    }
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    duckforge::run(config(), Breakout::new())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Plays a short game: serve, steer right for a while, then left, then
+    /// wait. Returns the simulation, ten seconds of game time later.
+    fn play(seed: u32) -> Simulation<Breakout> {
+        let config = Config {
+            seed: Some(seed),
+            ..config()
+        };
+        let mut sim = Simulation::new(config, Breakout::new());
+        sim.press(Key::Space);
+        sim.step();
+        sim.release(Key::Space);
+        sim.press(Key::Right);
+        sim.run(40);
+        sim.release(Key::Right);
+        sim.press(Key::Left);
+        sim.run(90);
+        sim.release(Key::Left);
+        sim.run(469); // 600 frames in all
+        sim
+    }
+
+    /// How many pixels differ between two pictures of the same size.
+    fn pixels_that_differ(a: &Canvas, b: &Canvas) -> usize {
+        a.pixels()
+            .iter()
+            .zip(b.pixels())
+            .filter(|(x, y)| x != y)
+            .count()
+    }
+
+    #[test]
+    fn the_same_seed_and_inputs_give_the_same_game() {
+        let mut first = play(7);
+        let mut second = play(7);
+        assert_eq!(first.context().frame(), 600);
+        let differ = pixels_that_differ(first.picture(), second.picture());
+        assert_eq!(differ, 0, "{differ} pixels are different in the last frame");
+        assert_eq!(first.game().score, second.game().score);
+    }
+
+    #[test]
+    fn a_different_seed_gives_a_different_game() {
+        // The serve angle is random, so another seed sends the ball elsewhere.
+        let differ = pixels_that_differ(play(7).picture(), play(8).picture());
+        assert!(differ > 0);
+    }
 }

@@ -310,6 +310,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config {
         title: String::from("3D stress test - duckforge"),
         target_fps: 0, // no frame-rate cap: run as fast as possible
+        // One update per drawn frame, so counting updates counts frames.
+        timestep: Timestep::RealTime,
         renderer: options.renderer,
         ..Config::default()
     };

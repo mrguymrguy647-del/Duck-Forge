@@ -39,20 +39,23 @@ pub mod math;
 pub mod physics;
 pub mod render3d;
 pub mod rng;
+pub mod simulation;
 
 // Not `pub`: the font is an internal detail of `Canvas::draw_text`.
 mod font;
 
 pub use engine::run;
+pub use simulation::Simulation;
 
 /// Everything a game usually needs, importable in one line:
 /// `use duckforge::prelude::*;`
 pub mod prelude {
     pub use crate::canvas::Canvas;
     pub use crate::color::Color;
-    pub use crate::engine::{Config, Context, Game};
+    pub use crate::engine::{Config, Context, Game, Timestep};
     pub use crate::input::{Input, Key, MouseButton};
     pub use crate::math::{Rect, Vec2, Vec3, vec2, vec3};
     pub use crate::render3d::{Camera3D, Mesh, Renderer, Transform};
     pub use crate::rng::Rng;
+    pub use crate::simulation::Simulation;
 }
