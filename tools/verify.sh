@@ -103,10 +103,12 @@ code=$?
 if [ $code -eq 0 ] && grep -q 'no problems found' "$out/fuzz.txt"; then
     report "fuzz $runs runs" ok "no problems found"
 else
-    grep -v -E 'fuzzed [0-9]+ runs' "$out/fuzz.txt" | sed 's/^duckforge: //' >"$out/fuzz-problems.txt"
+    grep -v -E 'fuzzed [0-9]+ runs|^duckforge: coverage: ' "$out/fuzz.txt" | sed 's/^duckforge: //' >"$out/fuzz-problems.txt"
     count=$(grep -c '^seed' "$out/fuzz-problems.txt")
     report "fuzz $runs runs" FAILED "$count different problem(s); replay scripts in $out/fuzz" "$out/fuzz-problems.txt"
 fi
+# What the random runs reached, so "no problems found" can be judged.
+grep '^duckforge: coverage: ' "$out/fuzz.txt" | sed 's/^duckforge: coverage: /      coverage: /'
 
 seconds=$((SECONDS - started))
 if [ $problems -eq 0 ] && [ $warnings -gt 0 ]; then

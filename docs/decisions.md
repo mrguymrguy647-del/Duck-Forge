@@ -1641,3 +1641,29 @@ to the same score is still noticed.
 `InputScript` gained a public `expect` field. Code that builds an
 `InputScript` with every field written out needs `expect: None` (one
 test here did); code using `..InputScript::default()` is unaffected.
+
+## Fix 3: Fuzzing's coverage
+
+"No problems found" after 200 runs of Pollen Run said nothing about
+whether any random player ever delivered pollen. Now `--fuzz` ends with
+coverage lines, added up over all runs from each run's `log.json`:
+
+```text
+duckforge: coverage: carried 0 to 3, chasing 0 to 3, delivered 0 to 2, lives 0 to 3, x 16 to 548, y 16 to 388
+duckforge: coverage: state reached Lost, Playing; every run lasted all 1800 frames
+```
+
+- each reported number's lowest and highest (`always 0` if it never moved);
+- each text or yes/no value reached;
+- `never Won (where playthroughs/breakout-win.json ends)`: text values the
+  game's playthroughs end on (their `"expect"` blocks, from Fix 2) that no
+  random run reached. That's the honest way to say "never": the engine
+  can't know every state a game has, but it knows the ones you've shown
+  it matter;
+- how far runs got: all the way, or the furthest frame and how many runs
+  ended early (the game quit, or crashed; a crash leaves no log, so it only
+  adds its frame).
+
+`verify` prints the same lines, as `coverage:`, under its fuzz step. On
+Breakout it shows straight away that random keys never clear more than
+13 bricks or win, so the late game is only covered by `breakout-win.json`.

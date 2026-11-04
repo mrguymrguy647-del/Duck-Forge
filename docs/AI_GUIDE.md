@@ -497,6 +497,22 @@ bug in a short replay. Runs go in parallel on every core; `--frames` sets
 their length (1800, 30 seconds, by default). Fix, then fuzz again with
 the same command: same seeds, same inputs.
 
+"No problems found" only counts if the random player got somewhere, so
+fuzzing ends with what the runs reached, added up over all of them:
+
+```text
+duckforge: coverage: bricks_left 47 to 60, lives 0 to 3, score 0 to 460
+duckforge: coverage: state reached GameOver, Playing, Serving; never Won (where playthroughs/breakout-win.json ends); every run lasted all 1800 frames
+```
+
+Each reported number's lowest and highest, every text (or yes/no) value
+reached, the values your playthroughs end on that no random run reached,
+and how far the runs got (`furthest frame 900; 12 of 200 runs ended early`
+when games quit or crash). Here, no random run ever won Breakout, or
+cleared more than 13 bricks: a bug in the late game would go unnoticed.
+Cover that part with a playthrough or a play test that starts there.
+`verify` prints the same lines under its fuzz step.
+
 ### Step 6b: Tune without rebuilding
 
 Speeds, gravity and timers that you'll adjust go through `ctx.tune`.

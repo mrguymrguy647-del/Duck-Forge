@@ -465,6 +465,10 @@ waiting there isn't called a freeze), and saves each failing run's inputs as a s
 first of each kind shrunk to the fewest key presses that still cause it:
 `--inputs fuzz/seed-14.json` replays it exactly. Runs go in parallel on
 every core: 200 runs of 30 seconds of a small game take a few seconds.
+It ends with coverage lines (each reported number's range across all
+runs, the text values reached, the ones your playthroughs end on that
+no random run reached, and how far runs got), so you can tell whether
+"no problems found" means much.
 
 ### Checking everything in one command
 

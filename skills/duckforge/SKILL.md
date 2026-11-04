@@ -103,11 +103,11 @@ play tests fail). Then let the engine play:
 cargo run --release --no-default-features --example mygame -- --fuzz 200
 ```
 
-It reports crashes, broken rules and freezes, and saves a replayable
-script per problem (shrunk to the fewest key presses):
-`--inputs fuzz/seed-14.json --sheet --debug` shows it. Call
-`ctx.idle_ok()` on title, pause and game-over screens so waiting there
-isn't a freeze. `--fuzz-keys Left,Right,Space` picks the keys.
+It reports crashes, broken rules and freezes with a replayable, shrunk
+script (`--inputs fuzz/seed-14.json --sheet --debug` shows it), then
+`coverage:` lines: each number's range and each text value reached across
+all runs. Judge "no problems found" by them. Call `ctx.idle_ok()` on
+waiting screens. `--fuzz-keys Left,Right,Space` picks the keys.
 
 ## 7. Playthroughs
 

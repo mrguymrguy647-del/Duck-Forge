@@ -136,12 +136,18 @@ if "!code!!errorlevel!"=="00" (
     set "detail="
     call :report "fuzz %runs% runs" ok
 ) else (
-    findstr /v /c:"fuzzed " "%out%\fuzz.txt" > "%out%\fuzz-problems.txt"
+    findstr /v /c:"fuzzed " /c:"duckforge: coverage: " "%out%\fuzz.txt" > "%out%\fuzz-problems.txt"
     set /a count=0
     for /f %%L in ('findstr /b /c:"duckforge: seed" "%out%\fuzz-problems.txt"') do set /a count+=1
     set "msg=!count! different problem(s); replay scripts in %out%\fuzz"
     set "detail=%out%\fuzz-problems.txt"
     call :report "fuzz %runs% runs" FAILED
+)
+
+rem What the random runs reached, so "no problems found" can be judged.
+for /f "usebackq delims=" %%L in ("%out%\fuzz.txt") do (
+    set "line=%%L"
+    if "!line:~0,20!"=="duckforge: coverage:" echo       coverage: !line:~21!
 )
 
 if !problems!==0 (

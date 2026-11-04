@@ -20,8 +20,14 @@
 //! exactly. For each different problem, one script is also *shrunk*: key
 //! presses are removed while the problem still happens, leaving the
 //! shortest script that shows it.
+//!
+//! "No problems found" only means something if the random player got
+//! somewhere, so the end also prints the **coverage**: the lowest and
+//! highest of every reported number across all runs, the text values
+//! reached (and any a playthrough ends on that no run reached), and how far
+//! the runs got.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -34,6 +40,7 @@ use serde_json::Value;
 use crate::cli::Options;
 use crate::engine::Config;
 use crate::input::Key;
+use crate::report::ReportValue;
 use crate::rng::Rng;
 use crate::script::{InputAction, InputEvent, InputScript};
 
@@ -149,6 +156,7 @@ pub(crate) fn run(config: &Config, options: &Options) -> Result<(), String> {
         .min(runs as usize);
     let next = AtomicU32::new(1);
     let results: Mutex<Vec<(u32, InputScript, Vec<Problem>)>> = Mutex::new(Vec::new());
+    let coverage = Mutex::new(Coverage::default());
     let fatal: Mutex<Option<String>> = Mutex::new(None);
     std::thread::scope(|scope| {
         for _ in 0..cores {
@@ -160,7 +168,10 @@ pub(crate) fn run(config: &Config, options: &Options) -> Result<(), String> {
                     }
                     let script = random_script(seed, &fuzz);
                     match fuzz.play(&script, &format!("seed-{seed}")) {
-                        Ok(problems) => results.lock().unwrap().push((seed, script, problems)),
+                        Ok((problems, run)) => {
+                            coverage.lock().unwrap().merge(run);
+                            results.lock().unwrap().push((seed, script, problems));
+                        }
                         Err(error) => *fatal.lock().unwrap() = Some(error),
                     }
                 }
@@ -252,7 +263,169 @@ pub(crate) fn run(config: &Config, options: &Options) -> Result<(), String> {
             fuzz.out.display()
         );
     }
+    let coverage = coverage.into_inner().unwrap();
+    for line in coverage.lines(fuzz.frames, &playthrough_endings()) {
+        println!("duckforge: coverage: {line}");
+    }
     Ok(())
+}
+
+/// What the random runs reached, added up over all of them.
+#[derive(Debug, Default, Clone, PartialEq)]
+struct Coverage {
+    /// Each reported number: the lowest and highest it ever was.
+    numbers: BTreeMap<String, (f64, f64)>,
+    /// Each reported text or yes/no: every value it ever had.
+    texts: BTreeMap<String, BTreeSet<String>>,
+    /// How many frames each run lasted.
+    lengths: Vec<u64>,
+}
+
+impl Coverage {
+    /// One run's coverage, from its `log.json`.
+    fn from_log(log: &Value) -> Coverage {
+        let mut coverage = Coverage::default();
+        for change in log["changes"].as_array().into_iter().flatten() {
+            for (name, value) in change.as_object().into_iter().flatten() {
+                if name == "frame" {
+                    continue;
+                }
+                match value {
+                    Value::Number(n) => {
+                        let n = n.as_f64().unwrap_or(0.0);
+                        let range = coverage.numbers.entry(name.clone()).or_insert((n, n));
+                        *range = (range.0.min(n), range.1.max(n));
+                    }
+                    Value::String(text) => coverage.add_text(name, text.clone()),
+                    other => coverage.add_text(name, other.to_string()),
+                }
+            }
+        }
+        coverage.lengths.push(log["frames"].as_u64().unwrap_or(0));
+        coverage
+    }
+
+    fn add_text(&mut self, name: &str, value: String) {
+        self.texts
+            .entry(name.to_string())
+            .or_default()
+            .insert(value);
+    }
+
+    fn merge(&mut self, other: Coverage) {
+        for (name, (low, high)) in other.numbers {
+            let range = self.numbers.entry(name).or_insert((low, high));
+            *range = (range.0.min(low), range.1.max(high));
+        }
+        for (name, values) in other.texts {
+            self.texts.entry(name).or_default().extend(values);
+        }
+        self.lengths.extend(other.lengths);
+    }
+
+    /// The coverage lines: numbers, then text values and how long runs
+    /// lasted. `endings` are text values playthroughs end on, by name
+    /// (with the file), to point out the ones no run reached.
+    fn lines(
+        &self,
+        planned: u64,
+        endings: &BTreeMap<String, Vec<(String, String)>>,
+    ) -> Vec<String> {
+        let mut lines = Vec::new();
+        if self.numbers.is_empty() && self.texts.is_empty() {
+            lines.push(String::from(
+                "the game reported nothing, so there's no telling what the runs reached",
+            ));
+        }
+        let number = |n: f64| ReportValue::from(n).to_string();
+        let numbers: Vec<String> = self
+            .numbers
+            .iter()
+            .map(|(name, &(low, high))| {
+                if low == high {
+                    format!("{name} always {}", number(low))
+                } else {
+                    format!("{name} {} to {}", number(low), number(high))
+                }
+            })
+            .collect();
+        if !numbers.is_empty() {
+            lines.push(numbers.join(", "));
+        }
+        let mut parts: Vec<String> = Vec::new();
+        for (name, values) in &self.texts {
+            let reached: Vec<&str> = values.iter().map(String::as_str).collect();
+            let mut part = format!("{name} reached {}", reached.join(", "));
+            let missed: Vec<String> = endings
+                .get(name)
+                .into_iter()
+                .flatten()
+                .filter(|(value, _)| !values.contains(value))
+                .map(|(value, file)| format!("{value} (where {file} ends)"))
+                .collect();
+            if !missed.is_empty() {
+                part += &format!("; never {}", missed.join(", "));
+            }
+            parts.push(part);
+        }
+        let longest = self.lengths.iter().copied().max().unwrap_or(0);
+        let early: Vec<u64> = self
+            .lengths
+            .iter()
+            .copied()
+            .filter(|&n| n < planned)
+            .collect();
+        parts.push(match early.iter().min() {
+            None => format!("every run lasted all {planned} frames"),
+            Some(first) => format!(
+                "furthest frame {longest}; {} of {} runs ended early (quit or crash), the first at frame {first}",
+                early.len(),
+                self.lengths.len()
+            ),
+        });
+        lines.push(parts.join("; "));
+        lines
+    }
+}
+
+/// The text (and yes/no) values the game's playthroughs end on, from
+/// their `"expect"` blocks: `state` -> `[("Won", "playthroughs/x.json")]`.
+fn playthrough_endings() -> BTreeMap<String, Vec<(String, String)>> {
+    let mut endings: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+    let Some(game) = crate::tune::game_name_of_this_program() else {
+        return endings;
+    };
+    let Ok(entries) = fs::read_dir("playthroughs") else {
+        return endings;
+    };
+    let mut files: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned());
+            stem.is_some_and(|stem| stem == game || stem.starts_with(&format!("{game}-")))
+                && path.extension().is_some_and(|e| e == "json")
+        })
+        .collect();
+    files.sort();
+    for file in files {
+        let Ok(script) = InputScript::load(&file) else {
+            continue;
+        };
+        for (name, value) in script.expect.into_iter().flatten() {
+            let value = match value {
+                ReportValue::Text(text) => text,
+                ReportValue::Bool(b) => b.to_string(),
+                ReportValue::Number(_) => continue,
+            };
+            let place = file.display().to_string().replace('\\', "/");
+            let list = endings.entry(name).or_default();
+            if !list.iter().any(|(v, _)| *v == value) {
+                list.push((value, place));
+            }
+        }
+    }
+    endings
 }
 
 impl Fuzz {
@@ -260,7 +433,7 @@ impl Fuzz {
     /// went wrong, if anything: every failed check and a freeze, or the
     /// panic that ended it. An error means the run couldn't happen at all
     /// (a bad option, say), which would be the same for every run.
-    fn play(&self, script: &InputScript, name: &str) -> Result<Vec<Problem>, String> {
+    fn play(&self, script: &InputScript, name: &str) -> Result<(Vec<Problem>, Coverage), String> {
         let script_path = self.work.join(format!("{name}.json"));
         let out = self.work.join(name);
         save_script(script, &script_path)?;
@@ -276,10 +449,16 @@ impl Fuzz {
             .output()
             .map_err(|err| format!("could not start {}: {err}", self.exe.display()))?;
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let problems = if output.status.success() {
-            self.read_log(&out.join("log.json"), script)?
+        let (problems, coverage) = if output.status.success() {
+            let log = read_json(&out.join("log.json"))?;
+            (self.problems_in(&log, script), Coverage::from_log(&log))
         } else if let Some(panic) = panic_from(&stderr) {
-            vec![panic]
+            // A crash leaves no log: all we know is how far it got.
+            let coverage = Coverage {
+                lengths: vec![panic.frame().unwrap_or(0)],
+                ..Coverage::default()
+            };
+            (vec![panic], coverage)
         } else {
             let first = stderr
                 .lines()
@@ -289,15 +468,17 @@ impl Fuzz {
         };
         let _ = fs::remove_dir_all(&out);
         let _ = fs::remove_file(&script_path);
-        Ok(problems)
+        Ok((problems, coverage))
     }
 
     /// Failed checks and freezes, from a finished run's `log.json`.
+    #[cfg(test)]
     fn read_log(&self, path: &Path, script: &InputScript) -> Result<Vec<Problem>, String> {
-        let text = fs::read_to_string(path)
-            .map_err(|err| format!("could not read {}: {err}", path.display()))?;
-        let log: Value = serde_json::from_str(&text)
-            .map_err(|err| format!("{} isn't JSON: {err}", path.display()))?;
+        Ok(self.problems_in(&read_json(path)?, script))
+    }
+
+    /// Failed checks and freezes, from a finished run's log.
+    fn problems_in(&self, log: &Value, script: &InputScript) -> Vec<Problem> {
         let mut problems: Vec<Problem> = log["checks"]["failed"]
             .as_array()
             .into_iter()
@@ -347,7 +528,7 @@ impl Fuzz {
                 seconds: self.freeze_seconds,
             });
         }
-        Ok(problems)
+        problems
     }
 
     /// The shortest script (by key presses) that still has the same
@@ -371,7 +552,7 @@ impl Fuzz {
                 runs += 1;
                 let same = self
                     .play(&candidate, &format!("shrink-{}", std::process::id()))
-                    .is_ok_and(|problems| problems.iter().any(|p| p.key() == problem.key()));
+                    .is_ok_and(|(problems, _)| problems.iter().any(|p| p.key() == problem.key()));
                 if same {
                     presses = fewer;
                     best = candidate;
@@ -406,6 +587,12 @@ fn freeze(changes: &[u64], frames: u64, press_frames: &[u64], freeze_frames: u64
         }
     }
     None
+}
+
+fn read_json(path: &Path) -> Result<Value, String> {
+    let text = fs::read_to_string(path)
+        .map_err(|err| format!("could not read {}: {err}", path.display()))?;
+    serde_json::from_str(&text).map_err(|err| format!("{} isn't JSON: {err}", path.display()))
 }
 
 /// The panic in a run's error output: its message, place and frame, from
@@ -731,6 +918,56 @@ mod tests {
             [Problem::Freeze { frame: 601, .. }]
         ));
         let _ = fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn coverage_adds_up_what_the_runs_reached() {
+        let log = |changes: &str, frames: u64| -> Value {
+            serde_json::from_str(&format!(
+                r#"{{"frames": {frames}, "changes": [{changes}]}}"#
+            ))
+            .unwrap()
+        };
+        let mut all = Coverage::default();
+        all.merge(Coverage::from_log(&log(
+            r#"{"frame": 1, "delivered": 0, "lives": 3, "state": "Playing"},
+               {"frame": 90, "delivered": 2, "lives": 2}"#,
+            1800,
+        )));
+        all.merge(Coverage::from_log(&log(
+            r#"{"frame": 1, "delivered": 0, "lives": 3, "state": "Playing", "won": false},
+               {"frame": 700, "lives": 0, "state": "Lost"}"#,
+            760,
+        )));
+        // A crash: only how far it got.
+        all.merge(Coverage {
+            lengths: vec![300],
+            ..Coverage::default()
+        });
+        let endings = BTreeMap::from([(
+            String::from("state"),
+            vec![
+                (String::from("Lost"), String::from("playthroughs/a.json")),
+                (String::from("Won"), String::from("playthroughs/b.json")),
+            ],
+        )]);
+        assert_eq!(
+            all.lines(1800, &endings),
+            [
+                "delivered 0 to 2, lives 0 to 3",
+                "state reached Lost, Playing; never Won (where playthroughs/b.json ends); \
+                 won reached false; furthest frame 1800; 2 of 3 runs ended early \
+                 (quit or crash), the first at frame 300"
+            ]
+        );
+        let quiet = Coverage::from_log(&log("", 1800));
+        assert_eq!(
+            quiet.lines(1800, &BTreeMap::new()),
+            [
+                "the game reported nothing, so there's no telling what the runs reached",
+                "every run lasted all 1800 frames"
+            ]
+        );
     }
 
     #[test]

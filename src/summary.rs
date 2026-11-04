@@ -444,7 +444,11 @@ mod tests {
         assert_eq!(summary.problems().len(), 4);
         summary.failed.truncate(1);
         summary.warnings.truncate(1);
-        assert_eq!(summary.problems().len(), 3, "the changed line, a check, a warning");
+        assert_eq!(
+            summary.problems().len(),
+            3,
+            "the changed line, a check, a warning"
+        );
         assert!(!summary.ok());
         summary.failed.clear();
         summary.warnings.clear();

@@ -266,6 +266,13 @@ pub(crate) fn default_path() -> Option<PathBuf> {
     Some(PathBuf::from("examples").join(format!("{}.tune.json", game_name(&stem))))
 }
 
+/// This program's game name: its file name without Cargo's test hash.
+pub(crate) fn game_name_of_this_program() -> Option<String> {
+    let exe = std::env::current_exe().ok()?;
+    let stem = exe.file_stem()?.to_string_lossy().into_owned();
+    Some(game_name(&stem).to_string())
+}
+
 /// A program's name without the hash Cargo adds to test programs.
 fn game_name(stem: &str) -> &str {
     match stem.rsplit_once('-') {
