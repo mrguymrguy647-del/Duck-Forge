@@ -11,8 +11,8 @@
 //! sprites drawn with letters, 8-direction movement (set DIAGONALS to false
 //! for 4), sliding along walls, enemies that wander and then chase, coins,
 //! lives with a moment of safety after a hit, a camera that follows you,
-//! sounds, reports, rules (`ctx.check`) and play tests. Copy this file to
-//! `examples/mygame.rs` to start your own game.
+//! sounds, reports, rules (`ctx.check`) and play tests (in tests.rs). Copy
+//! this folder to `examples/mygame/` to start your own game.
 //!
 //! Without a screen:
 //!
@@ -533,178 +533,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     duckforge::run(config(), TopDown::new())
 }
 
-// ---- Play tests: `cargo test --example starter_topdown` ----
+// ---- Tests ----
+//
+// The play tests are in tests.rs, next to this file
+// (`cargo test --example starter_topdown`), and the bot that records
+// playthroughs/starter_topdown.json is in bot.rs.
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+mod tests;
 
-    fn hold(keys: &[&str], frames: u64) -> String {
-        let presses: Vec<String> = keys
-            .iter()
-            .map(|k| format!(r#"{{"frame": 1, "press": "{k}"}}"#))
-            .collect();
-        format!(
-            r#"{{"events": [{}], "frames": {frames}}}"#,
-            presses.join(", ")
-        )
-    }
-
-    #[test]
-    fn the_map_is_a_closed_rectangle() {
-        for row in MAP {
-            assert_eq!(row.len(), MAP[0].len(), "every row as long as the first");
-            assert!(row.starts_with('#') && row.ends_with('#'));
-        }
-        assert!(
-            MAP[0]
-                .chars()
-                .chain(MAP[MAP.len() - 1].chars())
-                .all(|c| c == '#')
-        );
-        assert_eq!(MAP.concat().matches('p').count(), 1, "one start");
-    }
-
-    #[test]
-    fn walking_right_stops_at_the_wall() {
-        let played = PlayTest::new(config(), TopDown::new())
-            .script(&hold(&["Right"], 240))
-            .frames(240)
-            .run();
-        // The wall starts at tile 12, so the player stops just before it.
-        assert_eq!(played.game().player.right(), 12.0 * TILE);
-        assert_eq!(played.number("x"), f64::from(12.0 * TILE - BODY));
-        assert_eq!(
-            played.number("y"),
-            f64::from(2.0 * TILE + 2.0),
-            "didn't drift"
-        );
-    }
-
-    #[test]
-    fn diagonals_are_not_faster() {
-        let walk = |keys: &[&str]| {
-            let played = PlayTest::new(config(), TopDown::new())
-                .script(&hold(keys, 20))
-                .frames(20)
-                .run();
-            played
-                .game()
-                .player
-                .center()
-                .distance(TopDown::new().player.center())
-        };
-        let straight = walk(&["Right"]);
-        let diagonal = walk(&["Right", "Down"]);
-        assert!(straight > 25.0, "{straight}");
-        assert!(
-            (straight - diagonal).abs() < 0.5,
-            "{straight} vs {diagonal}"
-        );
-    }
-
-    #[test]
-    fn a_hit_costs_a_life_then_gives_a_moment_of_safety() {
-        let mut game = TopDown::new();
-        // Put an enemy right on top of the player, and keep it there.
-        game.enemies[0].body = game.player;
-        let mut sim = Simulation::new(config(), game);
-        sim.step();
-        assert_eq!(sim.number("lives"), 2.0);
-        sim.assert_sound("hit", 1, 0);
-        for _ in 0..60 {
-            let player = sim.game().player;
-            sim.game_mut().enemies[0].body = player; // still touching
-            sim.step();
-        }
-        assert_eq!(sim.number("lives"), 2.0, "safe for {SAFE_TIME} s");
-        assert!(sim.failed_checks().is_empty(), "{:?}", sim.failed_checks());
-    }
-
-    #[test]
-    fn the_last_coin_wins() {
-        let mut game = TopDown::new();
-        let next_to_player = game.player.center() + vec2(20.0, 0.0);
-        game.coins = vec![next_to_player];
-        game.collected = game.total_coins - 1;
-        let played = PlayTest::new(config(), game)
-            .script(&hold(&["Right"], 60))
-            .frames(60)
-            .run();
-        assert_eq!(played.text("state"), "Won");
-        assert_eq!(played.number("coins"), played.game().total_coins as f64);
-        assert_eq!(played.sound_frames("coin").len(), 1);
-    }
-
-    /// Makes playthroughs/starter_topdown.json: a bot walks to the nearest
-    /// coin by the shortest path on the map that keeps away from enemies.
-    /// `cargo test --example starter_topdown -- --ignored`
-    #[test]
-    #[ignore]
-    fn record_playthrough() {
-        let mut sim = Simulation::new(config(), TopDown::new());
-        sim.step(); // reports exist after the first update
-        while sim.text("state") == "Playing" && sim.context().frame() < 60 * 60 {
-            let game = sim.game();
-            let next = next_step_to_a_coin(game);
-            let me = game.player.center();
-            let keys = [
-                (Key::Left, next.x < me.x - 1.0),
-                (Key::Right, next.x > me.x + 1.0),
-                (Key::Up, next.y < me.y - 1.0),
-                (Key::Down, next.y > me.y + 1.0),
-            ];
-            for (key, held) in keys {
-                if held {
-                    sim.press(key);
-                } else {
-                    sim.release(key);
-                }
-            }
-            sim.step();
-        }
-        for key in [Key::Left, Key::Right, Key::Up, Key::Down] {
-            sim.release(key);
-        }
-        sim.run(60); // a second of the ending
-        sim.recording()
-            .save("playthroughs/starter_topdown.json")
-            .unwrap();
-    }
-
-    /// The center of the next tile on the shortest path to the nearest coin
-    /// (a breadth-first search over the floor tiles), not passing next to
-    /// an enemy.
-    fn next_step_to_a_coin(game: &TopDown) -> Vec2 {
-        let tile_of = |p: Vec2| ((p.x / TILE) as usize, (p.y / TILE) as usize);
-        let center =
-            |(x, y): (usize, usize)| vec2((x as f32 + 0.5) * TILE, (y as f32 + 0.5) * TILE);
-        let start = tile_of(game.player.center());
-        let goals: Vec<(usize, usize)> = game.coins.iter().map(|&c| tile_of(c)).collect();
-        let mut came_from = std::collections::HashMap::new();
-        let mut queue = std::collections::VecDeque::from([start]);
-        came_from.insert(start, start);
-        while let Some(tile) = queue.pop_front() {
-            if goals.contains(&tile) {
-                // Walk back to the tile after the start.
-                let mut step = tile;
-                while came_from[&step] != start && step != start {
-                    step = came_from[&step];
-                }
-                return center(step);
-            }
-            let (x, y) = tile;
-            for next in [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)] {
-                let near_enemy = game
-                    .enemies
-                    .iter()
-                    .any(|e| e.body.center().distance(center(next)) < 2.0 * TILE);
-                if !game.walls[next.1][next.0] && !near_enemy && !came_from.contains_key(&next) {
-                    came_from.insert(next, tile);
-                    queue.push_back(next);
-                }
-            }
-        }
-        game.player.center()
-    }
-}
+#[cfg(test)]
+mod bot;

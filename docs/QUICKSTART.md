@@ -73,8 +73,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 Bigger starts to copy (sprites, camera, sounds, checks, tune file, play
-tests): `examples/template.rs` (platformer), `starter_topdown.rs` (walls,
-chasing enemies, coins), `starter_shooter.rs` (bullets, waves, explosions).
+tests): `examples/template.rs` (platformer), `starter_topdown/` (walls,
+chasing enemies, coins), `starter_shooter/` (bullets, waves, explosions).
 
 ## The loop
 

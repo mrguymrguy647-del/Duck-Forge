@@ -23,9 +23,9 @@ headless, and the five most common mistakes.
 a small, commented platformer with a sprite drawn in code, a camera that
 follows the player, jump and coin sounds, a see-through pause screen and
 play tests. Run it with `cargo run --example template`. For other kinds of
-game, start from [examples/starter_topdown.rs](examples/starter_topdown.rs)
+game, start from [examples/starter_topdown/](examples/starter_topdown/main.rs)
 (walk a walled map, collect coins, escape chasing enemies; 4 or 8
-directions) or [examples/starter_shooter.rs](examples/starter_shooter.rs)
+directions) or [examples/starter_shooter/](examples/starter_shooter/main.rs)
 (fast bullets, waves of enemies that dive and shoot, particle
 explosions). Each has a tune file, a playthrough, rules and play tests,
 and passes `tools/verify.sh`.

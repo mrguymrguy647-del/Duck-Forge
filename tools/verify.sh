@@ -13,11 +13,11 @@
 set -u
 game="${1:-}"
 runs="${2:-50}"
-if [ -z "$game" ] || [ ! -f "$(dirname "$0")/../examples/$game.rs" ]; then
-    echo "usage: tools/verify.sh <example> [fuzz runs]   (examples/<example>.rs must exist)"
+cd "$(dirname "$0")/.." || exit 2
+if [ -z "$game" ] || { [ ! -f "examples/$game.rs" ] && [ ! -f "examples/$game/main.rs" ]; }; then
+    echo "usage: tools/verify.sh <example> [fuzz runs]   (examples/<example>.rs or examples/<example>/main.rs must exist)"
     exit 2
 fi
-cd "$(dirname "$0")/.." || exit 2
 out="out/verify/$game"
 rm -rf "$out"
 mkdir -p "$out"

@@ -17,9 +17,9 @@ commented platformer that already has a sprite drawn in code, a walk
 animation, a camera, sounds, a pause screen, reports and three play tests,
 all passing: `cargo test --no-default-features --example template`.
 For a top-down game (walls, chasing enemies, coins, 4 or 8 directions)
-copy `examples/starter_topdown.rs`; for a shooter (fast bullets with
+copy `examples/starter_topdown/`; for a shooter (fast bullets with
 `swept_aabb`, enemy waves, particle explosions) copy
-`examples/starter_shooter.rs`. Both have labels, checks, a tune file, a
+`examples/starter_shooter/`. Both have labels, checks, a tune file, a
 playthrough in `playthroughs/` and play tests, and pass
 `tools/verify.sh`. Section 3 has an even smaller template.
 

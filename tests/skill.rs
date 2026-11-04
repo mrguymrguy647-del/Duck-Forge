@@ -44,7 +44,7 @@ fn its_links_and_files_exist() {
             "SKILL.md links to {link}, which doesn't exist"
         );
     }
-    // Every path it names, like `examples/starter_shooter.rs` or tools/verify.sh.
+    // Every path it names, like `examples/starter_shooter/` or tools/verify.sh.
     let mut checked = 0;
     for word in SKILL.split(|c: char| c.is_whitespace() || "`(),:".contains(c)) {
         let word = word.trim_end_matches('.').replace('\\', "/");

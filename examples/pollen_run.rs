@@ -8,7 +8,7 @@
 //! Arrow keys (or WASD) fly, P pauses, Space starts again after the end,
 //! Escape quits. F1 shows the debug overlay, F10 records what you do.
 //!
-//! Made from examples/starter_topdown.rs, following skills/duckforge/SKILL.md.
+//! Made from examples/starter_topdown, following skills/duckforge/SKILL.md.
 //!
 //!     tools/verify.sh pollen_run
 

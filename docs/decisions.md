@@ -1723,3 +1723,32 @@ when there's no room above) on a small dark strip. It can still cover a
 neighbour, but never the thing it names. (Smaller text isn't possible:
 the font is already the smallest that reads; leaving names off small
 labels would hide exactly the ones that are hard to tell apart.)
+
+## Fix 7: Shorter starters
+
+The starters were single files of about 700 lines: the game, then its
+play tests, then the bot that records the playthrough. The bot was
+already at the very end, so moving only the bot wouldn't change what a
+reader meets first. Each starter is now a folder that Cargo finds by
+itself (`examples/starter_topdown/main.rs` is the example
+`starter_topdown`):
+
+| | Before | After |
+|---|---|---|
+| `starter_topdown`: the file you open | 710 lines (game 537, tests 98, bot 75) | `main.rs` 546 (the game, and where the rest is) |
+| | | `tests.rs` 100: the play tests |
+| | | `bot.rs` 75: `record_playthrough` and its path-finding |
+| `starter_shooter`: the file you open | 687 lines (game 537, tests 94, bot 56) | `main.rs` 546, `tests.rs` 97, `bot.rs` 56 |
+
+The game part itself is the same 537 lines (plus a short note at the end
+saying where the tests and the bot are): it's the game that's meant to be
+read and changed, and cutting it would remove features the starters
+exist to show. What changed is that opening the starter now shows only
+the game. `main.rs` ends with `#[cfg(test)] mod tests;` and
+`#[cfg(test)] mod bot;`, and both files start with `use super::*;`, so
+they can still reach everything private in the game. Re-running both
+bots wrote byte-for-byte the same playthroughs.
+
+The template (360 lines, no bot) and the quick start game stay single
+files: the quick start's point is a whole game with its test on one page.
+`verify` accepts either layout.

@@ -16,7 +16,7 @@ set "runs=%~2"
 if "%runs%"=="" set "runs=50"
 cd /d "%~dp0.."
 if "%game%"=="" goto usage
-if not exist "examples\%game%.rs" goto usage
+if not exist "examples\%game%.rs" if not exist "examples\%game%\main.rs" goto usage
 
 set "out=out\verify\%game%"
 if exist "%out%" rmdir /s /q "%out%"
@@ -178,5 +178,5 @@ for /f "usebackq delims=" %%L in ("!detail!") do (
 exit /b 0
 
 :usage
-echo usage: tools\verify.bat ^<example^> [fuzz runs]   (examples\^<example^>.rs must exist)
+echo usage: tools\verify.bat ^<example^> [fuzz runs]   ^(examples\^<example^>.rs or examples\^<example^>\main.rs must exist^)
 exit /b 2

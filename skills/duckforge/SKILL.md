@@ -33,12 +33,12 @@ options go after `--`: `cargo run --no-default-features --example dodge -- --hea
 | Kind of game | Copy |
 |---|---|
 | Platformer (gravity, platforms, coins) | `examples/template.rs` |
-| Top-down (walls, chasing enemies, coins) | `examples/starter_topdown.rs` |
-| Shooter (fast bullets, waves, explosions) | `examples/starter_shooter.rs` |
+| Top-down (walls, chasing enemies, coins) | `examples/starter_topdown/` |
+| Shooter (fast bullets, waves, explosions) | `examples/starter_shooter/` |
 | Something tiny | `examples/quickstart.rs` |
 
 ```sh
-cp examples/starter_topdown.rs examples/mygame.rs
+cp -r examples/starter_topdown examples/mygame
 cp examples/starter_topdown.tune.json examples/mygame.tune.json
 ```
 

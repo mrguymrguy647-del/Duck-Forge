@@ -156,8 +156,8 @@ examples/
   hello.rs          the smallest game
   shapes.rs         a tour of the 2D drawing functions
   template.rs       a small platformer to copy when you start a game
-  starter_topdown.rs  a top-down starter: walls, chasing enemies, coins
-  starter_shooter.rs  a shooter starter: fast bullets, waves, explosions
+  starter_topdown/   a top-down starter: walls, chasing enemies, coins
+  starter_shooter/   a shooter starter: fast bullets, waves, explosions
   pollen_run.rs     a bee game made from the top-down starter, with the skill
   breakout.rs       a complete 2D game
   dodge.rs          a small game built without a screen (see docs/AI_GUIDE.md)
@@ -4656,12 +4656,12 @@ in `draw`.
 
 Making a different kind of game? Two more starters work the same way:
 
-- `examples/starter_topdown.rs`: a hero walks around a map drawn as text
+- `examples/starter_topdown/main.rs`: a hero walks around a map drawn as text
   (`'#'` is a wall, `'c'` a coin, `'e'` an enemy), collecting coins while
   enemies chase when you come close. Set `DIAGONALS` to `false` for
   old-style 4-direction movement. Its `slide` function moves one axis at
   a time, which is how you slide along a wall instead of sticking to it.
-- `examples/starter_shooter.rs`: a ship, bullets, and waves of enemies
+- `examples/starter_shooter/main.rs`: a ship, bullets, and waves of enemies
   that sway, dive and shoot back. Bullets move 8 pixels a frame, more
   than their own length, so they use `swept_aabb` to check the whole way
   they moved (chapter 33), and a rule (`ctx.check`) makes sure no bullet
