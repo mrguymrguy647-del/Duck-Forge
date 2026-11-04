@@ -517,12 +517,34 @@ mod tests {
             ("docs/AI_GUIDE.md", include_str!("../docs/AI_GUIDE.md")),
             ("README.md", include_str!("../README.md")),
         ];
-        // The quick start mentions only a few flags, but they must exist.
-        for flag in flags_in(include_str!("../docs/QUICKSTART.md")) {
+        // The quick start and the skill mention only some flags, but they
+        // must exist.
+        let skill = include_str!("../skills/duckforge/SKILL.md");
+        for needed in [
+            "--headless",
+            "--inputs",
+            "--sheet",
+            "--describe",
+            "--set",
+            "--fuzz",
+        ] {
             assert!(
-                OPTIONS.iter().any(|o| o.name == flag) || NOT_ENGINE_FLAGS.contains(&flag.as_str()),
-                "docs/QUICKSTART.md mentions {flag}, but the engine has no such option"
+                flags_in(skill).contains(needed),
+                "SKILL.md should show {needed}"
             );
+        }
+        let some_flags = [
+            ("docs/QUICKSTART.md", include_str!("../docs/QUICKSTART.md")),
+            ("skills/duckforge/SKILL.md", skill),
+        ];
+        for (name, text) in some_flags {
+            for flag in flags_in(text) {
+                assert!(
+                    OPTIONS.iter().any(|o| o.name == flag)
+                        || NOT_ENGINE_FLAGS.contains(&flag.as_str()),
+                    "{name} mentions {flag}, but the engine has no such option"
+                );
+            }
         }
         let engine: Vec<&str> = OPTIONS.iter().map(|option| option.name).collect();
         let help = help();

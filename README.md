@@ -37,6 +37,10 @@ language through this engine's code and explains how every part works.
 It covers building on a server with no screen, the loop of running a game
 headless, looking at pictures of it, reading what it reports and testing
 it, common mistakes, and how to judge whether a game feels good.
+Agents that use skills can load
+[skills/duckforge/SKILL.md](skills/duckforge/SKILL.md): the same workflow
+in under 150 lines (build headless, copy a starter, the `verify` loop,
+tuning, labels, checks and fuzzing, mistakes).
 
 <p>
 <img src="docs/world3d.png" width="49%" alt="The 3D playground: crates, balls and a floating pyramid on a checkerboard">

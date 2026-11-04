@@ -1478,3 +1478,31 @@ The playthroughs are made by bots in ignored tests (`record_playthrough`):
 the top-down one walks the shortest path to the nearest coin that keeps
 two tiles from enemies (a breadth-first search on the map); the shooter
 one holds fire, flies under the nearest enemy and sidesteps shots.
+
+## Step 11: A skill
+
+`skills/duckforge/SKILL.md` is the workflow for an agent that loads
+skills: frontmatter with the name and a one-line "Use when..."
+description, then nine short sections: get it and build headless, pick
+a starter, the loop with `verify`, tune files, labels and `--describe`,
+rules and fuzzing, playthroughs, common mistakes, and showing your work.
+It's 150 lines and links to the quick start and the AI guide for
+everything else.
+
+**It's not a third copy of the guide.** It says what to run and in what
+order, with one example each, and points to the guide for the details.
+The mistakes list keeps only the ones that cost the most time (eleven,
+from the guide's thirty or so), plus the newest lesson: report what the
+player does, or the fuzzer calls moving a freeze.
+
+**It can't go stale without a test failing.** `tests/skill.rs` checks the
+frontmatter and length, that every link and every path it names
+(`examples/...`, `tools/...`, `playthroughs/...`) exists, that every
+`--example` it runs exists, that it only uses `cargo build`, `run` and
+`test`, and that every function it calls (`ctx.tune(`,
+`canvas.label(`...) is called in `tests/cheat_sheet.rs`, which in turn
+fails if a function stops existing. The flags test in `src/cli.rs`
+checks every flag it mentions is a real one. Placeholder names for the
+reader's own game (`mygame`) are skipped. A deliberate typo in each kind
+(an example, a function, a file, a flag) was tried, and each failed with
+a message naming the problem.
