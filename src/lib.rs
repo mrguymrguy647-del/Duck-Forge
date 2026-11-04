@@ -33,7 +33,9 @@ pub mod camera;
 pub mod canvas;
 mod cli;
 pub mod color;
+mod debug;
 pub mod engine;
+pub mod error;
 #[cfg(feature = "gpu")]
 mod gpu;
 pub mod headless;
@@ -59,6 +61,7 @@ mod font;
 
 pub use cli::game_args;
 pub use engine::run;
+pub use error::LoadError;
 pub use headless::{HeadlessOptions, run_headless};
 pub use pictures::Crop;
 pub use playtest::PlayTest;

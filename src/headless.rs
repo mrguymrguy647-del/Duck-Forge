@@ -69,6 +69,10 @@ pub struct HeadlessOptions {
     /// `zoom` x `zoom` square). With `zoom` above 1 and no `crop`, the
     /// close-up is of the whole picture.
     pub zoom: usize,
+    /// Draw the debug overlay (F1 in a window) on every picture: FPS,
+    /// frame, camera, mouse, and the shapes the game registered with
+    /// `ctx.debug_rect` and `ctx.debug_circle`.
+    pub debug: bool,
 }
 
 impl Default for HeadlessOptions {
@@ -83,6 +87,7 @@ impl Default for HeadlessOptions {
             gif: false,
             crop: None,
             zoom: 1,
+            debug: false,
         }
     }
 }
@@ -149,6 +154,7 @@ fn run_and_save<G: Game>(
     let (width, height) = (config.width, config.height);
 
     let mut sim = Simulation::new(config, game);
+    sim.set_debug_overlay(options.debug);
     if let Some(script) = &options.inputs {
         sim.follow(script.clone());
     }
@@ -435,6 +441,7 @@ pub(crate) fn run_from_command_line<G: Game>(
         zoom: options
             .zoom
             .unwrap_or(if options.crop.is_some() { 4 } else { 1 }),
+        debug: options.debug,
     };
     let title = config.title.clone();
     let started = Instant::now();

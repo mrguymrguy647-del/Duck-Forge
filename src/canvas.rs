@@ -42,6 +42,8 @@ pub struct Canvas {
     view: View,
     /// The views to go back to, one per `push_camera` or `push_offset`.
     saved_views: Vec<View>,
+    /// The first camera pushed this frame, for the debug overlay.
+    frame_camera: Option<Camera2D>,
 }
 
 /// The state of a canvas's connection to the graphics card.
@@ -70,6 +72,7 @@ impl Canvas {
             gpu: GpuSlot::Off,
             view: View::SCREEN,
             saved_views: Vec::new(),
+            frame_camera: None,
         }
     }
 
@@ -93,6 +96,9 @@ impl Canvas {
     /// starts every frame with no camera, so a forgotten pop only affects
     /// the rest of that frame.
     pub fn push_camera(&mut self, camera: &Camera2D) {
+        if self.frame_camera.is_none() {
+            self.frame_camera = Some(camera.clone());
+        }
         self.saved_views.push(self.view);
         self.view = self.view.then(camera.view());
     }
@@ -129,6 +135,11 @@ impl Canvas {
     pub(crate) fn reset_view(&mut self) {
         self.view = View::SCREEN;
         self.saved_views.clear();
+    }
+
+    /// The first camera pushed since the last call, which starts afresh.
+    pub(crate) fn take_frame_camera(&mut self) -> Option<Camera2D> {
+        self.frame_camera.take()
     }
 
     /// Chooses what draws 3D meshes: the graphics card or the CPU.

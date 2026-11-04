@@ -39,6 +39,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
+use crate::error::LoadError;
 use crate::report::ReportValue;
 
 use crate::sprite::missing_file_error;
@@ -295,7 +296,7 @@ impl Noise {
 ///
 /// ```no_run
 /// # use duckforge::prelude::*;
-/// # fn example() -> std::io::Result<()> {
+/// # fn example() -> Result<(), duckforge::LoadError> {
 /// let quack = Wav::load("assets/quack.wav")?;
 /// # Ok(())
 /// # }
@@ -317,11 +318,11 @@ impl Wav {
     ///
     /// If the file is missing or isn't a WAV duckforge can read, the error
     /// says so in one sentence.
-    pub fn load(path: impl AsRef<Path>) -> io::Result<Wav> {
+    pub fn load(path: impl AsRef<Path>) -> Result<Wav, LoadError> {
         let path = path.as_ref();
         let bytes = fs::read(path).map_err(|error| missing_file_error(path, "sound", &error))?;
         let samples = decode_wav(&bytes).map_err(|problem| {
-            io::Error::new(
+            LoadError::new(
                 io::ErrorKind::InvalidData,
                 format!(
                     "couldn't read {} as a WAV sound ({problem}); save it again as a plain \

@@ -17,7 +17,7 @@ use crate::sound::{PlayedSound, SAMPLE_RATE};
 /// Keys the engine itself uses in a window (FPS counter, recording,
 /// screenshots). They still reach the game, but aren't recorded, so a replay
 /// doesn't start recording or take screenshots.
-const ENGINE_KEYS: [Key; 3] = [Key::F3, Key::F10, Key::F12];
+const ENGINE_KEYS: [Key; 4] = [Key::F1, Key::F3, Key::F10, Key::F12];
 
 /// The seed a [`Simulation`] uses when [`Config::seed`] is `None`.
 ///
@@ -95,6 +95,8 @@ pub struct Simulation<G> {
     initialized: bool,
     /// What draws 3D, for a new canvas after a resize.
     renderer: Renderer,
+    /// Draw the debug overlay on every picture.
+    debug_overlay: bool,
 }
 
 impl<G: Game> Simulation<G> {
@@ -145,6 +147,7 @@ impl<G: Game> Simulation<G> {
             sounds_sent: 0,
             initialized: false,
             renderer,
+            debug_overlay: false,
         }
     }
 
@@ -526,6 +529,18 @@ impl<G: Game> Simulation<G> {
         self.reports.changes.clear();
     }
 
+    /// Turns the debug overlay on or off for every picture from now on
+    /// (what F1 does in a window, and `--debug` on the command line). It
+    /// shows the FPS, frame, camera, mouse, and the outlines the game
+    /// registered with [`Context::debug_rect`] and
+    /// [`Context::debug_circle`].
+    pub fn set_debug_overlay(&mut self, on: bool) {
+        if self.debug_overlay != on {
+            self.debug_overlay = on;
+            self.drawn_frame = None; // the picture needs drawing again
+        }
+    }
+
     /// Changes the canvas to `width` x `height` pixels and calls the game's
     /// [`Game::resize`], as if the player had resized a
     /// [`resizable`](Config::resizable) window. For testing how a game
@@ -650,8 +665,14 @@ impl<G: Game> Simulation<G> {
 
     fn draw(&mut self) {
         self.canvas.reset_view(); // every frame starts with no camera
+        self.canvas.take_frame_camera();
         self.game.draw(&mut self.canvas);
         self.canvas.reset_view(); // so the engine's own drawing is in screen pixels
+        let camera = self.canvas.take_frame_camera();
+        if self.debug_overlay {
+            let shapes = self.ctx.debug_shapes();
+            crate::debug::draw_overlay(&mut self.canvas, &self.ctx, shapes, camera.as_ref());
+        }
         self.canvas.flush_3d(); // make sure any 3D from the graphics card is in the pixels
         self.ctx.set_renderer_name(self.canvas.renderer_name());
     }

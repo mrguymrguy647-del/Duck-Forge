@@ -73,6 +73,11 @@ const OPTIONS: &[OptionInfo] = &[
         help: "the seed for random numbers, to make a run repeatable",
     },
     OptionInfo {
+        name: "--debug",
+        value: None,
+        help: "show the debug overlay (F1 toggles it in a window); with --headless it's in every picture",
+    },
+    OptionInfo {
         name: "--help",
         value: None,
         help: "show this help and quit",
@@ -97,6 +102,7 @@ pub(crate) struct Options {
     pub gif: bool,
     pub crop: Option<Crop>,
     pub zoom: Option<usize>,
+    pub debug: bool,
 }
 
 impl Options {
@@ -127,6 +133,7 @@ impl Options {
                 "--inputs" => options.inputs = Some(PathBuf::from(value)),
                 "--sheet" => options.sheet = true,
                 "--gif" => options.gif = true,
+                "--debug" => options.debug = true,
                 "--crop" => options.crop = Some(Crop::parse(value)?),
                 "--snapshot-every" => {
                     let every = value.parse().map_err(|_| {

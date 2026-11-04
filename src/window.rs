@@ -108,8 +108,9 @@ impl Pacer {
 /// so it behaves the same in a window and in a test. The loop just adds a
 /// clock and a screen.
 ///
-/// Two keys work in every game: **F3** shows or hides an FPS counter, and
-/// **F12** saves a screenshot.
+/// These keys work in every game: **F1** shows or hides the debug overlay,
+/// **F3** an FPS counter, **F10** starts and stops recording, and **F12**
+/// saves a screenshot.
 pub(crate) fn run<G: Game>(
     mut config: Config,
     game: G,
@@ -177,6 +178,8 @@ pub(crate) fn run<G: Game>(
     let mut was_replaying = sim.is_replaying();
     let mut pacer = Pacer::new(config.timestep);
     let mut show_fps = config.show_fps;
+    let mut show_debug = options.debug;
+    sim.set_debug_overlay(show_debug);
     let mut keys_last_frame = Vec::new();
     let mut last_frame = Instant::now();
 
@@ -235,8 +238,12 @@ pub(crate) fn run<G: Game>(
 
         // 4. The game's turn to draw.
         let fps = sim.context().fps();
-        let canvas = sim.draw_for_screen();
         let pressed = |key| keys.contains(&key) && !keys_last_frame.contains(&key);
+        if pressed(Key::F1) {
+            show_debug = !show_debug;
+            sim.set_debug_overlay(show_debug);
+        }
+        let canvas = sim.draw_for_screen();
         if pressed(Key::F3) {
             show_fps = !show_fps;
         }

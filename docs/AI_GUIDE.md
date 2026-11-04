@@ -7,6 +7,12 @@ it, read what it reports, and test it automatically**. Everything here has
 been tried on such a machine: `examples/dodge.rs` was built by following
 this guide, and the stories in it are real.
 
+**Starting a new game? Copy `examples/template.rs`.** It's a small,
+commented platformer that already has a sprite drawn in code, a walk
+animation, a camera, sounds, a pause screen, reports and three play tests,
+all passing: `cargo test --no-default-features --example template`.
+Section 3 has an even smaller template.
+
 Contents:
 
 1. [Quick facts](#1-quick-facts)
@@ -36,7 +42,7 @@ Contents:
 | Drawing | `draw(&self, canvas)` can't change the game. Start it with `canvas.clear(...)`. Later draws go on top. |
 | Text | Built-in 3-pixel-wide font with every printable ASCII character (space to `~`: capitals, lowercase, digits, all punctuation). Anything else (accents, emoji) becomes `?`. At scale 1, capitals are 5 px tall (`Canvas::text_height(1)`), lines are 7 px apart (`Canvas::line_height(1)`), and `g j p q y` hang 1 px below. `'\n'` starts a new line. |
 | Colors | `Color::rgb(r, g, b)` (solid), `Color::rgba(r, g, b, a)` and `color.with_alpha(a)` (a: 0 invisible to 255 solid; every drawing function blends), `Color::from_hex(0x14_14_28)`, constants `BLACK WHITE GRAY RED ORANGE YELLOW GREEN BLUE PURPLE`, `a.lerp(b, t)`. Build colors with these functions, never `Color { r, g, b }` (it has a 4th field, `a`). |
-| Engine keys | In a window: F3 = FPS counter, F10 = record, F12 = screenshot. Escape quitting is each game's choice (`ctx.quit()`). |
+| Engine keys | In a window: F1 = debug overlay, F3 = FPS counter, F10 = record, F12 = screenshot. Escape quitting is each game's choice (`ctx.quit()`). |
 | Output | `--headless` writes `last.png` and `log.json` (plus what you ask for) to `duckforge-out/`, or the folder in `--out`. |
 
 ## 2. Set up on Linux
@@ -259,6 +265,11 @@ interesting part: in the first run of `dodge`, half the sheet was the same
 GAME OVER screen, because the run was twice as long as the game.
 
 ### Step 4: Look
+
+Add `--debug` to see what the game *thinks* is there: hitboxes and zones
+it marked with `ctx.debug_rect` / `ctx.debug_circle` are outlined, and a
+panel shows the frame number, camera and mouse. When a collision looks
+wrong, this answers "is the hitbox where the sprite is?" at a glance.
 
 Open, in this order:
 
@@ -616,7 +627,18 @@ and `Simulation::new(config, game)` with `press`, `release`,
 
 **Command line**: `--headless`, `--frames N`, `--out DIR`, `--seed N`,
 `--inputs FILE`, `--snapshot-every N`, `--sheet`, `--gif`,
-`--crop X,Y,W,H`, `--zoom N`, `--record FILE` (window only), `--help`.
+`--crop X,Y,W,H`, `--zoom N`, `--debug`, `--record FILE` (window only), `--help`.
+
+**Debug overlay**: `ctx.debug_rect(rect)` and `ctx.debug_circle(center, r)`
+in `update` (world coordinates; only the latest update's shapes are
+shown). `--debug` draws them, plus FPS, frame, camera position and zoom,
+and the mouse on screen and in the world, into every headless picture
+(`last.png`, snapshots, `sheet.png`, `run.gif`). In code:
+`HeadlessOptions { debug: true, .. }` or `sim.set_debug_overlay(true)`.
+
+**Errors**: `Sprite::load_png` and `Wav::load` return
+`Result<_, LoadError>`; a `LoadError` prints as one sentence (with the full
+path it looked for), even when `main` returns it with `?`.
 They go after `--` with `cargo run`: `cargo run --example x -- --headless`.
 
 ## 8. Common mistakes

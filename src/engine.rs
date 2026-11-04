@@ -7,8 +7,10 @@ use std::fmt;
 
 use crate::canvas::Canvas;
 use crate::cli::{self, Options};
+use crate::debug::DebugShape;
 use crate::headless;
 use crate::input::{Input, Key};
+use crate::math::{Rect, Vec2};
 use crate::render3d::Renderer;
 use crate::report::ReportValue;
 use crate::rng::Rng;
@@ -192,6 +194,8 @@ pub struct Context {
     reports: Vec<(String, ReportValue)>,
     /// The sounds the game played during this update.
     sounds: Vec<SoundRequest>,
+    /// Shapes to outline in the debug overlay, from the latest update.
+    debug_shapes: Vec<DebugShape>,
 }
 
 impl Context {
@@ -210,6 +214,7 @@ impl Context {
             quit_requested: false,
             reports: Vec::new(),
             sounds: Vec::new(),
+            debug_shapes: Vec::new(),
         }
     }
 
@@ -331,6 +336,32 @@ impl Context {
         self.sounds.push(SoundRequest::wav(wav));
     }
 
+    /// Outlines `rect` in the debug overlay (F1 in a window, `--debug` on
+    /// the command line), in world coordinates if the game draws through a
+    /// camera. Call it in `update`, every frame you want to see it: a
+    /// hitbox, a trigger zone, where an enemy is aiming. When the overlay
+    /// is off, it costs next to nothing.
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// # fn example(ctx: &mut Context, player: Rect) {
+    /// ctx.debug_rect(player);
+    /// # }
+    /// ```
+    pub fn debug_rect(&mut self, rect: Rect) {
+        self.debug_shapes.push(DebugShape::Rect(rect));
+    }
+
+    /// Outlines a circle in the debug overlay, like
+    /// [`debug_rect`](Context::debug_rect).
+    pub fn debug_circle(&mut self, center: Vec2, radius: f32) {
+        self.debug_shapes.push(DebugShape::Circle(center, radius));
+    }
+
+    pub(crate) fn debug_shapes(&self) -> &[DebugShape] {
+        &self.debug_shapes
+    }
+
     /// Hands over this update's sounds and starts a fresh list.
     pub(crate) fn take_sounds(&mut self) -> Vec<SoundRequest> {
         std::mem::take(&mut self.sounds)
@@ -357,6 +388,7 @@ impl Context {
         self.dt = dt;
         self.time += dt as f64;
         self.frame += 1;
+        self.debug_shapes.clear(); // only the latest update's shapes are shown
         self.input.begin_frame(keys_down);
     }
 
@@ -393,8 +425,9 @@ impl Context {
 /// - `--seed N` sets the random seed.
 ///
 /// In a window, the game runs until the window is closed or the game calls
-/// [`Context::quit`]. Two keys work in every game: **F3** shows or hides an
-/// FPS counter, and **F12** saves a screenshot.
+/// [`Context::quit`]. These keys work in every game: **F1** shows or hides
+/// the debug overlay, **F3** an FPS counter, **F10** starts and stops
+/// recording, and **F12** saves a screenshot.
 ///
 /// The engine can be built without the window library (with
 /// `--no-default-features`), for machines with no screen. Then games can

@@ -806,3 +806,63 @@ so the examples can't go stale.
 about 500 to 1000 px/s² on a 320 x 240 canvas); 3D is in metres with y up
 (gravity 9.8, a person 1.8 tall). It's in the physics module's docs, the
 README, the AI guide's quick facts and the tutorial.
+
+## Step 7: For the person learning Rust
+
+**A tutorial chapter per feature, written as the features landed.**
+Chapters 28 to 34 (see-through colors, sprites, the camera, sound, text,
+collisions, starting your own game) each build a tiny running game and
+explain the Rust ideas that show up for the first time: struct update
+syntax with `..`, `..Default::default()`, lending with `&`, slices and
+tuples, `Arc`, reborrowing `ctx`, `&'static str`, `Mutex`, `const`
+arrays, default trait methods, `retain_mut`, and `Debug` versus
+`Display` with `?` in `main`. Every complete example in those chapters
+was compiled and run headless while writing it. Three old exercises
+(screen shake, sprites, fixed timestep) asked the reader to build what
+the engine now has, so they became exercises that *use* the camera,
+sprites and sound instead.
+
+**The debug overlay is the engine's, not the game's.** F1 toggles it in
+any game; `--debug` turns it on from the start, and works headless, so
+an AI sees hitboxes in its sheets and GIFs too. Games mark things with
+`ctx.debug_rect(rect)` and `ctx.debug_circle(center, r)` during
+`update` (where the game knows its hitboxes; `draw` has no `ctx`). Only
+the latest update's shapes are kept, so nothing piles up, and marking
+costs a push onto a list when the overlay is off. The shapes are in
+world coordinates: the canvas remembers the first camera the game
+pushed during `draw`, and the overlay uses it to put the outlines on
+top of the things they mark (tested with a zoomed camera: a 10-pixel
+world box outlines 20 screen pixels at the right place). The panel
+shows the FPS, the frame number (so a picture can be matched to
+`log.json`), the camera's position and zoom, and the mouse on the screen
+and in the world. It's drawn after the game, in screen pixels, on a
+see-through black panel, with outlines in magenta and cyan, colors few
+games use. F1 is an engine key like F3, F10 and F12, so it isn't
+recorded into input scripts.
+
+**`LoadError` instead of `io::Error`.** When `main` returns an error,
+Rust prints it with `{:?}`, and an `io::Error`'s `Debug` output is
+`Custom { kind: NotFound, error: "..." }`: the one clear sentence buried
+in a struct. `LoadError` prints just the sentence both ways, still works
+with `?` in `main` (it's an `Error`), and converts into an `io::Error`
+for code that wants one. `Sprite::load_png` and `Wav::load` were added
+in this phase, so changing their return type broke nothing. Mistakes in
+code (uneven ASCII rows, a letter missing from the palette, a sub-sprite
+reaching outside its sheet, the wrong number of pixels, an empty
+animation) panic with a sentence naming the problem, and
+`#[track_caller]` makes the reported line the game's, not the engine's.
+
+**`examples/template.rs` is a small platformer, not an empty
+skeleton.** It shows how the new pieces fit together (sprite, animation,
+camera that stops at the level's ends, jump and coin sounds, pause screen
+with transparency, `approach` for running, `circle_vs_rect` for coins,
+reports, a debug hitbox) in about 300 lines with comments, and its three
+play tests (run, jump with its sound, pause) pass, so a copied game
+starts with working tests. It's named at the top of the README and the
+AI guide. The AI guide's tiny "catch the star" template stays, for when
+a game needs none of that.
+
+**`test.bat` for a double-click.** It runs `cargo test`, then `cargo
+test --no-default-features`, stops at the first failure, and waits for
+a key so the window stays open. `.gitattributes` keeps it in Windows
+line endings, which `cmd.exe` needs, even when it's committed from Linux.

@@ -27,6 +27,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::color::Color;
+use crate::error::LoadError;
 
 /// A picture made of pixels, with see-through parts.
 ///
@@ -154,11 +155,11 @@ impl Sprite {
     ///
     /// If the file is missing or isn't a PNG, the error says so in one
     /// sentence, with the full path it looked for.
-    pub fn load_png(path: impl AsRef<Path>) -> io::Result<Sprite> {
+    pub fn load_png(path: impl AsRef<Path>) -> Result<Sprite, LoadError> {
         let path = path.as_ref();
         let file = File::open(path).map_err(|error| missing_file_error(path, "image", &error))?;
         let bad_png = |error: &dyn fmt::Display| {
-            io::Error::new(
+            LoadError::new(
                 io::ErrorKind::InvalidData,
                 format!(
                     "couldn't read {} as a PNG image ({error}); check that it really is a \
@@ -324,12 +325,12 @@ impl fmt::Debug for Sprite {
 
 /// The one-sentence error for a file that can't be opened. `what` is the
 /// kind of file, like `"image"` or `"sound"`.
-pub(crate) fn missing_file_error(path: &Path, what: &str, error: &io::Error) -> io::Error {
+pub(crate) fn missing_file_error(path: &Path, what: &str, error: &io::Error) -> LoadError {
     if error.kind() == io::ErrorKind::NotFound {
         let full = std::env::current_dir()
             .map(|dir| dir.join(path))
             .unwrap_or_else(|_| path.to_path_buf());
-        io::Error::new(
+        LoadError::new(
             io::ErrorKind::NotFound,
             format!(
                 "couldn't find the {what} file {} (looked for {}); paths are relative to the \
@@ -339,7 +340,7 @@ pub(crate) fn missing_file_error(path: &Path, what: &str, error: &io::Error) -> 
             ),
         )
     } else {
-        io::Error::new(
+        LoadError::new(
             error.kind(),
             format!("couldn't open the {what} file {} ({error})", path.display()),
         )
@@ -420,8 +421,15 @@ impl Animation {
 
     /// The frame to show `time` seconds after the animation started. It
     /// loops forever; use [`Animation::duration`] to play it only once.
+    ///
+    /// # Panics
+    ///
+    /// If `frames` has been emptied since the animation was made.
+    #[track_caller]
     pub fn frame_at(&self, time: f32) -> &Sprite {
-        &self.frames[self.index_at(time)]
+        self.frames.get(self.index_at(time)).expect(
+            "Animation::frame_at: the animation has no frames left; keep at least one in `frames`",
+        )
     }
 
     /// The number of the frame to show at `time` (0 is the first).

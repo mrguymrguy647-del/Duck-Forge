@@ -2,8 +2,9 @@
 
 This guide teaches you Rust using the code in this repository: a small
 game engine called **duckforge**, which does 2D, 3D (on the CPU or the
-graphics card) and physics, and seven example programs built on it. Every Rust concept is shown in real code that
-you can run, change and break.
+graphics card), sprites, a camera, sound and physics, and a dozen example
+programs built on it. Every Rust concept is shown in real code that you
+can run, change and break.
 
 - **Part 1** teaches the Rust language, one idea at a time.
 - **Part 2** explains how the engine works and why it's built that way.
@@ -58,11 +59,12 @@ Keep the source files open next to this guide. When you see a file like
   - [31. Sound](#31-sound)
   - [32. Text](#32-text)
   - [33. Collisions and small helpers](#33-collisions-and-small-helpers)
+  - [34. Starting your own game](#34-starting-your-own-game)
 - **Part 5: Your turn**
-  - [34. Exercises](#34-exercises)
-  - [35. Common compiler errors](#35-common-compiler-errors)
-  - [36. What a code review found](#36-what-a-code-review-found)
-  - [37. Where to go next](#37-where-to-go-next)
+  - [35. Exercises](#35-exercises)
+  - [36. Common compiler errors](#36-common-compiler-errors)
+  - [37. What a code review found](#37-what-a-code-review-found)
+  - [38. Where to go next](#38-where-to-go-next)
 
 ---
 
@@ -527,7 +529,7 @@ added, and the slot's generation goes up by one. So an old id still points
 at the right slot, but its generation doesn't match any more, and looking
 it up finds nothing instead of the wrong body. This trick is called a
 *generational index*, and most game engines use it to name their objects.
-(Chapter 36 tells the story of the bug that led to it.)
+(Chapter 37 tells the story of the bug that led to it.)
 
 ## 5. Enums and pattern matching
 
@@ -1733,7 +1735,7 @@ a lot on 1960s hardware.
 Before stepping, the line is *clipped*: cut down to the part that's on the
 canvas (see `clip_line`). Without that, a line to a point far off-screen
 would step through millions of invisible pixels, and could even crash (see
-[chapter 36](#36-what-a-code-review-found)).
+[chapter 37](#37-what-a-code-review-found)).
 
 ### Triangles
 
@@ -2790,7 +2792,7 @@ and shifting right pulls the high bits back down. After a few rounds,
 changing one bit of the seed changes about half the bits of the result.
 Notice `wrapping_mul`: the multiplication overflows on purpose, and in a
 debug build a plain `*` would panic when it overflows
-([chapter 36](#36-what-a-code-review-found)). `wrapping_mul` says "wrap
+([chapter 37](#37-what-a-code-review-found)). `wrapping_mul` says "wrap
 around, that's what I want".
 
 A new test in `src/rng.rs` checks that the first numbers from seeds 1 to
@@ -4567,9 +4569,96 @@ sizes, speeds (pixels per second) and the physics engine's gravity (try
 500 to 1000 pixels per second squared). In 3D, everything is in
 **metres**, with y pointing up: gravity is 9.8, a person is 1.8 tall.
 
+## 34. Starting your own game
+
+### Copy the template
+
+`examples/template.rs` is a small platformer made to be copied. It uses
+almost everything from this part of the tutorial: a duck drawn with
+`Sprite::from_ascii`, a two-frame walk `Animation`, gravity and
+platforms, a `Camera2D` that follows the duck, `Sound::jump()` and
+`Sound::coin()`, a see-through pause screen, `ctx.report` for tests, and
+three play tests at the bottom.
+
+```sh
+cp examples/template.rs examples/mygame.rs     # Windows: copy examples\template.rs examples\mygame.rs
+cargo run --example mygame
+```
+
+Then change one thing at a time and run it again. Good first changes:
+make `JUMP_SPEED` bigger, redraw the duck in `DUCK` (keep every row the
+same length), add a platform in `Template::new`, or change the sky color
+in `draw`.
+
+### See what the game thinks: F1
+
+Press **F1** while a game runs. The **debug overlay** shows the FPS, the
+frame number, where the camera is, where the mouse is (on the screen and
+in the world), and outlines of anything the game marked during `update`:
+
+```rust
+ctx.debug_rect(self.hitbox());           // magenta outline
+ctx.debug_circle(enemy_position, 40.0);  // cyan circle
+```
+
+The template marks the duck's hitbox, so you can check it really is where
+the duck is drawn. Collisions that "feel wrong" are very often a hitbox
+that's a few pixels off from its picture. Without a screen,
+`--headless --debug` puts the overlay into every saved picture.
+
+### When something goes wrong
+
+The engine tries to say what went wrong in one sentence, and how to fix
+it:
+
+- **A missing or broken file** (`Sprite::load_png`, `Wav::load`) gives a
+  `LoadError`, which says which file, the full path it looked for, and
+  what to check.
+- **A mistake in your code**, like ASCII art with uneven rows, a letter
+  missing from the palette, `sprite.sub` reaching outside the sprite, or
+  the wrong number of pixels for `from_pixels`, stops the game with a
+  message that names the row, letter or size, and points at *your* line
+  of code, not the engine's.
+- **A bad setting** (a 0 x 0 canvas, an unknown command-line option, a
+  broken input script) says which one and why.
+
+### Rust idea: `Debug`, `Display` and `?` in `main`
+
+When `main` returns an error, Rust prints it with `{:?}`, the **`Debug`**
+format, which is meant for programmers and shows how a value is built.
+For a standard `io::Error`, that looks like
+`Custom { kind: NotFound, error: "couldn't find ..." }`. **`Display`**
+(`{}`) is the format meant for people.
+
+`LoadError` (in `src/error.rs`) implements both traits by hand, and both
+print just the sentence:
+
+```rust
+impl fmt::Debug for LoadError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.message) // the sentence, not the struct
+    }
+}
+```
+
+So `let duck = Sprite::load_png("assets/duck.png")?;` in `main` prints a
+clear sentence if the file is missing. The `?` works because `main`
+returns `Result<(), Box<dyn Error>>`, and any type that implements the
+`Error` trait can be put in that box. `LoadError` also implements
+`From<LoadError> for io::Error`, so `?` can turn it into an `io::Error`
+inside a function that returns `io::Result`: `?` calls `From` for you.
+
+### Running every test on Windows
+
+Double-click **`test.bat`** in the project folder. It runs `cargo test`
+(everything: window, GPU and sound) and then `cargo test
+--no-default-features` (the way a server without a screen runs them),
+and waits for a key at the end so the window doesn't vanish. If anything
+fails, it says so; scroll up to see which test and why.
+
 # Part 5: Your turn
 
-## 34. Exercises
+## 35. Exercises
 
 Do them in order. After each change, run the game and see what happened.
 When the compiler complains, **read the whole error message**: Rust's error
@@ -4606,23 +4695,29 @@ messages are unusually helpful, and often include the fix.
 
 ### Engine features
 
-9. **Screen shake.** When a brick breaks, shake the screen for 0.2 seconds.
-   Hint: add a `camera_offset: Vec2` field to `Canvas` that every drawing
-   function adds to positions, and set it randomly each frame while shaking.
+9. **Screen shake.** Give Breakout a `Camera2D` (chapter 30): call
+   `camera.shake(3.0, 0.2)` when a brick breaks, `camera.update(ctx)` in
+   `update`, and draw the bricks, ball and paddle between `push_camera`
+   and `pop_camera`, but the score after.
 10. **Mouse paddle.** Let Breakout's paddle follow
     `ctx.input.mouse_position().x`, and keep the keyboard working too.
-11. **Sprites.** Draw small pictures stored in the code, like the font:
+11. **Sprites.** Draw space invaders with `Sprite::from_ascii` (chapter
+    29), two frames each, and make them step between the frames twice a
+    second with an `Animation`:
     ```rust
     const INVADER: [&str; 4] = [
-        "..#..#..",
-        ".######.",
-        "##.##.##",
-        "#.#..#.#",
+        "..#..#....#..#..",
+        ".######..######.",
+        "##.##.####.##.##",
+        "#.#..#.#.#....#.",
     ];
     ```
-    Write `Canvas::draw_sprite(&mut self, sprite: &[&str], pos: Vec2, scale: u32, color: Color)`.
-12. **Fixed timestep.** Change `run` to update in fixed steps of 1/60 s.
-    Watch out: what should `was_pressed` do if two updates run in one frame?
+    (That's two 8 x 4 frames side by side: `sheet.frames(8, 4)`.)
+12. **Sound.** Make Breakout beep when the ball hits a brick, higher for
+    higher rows: `ctx.beep(300.0 + row as f32 * 100.0, 60.0)`. Then write
+    a play test that checks a `"beep"` happens on the frame
+    `bricks_left` first goes down (`played.history("bricks_left")` and
+    `played.sound_frames("beep")`).
 
 ### Physics and 3D
 
@@ -4690,7 +4785,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     to a ball body) across floating platforms, with the camera following
     it. Or 3D Breakout, with a `PhysicsWorld<Vec3>`.
 
-## 35. Common compiler errors
+## 36. Common compiler errors
 
 | Error    | Message (short)                                   | Usually means                                                 |
 |----------|---------------------------------------------------|---------------------------------------------------------------|
@@ -4705,7 +4800,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 For a long explanation of any error, run `rustc --explain E0502`.
 
-## 36. What a code review found
+## 37. What a code review found
 
 After the engine was built, it got a careful review: every file read line
 by line, looking for bugs, crashes and confusing code. It found about 20
@@ -4856,7 +4951,7 @@ Together, the renderer was back to its old speed, 79 to 81 FPS.
 
 **Lesson:** after fixing something, run the benchmark again.
 
-## 37. Where to go next
+## 38. Where to go next
 
 - **The Rust Programming Language** ("the Book"), free at
   <https://doc.rust-lang.org/book/>. The best way to learn Rust properly.

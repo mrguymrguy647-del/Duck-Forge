@@ -1,16 +1,24 @@
 # duckforge: a game engine for learning Rust
 
 A small game engine written in Rust, covering **2D graphics, 3D graphics
-(on the graphics card, or on the CPU) and physics**, plus seven example
-programs. It was written to be read: about 9,100 lines of commented engine
-code, and 157 tests. [minifb](https://crates.io/crates/minifb) opens the
-window, [wgpu](https://wgpu.rs) talks to the graphics card and
-[png](https://crates.io/crates/png) saves pictures; everything else is
-written from scratch: drawing, text, both 3D renderers, the physics
-solver, input, and random numbers.
+(on the graphics card, or on the CPU), sprites, a camera, sound and
+physics**, plus a dozen example programs. It was written to be read:
+about 13,000 lines of commented engine code, and over 250 tests.
+[minifb](https://crates.io/crates/minifb) opens the window,
+[wgpu](https://wgpu.rs) talks to the graphics card,
+[png](https://crates.io/crates/png) reads and saves pictures and
+[tinyaudio](https://crates.io/crates/tinyaudio) plays sound on Windows and
+macOS; everything else is written from scratch: drawing, text, both 3D
+renderers, the sound synthesizer, the physics solver, input, and random
+numbers.
 
 Games also run **without a screen**: on a cloud server, in a test, or for
 an AI that writes games and needs to see what they draw.
+
+**Starting a new game? Copy [examples/template.rs](examples/template.rs)**:
+a small, commented platformer with a sprite drawn in code, a camera that
+follows the player, jump and coin sounds, a see-through pause screen and
+play tests. Run it with `cargo run --example template`.
 
 **New to Rust? Start with [TUTORIAL.md](TUTORIAL.md)**. It teaches the
 language through this engine's code and explains how every part works.
@@ -43,7 +51,8 @@ cargo run --release --example door_short        # a one-minute "choose your door
 cargo run --release --example door_show_3d      # the same video on a 3D game-show stage
 cargo run --example hello      # the smallest possible game
 cargo run --example shapes     # every 2D drawing function, animated
-cargo test                     # run the tests
+cargo run --example template   # the starter game to copy
+cargo test                     # run the tests (on Windows: double-click test.bat)
 cargo doc --open               # browse the engine's documentation
 ```
 
@@ -64,7 +73,8 @@ cargo run --no-default-features --example breakout -- --headless --frames 600 --
 | `duckling_parade` | Arrows or WASD swim · Enter starts · P pauses · R restarts |
 | `hello`    | Arrow keys or WASD move · click to teleport |
 | `stress3d` | 1–6 pick 500 to 20,000 objects · O toggles orbit/fly |
-| every game | **F3** shows the FPS · **F10** starts and stops recording · **F12** saves a screenshot (PNG) · Escape quits |
+| `template` | Arrows or A/D run · Up, W or Space jumps · P pauses |
+| every game | **F1** debug overlay · **F3** shows the FPS · **F10** starts and stops recording · **F12** saves a screenshot (PNG) · Escape quits |
 
 ## Features
 
@@ -256,6 +266,7 @@ after `--` goes to the game, not to Cargo):
 | `--crop X,Y,W,H` | Save `closeup.png`: that area of the last frame (and of each snapshot), enlarged |
 | `--zoom N` | How much close-ups are enlarged (default 4) |
 | `--record FILE` | In a window, record everything you do to FILE (F10 records too) |
+| `--debug` | Show the debug overlay (F1 in a window); with `--headless` it's in every saved picture |
 | `--help` | List the options |
 
 ```sh
@@ -338,6 +349,35 @@ lists them:
 The same seed and inputs always give a byte-for-byte identical
 `audio.wav`. With `--gif`, the engine prints an `ffmpeg` command that
 joins `run.gif` and `audio.wav` into `run.mp4`, to watch with sound.
+
+### The debug overlay
+
+Press **F1** in any game (or pass `--debug`, which also works headless)
+to see the FPS, the frame number, the camera's position and zoom, the
+mouse on the screen and in the world, and outlines of anything the game
+marks in `update`:
+
+```rust
+ctx.debug_rect(self.player_hitbox());     // a magenta outline
+ctx.debug_circle(self.enemy, ATTACK_RANGE); // a cyan circle
+```
+
+It's drawn in screen pixels on top of everything, and in world
+coordinates through the game's camera, so the outlines sit right on the
+things they mark.
+
+### When something goes wrong
+
+Loading a missing or broken file gives one sentence saying what's wrong
+and where the engine looked, not a wall of debug output:
+
+```text
+Error: couldn't find the image file assets/duk.png (looked for /home/me/game/assets/duk.png);
+paths are relative to the folder you run cargo from, so check the spelling and that the file is there
+```
+
+Mistakes in code, like a row of ASCII art that's too short, stop the game
+with a message naming the row and pointing at your line.
 
 ### Play tests
 
