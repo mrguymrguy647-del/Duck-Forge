@@ -838,6 +838,13 @@ Send them `show/sheet.png` (the whole run on one page) and `show/run.gif`
 what to look at: "the score goes up to 120 by frame 900, and the GIF shows
 the new enemy at 0:12".
 
+If the game makes sounds, the run also saves `show/audio.wav` and prints
+an `ffmpeg` command that joins the GIF and the sound into `run.mp4`, in
+step (a GIF has no sound). `examples/dodge.rs` with
+`--inputs playthroughs/dodge.json` is a complete example: 30.7 seconds of
+play, 10 sounds, and a video whose picture and sound are both exactly
+30.7 seconds long.
+
 If they can run it, they can watch the same game in a window:
 `cargo run --release --example mygame -- --inputs playthroughs/good-run.json`.
 They can also send *you* a game: F10 in the window records it to

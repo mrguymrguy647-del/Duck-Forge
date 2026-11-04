@@ -866,3 +866,68 @@ a game needs none of that.
 test --no-default-features`, stops at the first failure, and waits for
 a key so the window stays open. `.gitattributes` keeps it in Windows
 line endings, which `cmd.exe` needs, even when it's committed from Linux.
+
+## Step 8: Proving it on Dodge
+
+**Dodge uses everything new, without changing how it plays.** The
+player is a duck drawn with `Sprite::from_ascii` that waddles (a
+two-frame `Animation`) while it moves; the blocks are rocks, also ASCII
+art. Both are drawn at scale 2 so their pictures are exactly their old
+hitboxes (12 x 12 and 14 x 14), so the game's difficulty didn't change.
+A `Camera2D` shakes the playfield on a hit (harder on the last one), and
+the score strip is drawn after `pop_camera` so it stays still. See-through
+colors give the rocks shadows that darken as they get close, make the
+score strip let you glimpse rocks coming in, dim the GAME OVER band, and
+replace the "blink" after a hit with a flicker to 30% opacity (you can
+still see where you are). Sounds: a beep to start, `hit`, `explosion` on
+the last hit, and `coin` every 10 rocks dodged. Every rock and the duck
+are marked for the debug overlay.
+
+**The old play tests pass unchanged**, including the one that a careful
+bot survives a minute, even though camera shake now takes numbers from
+`ctx.rng` after each hit. Two new ones check the sounds against the
+reports: each hit has a `"hit"` on the same frame and the game-over hit
+an `"explosion"`, and the 10th rock dodged plays `"coin"` on that frame.
+A third replays `playthroughs/dodge.json`, recorded from the bot (20
+seconds of dodging, then standing still until game over) by an ignored
+test, so the recording can be remade with one command if the game
+changes.
+
+**What's still uncomfortable for an AI agent** (found while doing this
+step, for the next phase):
+
+1. **Shared randomness.** Screen shake draws from `ctx.rng`, so adding
+   "juice" to a game changes every random event after it (where the next
+   rock falls). Dodge's tests survived, but a game balanced by seed would
+   change. A separate generator for effects, seeded from the same seed,
+   would keep gameplay and decoration apart.
+2. **The interesting frames fall between snapshots.** The sheet shows 16
+   evenly spread frames: two caught the flicker after a hit by luck, but
+   none caught a hit itself or the 0.3-second shake. Snapshots on chosen frames (`--snapshot-at 1425,1704`) or
+   whenever a report changes (`--snapshot-on hits`) would show exactly
+   the moments that matter.
+3. **Sound can only be checked by its log.** `log.json` says which sound
+   played when, but nothing says whether the mix clips or one sound
+   drowns the others. A short summary in `log.json` (peak level, clipped
+   samples, loudness per second) would let an AI catch that.
+4. **ASCII art can't be checked before running.** A sprite only becomes
+   visible once a game draws it. A way to save a sprite enlarged as a PNG
+   (or a `--sprites` sheet of every sprite a game made) would make
+   drawing art a faster loop.
+5. **Platform movement is still hand-written.** The template resolves
+   collisions one axis at a time in about 25 lines, the most error-prone
+   code in it. `swept_aabb` finds the hit but doesn't slide; a
+   `move_and_slide(rect, movement, &solids)` would cover most games.
+6. **Levels as text.** Sprites from ASCII work well; levels would too
+   (`Tilemap::from_ascii(rows, legend)` with solid tiles that the
+   collision helpers understand).
+7. **Labels in the debug overlay.** Outlines are there, but not what
+   they are; `ctx.debug_text(pos, text)` would show an enemy's state or
+   a timer next to it.
+8. **Small text in pictures.** Lowercase at scale 1 is 4 pixels tall:
+   readable in a window, hard in a shrunk GIF. Games meant to be judged
+   from pictures should use scale 2 or capitals.
+9. **Windows was compile-checked, not run.** The `tinyaudio` path builds
+   for Windows (`cargo check --target x86_64-pc-windows-gnu`) but hasn't
+   played a sound on a real Windows machine yet; `test.bat` there is the
+   next check.

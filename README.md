@@ -45,7 +45,7 @@ cargo run --example world3d    # 3D world with physics: fly around, throw balls
 cargo run --release --example stress3d   # thousands of spinning 3D shapes
 cargo run --example physics    # 2D physics sandbox: click to drop balls and boxes
 cargo run --example breakout   # the classic game
-cargo run --example dodge      # dodge the falling blocks (built without a screen)
+cargo run --example dodge      # dodge the falling rocks: sprites, shake and sound
 cargo run --release --example duckling_parade   # lead ducklings home past hungry pike
 cargo run --release --example door_short        # a one-minute "choose your door" video
 cargo run --release --example door_show_3d      # the same video on a 3D game-show stage
