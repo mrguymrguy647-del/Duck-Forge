@@ -34,7 +34,7 @@ Contents:
 | Randomness | Use `ctx.rng` only (`range`, `range_i32`, `chance`). Headless runs use seed 1 unless told otherwise, so **the same command gives the same result**. |
 | Drawing | `draw(&self, canvas)` can't change the game. Start it with `canvas.clear(...)`. Later draws go on top. |
 | Text | Built-in 3x5 pixel font: `A-Z 0-9 . , : ! ? - + = / ( ) '` and space. Lowercase is drawn as uppercase; anything else becomes `?`. Scale 1 is 5 px tall. |
-| Colors | `Color::rgb(r, g, b)`, `Color::from_hex(0x14_14_28)`, constants `BLACK WHITE GRAY RED ORANGE YELLOW GREEN BLUE PURPLE`, `a.lerp(b, t)`. |
+| Colors | `Color::rgb(r, g, b)` (solid), `Color::rgba(r, g, b, a)` and `color.with_alpha(a)` (a: 0 invisible to 255 solid; every drawing function blends), `Color::from_hex(0x14_14_28)`, constants `BLACK WHITE GRAY RED ORANGE YELLOW GREEN BLUE PURPLE`, `a.lerp(b, t)`. Build colors with these functions, never `Color { r, g, b }` (it has a 4th field, `a`). |
 | Engine keys | In a window: F3 = FPS counter, F10 = record, F12 = screenshot. Escape quitting is each game's choice (`ctx.quit()`). |
 | Output | `--headless` writes `last.png` and `log.json` (plus what you ask for) to `duckforge-out/`, or the folder in `--out`. |
 
@@ -500,7 +500,8 @@ press), `was_released(key)`, `axis(Key::Left, Key::Right)` (-1, 0 or 1),
 `set_pixel(x, y, color)`, `get_pixel(x, y)`,
 `draw_text(text, pos, scale, color)`,
 `draw_text_centered(text, y, scale, color)`,
-`Canvas::text_width(text, scale)`, `width()`, `height()`.
+`Canvas::text_width(text, scale)`, `width()`, `height()`. Any color with
+alpha below 255 is drawn see-through (`clear` ignores alpha).
 
 **Math**: `vec2(x, y)` / `Vec2` (`+ - * f32`, `length()`, `normalized()`,
 `distance(other)`, `dot(other)`, `Vec2::ZERO`).

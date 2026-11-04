@@ -1,8 +1,12 @@
 # Design decisions
 
-This file explains, in plain language, the choices made while teaching
-duckforge to run games without a screen, and why. Each step of that work
-has its own section, oldest first.
+This file explains, in plain language, the choices made while building
+duckforge, and why. Each step has its own section, oldest first.
+
+The first part (Steps 1 to 6) taught duckforge to run games without a
+screen. The second part ("Phase 2") makes it comfortable for two kinds of
+game makers: a person learning Rust, and an AI agent building and testing
+games headless.
 
 ## Step 1: The same inputs always give the same game
 
@@ -402,3 +406,77 @@ was never used).
 tests), shows everything the guide talks about (states, a difficulty
 ramp, safe time after a hit, a readable score, reports, play tests and a
 bot), and is the worked example the guide points to.
+
+# Phase 2: comfortable for people and AI agents
+
+An AI agent (DeepSeek) built a full game with duckforge and listed what it
+missed: sprites, a 2D camera, transparency, sound and some small helpers.
+This phase adds them. The rule for every step: a few clear functions with
+one obvious way to use them, nothing old breaks, and everything works
+headless and on Windows.
+
+## Step 0: One main branch
+
+The newer work lived on two branches. `claude/peaceful-bohr-vniw0t` had
+the headless tools (fixed timestep, `--headless`, record and replay,
+snapshots, play tests, the AI guide); `claude/duckling-parade` had an older
+copy of its first two commits plus three examples. Both were merged into
+`main`. The two branches shared those first commits exactly, so the only
+conflicts were the lists of examples in `Cargo.toml` and the README, and
+both sides were kept. The three examples compiled and ran headless against
+the newer engine without changes.
+
+## Step 2 (done first): See-through colors
+
+**Done before sprites.** Sprites need colors with an alpha (a PNG pixel
+or a `'.'` in ASCII art is see-through), so `Color` got its alpha first.
+The sprite step then uses `Color::rgba` and `with_alpha` instead of
+inventing a second way to say "see-through".
+
+**A public `a` field, not a separate type.** `Color` already had public
+`r`, `g` and `b` fields. Adding a fourth, `pub a: u8`, is the most
+obvious design: `color.a` reads like `color.r`. The cost: any code that
+builds a color by naming its fields, `Color { r: 1, g: 2, b: 3 }`, stops
+compiling (Rust wants every field named). The alternatives were worse:
+
+- A second color type (`Rgba`) next to `Color` would mean two ways to say
+  "a color" and conversions everywhere.
+- Keeping alpha out of `Color` and passing it separately
+  (`fill_rect_alpha(rect, color, 128)`) would double the drawing functions.
+- A private `a` field breaks field-naming code just the same (outside code
+  can't name a private field either).
+
+Nothing in this repository built colors by naming fields, and the README,
+tutorial and AI guide always used `Color::rgb`, so the cost is close to
+zero in practice. The compiler's message (`missing field a`) points at the
+exact line, and the fix is `Color::rgb(..)`. Code that *reads* `color.r`
+or compares colors keeps working; `Color::rgb(..) == Color::rgb(..)` is
+still true, because both are solid.
+
+**`Color::rgb` stays solid, so old games look exactly the same.** It sets
+`a` to 255, and so do `from_hex` and the named constants. To check, every
+example was run headless for 240 frames before and after the change, with
+a snapshot every 60 frames: all 50 pictures were byte-for-byte identical.
+A unit test also draws one scene with `rgb` and with `rgba(.., 255)` and
+compares every pixel.
+
+**The fast path stays.** When alpha is 255, drawing writes the color
+straight into the pixels, as before (a whole row at a time for
+rectangles). Only see-through colors pay for mixing, and alpha 0 returns
+before touching anything.
+
+**Whole-number mixing.** Each channel becomes
+`(new * a + old * (255 - a) + 127) / 255`. Integer math gives the same
+answer on every computer and compiler, so replays and snapshot tests stay
+exact. (Half red over blue is `(128, 0, 127)`, tested.)
+
+**Each pixel is painted once.** With a see-through color, painting the
+same pixel twice makes it darker. `draw_rect` used to draw four sides that
+overlap at the corners; a see-through outline now draws sides that don't
+overlap. (Solid outlines still use the old code, so their pixels can't
+change.) Circles, lines, triangles and text already visited each pixel
+once.
+
+**What ignores alpha:** `clear` (a cleared canvas is always solid; cover
+it with a see-through `fill_rect` to fade it instead), 3D meshes, and
+saved pictures (the canvas itself is always solid).

@@ -9,7 +9,9 @@ you can run, change and break.
 - **Part 2** explains how the engine works and why it's built that way.
 - **Part 3** shows how a game can run, replay and test itself without a
   screen.
-- **Part 4** has exercises, from "change a number" to "write a new game".
+- **Part 4** adds what most 2D games want: see-through colors, sprites,
+  a camera, sound, text and collision helpers, each with a tiny game.
+- **Part 5** has exercises, from "change a number" to "write a new game".
 
 Keep the source files open next to this guide. When you see a file like
 `src/canvas.rs`, open it and look at the real code.
@@ -49,11 +51,13 @@ Keep the source files open next to this guide. When you see a file like
   - [25. Seeing a whole game](#25-seeing-a-whole-game)
   - [26. Play tests](#26-play-tests)
   - [27. Building a game without ever seeing it](#27-building-a-game-without-ever-seeing-it)
-- **Part 4: Your turn**
-  - [28. Exercises](#28-exercises)
-  - [29. Common compiler errors](#29-common-compiler-errors)
-  - [30. What a code review found](#30-what-a-code-review-found)
-  - [31. Where to go next](#31-where-to-go-next)
+- **Part 4: More to play with**
+  - [28. See-through colors](#28-see-through-colors)
+- **Part 5: Your turn**
+  - [29. Exercises](#29-exercises)
+  - [30. Common compiler errors](#30-common-compiler-errors)
+  - [31. What a code review found](#31-what-a-code-review-found)
+  - [32. Where to go next](#32-where-to-go-next)
 
 ---
 
@@ -518,7 +522,7 @@ added, and the slot's generation goes up by one. So an old id still points
 at the right slot, but its generation doesn't match any more, and looking
 it up finds nothing instead of the wrong body. This trick is called a
 *generational index*, and most game engines use it to name their objects.
-(Chapter 30 tells the story of the bug that led to it.)
+(Chapter 31 tells the story of the bug that led to it.)
 
 ## 5. Enums and pattern matching
 
@@ -1724,7 +1728,7 @@ a lot on 1960s hardware.
 Before stepping, the line is *clipped*: cut down to the part that's on the
 canvas (see `clip_line`). Without that, a line to a point far off-screen
 would step through millions of invisible pixels, and could even crash (see
-[chapter 30](#30-what-a-code-review-found)).
+[chapter 31](#31-what-a-code-review-found)).
 
 ### Triangles
 
@@ -2777,7 +2781,7 @@ and shifting right pulls the high bits back down. After a few rounds,
 changing one bit of the seed changes about half the bits of the result.
 Notice `wrapping_mul`: the multiplication overflows on purpose, and in a
 debug build a plain `*` would panic when it overflows
-([chapter 30](#30-what-a-code-review-found)). `wrapping_mul` says "wrap
+([chapter 31](#31-what-a-code-review-found)). `wrapping_mul` says "wrap
 around, that's what I want".
 
 A new test in `src/rng.rs` checks that the first numbers from seeds 1 to
@@ -3743,9 +3747,114 @@ tests, an API cheat sheet, a list of common mistakes with their fixes,
 and how to judge whether a game feels good using numbers: speeds, reaction
 times, bots, seeds and what the sheet looks like shrunk small.
 
-# Part 4: Your turn
+# Part 4: More to play with
 
-## 28. Exercises
+These chapters add the things almost every 2D game wants: see-through
+colors, sprites, a camera, sound, nicer text and collision helpers. Each
+one builds a tiny game you can run, and explains any Rust idea that shows
+up for the first time.
+
+## 28. See-through colors
+
+A `Color` has four numbers: red, green, blue, and **alpha**, how solid it
+is. 255 is fully solid (what `Color::rgb` gives), 0 is invisible, and in
+between the old picture shows through:
+
+```rust
+let shadow = Color::rgba(0, 0, 0, 100);   // light see-through black
+let glass = Color::BLUE.with_alpha(80);    // any color, made see-through
+```
+
+Every drawing function understands it: `fill_rect`, `draw_rect`,
+`fill_circle`, `fill_triangle`, `draw_line`, `draw_text`, `set_pixel` and
+sprites. The classic use is a pause screen: draw the game, then cover it
+with a dark see-through rectangle and draw the text on top.
+
+```rust
+use duckforge::prelude::*;
+
+struct Pausable {
+    x: f32,
+    paused: bool,
+}
+
+impl Game for Pausable {
+    fn update(&mut self, ctx: &mut Context) {
+        if ctx.input.was_pressed(Key::P) {
+            self.paused = !self.paused;
+        }
+        if !self.paused {
+            self.x = (self.x + 80.0 * ctx.dt()) % 320.0;
+        }
+    }
+
+    fn draw(&self, canvas: &mut Canvas) {
+        canvas.clear(Color::from_hex(0x203040));
+        canvas.fill_circle(vec2(self.x, 120.0), 20.0, Color::YELLOW);
+        if self.paused {
+            // Half see-through black over everything drawn so far.
+            canvas.fill_rect(Rect::new(0.0, 0.0, 320.0, 240.0), Color::BLACK.with_alpha(160));
+            canvas.draw_text_centered("PAUSED", 110.0, 3, Color::WHITE);
+        }
+    }
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    duckforge::run(Config::default(), Pausable { x: 0.0, paused: false })
+}
+```
+
+Save it as `examples/pause.rs` and run `cargo run --example pause`. Press
+P: the ball freezes and the screen darkens, but you can still see it.
+
+### How the mixing works
+
+For each pixel, each channel becomes a weighted average of the new color
+and what's already there:
+
+```text
+new_value * alpha + old_value * (255 - alpha)
+---------------------------------------------
+                     255
+```
+
+Half see-through red (alpha 128) over pure blue gives red 128, blue 127:
+about half of each. The engine does this with whole numbers only
+(`src/color.rs`, `blend`), so the result is the same on every computer,
+which keeps replays exact.
+
+When alpha is 255, the engine skips the mixing and writes the color
+directly, exactly as it did before alpha existed. That keeps solid drawing
+as fast as ever, and every old game draws the very same pixels.
+
+### Rust idea: struct update syntax with `..`
+
+`with_alpha` builds the new color like this:
+
+```rust
+pub const fn with_alpha(self, a: u8) -> Self {
+    Self { a, ..self }
+}
+```
+
+`Self { a, ..self }` means "a new `Color` whose `a` is this `a`, and
+whose other fields are copied from `self`". You've seen the same `..` in
+`Config { width: 640, ..Config::default() }`: name the fields you want to
+change, and let `..something` fill in the rest.
+
+### Why adding a field can break code
+
+Adding the `a` field to `Color` has one cost: code that built a color by
+naming its fields, `Color { r: 255, g: 0, b: 0 }`, no longer compiles,
+because a struct literal must give *every* field. The compiler says
+`missing field a`. The fix is to use `Color::rgb(255, 0, 0)` instead, which
+is what all the examples already did. That's a good reason to build values
+with functions like `rgb` rather than by naming their fields: the
+functions can stay the same when the fields change.
+
+# Part 5: Your turn
+
+## 29. Exercises
 
 Do them in order. After each change, run the game and see what happened.
 When the compiler complains, **read the whole error message**: Rust's error
@@ -3866,7 +3975,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     to a ball body) across floating platforms, with the camera following
     it. Or 3D Breakout, with a `PhysicsWorld<Vec3>`.
 
-## 29. Common compiler errors
+## 30. Common compiler errors
 
 | Error    | Message (short)                                   | Usually means                                                 |
 |----------|---------------------------------------------------|---------------------------------------------------------------|
@@ -3881,7 +3990,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 For a long explanation of any error, run `rustc --explain E0502`.
 
-## 30. What a code review found
+## 31. What a code review found
 
 After the engine was built, it got a careful review: every file read line
 by line, looking for bugs, crashes and confusing code. It found about 20
@@ -4032,7 +4141,7 @@ Together, the renderer was back to its old speed, 79 to 81 FPS.
 
 **Lesson:** after fixing something, run the benchmark again.
 
-## 31. Where to go next
+## 32. Where to go next
 
 - **The Rust Programming Language** ("the Book"), free at
   <https://doc.rust-lang.org/book/>. The best way to learn Rust properly.

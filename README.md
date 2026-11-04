@@ -69,7 +69,8 @@ cargo run --no-default-features --example breakout -- --headless --frames 600 --
 ## Features
 
 - **2D drawing:** rectangles, circles, lines, triangles, text in a built-in
-  pixel font, color blending, and `.png` or `.bmp` screenshots.
+  pixel font, see-through colors (`Color::rgba`, `with_alpha`), and `.png`
+  or `.bmp` screenshots.
 - **3D rendering:** a camera with ready-made fly controls, meshes (cube,
   pyramid, sphere, checkerboard, or build your own), transforms, sunlight
   shading, a depth buffer, and near-plane clipping.

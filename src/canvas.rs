@@ -10,7 +10,7 @@ use std::fs::File;
 use std::io::{self, BufWriter, Write};
 use std::path::Path;
 
-use crate::color::Color;
+use crate::color::{self, Color};
 use crate::font;
 #[cfg(feature = "gpu")]
 use crate::gpu::GpuRenderer;
@@ -151,6 +151,10 @@ impl Canvas {
 
     /// Fills the whole canvas with one color. This also resets the depth
     /// buffer, so call it at the start of every frame before drawing in 3D.
+    ///
+    /// The color's alpha is ignored: clearing always gives a solid
+    /// picture. (To fade the old picture instead, cover it with a
+    /// see-through `fill_rect`.)
     pub fn clear(&mut self, color: Color) {
         self.pixels.fill(color.to_u32());
         self.depth.fill(0.0);
@@ -168,17 +172,18 @@ impl Canvas {
         Some(y as usize * self.width + x as usize)
     }
 
-    /// Sets one pixel. Pixels outside the canvas are silently ignored.
+    /// Sets one pixel (or, with a see-through color, paints over it).
+    /// Pixels outside the canvas are silently ignored.
     pub fn set_pixel(&mut self, x: i32, y: i32, color: Color) {
         self.flush_3d(); // 3D drawn earlier must end up *under* this pixel
-        self.put_pixel(x, y, color.to_u32());
+        self.put_pixel(x, y, color.to_u32(), color.a);
     }
 
-    /// Sets one pixel without flushing 3D first. For drawing functions that
-    /// set many pixels: they flush once, then call this for each pixel.
-    fn put_pixel(&mut self, x: i32, y: i32, color: u32) {
+    /// Paints one pixel without flushing 3D first. For drawing functions
+    /// that set many pixels: they flush once, then call this for each pixel.
+    fn put_pixel(&mut self, x: i32, y: i32, color: u32, alpha: u8) {
         if let Some(i) = self.index(x, y) {
-            self.pixels[i] = color;
+            paint(&mut self.pixels[i], color, alpha);
         }
     }
 
@@ -189,6 +194,9 @@ impl Canvas {
 
     /// Fills a rectangle. Parts outside the canvas are clipped away.
     pub fn fill_rect(&mut self, rect: Rect, color: Color) {
+        if color.a == 0 {
+            return; // invisible
+        }
         self.flush_3d();
         // Round to whole pixels, then clamp to the canvas so we never index out of bounds.
         let clamp_x = |v: f32| (v.round() as i32).clamp(0, self.width as i32) as usize;
@@ -201,15 +209,32 @@ impl Canvas {
 
         let c = color.to_u32();
         for y in y0..y1 {
-            let row = y * self.width;
-            // Filling a whole slice at once is much faster than one set_pixel call per pixel.
-            self.pixels[row + x0..row + x1].fill(c);
+            let row = &mut self.pixels[y * self.width + x0..y * self.width + x1];
+            if color.is_opaque() {
+                // Filling a whole slice at once is much faster than one set_pixel call per pixel.
+                row.fill(c);
+            } else {
+                row.iter_mut().for_each(|pixel| paint(pixel, c, color.a));
+            }
         }
     }
 
     /// Draws a 1-pixel outline of a rectangle.
     pub fn draw_rect(&mut self, rect: Rect, color: Color) {
         let Rect { x, y, w, h } = rect;
+        if !color.is_opaque() {
+            // See-through: the four sides must not overlap at the corners,
+            // or the corners would be painted twice and look darker.
+            if w <= 2.0 || h <= 2.0 {
+                self.fill_rect(rect, color);
+            } else {
+                self.fill_rect(Rect::new(x, y, w, 1.0), color); // top
+                self.fill_rect(Rect::new(x, y + h - 1.0, w, 1.0), color); // bottom
+                self.fill_rect(Rect::new(x, y + 1.0, 1.0, h - 2.0), color); // left
+                self.fill_rect(Rect::new(x + w - 1.0, y + 1.0, 1.0, h - 2.0), color); // right
+            }
+            return;
+        }
         self.fill_rect(Rect::new(x, y, w, 1.0), color); // top
         self.fill_rect(Rect::new(x, y + h - 1.0, w, 1.0), color); // bottom
         self.fill_rect(Rect::new(x, y, 1.0, h), color); // left
@@ -218,6 +243,9 @@ impl Canvas {
 
     /// Fills a circle.
     pub fn fill_circle(&mut self, center: Vec2, radius: f32, color: Color) {
+        if color.a == 0 {
+            return;
+        }
         self.flush_3d();
         let c = color.to_u32();
         // Only visit the pixels in the circle's bounding box that are on the canvas.
@@ -233,7 +261,7 @@ impl Canvas {
                 let dx = x as f32 + 0.5 - center.x;
                 let dy = y as f32 + 0.5 - center.y;
                 if dx * dx + dy * dy <= r2 {
-                    self.put_pixel(x, y, c);
+                    self.put_pixel(x, y, c, color.a);
                 }
             }
         }
@@ -242,6 +270,9 @@ impl Canvas {
     /// Draws a 1-pixel line using Bresenham's algorithm, which steps
     /// pixel by pixel using only integer math.
     pub fn draw_line(&mut self, from: Vec2, to: Vec2, color: Color) {
+        if color.a == 0 {
+            return;
+        }
         self.flush_3d();
         // First cut the line down to the part that's on the canvas. Otherwise
         // a line to a far-away point would step through millions of invisible
@@ -261,7 +292,7 @@ impl Canvas {
         let mut error = dx + dy;
 
         loop {
-            self.put_pixel(x, y, c);
+            self.put_pixel(x, y, c, color.a);
             if x == x_end && y == y_end {
                 break;
             }
@@ -279,11 +310,14 @@ impl Canvas {
 
     /// Fills a triangle given its three corners, in any order.
     pub fn fill_triangle(&mut self, a: Vec2, b: Vec2, c: Vec2, color: Color) {
+        if color.a == 0 {
+            return;
+        }
         self.flush_3d();
         let c32 = color.to_u32();
         let pixels = &mut self.pixels;
         for_each_pixel_in_triangle(self.width, self.height, [a, b, c], |i, _| {
-            pixels[i] = c32;
+            paint(&mut pixels[i], c32, color.a);
         });
     }
 
@@ -582,6 +616,17 @@ fn for_each_pixel_in_triangle(
     }
 }
 
+/// Paints `color` onto one canvas pixel: replaces it when `alpha` is 255
+/// (solid), otherwise mixes the two (see [`color::blend`]).
+#[inline]
+fn paint(pixel: &mut u32, color: u32, alpha: u8) {
+    *pixel = if alpha == 255 {
+        color
+    } else {
+        color::blend(*pixel, color, alpha)
+    };
+}
+
 /// Which side of the line from `a` to `b` is `p` on? Positive on one side,
 /// negative on the other, zero on the line. (It's a 2D cross product.)
 fn edge(a: Vec2, b: Vec2, p: Vec2) -> f32 {
@@ -591,6 +636,81 @@ fn edge(a: Vec2, b: Vec2, p: Vec2) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every pixel of the canvas as a `Color`, for comparing pictures.
+    fn colors(canvas: &Canvas) -> Vec<Color> {
+        canvas.pixels.iter().map(|&p| Color::from_hex(p)).collect()
+    }
+
+    #[test]
+    fn half_transparent_red_over_blue() {
+        let mut canvas = Canvas::new(4, 4);
+        canvas.clear(Color::rgb(0, 0, 255));
+        canvas.fill_rect(Rect::new(0.0, 0.0, 2.0, 2.0), Color::rgba(255, 0, 0, 128));
+        assert_eq!(canvas.get_pixel(1, 1), Some(Color::rgb(128, 0, 127)));
+        assert_eq!(canvas.get_pixel(2, 2), Some(Color::rgb(0, 0, 255)), "outside the rect");
+
+        // Every other shape blends the same way, and paints each pixel once.
+        let half_red = Color::rgba(255, 0, 0, 128);
+        let mixed = Some(Color::rgb(128, 0, 127));
+        let fresh = || {
+            let mut c = Canvas::new(8, 8);
+            c.clear(Color::rgb(0, 0, 255));
+            c
+        };
+        let mut c = fresh();
+        c.fill_circle(vec2(4.0, 4.0), 3.0, half_red);
+        assert_eq!(c.get_pixel(4, 4), mixed);
+        let mut c = fresh();
+        c.draw_line(vec2(0.0, 0.0), vec2(7.0, 7.0), half_red);
+        assert_eq!(c.get_pixel(3, 3), mixed);
+        let mut c = fresh();
+        c.fill_triangle(vec2(0.0, 0.0), vec2(8.0, 0.0), vec2(0.0, 8.0), half_red);
+        assert_eq!(c.get_pixel(1, 1), mixed);
+        let mut c = fresh();
+        c.draw_text("H", vec2(0.0, 0.0), 1, half_red);
+        assert_eq!(c.get_pixel(0, 0), mixed);
+        let mut c = fresh();
+        c.set_pixel(5, 5, half_red);
+        assert_eq!(c.get_pixel(5, 5), mixed);
+        let mut c = fresh();
+        c.draw_rect(Rect::new(1.0, 1.0, 5.0, 5.0), half_red);
+        for (x, y) in [(1, 1), (5, 1), (1, 5), (5, 5), (3, 1), (1, 3)] {
+            assert_eq!(c.get_pixel(x, y), mixed, "outline pixel ({x}, {y}) painted once");
+        }
+        assert_eq!(c.get_pixel(3, 3), Some(Color::rgb(0, 0, 255)), "inside stays empty");
+    }
+
+    #[test]
+    fn invisible_colors_draw_nothing() {
+        let mut canvas = Canvas::new(8, 8);
+        canvas.clear(Color::GREEN);
+        let ghost = Color::RED.with_alpha(0);
+        canvas.fill_rect(Rect::new(0.0, 0.0, 8.0, 8.0), ghost);
+        canvas.fill_circle(vec2(4.0, 4.0), 3.0, ghost);
+        canvas.draw_line(vec2(0.0, 0.0), vec2(7.0, 7.0), ghost);
+        canvas.draw_text("HI", vec2(0.0, 0.0), 1, ghost);
+        assert!(colors(&canvas).iter().all(|&c| c == Color::GREEN));
+    }
+
+    #[test]
+    fn solid_colors_draw_exactly_as_before() {
+        // Draw the same scene with rgb() and with rgba(.., 255): identical.
+        let scene = |color: fn(u8, u8, u8) -> Color| {
+            let mut c = Canvas::new(40, 30);
+            c.clear(color(10, 20, 30));
+            c.fill_rect(Rect::new(2.5, 3.2, 10.7, 6.1), color(200, 0, 0));
+            c.draw_rect(Rect::new(1.0, 1.0, 30.0, 1.5), color(0, 200, 0));
+            c.fill_circle(vec2(20.0, 15.0), 6.3, color(0, 0, 200));
+            c.draw_line(vec2(-5.0, 2.0), vec2(45.0, 27.0), color(250, 250, 0));
+            c.fill_triangle(vec2(1.0, 29.0), vec2(15.0, 18.0), vec2(9.0, 29.0), color(9, 9, 9));
+            c.draw_text("OK!", vec2(25.0, 2.0), 2, color(255, 255, 255));
+            c
+        };
+        let old = scene(Color::rgb);
+        let new = scene(|r, g, b| Color::rgba(r, g, b, 255));
+        assert_eq!(old.pixels, new.pixels);
+    }
 
     #[test]
     fn set_and_get_pixel() {
