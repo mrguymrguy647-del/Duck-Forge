@@ -75,7 +75,7 @@ pub mod prelude {
     pub use crate::camera::Camera2D;
     pub use crate::canvas::Canvas;
     pub use crate::color::Color;
-    pub use crate::engine::{Config, Context, Game, Timestep};
+    pub use crate::engine::{Config, Context, Corner, Game, Timestep};
     pub use crate::input::{Input, Key, MouseButton};
     pub use crate::math::{
         Hit, Rect, Vec2, Vec3, approach, circle_vs_circle, circle_vs_rect, remap, swept_aabb, vec2,

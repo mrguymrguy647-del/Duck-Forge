@@ -404,7 +404,7 @@ fn log_json<G: Game>(
 
 /// What `run` does with `--headless`: runs the game, then says what happened.
 pub(crate) fn run_from_command_line<G: Game>(
-    config: Config,
+    mut config: Config,
     game: G,
     options: &Options,
 ) -> Result<(), String> {
@@ -443,6 +443,9 @@ pub(crate) fn run_from_command_line<G: Game>(
             .unwrap_or(if options.crop.is_some() { 4 } else { 1 }),
         debug: options.debug,
     };
+    if let Some(corner) = options.debug_corner {
+        config.debug_corner = corner;
+    }
     let title = config.title.clone();
     let started = Instant::now();
     let (sim, saved) = run_and_save(config, game, &headless)?;

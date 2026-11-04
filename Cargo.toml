@@ -9,7 +9,7 @@ description = "A small game engine (2D, 3D and physics), written for learning Ru
 default = ["window", "gpu", "audio"]
 # Open a window to play in (with minifb). Without it, the engine builds on
 # a machine with no screen and no window libraries, and games run with
-# `--headless`. `--no-default-features` turns off both features.
+# `--headless`. `--no-default-features` turns off all three features.
 window = ["dep:minifb"]
 # Draw 3D on the graphics card with wgpu. Without it, the engine is smaller,
 # compiles faster and draws everything on the CPU.

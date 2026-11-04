@@ -6,7 +6,7 @@
 //! window and in a test.
 
 use crate::canvas::Canvas;
-use crate::engine::{Config, Context, Game, Timestep};
+use crate::engine::{Config, Context, Corner, Game, Timestep};
 use crate::input::{Key, MouseButton};
 use crate::math::Vec2;
 use crate::render3d::Renderer;
@@ -97,6 +97,8 @@ pub struct Simulation<G> {
     renderer: Renderer,
     /// Draw the debug overlay on every picture.
     debug_overlay: bool,
+    /// Where the overlay's info box goes.
+    debug_corner: Corner,
 }
 
 impl<G: Game> Simulation<G> {
@@ -148,6 +150,7 @@ impl<G: Game> Simulation<G> {
             initialized: false,
             renderer,
             debug_overlay: false,
+            debug_corner: config.debug_corner,
         }
     }
 
@@ -671,7 +674,14 @@ impl<G: Game> Simulation<G> {
         let camera = self.canvas.take_frame_camera();
         if self.debug_overlay {
             let shapes = self.ctx.debug_shapes();
-            crate::debug::draw_overlay(&mut self.canvas, &self.ctx, shapes, camera.as_ref());
+            let corner = self.debug_corner;
+            crate::debug::draw_overlay(
+                &mut self.canvas,
+                &self.ctx,
+                shapes,
+                camera.as_ref(),
+                corner,
+            );
         }
         self.canvas.flush_3d(); // make sure any 3D from the graphics card is in the pixels
         self.ctx.set_renderer_name(self.canvas.renderer_name());

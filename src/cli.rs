@@ -6,6 +6,7 @@
 
 use std::path::PathBuf;
 
+use crate::engine::Corner;
 use crate::pictures::Crop;
 
 /// One option: its name, the name of its value (`None` for an on/off
@@ -78,6 +79,11 @@ const OPTIONS: &[OptionInfo] = &[
         help: "show the debug overlay (F1 toggles it in a window); with --headless it's in every picture",
     },
     OptionInfo {
+        name: "--debug-corner",
+        value: Some("CORNER"),
+        help: "where the debug overlay's box goes: top-left, top-right, bottom-left or bottom-right (default)",
+    },
+    OptionInfo {
         name: "--help",
         value: None,
         help: "show this help and quit",
@@ -103,6 +109,7 @@ pub(crate) struct Options {
     pub crop: Option<Crop>,
     pub zoom: Option<usize>,
     pub debug: bool,
+    pub debug_corner: Option<Corner>,
 }
 
 impl Options {
@@ -134,6 +141,7 @@ impl Options {
                 "--sheet" => options.sheet = true,
                 "--gif" => options.gif = true,
                 "--debug" => options.debug = true,
+                "--debug-corner" => options.debug_corner = Some(Corner::parse(value)?),
                 "--crop" => options.crop = Some(Crop::parse(value)?),
                 "--snapshot-every" => {
                     let every = value.parse().map_err(|_| {
@@ -312,6 +320,120 @@ mod tests {
         );
         assert_eq!(parse("").unwrap(), Options::default());
         assert_eq!(parse("--frames=30").unwrap().frames, Some(30));
+    }
+
+    /// The flags (`--something`) written in a document.
+    fn flags_in(text: &str) -> std::collections::BTreeSet<String> {
+        let mut flags = std::collections::BTreeSet::new();
+        for (i, _) in text.match_indices("--") {
+            let rest = &text[i + 2..];
+            let name: String = rest
+                .chars()
+                .take_while(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '-')
+                .collect();
+            let preceded_by_dash = text[..i].ends_with('-');
+            if name.starts_with(|c: char| c.is_ascii_lowercase()) && !preceded_by_dash {
+                flags.insert(format!("--{}", name.trim_end_matches('-')));
+            }
+        }
+        flags
+    }
+
+    /// Flags in the docs that aren't the engine's: Cargo's, the Rust
+    /// installer's, and the stress3d example's own options.
+    const NOT_ENGINE_FLAGS: &[&str] = &[
+        "--example",
+        "--examples",
+        "--no-default-features",
+        "--features",
+        "--release",
+        "--quiet",
+        "--open",
+        "--test",
+        "--ignored",
+        "--proto",
+        "--tlsv1",
+        "--objects",
+        "--seconds",
+        "--renderer",
+    ];
+
+    #[test]
+    fn every_flag_in_the_docs_exists_and_every_flag_is_documented() {
+        let docs = [
+            ("docs/AI_GUIDE.md", include_str!("../docs/AI_GUIDE.md")),
+            ("README.md", include_str!("../README.md")),
+        ];
+        let engine: Vec<&str> = OPTIONS.iter().map(|option| option.name).collect();
+        let help = help();
+        for (name, text) in docs {
+            let in_doc = flags_in(text);
+            for flag in &in_doc {
+                assert!(
+                    engine.contains(&flag.as_str()) || NOT_ENGINE_FLAGS.contains(&flag.as_str()),
+                    "{name} mentions {flag}, but the engine has no such option"
+                );
+            }
+            for flag in &engine {
+                assert!(in_doc.contains(*flag), "{flag} isn't mentioned in {name}");
+            }
+        }
+        for flag in &engine {
+            assert!(help.contains(flag), "{flag} isn't in --help");
+        }
+    }
+
+    #[test]
+    fn the_parser_accepts_every_option_it_lists() {
+        // A sensible value for each option that takes one.
+        let value = |name: &str| match name {
+            "--out" => "shots",
+            "--inputs" | "--record" => "run.json",
+            "--crop" => "0,0,10,10",
+            "--debug-corner" => "top-left",
+            _ => "2",
+        };
+        for option in OPTIONS {
+            let mut words = vec![option.name.to_string()];
+            if option.value.is_some() {
+                words.push(value(option.name).to_string());
+            }
+            // Most options are for --headless; --record only works in a window.
+            if option.name != "--record" {
+                words.push(String::from("--headless"));
+            }
+            let parsed = Options::parse(words.clone());
+            assert!(parsed.is_ok(), "{words:?}: {parsed:?}");
+            assert_ne!(
+                parsed.unwrap(),
+                Options::default(),
+                "{words:?} changed nothing"
+            );
+        }
+        // Anything else belongs to the game, and is left alone.
+        assert_eq!(
+            Options::parse([String::from("--my-game-option")]),
+            Ok(Options::default())
+        );
+    }
+
+    #[test]
+    fn debug_corners_are_read() {
+        let corner = |words: &str| parse(words).map(|o| o.debug_corner);
+        assert_eq!(
+            corner("--debug-corner top-right"),
+            Ok(Some(Corner::TopRight))
+        );
+        assert_eq!(
+            corner("--debug-corner=BOTTOM_LEFT"),
+            Ok(Some(Corner::BottomLeft))
+        );
+        assert_eq!(corner(""), Ok(None));
+        assert!(
+            corner("--debug-corner middle")
+                .unwrap_err()
+                .contains("top-left, top-right")
+        );
     }
 
     #[test]

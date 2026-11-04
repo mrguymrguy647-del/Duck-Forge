@@ -117,6 +117,9 @@ pub(crate) fn run<G: Game>(
     options: &Options,
 ) -> Result<(), Box<dyn Error>> {
     config.check().map_err(EngineError)?;
+    if let Some(corner) = options.debug_corner {
+        config.debug_corner = corner;
+    }
     let script = match &options.inputs {
         Some(path) => Some(InputScript::load(path).map_err(EngineError)?),
         None => None,

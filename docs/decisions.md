@@ -3,10 +3,15 @@
 This file explains, in plain language, the choices made while building
 duckforge, and why. Each step has its own section, oldest first.
 
-The first part (Steps 1 to 6) taught duckforge to run games without a
-screen. The second part ("Phase 2") makes it comfortable for two kinds of
-game makers: a person learning Rust, and an AI agent building and testing
-games headless.
+It has three parts:
+
+- **Headless** (Steps 1 to 6): running games without a screen.
+- **Phase 1**: comfortable for two kinds of game makers, a person
+  learning Rust and an AI agent building games headless (sprites,
+  transparency, a camera, sound, text, helpers, the debug overlay).
+- **Phase 2**: efficient for an AI agent. Fewer rebuilds, fewer images,
+  fewer commands and less reading per good game; mostly tooling around
+  the engine.
 
 ## Step 1: The same inputs always give the same game
 
@@ -407,7 +412,7 @@ tests), shows everything the guide talks about (states, a difficulty
 ramp, safe time after a hit, a readable score, reports, play tests and a
 bot), and is the worked example the guide points to.
 
-# Phase 2: comfortable for people and AI agents
+# Phase 1: comfortable for people and AI agents
 
 An AI agent (DeepSeek) built a full game with duckforge and listed what it
 missed: sprites, a 2D camera, transparency, sound and some small helpers.
@@ -931,3 +936,63 @@ step, for the next phase):
    for Windows (`cargo check --target x86_64-pc-windows-gnu`) but hasn't
    played a sound on a real Windows machine yet; `test.bat` there is the
    next check.
+
+# Phase 2: efficient for an AI agent
+
+Claude built a test game ("Duck Defender") with phase 1 and reported what
+cost it time. The theme of this phase: an agent should need fewer
+rebuilds, fewer images, fewer commands and less reading to make a good
+game, while the engine stays small enough for a person learning Rust.
+
+## Step 0: Main catches up
+
+All of phase 1 was on `claude/peaceful-bohr-vniw0t`, and `main` was an
+ancestor of it, so `main` was fast-forwarded (no merge commit), tested
+(262 tests with default features, 245 headless, all passing) and pushed.
+This phase continues on the same branch name, restarted from `main`.
+
+## Step 1: Fixes from a review
+
+**The docs said things that were no longer true.** The cheat sheet said
+`Sprite::load_png` returns `io::Result` (it returns
+`Result<Sprite, LoadError>` since phase 1). Reading the AI guide, README
+and tutorial against the code found more: the tutorial still said "two
+keys work in every game", listed two Cargo features and the old
+`Cargo.toml`, called the font 3x5, showed headless output from before
+`log.json` existed, and quoted `Color::lerp` without alpha; the README's
+file table missed six new source files and four examples; the guide said
+"about 140 tests" and had a sentence about `--` stranded under the wrong
+heading; `docs/input-format.md` didn't list F1 as an engine key. All
+fixed. Quoted code that was deliberately simplified (the `Game` trait,
+`Canvas`, `fill_rect`, the game loop) now says what it leaves out. Every
+complete example in the three documents was compiled to check it.
+
+**Making the guide impossible to go stale.** Two tests now fail when the
+docs and the code drift apart:
+
+- `tests/cheat_sheet.rs` calls every function the cheat sheet mentions,
+  the way the cheat sheet says to (so renaming or removing one breaks
+  the build), and one of its tests reads the cheat sheet and fails if it
+  names a function the file never calls (so adding a function to the
+  guide without an example fails too). It was checked by adding a
+  made-up function to the guide: the test named it.
+- A test in `src/cli.rs` reads the AI guide and the README: every
+  `--flag` they mention must be an engine option (or on a short, named
+  list of Cargo's and the installer's flags), every engine option must
+  be mentioned in both and in `--help`, and the parser must accept every
+  option it lists. Tests are a better guard than care, because the docs
+  are long and change in many places at once.
+
+**The debug overlay hid the game's HUD.** Its info box was five lines in
+the top-left corner, exactly where most games draw their score. Now it's
+two short lines (`FRAME 600 FPS 60` and `CAM 685,600 X1 MOUSE 565,530`,
+the mouse in world coordinates, which is what you need to place things),
+on a lighter see-through background, in a corner of your choice:
+`Config::debug_corner` in code, `--debug-corner top-right` on the
+command line (which wins). The default is **bottom-right**: games
+usually put score, lives and timers along the top (both of this repo's
+games with a HUD do), and the engine's own F3 FPS counter already sits
+bottom-left. The corner is a `Config` setting rather than a
+`HeadlessOptions` one because it depends on the game's layout, which is
+the same in a window and headless; one place to set it. Tests check each
+corner, that the box stays small, and that the game shows through it.

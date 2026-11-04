@@ -83,7 +83,7 @@ both work (`"space"` is fine):
 `Backspace`, `LeftShift`, `RightShift`, `LeftCtrl`, `RightCtrl`,
 `LeftAlt`, `RightAlt`, and `F1` to `F12`.
 
-F3, F10 and F12 are the engine's own keys in a window (FPS counter,
+F1, F3, F10 and F12 are the engine's own keys in a window (debug overlay, FPS counter,
 recording, screenshots). They're never recorded, so a replay won't start
 recording or take screenshots.
 

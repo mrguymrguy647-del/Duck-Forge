@@ -267,6 +267,7 @@ after `--` goes to the game, not to Cargo):
 | `--zoom N` | How much close-ups are enlarged (default 4) |
 | `--record FILE` | In a window, record everything you do to FILE (F10 records too) |
 | `--debug` | Show the debug overlay (F1 in a window); with `--headless` it's in every saved picture |
+| `--debug-corner C` | Where the overlay's box goes: `top-left`, `top-right`, `bottom-left` or `bottom-right` (the default) |
 | `--help` | List the options |
 
 ```sh
@@ -353,9 +354,12 @@ joins `run.gif` and `audio.wav` into `run.mp4`, to watch with sound.
 ### The debug overlay
 
 Press **F1** in any game (or pass `--debug`, which also works headless)
-to see the FPS, the frame number, the camera's position and zoom, the
-mouse on the screen and in the world, and outlines of anything the game
-marks in `update`:
+to see outlines of anything the game marks in `update`, and a small
+see-through box with two short lines: the frame number and FPS, and the
+camera's position and zoom with the mouse's position in the world. The
+box sits in the bottom-right corner, where games rarely put their score;
+`Config { debug_corner: Corner::TopRight, .. }` or
+`--debug-corner top-right` moves it.
 
 ```rust
 ctx.debug_rect(self.player_hitbox());     // a magenta outline
@@ -490,18 +494,25 @@ higher.
 | `src/pictures.rs` | Contact sheets, GIFs and close-ups                                 |
 | `src/playtest.rs` | `PlayTest`: play a game inside `cargo test` and check its reports  |
 | `docs/`           | `AI_GUIDE.md` (for AI assistants), `decisions.md` (why things are the way they are), `input-format.md` |
-| `playthroughs/`   | Example input scripts for Breakout (win, lose) and the physics sandbox |
-| `src/canvas.rs`   | Software renderer: pixels, 2D shapes, text, triangles, depth buffer, screenshots |
+| `playthroughs/`   | Example input scripts for Breakout (win, lose), Dodge and the physics sandbox |
+| `src/canvas.rs`   | Software renderer: pixels, 2D shapes, text, sprites, the camera's view stack, triangles, depth buffer, screenshots |
+| `src/sprite.rs`   | `Sprite` (from PNG, ASCII art or pixels), `Blit` options, `Animation` |
+| `src/camera.rs`   | `Camera2D`: position, zoom, smooth follow, screen shake            |
+| `src/sound.rs`    | The synthesizer (`Sound`, `Wave`), `.wav` files, mixing `audio.wav` |
+| `src/speaker.rs`  | Playing sounds out loud in a window (only with the `audio` feature) |
+| `src/debug.rs`    | The debug overlay (F1, `--debug`)                                   |
+| `src/error.rs`    | `LoadError`: a missing or broken file, in one sentence              |
 | `src/render3d.rs` | 3D: `Camera3D`, `Mesh`, `Transform`, `Renderer`, and the CPU renderer |
 | `src/gpu.rs`      | The GPU renderer: wgpu setup, mesh cache, instancing, reading the picture back |
 | `src/gpu.wgsl`    | The shaders: the small programs that run on the graphics card       |
 | `src/physics.rs`  | `PhysicsWorld` and `Body`: collisions and an impulse solver, for `Vec2` or `Vec3` |
 | `src/input.rs`    | Keyboard and mouse: held, just pressed, just released               |
-| `src/math.rs`     | `Vec2`, `Rect`, `Vec3`, `Mat4`, and the `Vector` trait that makes physics generic |
+| `src/math.rs`     | `Vec2`, `Rect`, `Vec3`, `Mat4`, the `Vector` trait that makes physics generic, and the collision helpers |
 | `src/font.rs`     | A built-in 3-pixel-wide font: every printable ASCII character        |
-| `src/color.rs`    | RGB colors and blending                                             |
+| `src/color.rs`    | Colors with alpha, and see-through blending                         |
 | `src/rng.rs`      | A tiny xorshift random number generator                             |
-| `examples/`       | `hello`, `shapes`, `breakout`, `dodge`, `physics`, `world3d` and `stress3d` |
+| `examples/`       | `hello`, `shapes`, `template`, `breakout`, `dodge`, `duckling_parade`, `door_short`, `door_show_3d`, `physics`, `world3d` and `stress3d` |
+| `test.bat`        | Runs every test on Windows with a double-click                       |
 
 Only `src/window.rs` knows minifb exists, so the window library could be
 swapped out by rewriting one file.

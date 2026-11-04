@@ -60,7 +60,7 @@ runs save them in `audio.wav`.
 
 ```sh
 cargo build --no-default-features --examples
-cargo test --no-default-features               # about 140 tests, a few seconds
+cargo test --no-default-features               # about 250 tests, under a minute
 cargo run --no-default-features --example breakout -- --headless --sheet --out check
 ```
 
@@ -268,7 +268,8 @@ GAME OVER screen, because the run was twice as long as the game.
 
 Add `--debug` to see what the game *thinks* is there: hitboxes and zones
 it marked with `ctx.debug_rect` / `ctx.debug_circle` are outlined, and a
-panel shows the frame number, camera and mouse. When a collision looks
+small box in the bottom-right corner shows the frame number, camera and
+mouse. When a collision looks
 wrong, this answers "is the hitbox where the sprite is?" at a glance.
 
 Open, in this order:
@@ -517,7 +518,9 @@ window, or `sim.resize(w, h)` in a test).
 **`Config`** (use `..Config::default()` for the rest): `title`, `width`,
 `height`, `scale` (window size multiplier, 3), `target_fps` (60),
 `show_fps`, `renderer`, `timestep` (`Timestep::Fixed { updates_per_second: 60 }`),
-`seed` (`None`), `resizable` (`false`: the canvas keeps its size).
+`seed` (`None`), `resizable` (`false`: the canvas keeps its size),
+`debug_corner` (`Corner::BottomRight`; also `TopLeft`, `TopRight`,
+`BottomLeft`).
 
 **`Context`** (`ctx`): `ctx.dt()` (seconds per update), `ctx.time()`,
 `ctx.frame()`, `ctx.width()` / `ctx.height()` (as `f32`), `ctx.quit()`,
@@ -545,7 +548,8 @@ alpha below 255 is drawn see-through (`clear` ignores alpha).
 
 **Sprites**: `Sprite::from_ascii(&["..yy", "yyyo"], &[('y', Color::YELLOW), ('o', Color::ORANGE)])`
 (one character per pixel, `'.'` see-through; draw small art straight in
-code, no files needed), `Sprite::load_png(path)?` (returns `io::Result`),
+code, no files needed), `Sprite::load_png(path)?` (returns
+`Result<Sprite, LoadError>`; the error prints as one sentence),
 `Sprite::from_pixels(w, h, vec_of_colors)`. `sprite.width()`,
 `height()`, `get_pixel(x, y)` (an `Option<Color>`; `.a` is 0 where
 see-through), `sub(x, y, w, h)` and `frames(w, h)` (cut a sheet, no
@@ -627,19 +631,24 @@ and `Simulation::new(config, game)` with `press`, `release`,
 
 **Command line**: `--headless`, `--frames N`, `--out DIR`, `--seed N`,
 `--inputs FILE`, `--snapshot-every N`, `--sheet`, `--gif`,
-`--crop X,Y,W,H`, `--zoom N`, `--debug`, `--record FILE` (window only), `--help`.
+`--crop X,Y,W,H`, `--zoom N`, `--debug`, `--debug-corner top-right` (where
+the overlay's box goes; bottom-right by default), `--record FILE` (window
+only), `--help`.
+They go after `--` with `cargo run`: `cargo run --example x -- --headless`.
 
 **Debug overlay**: `ctx.debug_rect(rect)` and `ctx.debug_circle(center, r)`
 in `update` (world coordinates; only the latest update's shapes are
-shown). `--debug` draws them, plus FPS, frame, camera position and zoom,
-and the mouse on screen and in the world, into every headless picture
-(`last.png`, snapshots, `sheet.png`, `run.gif`). In code:
+shown). `--debug` draws them into every headless picture (`last.png`,
+snapshots, `sheet.png`, `run.gif`), plus a small see-through box in the
+bottom-right corner: `FRAME 600 FPS 60` and
+`CAM 685,600 X1 MOUSE 565,530` (the mouse in world coordinates). Move the
+box with `Config { debug_corner: Corner::TopRight, .. }` or
+`--debug-corner top-right` if the game has a HUD there. In code:
 `HeadlessOptions { debug: true, .. }` or `sim.set_debug_overlay(true)`.
 
 **Errors**: `Sprite::load_png` and `Wav::load` return
 `Result<_, LoadError>`; a `LoadError` prints as one sentence (with the full
 path it looked for), even when `main` returns it with `?`.
-They go after `--` with `cargo run`: `cargo run --example x -- --headless`.
 
 ## 8. Common mistakes
 
@@ -679,8 +688,22 @@ centers the text horizontally; you choose `y` (for vertical centering,
 pixels tall, so at scale 1 it's harder to read than capitals: use scale 2,
 or capitals, for anything important.
 
-**Reporting in `draw`.** You can't: `draw` gets no `ctx`. Report in
-`update`.
+**Reporting, playing sounds or marking debug shapes in `draw`.** You
+can't: `draw` gets no `ctx`. Do all three in `update`.
+
+**The score drawn inside the camera.** Everything between `push_camera`
+and `pop_camera` moves and shakes with the world. Draw the HUD after
+`pop_camera`, in screen pixels.
+
+**A sound inside `if is_down(...)`.** It plays again every frame the key
+is held: `log.json` shows the same sound on dozens of frames in a row.
+Use `was_pressed` for sounds.
+
+**Effects that use `ctx.rng` change the game.** Screen shake (and any
+random particles you make with `ctx.rng`) take random numbers, so every
+random event after them comes out differently. Runs stay repeatable, but
+adding a shake can change where the next enemy appears; re-check
+balance tests after adding effects.
 
 **Reporting a value that changes all the time.** `dodge` first reported
 how many blocks were on screen. It changed every few frames, and buried

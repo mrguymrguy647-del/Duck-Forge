@@ -111,6 +111,37 @@ pub struct Config {
     /// the canvas always stays `width` x `height`, and a bigger window
     /// just shows it bigger. Headless runs never resize by themselves.
     pub resizable: bool,
+    /// Which corner of the screen the debug overlay's info box sits in
+    /// (F1 in a window, `--debug` headless). Bottom-right by default,
+    /// where games rarely put their score. `--debug-corner` overrides it.
+    pub debug_corner: Corner,
+}
+
+/// A corner of the screen, for [`Config::debug_corner`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Corner {
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    /// The default: most games put their score and lives along the top,
+    /// and the F3 FPS counter sits bottom-left.
+    #[default]
+    BottomRight,
+}
+
+impl Corner {
+    /// Reads `top-left`, `top-right`, `bottom-left` or `bottom-right`.
+    pub(crate) fn parse(text: &str) -> Result<Corner, String> {
+        match text.to_ascii_lowercase().replace('_', "-").as_str() {
+            "top-left" => Ok(Corner::TopLeft),
+            "top-right" => Ok(Corner::TopRight),
+            "bottom-left" => Ok(Corner::BottomLeft),
+            "bottom-right" => Ok(Corner::BottomRight),
+            _ => Err(format!(
+                "--debug-corner must be top-left, top-right, bottom-left or bottom-right, not {text:?}"
+            )),
+        }
+    }
 }
 
 impl Config {
@@ -166,6 +197,7 @@ impl Default for Config {
             timestep: Timestep::default(),
             seed: None,
             resizable: false,
+            debug_corner: Corner::default(),
         }
     }
 }

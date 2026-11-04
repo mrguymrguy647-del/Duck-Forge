@@ -87,20 +87,24 @@ newer; `rustc --version` tells you what you have.
 ```sh
 cargo run --example hello      # a square you move with the keys or the mouse
 cargo run --example shapes     # every 2D drawing function, animated
+cargo run --example template   # a small platformer to copy for your own game
 cargo run --example breakout   # the full Breakout game
+cargo run --example dodge      # dodge the falling rocks: sprites, sound, screen shake
 cargo run --example physics    # a 2D physics sandbox: click to drop things
 cargo run --example world3d    # a 3D world with physics: fly around, throw balls
 cargo run --release --example stress3d   # thousands of 3D shapes: how fast is it?
 ```
 
 The first build takes a few minutes because Cargo downloads and compiles
-minifb, wgpu (the graphics card library) and the crates they depend on.
+minifb, wgpu (the graphics card library), tinyaudio (sound, on Windows)
+and the crates they depend on.
 After that, builds are fast. Adding
 `--release` gives fully optimized builds, but the project is set up so
 normal builds run smoothly too.
 
-Two keys work in every game: **F3** shows the frame rate (frames per
-second, or FPS), and **F12** saves a screenshot.
+Four keys work in every game: **F1** shows the debug overlay, **F3**
+shows the frame rate (frames per second, or FPS), **F10** starts and
+stops recording what you do, and **F12** saves a screenshot.
 
 **Cargo commands you'll use:**
 
@@ -109,7 +113,7 @@ second, or FPS), and **F12** saves a screenshot.
 | `cargo check`      | Checks your code for errors without building. The fastest feedback. |
 | `cargo build`      | Compiles everything.                                      |
 | `cargo run --example NAME` | Builds and runs `examples/NAME.rs`.               |
-| `cargo test`       | Runs all the tests.                                       |
+| `cargo test`       | Runs all the tests. On Windows you can also double-click `test.bat`. |
 | `cargo clippy`     | A linter with hundreds of helpful suggestions.            |
 | `cargo fmt`        | Formats your code in the standard style.                  |
 | `cargo doc --open` | Builds documentation for the engine and opens it in your browser. |
@@ -130,7 +134,13 @@ src/
   pictures.rs       contact sheets, GIFs, close-ups
   playtest.rs       PlayTest: play a game inside `cargo test` and check its reports
   canvas.rs         the pixel buffer: 2D drawing, triangles, the depth buffer
-  font.rs           a tiny 3x5 pixel font
+  sprite.rs         sprites (pictures made of pixels) and animations
+  camera.rs         the 2D camera: following, zoom and screen shake
+  sound.rs          the sound synthesizer, .wav files, and audio.wav for headless runs
+  speaker.rs        playing sounds out loud in a window
+  debug.rs          the debug overlay (F1)
+  error.rs          LoadError: a missing or broken file, in one sentence
+  font.rs           a tiny pixel font: every ASCII character, 3 pixels wide
   input.rs          keyboard and mouse
   math.rs           Vec2, Rect, Vec3 and the Vector trait
   color.rs          Color
@@ -142,8 +152,12 @@ src/
 examples/
   hello.rs          the smallest game
   shapes.rs         a tour of the 2D drawing functions
+  template.rs       a small platformer to copy when you start a game
   breakout.rs       a complete 2D game
   dodge.rs          a small game built without a screen (see docs/AI_GUIDE.md)
+  duckling_parade.rs  a bigger game, also built without a screen
+  door_short.rs     a one-minute video drawn with the engine
+  door_show_3d.rs   the same video on a 3D stage
   physics.rs        a 2D physics sandbox
   world3d.rs        a 3D playground with physics
   stress3d.rs       a 3D stress test and benchmark
@@ -166,16 +180,25 @@ rust-version = "1.87"
 description = "A small game engine (2D, 3D and physics), written for learning Rust"
 
 [features]
-default = ["window", "gpu"]
+default = ["window", "gpu", "audio"]
 window = ["dep:minifb"]
 gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
+audio = ["dep:tinyaudio", "dep:libc"]
 
 [dependencies]
 minifb = { version = "0.28", optional = true }
+gif = "0.14"
 png = "0.18"
+serde_json = "1"
 wgpu = { version = "30", optional = true }
 pollster = { version = "1", optional = true }
 bytemuck = { version = "1", features = ["derive"], optional = true }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+tinyaudio = { version = "2", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { version = "0.2", optional = true }
 
 [profile.dev]
 opt-level = 1
@@ -189,19 +212,24 @@ opt-level = 1
   compiler that can build the project.
 - `[dependencies]` lists other crates to download from
   [crates.io](https://crates.io). **minifb** opens a window, shows pixels
-  and reports key presses. **png** saves pictures as PNG files
-  ([chapter 23](#23-running-without-a-screen)). The other three are only
-  for the GPU renderer
+  and reports key presses. **png** reads and saves pictures as PNG files
+  ([chapter 23](#23-running-without-a-screen)), **gif** saves animated
+  GIFs and **serde_json** reads and writes JSON files (chapters 24 and 25).
+  Three are only for the GPU renderer
   ([chapter 21](#21-moving-3d-to-the-gpu)): **wgpu** talks to the graphics
   card, **pollster** waits for its `async` setup, and **bytemuck** turns
   data into raw bytes for it. Everything else we write ourselves, because
   that's the point of the exercise.
 - `[features]` are optional parts of a crate. `gpu` switches on the three
   `optional = true` dependencies (`dep:wgpu` means "the wgpu dependency"),
-  and `window` switches on minifb. `default = ["window", "gpu"]` turns both
-  on unless you say otherwise. `cargo build --no-default-features` builds
-  an engine with no window and no GPU code, for machines without a screen
-  ([chapter 23](#23-running-without-a-screen)).
+  `window` switches on minifb, and `audio` plays sounds out loud
+  ([chapter 31](#31-sound)): with tinyaudio on Windows and macOS, and with
+  libc on Linux, where the engine loads the system's sound library when a
+  game starts. The `[target...]` sections list dependencies only for some
+  operating systems. `default = ["window", "gpu", "audio"]` turns all
+  three on unless you say otherwise. `cargo build --no-default-features`
+  builds an engine with no window, GPU or sound-playback code, for
+  machines without a screen ([chapter 23](#23-running-without-a-screen)).
 - `[profile.dev]` changes how normal (debug) builds are compiled.
   `opt-level = 1` turns on light optimization, because code that touches
   every pixel is very slow without any.
@@ -457,7 +485,9 @@ pub struct Canvas {
 }
 ```
 
-Outside `canvas.rs` you can only read the size through `canvas.width()`.
+(The real `Canvas` has a few more private fields, for 3D, the GPU and
+the camera, but the idea is the same.) Outside `canvas.rs` you can only
+read the size through `canvas.width()`.
 Why? If a game could set `canvas.width = 1000` without resizing `pixels`,
 every drawing function would index out of bounds. Keeping the fields
 private makes that mistake impossible.
@@ -1025,10 +1055,11 @@ It can use variables from around it. From `Color::lerp`:
 pub fn lerp(self, other: Color, t: f32) -> Color {
     let t = t.clamp(0.0, 1.0);
     let mix = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * t).round() as u8;
-    Color::rgb(
+    Color::rgba(
         mix(self.r, other.r),
         mix(self.g, other.g),
         mix(self.b, other.b),
+        mix(self.a, other.a),
     )
 }
 ```
@@ -1083,7 +1114,10 @@ pub trait Game {
 }
 ```
 
-Any type that implements these two methods is a game. From `examples/hello.rs`:
+Any type that implements these two methods is a game. (The real trait
+also has two optional methods, `init` and `resize`, with bodies that do
+nothing, so games can skip them: see
+[chapter 33](#33-collisions-and-small-helpers).) From `examples/hello.rs`:
 
 ```rust
 struct Hello {
@@ -1541,7 +1575,9 @@ Four design decisions shape everything:
 ## 13. The game loop
 
 Every game engine, from this one to Unreal, is built around a loop that
-runs once per frame. Here's ours, from `run` in `src/window.rs`:
+runs once per frame. Here's ours, from `run` in `src/window.rs`, with a
+few extras left out (resizing, the F1 debug overlay, F10 recording, and
+sending sounds to the speakers):
 
 ```rust
 while window.is_open() && !sim.quit_requested() {
@@ -1657,7 +1693,9 @@ after row:
 ```
 
 Each `u32` packs a color as `0x00RRGGBB`. `Color::to_u32` builds it with bit
-shifts:
+shifts (a color's alpha isn't stored: the canvas itself is always solid,
+and see-through colors are mixed in as they're drawn,
+[chapter 28](#28-see-through-colors)):
 
 ```rust
 pub const fn to_u32(self) -> u32 {
@@ -1675,7 +1713,9 @@ pub const fn to_u32(self) -> u32 {
 **Scaling:** the canvas is 320x240 but the window opens at 960x720 (`scale:
 3`). minifb stretches the small image to fill the window, which gives the
 chunky pixel-art look for free. The window keeps the right shape if you
-resize it (`ScaleMode::AspectRatioStretch`).
+resize it (`ScaleMode::AspectRatioStretch`). With `Config { resizable:
+true, .. }` the canvas grows with the window instead
+([chapter 33](#33-collisions-and-small-helpers)).
 
 ## 15. Drawing shapes and text
 
@@ -1702,6 +1742,10 @@ pub fn fill_rect(&mut self, rect: Rect, color: Color) {
     }
 }
 ```
+
+(This is the function as it was first written. Today it also handles
+see-through colors, [chapter 28](#28-see-through-colors), and the camera,
+[chapter 30](#30-a-2d-camera), but the solid-color path is exactly this.)
 
 Clamping the corners to the canvas is called **clipping**. Then each row of
 the rectangle is one contiguous stretch of memory, so we fill it as a
@@ -2904,26 +2948,31 @@ cargo run --no-default-features --example breakout -- --headless --frames 600 --
 
 ```text
 duckforge: ran "Breakout - duckforge" without a window for 600 frames (10.0 s of game time) in 0.00 s, seed 1
-duckforge: saved shots/last.png
+duckforge: saved in shots: last.png, log.json
+duckforge: the game reported bricks_left = 60, lives = 3, score = 0, state = "Serving"
 ```
+
+(`log.json` and the reported values come later, in
+[chapter 25](#25-seeing-a-whole-game).)
 
 ### Cargo features: leaving code out
 
 [Chapter 1](#1-cargo-rusts-build-tool) showed the `gpu` feature. The
-window is now a feature too:
+window is a feature too (and, since chapter 31, so is sound playback):
 
 ```toml
 [features]
-default = ["window", "gpu"]
+default = ["window", "gpu", "audio"]
 window = ["dep:minifb"]
 gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
+audio = ["dep:tinyaudio", "dep:libc"]
 
 [dependencies]
 minifb = { version = "0.28", optional = true }
 ```
 
 `optional = true` means minifb is only downloaded and built when a feature
-asks for it, and `--no-default-features` turns both features off.
+asks for it, and `--no-default-features` turns all the features off.
 
 Inside the code, `#[cfg(...)]` decides what gets compiled. Everything that
 uses minifb moved from `engine.rs` into a new file, `src/window.rs`, and
@@ -4592,9 +4641,11 @@ in `draw`.
 
 ### See what the game thinks: F1
 
-Press **F1** while a game runs. The **debug overlay** shows the FPS, the
-frame number, where the camera is, where the mouse is (on the screen and
-in the world), and outlines of anything the game marked during `update`:
+Press **F1** while a game runs. The **debug overlay** shows outlines of
+anything the game marked during `update`, and a small see-through box in
+the bottom-right corner with the frame number, the FPS, where the camera
+is and where the mouse is in the world. (If your game has its score down
+there, set `debug_corner: Corner::TopRight` in your `Config`.)
 
 ```rust
 ctx.debug_rect(self.hitbox());           // magenta outline

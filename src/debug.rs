@@ -2,11 +2,14 @@
 //! (which also works with `--headless`, so the overlay shows up in
 //! snapshots, sheets and GIFs).
 //!
-//! It shows, in screen pixels on top of the game:
+//! It shows, in screen pixels on top of the game, in a small see-through
+//! box in one corner (bottom-right unless
+//! [`Config::debug_corner`](crate::engine::Config::debug_corner) or
+//! `--debug-corner` says otherwise):
 //!
-//! - the FPS and the frame number,
+//! - the frame number and the FPS,
 //! - the camera's position and zoom (the first camera the game pushed),
-//! - where the mouse is, on the screen and in the world,
+//! - where the mouse is in the world,
 //! - outlines of every shape the game registered during the update with
 //!   [`Context::debug_rect`] and [`Context::debug_circle`]: hitboxes,
 //!   trigger zones, anything you want to see.
@@ -14,7 +17,7 @@
 use crate::camera::Camera2D;
 use crate::canvas::Canvas;
 use crate::color::Color;
-use crate::engine::Context;
+use crate::engine::{Context, Corner};
 use crate::math::{Rect, Vec2, vec2};
 
 /// A shape the game asked to see outlined.
@@ -34,6 +37,7 @@ pub(crate) fn draw_overlay(
     ctx: &Context,
     shapes: &[DebugShape],
     camera: Option<&Camera2D>,
+    corner: Corner,
 ) {
     let to_screen = |p: Vec2| camera.map_or(p, |c| c.world_to_screen(p));
     let zoom = camera.map_or(1.0, |c| {
@@ -55,38 +59,53 @@ pub(crate) fn draw_overlay(
         }
     }
 
-    let mouse = ctx.input.mouse_position();
-    let mut lines = vec![format!("FPS {:.0}  FRAME {}", ctx.fps(), ctx.frame())];
-    match camera {
-        Some(c) => {
-            lines.push(format!(
-                "CAMERA {:.0}, {:.0}  ZOOM {:.2}",
-                c.position.x, c.position.y, c.zoom
-            ));
-            let world = c.screen_to_world(mouse);
-            lines.push(format!(
-                "MOUSE {:.0}, {:.0}  WORLD {:.0}, {:.0}",
-                mouse.x, mouse.y, world.x, world.y
-            ));
-        }
-        None => {
-            lines.push(String::from("CAMERA NONE"));
-            lines.push(format!("MOUSE {:.0}, {:.0}", mouse.x, mouse.y));
-        }
-    }
-    if !shapes.is_empty() {
-        lines.push(format!("SHAPES {}", shapes.len()));
-    }
-    let text = lines.join("\n");
+    let text = info_text(ctx, camera);
+    let lines = text.lines().count();
     let size = vec2(
         Canvas::text_width(&text, 1) + 4.0,
-        Canvas::line_height(1) * (lines.len() - 1) as f32 + Canvas::text_height(1) + 4.0,
+        Canvas::line_height(1) * (lines - 1) as f32 + Canvas::text_height(1) + 4.0,
     );
-    canvas.fill_rect(
-        Rect::new(0.0, 0.0, size.x, size.y),
-        Color::rgba(0, 0, 0, 170),
-    );
-    canvas.draw_text(&text, vec2(2.0, 2.0), 1, Color::YELLOW);
+    let (width, height) = (canvas.width() as f32, canvas.height() as f32);
+    let x = match corner {
+        Corner::TopLeft | Corner::BottomLeft => 0.0,
+        Corner::TopRight | Corner::BottomRight => width - size.x,
+    };
+    let y = match corner {
+        Corner::TopLeft | Corner::TopRight => 0.0,
+        Corner::BottomLeft | Corner::BottomRight => height - size.y,
+    };
+    // See-through, so the game shows through the box.
+    canvas.fill_rect(Rect::new(x, y, size.x, size.y), Color::rgba(0, 0, 0, 120));
+    canvas.draw_text(&text, vec2(x + 2.0, y + 2.0), 1, Color::YELLOW);
+}
+
+/// The overlay's two short lines, like
+/// `"FRAME 600 FPS 60"` and `"CAM 685,600 X2 MOUSE 565,530"`. The mouse
+/// is given in world coordinates when there's a camera.
+fn info_text(ctx: &Context, camera: Option<&Camera2D>) -> String {
+    let first = format!("FRAME {} FPS {:.0}", ctx.frame(), ctx.fps());
+    let mouse = ctx.input.mouse_position();
+    let second = match camera {
+        Some(c) => {
+            let world = c.screen_to_world(mouse);
+            format!(
+                "CAM {:.0},{:.0} X{} MOUSE {:.0},{:.0}",
+                c.position.x,
+                c.position.y,
+                short_number(c.zoom),
+                world.x,
+                world.y
+            )
+        }
+        None => format!("MOUSE {:.0},{:.0}", mouse.x, mouse.y),
+    };
+    format!("{first}\n{second}")
+}
+
+/// A number with at most two decimals and no trailing zeros: 2, 1.5, 0.25.
+fn short_number(value: f32) -> String {
+    let text = format!("{value:.2}");
+    text.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
 /// A circle's outline, drawn with short lines.
@@ -106,6 +125,7 @@ fn ring(canvas: &mut Canvas, center: Vec2, radius: f32, color: Color) {
 
 #[cfg(test)]
 mod tests {
+    use crate::canvas::Canvas;
     use crate::prelude::*;
     use crate::{HeadlessOptions, Simulation, run_headless};
 
@@ -171,10 +191,73 @@ mod tests {
         );
         // The circle's radius is 30 world pixels: 60 on screen.
         assert_eq!(picture.get_pixel(220, 120), Some(Color::rgb(0, 255, 255)));
-        // The panel's see-through black darkens the top-left corner, and
-        // has yellow text in it.
-        let panel: Vec<Color> = (0..120).filter_map(|x| picture.get_pixel(x, 4)).collect();
-        assert!(panel.contains(&Color::YELLOW), "text in the panel");
+        // The info box is in the bottom-right corner by default, and the
+        // top-left corner (where games put their score) is untouched.
+        assert!(yellow_in(picture, 220, 220, 100, 20), "text bottom-right");
+        assert!(!yellow_in(picture, 0, 0, 160, 30), "nothing top-left");
+    }
+
+    /// Whether any pixel in the area is the overlay's yellow text.
+    fn yellow_in(picture: &Canvas, x: i32, y: i32, w: i32, h: i32) -> bool {
+        (y..y + h).any(|py| (x..x + w).any(|px| picture.get_pixel(px, py) == Some(Color::YELLOW)))
+    }
+
+    #[test]
+    fn the_info_box_goes_in_the_chosen_corner_and_stays_small() {
+        let areas = [
+            (Corner::TopLeft, (0, 0)),
+            (Corner::TopRight, (200, 0)),
+            (Corner::BottomLeft, (0, 220)),
+            (Corner::BottomRight, (200, 220)),
+        ];
+        for (corner, (x, y)) in areas {
+            let config = Config {
+                debug_corner: corner,
+                ..Config::default()
+            };
+            let mut sim = Simulation::new(config, game());
+            sim.set_debug_overlay(true);
+            sim.step();
+            let picture = sim.picture();
+            assert!(yellow_in(picture, x, y, 120, 20), "{corner:?}");
+            // Two lines of text: everything else in that half of the screen is untouched.
+            let other_y = if y == 0 { 20 } else { 0 };
+            assert!(
+                !yellow_in(picture, x, other_y, 120, 200),
+                "{corner:?} is compact"
+            );
+        }
+    }
+
+    #[test]
+    fn the_box_is_see_through() {
+        struct White;
+        impl Game for White {
+            fn update(&mut self, _: &mut Context) {}
+            fn draw(&self, canvas: &mut Canvas) {
+                canvas.clear(Color::WHITE);
+            }
+        }
+        let mut sim = Simulation::new(Config::default(), White);
+        sim.set_debug_overlay(true);
+        sim.step();
+        let corner = sim.picture().get_pixel(319, 239).unwrap();
+        assert!(
+            corner != Color::WHITE && corner != Color::BLACK,
+            "{corner:?}: dimmed, not hidden"
+        );
+    }
+
+    #[test]
+    fn two_short_lines() {
+        let mut camera = Camera2D::new(320.0, 240.0);
+        camera.position = vec2(685.0, 600.0);
+        camera.zoom = 1.5;
+        let mut ctx = Context::new(320, 240, 1);
+        ctx.begin_frame(1.0 / 60.0, []);
+        let text = super::info_text(&ctx, Some(&camera));
+        assert_eq!(text, "FRAME 1 FPS 0\nCAM 685,600 X1.5 MOUSE 578,520");
+        assert_eq!(super::info_text(&ctx, None), "FRAME 1 FPS 0\nMOUSE 0,0");
     }
 
     #[test]
