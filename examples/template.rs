@@ -226,9 +226,13 @@ impl Game for Template {
                 Color::from_hex(0x8b5a2b)
             };
             canvas.fill_rect(*platform, color);
+            // Labels name things for tools that can't see the picture:
+            // --describe, scene files, and the F1 overlay.
+            canvas.label(if i == 0 { "ground" } else { "platform" }, *platform);
         }
         for &coin in &self.coins {
             canvas.fill_circle(coin, 4.0, Color::from_hex(0xffd700));
+            canvas.label("coin", Rect::from_center(coin, 8.0, 8.0));
         }
         let frame = if self.on_ground {
             self.walk.frame_at(self.walk_time)
@@ -241,6 +245,7 @@ impl Game for Template {
             ..Default::default()
         };
         canvas.blit_sprite(frame, self.pos, blit);
+        canvas.label("player", self.hitbox());
         canvas.pop_camera();
 
         // The screen: the score stays put.

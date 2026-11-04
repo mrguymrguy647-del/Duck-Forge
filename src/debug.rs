@@ -12,13 +12,16 @@
 //! - where the mouse is in the world,
 //! - outlines of every shape the game registered during the update with
 //!   [`Context::debug_rect`] and [`Context::debug_circle`]: hitboxes,
-//!   trigger zones, anything you want to see.
+//!   trigger zones, anything you want to see,
+//! - green outlines, with their names, of everything the game labelled with
+//!   [`Canvas::label`](crate::canvas::Canvas::label).
 
 use crate::camera::Camera2D;
 use crate::canvas::Canvas;
 use crate::color::Color;
 use crate::engine::{Context, Corner};
 use crate::math::{Rect, Vec2, vec2};
+use crate::scene::Label;
 
 /// A shape the game asked to see outlined.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -30,15 +33,23 @@ pub(crate) enum DebugShape {
 /// Outline colors: bright and unlike most game colors.
 const OUTLINE: Color = Color::rgb(255, 0, 255);
 const CIRCLE: Color = Color::rgb(0, 255, 255);
+const LABEL: Color = Color::rgb(0, 255, 0);
 
 /// Draws the overlay onto `canvas`, which already holds the game's picture.
 pub(crate) fn draw_overlay(
     canvas: &mut Canvas,
     ctx: &Context,
     shapes: &[DebugShape],
+    labels: &[Label],
     camera: Option<&Camera2D>,
     corner: Corner,
 ) {
+    // Labels: a green outline where they are on screen, with the name above.
+    for label in labels.iter().filter(|l| l.on_screen) {
+        canvas.draw_rect(label.screen, LABEL);
+        let name_at = vec2(label.screen.x, (label.screen.y - 6.0).max(0.0));
+        canvas.draw_text(&label.name, name_at, 1, LABEL);
+    }
     let to_screen = |p: Vec2| camera.map_or(p, |c| c.world_to_screen(p));
     let zoom = camera.map_or(1.0, |c| {
         c.world_to_screen(vec2(1.0, 0.0)).x - c.world_to_screen(Vec2::ZERO).x

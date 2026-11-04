@@ -46,7 +46,8 @@ Contents:
 | Text | Built-in 3-pixel-wide font with every printable ASCII character (space to `~`: capitals, lowercase, digits, all punctuation). Anything else (accents, emoji) becomes `?`. At scale 1, capitals are 5 px tall (`Canvas::text_height(1)`), lines are 7 px apart (`Canvas::line_height(1)`), and `g j p q y` hang 1 px below. `'\n'` starts a new line. |
 | Colors | `Color::rgb(r, g, b)` (solid), `Color::rgba(r, g, b, a)` and `color.with_alpha(a)` (a: 0 invisible to 255 solid; every drawing function blends), `Color::from_hex(0x14_14_28)`, constants `BLACK WHITE GRAY RED ORANGE YELLOW GREEN BLUE PURPLE`, `a.lerp(b, t)`. Build colors with these functions, never `Color { r, g, b }` (it has a 4th field, `a`). |
 | Engine keys | In a window: F1 = debug overlay, F3 = FPS counter, F10 = record, F12 = screenshot. Escape quitting is each game's choice (`ctx.quit()`). |
-| Output | `--headless` writes `last.png` and `log.json` (plus what you ask for) to `duckforge-out/`, or the folder in `--out`. |
+| Output | `--headless` writes `last.png`, `last.scene.json` and `log.json` (plus what you ask for) to `duckforge-out/`, or the folder in `--out`. |
+| Labels | `canvas.label("player", rect)` in `draw` names what's there (it draws nothing). Then `--describe` says in words what's on screen, every picture gets a `.scene.json` with each label's world and screen position, and the summary warns about labels never on screen, text off the edge, and labels overlapping on frame 1. Label your main objects. |
 
 ## 2. Set up on Linux
 
@@ -266,6 +267,28 @@ cargo run --no-default-features --example mygame -- --headless \
 `--frames` is how long to run (60 per second). Choose it to cover the
 interesting part: in the first run of `dodge`, half the sheet was the same
 GAME OVER screen, because the run was twice as long as the game.
+
+### Step 3b: Read the scene before looking at pictures
+
+If the game labels its objects (`canvas.label("rock", rect)` in `draw`),
+add `--describe` to the run. It prints the last frame in words, which is
+often enough to check a change without opening an image:
+
+```text
+frame 600, camera 160,120 zoom 1
+rock x4 at 45,213 264,141 302,70 222,-1
+duck at 154,216 12x12
+text: "TIME 10.0" at 4,4; "LIVES 3" at 289,4
+```
+
+`last.scene.json` (and `frame-NNNNNN.scene.json` for each snapshot) has
+the same as JSON, with each label's world rect, screen rect and
+`on_screen`. The summary also warns, naming the frame and the label,
+about: a label that's off screen in every checked frame (the first, 16
+spread over the run, every snapshot, the last), text drawn partly off the
+screen, and labels that overlap on frame 1 (things spawned on top of each
+other; a label entirely inside another, like an enemy inside a "level",
+doesn't count).
 
 ### Step 4: Look
 
@@ -661,11 +684,18 @@ and `Simulation::new(config, game)` with `press`, `release`,
 
 **Command line**: `--headless`, `--frames N`, `--out DIR`, `--seed N`,
 `--inputs FILE`, `--snapshot-every N`, `--sheet`, `--gif`,
-`--crop X,Y,W,H`, `--zoom N`, `--debug`, `--debug-corner top-right` (where
+`--crop X,Y,W,H`, `--zoom N`, `--describe`, `--debug`, `--debug-corner top-right` (where
 the overlay's box goes; bottom-right by default), `--tune FILE`,
 `--set NAME=N` (repeatable), `--write-tune`, `--record FILE` (window
 only), `--help`.
 They go after `--` with `cargo run`: `cargo run --example x -- --headless`.
+
+**Labels and scenes**: in `draw`, `canvas.label("name", rect)` (draws
+nothing; inside `push_camera` the rect is in the world). After a step,
+`sim.scene()` gives a `Scene` with `frame`, `camera` (`position`, `zoom`),
+`labels` (each `name`, `world`, `screen`, `on_screen`), `texts` (each
+`text`, `screen`), `scene.labels_named("rock")` and `scene.describe()`
+(the same words as `--describe`).
 
 **Debug overlay**: `ctx.debug_rect(rect)` and `ctx.debug_circle(center, r)`
 in `update` (world coordinates; only the latest update's shapes are

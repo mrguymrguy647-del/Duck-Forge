@@ -19,6 +19,7 @@ use crate::math::{Rect, Vec2, vec2};
 use crate::render3d::Renderer;
 #[cfg(feature = "gpu")]
 use crate::render3d::{Camera3D, Mesh, Transform};
+use crate::scene::{Label, SceneText};
 use crate::sprite::{Blit, Sprite};
 
 /// A 2D grid of pixels.
@@ -44,6 +45,10 @@ pub struct Canvas {
     saved_views: Vec<View>,
     /// The first camera pushed this frame, for the debug overlay.
     frame_camera: Option<Camera2D>,
+    /// What the game labelled with `label` since the last `take_scene`.
+    labels: Vec<Label>,
+    /// The lines of text drawn since the last `take_scene`.
+    texts: Vec<SceneText>,
 }
 
 /// The state of a canvas's connection to the graphics card.
@@ -73,6 +78,8 @@ impl Canvas {
             view: View::SCREEN,
             saved_views: Vec::new(),
             frame_camera: None,
+            labels: Vec::new(),
+            texts: Vec::new(),
         }
     }
 
@@ -138,6 +145,41 @@ impl Canvas {
     }
 
     /// The first camera pushed since the last call, which starts afresh.
+    /// Names what's in `rect`, for tools that can't see pixels. It draws
+    /// nothing (except, in the debug overlay, an outline with the name).
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// # let mut canvas = Canvas::new(320, 240);
+    /// # let player = Rect::new(10.0, 10.0, 12.0, 12.0);
+    /// canvas.fill_rect(player, Color::YELLOW);
+    /// canvas.label("player", player);
+    /// ```
+    ///
+    /// Inside `push_camera` the rectangle is in the world, like everything
+    /// else drawn there, and the engine works out where it is on screen.
+    /// Headless runs save every label (with both positions) in
+    /// `*.scene.json` files, `--describe` lists them in words, and tests
+    /// can read them with [`Simulation::scene`](crate::Simulation::scene).
+    pub fn label(&mut self, name: &str, rect: Rect) {
+        let screen = self.view.apply_rect(rect);
+        let canvas = Rect::new(0.0, 0.0, self.width as f32, self.height as f32);
+        self.labels.push(Label {
+            name: name.to_string(),
+            world: rect,
+            screen,
+            on_screen: screen.overlaps(&canvas),
+        });
+    }
+
+    /// Hands over the labels and text drawn since the last call.
+    pub(crate) fn take_scene(&mut self) -> (Vec<Label>, Vec<SceneText>) {
+        (
+            std::mem::take(&mut self.labels),
+            std::mem::take(&mut self.texts),
+        )
+    }
+
     pub(crate) fn take_frame_camera(&mut self) -> Option<Camera2D> {
         self.frame_camera.take()
     }
@@ -550,6 +592,23 @@ impl Canvas {
     /// canvas.draw_text("Score: 120\nLives: 3", vec2(4.0, 4.0), 2, Color::WHITE);
     /// ```
     pub fn draw_text(&mut self, text: &str, pos: Vec2, scale: u32, color: Color) {
+        // Remember each line and where it is on screen, for scene files.
+        for (i, line) in text.lines().enumerate() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let top_left = vec2(pos.x, pos.y + i as f32 * Canvas::line_height(scale));
+            let area = Rect::new(
+                top_left.x,
+                top_left.y,
+                Canvas::text_width(line, scale),
+                Canvas::text_height(scale),
+            );
+            self.texts.push(SceneText {
+                text: line.trim_end_matches('\r').to_string(),
+                screen: self.view.apply_rect(area),
+            });
+        }
         let s = scale as f32;
         let mut cursor = pos;
 

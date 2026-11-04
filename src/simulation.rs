@@ -11,6 +11,7 @@ use crate::input::{Key, MouseButton};
 use crate::math::Vec2;
 use crate::render3d::Renderer;
 use crate::report::{FrameReport, ReportLog, ReportValue};
+use crate::scene::{Scene, SceneCamera};
 use crate::script::{InputAction, InputEvent, InputScript};
 use crate::sound::{PlayedSound, SAMPLE_RATE};
 
@@ -99,6 +100,8 @@ pub struct Simulation<G> {
     debug_overlay: bool,
     /// Where the overlay's info box goes.
     debug_corner: Corner,
+    /// What the last drawn frame labelled, and its text.
+    scene: Scene,
 }
 
 impl<G: Game> Simulation<G> {
@@ -127,6 +130,11 @@ impl<G: Game> Simulation<G> {
             .unwrap_or_else(|problem| panic!("bad tune file: {problem}"));
         let mut ctx = Context::new(config.width, config.height, seed);
         *ctx.tunes_mut() = tunes;
+        // On the CPU, the renderer's name is known before anything is drawn.
+        // (Then drawing a frame, or not, can never change what the game sees.)
+        if renderer == Renderer::Cpu {
+            ctx.set_renderer_name(canvas.renderer_name());
+        }
         Self {
             game,
             ctx,
@@ -155,6 +163,7 @@ impl<G: Game> Simulation<G> {
             renderer,
             debug_overlay: false,
             debug_corner: config.debug_corner,
+            scene: Scene::default(),
         }
     }
 
@@ -536,6 +545,28 @@ impl<G: Game> Simulation<G> {
         self.reports.changes.clear();
     }
 
+    /// What the current frame shows, in words: everything the game marked
+    /// with [`Canvas::label`] (with its world and screen position), the
+    /// text it drew, and the camera. Draws the frame first if needed.
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// # struct G;
+    /// # impl Game for G {
+    /// #     fn update(&mut self, _: &mut Context) {}
+    /// #     fn draw(&self, canvas: &mut Canvas) { canvas.label("player", Rect::new(10.0, 20.0, 8.0, 8.0)); }
+    /// # }
+    /// let mut sim = Simulation::new(Config::default(), G);
+    /// sim.step();
+    /// let player = sim.scene().labels_named("player").next().unwrap();
+    /// assert_eq!(player.world.x, 10.0);
+    /// println!("{}", sim.scene().describe());
+    /// ```
+    pub fn scene(&mut self) -> &Scene {
+        self.picture();
+        &self.scene
+    }
+
     /// Uses these tune values from now on (from `--tune` and `--set`).
     pub(crate) fn set_tunes(&mut self, tunes: crate::tune::Tunes) {
         *self.ctx.tunes_mut() = tunes;
@@ -689,9 +720,20 @@ impl<G: Game> Simulation<G> {
     fn draw(&mut self) {
         self.canvas.reset_view(); // every frame starts with no camera
         self.canvas.take_frame_camera();
+        self.canvas.take_scene();
         self.game.draw(&mut self.canvas);
         self.canvas.reset_view(); // so the engine's own drawing is in screen pixels
         let camera = self.canvas.take_frame_camera();
+        let (labels, texts) = self.canvas.take_scene();
+        self.scene = Scene {
+            frame: self.ctx.frame(),
+            camera: camera.as_ref().map(|c| SceneCamera {
+                position: c.position,
+                zoom: c.zoom,
+            }),
+            labels,
+            texts,
+        };
         if self.debug_overlay {
             let shapes = self.ctx.debug_shapes();
             let corner = self.debug_corner;
@@ -699,9 +741,11 @@ impl<G: Game> Simulation<G> {
                 &mut self.canvas,
                 &self.ctx,
                 shapes,
+                &self.scene.labels,
                 camera.as_ref(),
                 corner,
             );
+            self.canvas.take_scene(); // the overlay's own text isn't the game's
         }
         self.canvas.flush_3d(); // make sure any 3D from the graphics card is in the pixels
         self.ctx.set_renderer_name(self.canvas.renderer_name());
@@ -744,6 +788,31 @@ mod tests {
         fn draw(&self, canvas: &mut Canvas) {
             canvas.clear(Color::BLUE);
         }
+    }
+
+    #[test]
+    fn drawing_extra_frames_never_changes_the_game() {
+        // Headless runs draw some frames only to check them (scene
+        // warnings). Whether a frame is drawn must not change what the game
+        // sees, like the renderer's name.
+        struct Watcher(Vec<String>);
+        impl Game for Watcher {
+            fn update(&mut self, ctx: &mut Context) {
+                self.0.push(ctx.renderer_name().to_string());
+            }
+            fn draw(&self, canvas: &mut Canvas) {
+                canvas.clear(Color::BLACK);
+            }
+        }
+        let mut drawn = Simulation::new(Config::default(), Watcher(Vec::new()));
+        let mut not_drawn = Simulation::new(Config::default(), Watcher(Vec::new()));
+        for _ in 0..3 {
+            drawn.step();
+            let _ = drawn.picture();
+            not_drawn.step();
+        }
+        assert_eq!(drawn.game().0, not_drawn.game().0);
+        assert_eq!(drawn.game().0[0], "CPU", "known from the first update");
     }
 
     #[test]

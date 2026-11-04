@@ -47,6 +47,7 @@ pub mod playtest;
 pub mod render3d;
 pub mod report;
 pub mod rng;
+pub mod scene;
 pub mod script;
 pub mod simulation;
 pub mod sound;

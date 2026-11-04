@@ -17,6 +17,7 @@ use crate::cli::{self, Options};
 use crate::engine::{Config, Game, Timestep};
 use crate::pictures::{self, Crop, GifWriter};
 use crate::report;
+use crate::scene;
 use crate::script::{self, InputScript};
 use crate::simulation::Simulation;
 use crate::sound;
@@ -129,12 +130,24 @@ pub fn run_headless<G: Game>(
     run_and_save(config, game, options).map(|(sim, _)| sim)
 }
 
-/// [`run_headless`], also returning the names of the files it saved.
+/// What a run saved, and what looked wrong.
+#[derive(Default)]
+struct Outcome {
+    /// The names of the files saved.
+    files: Vec<String>,
+    /// Problems found in the scenes (see [`scene::warnings`]).
+    warnings: Vec<String>,
+}
+
+/// How many frames, spread over the run, are checked for scene warnings.
+const CHECK_FRAMES: usize = 16;
+
+/// [`run_headless`], also returning what it saved and found.
 fn run_and_save<G: Game>(
     mut config: Config,
     game: G,
     options: &HeadlessOptions,
-) -> Result<(Simulation<G>, Vec<String>), String> {
+) -> Result<(Simulation<G>, Outcome), String> {
     config.check()?;
     let close_up = match (options.crop, options.zoom) {
         (Some(crop), zoom) => Some((crop, zoom.max(1))),
@@ -176,7 +189,7 @@ fn run_and_save<G: Game>(
     let Some(folder) = &options.out else {
         sim.run(options.frames);
         write_tune_if_asked(&mut sim, options)?;
-        return Ok((sim, Vec::new()));
+        return Ok((sim, Outcome::default()));
     };
     fs::create_dir_all(folder)
         .map_err(|err| format!("could not create the folder {}: {err}", folder.display()))?;
@@ -221,18 +234,32 @@ fn run_and_save<G: Game>(
         None
     };
 
+    // Frames whose scenes are checked for warnings: the first, some spread
+    // over the run, every snapshot, and the last.
+    let mut check_frames: BTreeSet<u64> = pictures::spread_frames(options.frames, CHECK_FRAMES)
+        .into_iter()
+        .collect();
+    check_frames.insert(1);
+    let mut scenes = Vec::new();
+
     for _ in 0..options.frames {
         if sim.quit_requested() {
             break;
         }
         sim.step();
         let frame = sim.context().frame();
-        if options
+        let snapshot = options
             .snapshot_every
-            .is_some_and(|every| frame.is_multiple_of(every))
-        {
+            .is_some_and(|every| frame.is_multiple_of(every));
+        if snapshot || check_frames.contains(&frame) {
+            scenes.push(sim.scene().clone());
+        }
+        if snapshot {
             let name = format!("frame-{frame:06}.png");
             save_png(sim.picture(), &folder.join(&name))?;
+            saved.push(name);
+            let name = format!("frame-{frame:06}.scene.json");
+            save_text(&sim.scene().to_json(), &folder.join(&name))?;
             saved.push(name);
             if let Some((crop, zoom)) = close_up {
                 let name = format!("closeup-{frame:06}.png");
@@ -258,6 +285,12 @@ fn run_and_save<G: Game>(
     let last = sim.context().frame();
     save_png(sim.picture(), &folder.join("last.png"))?;
     saved.push(String::from("last.png"));
+    save_text(&sim.scene().to_json(), &folder.join("last.scene.json"))?;
+    saved.push(String::from("last.scene.json"));
+    if scenes.last().is_none_or(|scene| scene.frame != last) && last > 0 {
+        scenes.push(sim.scene().clone());
+    }
+    let warnings = scene::warnings(&scenes, width as f32, height as f32);
     if let Some((crop, zoom)) = close_up {
         save_png(
             &pictures::close_up(sim.picture(), crop, zoom),
@@ -284,11 +317,21 @@ fn run_and_save<G: Game>(
         saved.push(String::from("audio.wav"));
     }
     saved.push(String::from("log.json"));
-    let log = log_json(&title, &sim, updates_per_second, options, &saved);
+    let log = log_json(&title, &sim, updates_per_second, options, &saved, &warnings);
     let path = folder.join("log.json");
     fs::write(&path, log).map_err(|err| format!("could not save {}: {err}", path.display()))?;
     write_tune_if_asked(&mut sim, options)?;
-    Ok((sim, saved))
+    Ok((
+        sim,
+        Outcome {
+            files: saved,
+            warnings,
+        },
+    ))
+}
+
+fn save_text(text: &str, path: &Path) -> Result<(), String> {
+    fs::write(path, text).map_err(|err| format!("could not save {}: {err}", path.display()))
 }
 
 /// `--write-tune`: saves every tune name the game used to the tune file.
@@ -345,16 +388,23 @@ fn remove_old_files(folder: &Path) {
 }
 
 fn is_our_file(name: &str) -> bool {
-    let numbered = |prefix: &str| {
+    let numbered = |prefix: &str, suffix: &str| {
         name.strip_prefix(prefix)
-            .and_then(|rest| rest.strip_suffix(".png"))
+            .and_then(|rest| rest.strip_suffix(suffix))
             .is_some_and(|digits| digits.len() == 6 && digits.bytes().all(|b| b.is_ascii_digit()))
     };
     matches!(
         name,
-        "last.png" | "closeup.png" | "sheet.png" | "run.gif" | "audio.wav" | "log.json"
-    ) || numbered("frame-")
-        || numbered("closeup-")
+        "last.png"
+            | "last.scene.json"
+            | "closeup.png"
+            | "sheet.png"
+            | "run.gif"
+            | "audio.wav"
+            | "log.json"
+    ) || numbered("frame-", ".png")
+        || numbered("frame-", ".scene.json")
+        || numbered("closeup-", ".png")
 }
 
 /// `log.json`: what was run, which files were saved, the game's reported
@@ -365,6 +415,7 @@ fn log_json<G: Game>(
     updates_per_second: f64,
     options: &HeadlessOptions,
     files: &[String],
+    warnings: &[String],
 ) -> String {
     let ctx = sim.context();
     let json = |value: Value| value.to_string();
@@ -408,6 +459,8 @@ fn log_json<G: Game>(
         .collect();
     text += &format!("  \"final\": {{{}}},\n", last.join(", "));
     text += &format!("  \"tune\": {},\n", sim.tunes().to_json());
+    let warnings: Vec<Value> = warnings.iter().map(|w| Value::from(w.as_str())).collect();
+    text += &format!("  \"warnings\": {},\n", json(Value::from(warnings)));
     text += "  \"sounds\": [";
     let sounds = sim.sounds();
     for (index, played) in sounds.iter().enumerate() {
@@ -480,7 +533,8 @@ pub(crate) fn run_from_command_line<G: Game>(
     }
     let title = config.title.clone();
     let started = Instant::now();
-    let (sim, saved) = run_and_save(config, game, &headless)?;
+    let (mut sim, outcome) = run_and_save(config, game, &headless)?;
+    let saved = &outcome.files;
     let seconds = started.elapsed().as_secs_f32();
 
     let ctx = sim.context();
@@ -509,7 +563,7 @@ pub(crate) fn run_from_command_line<G: Game>(
     if let Some(folder) = &headless.out {
         let snapshots = saved
             .iter()
-            .filter(|name| name.starts_with("frame-"))
+            .filter(|name| name.starts_with("frame-") && name.ends_with(".png"))
             .count();
         let mut listed: Vec<String> = saved
             .iter()
@@ -517,7 +571,9 @@ pub(crate) fn run_from_command_line<G: Game>(
             .cloned()
             .collect();
         if snapshots > 0 {
-            listed.push(format!("{snapshots} snapshots (frame-NNNNNN.png)"));
+            listed.push(format!(
+                "{snapshots} snapshots (frame-NNNNNN.png, each with frame-NNNNNN.scene.json)"
+            ));
         }
         println!(
             "duckforge: saved in {}: {}",
@@ -575,6 +631,12 @@ pub(crate) fn run_from_command_line<G: Game>(
         reported.truncate(12);
         println!("duckforge: the game reported {}", reported.join(", "));
     }
+    for warning in &outcome.warnings {
+        println!("duckforge: warning: {warning}");
+    }
+    if options.describe {
+        println!("{}", sim.scene().describe());
+    }
     Ok(())
 }
 
@@ -585,7 +647,7 @@ mod tests {
     use crate::color::Color;
     use crate::engine::Context;
     use crate::input::Key;
-    use crate::math::Rect;
+    use crate::math::{Rect, vec2};
 
     /// A square that moves right one pixel per update, and quits at frame `quit_at`.
     struct Mover {
@@ -914,6 +976,98 @@ mod tests {
         );
     }
 
+    /// Labels a player that walks right, through a camera that follows
+    /// it, a "ghost" far outside the level, and a score that's too long.
+    struct Labelled {
+        x: f32,
+    }
+
+    impl Game for Labelled {
+        fn update(&mut self, ctx: &mut Context) {
+            self.x += 1.0;
+            let _ = ctx;
+        }
+
+        fn draw(&self, canvas: &mut Canvas) {
+            canvas.clear(Color::BLACK);
+            let mut camera = crate::camera::Camera2D::new(64.0, 8.0);
+            camera.position = vec2(self.x + 32.0, 4.0);
+            canvas.push_camera(&camera);
+            canvas.label("player", Rect::new(self.x, 2.0, 4.0, 4.0));
+            canvas.label("enemy", Rect::new(self.x + 2.0, 2.0, 4.0, 4.0)); // on top of the player!
+            canvas.label("ghost", Rect::new(-500.0, 0.0, 4.0, 4.0));
+            canvas.pop_camera();
+            canvas.draw_text("SCORE 123456789", vec2(10.0, 1.0), 1, Color::WHITE);
+        }
+    }
+
+    #[test]
+    fn scenes_are_saved_described_and_checked() {
+        let folder = test_folder("scenes");
+        let options = HeadlessOptions {
+            frames: 30,
+            out: Some(folder.clone()),
+            snapshot_every: Some(15),
+            ..HeadlessOptions::default()
+        };
+        let (mut sim, outcome) = run_and_save(config(), Labelled { x: 0.0 }, &options).unwrap();
+        let scene = sim.scene();
+        assert_eq!(scene.frame, 30);
+        let player = scene.labels_named("player").next().unwrap();
+        assert_eq!(player.world, Rect::new(30.0, 2.0, 4.0, 4.0));
+        assert_eq!(
+            player.screen,
+            Rect::new(30.0 - 30.0, 2.0, 4.0, 4.0),
+            "the camera keeps it on the left"
+        );
+        assert!(player.on_screen);
+        assert_eq!(
+            scene.describe(),
+            "frame 30, camera 62,4 zoom 1\n\
+             player at 30,2 4x4\n\
+             enemy at 32,2 4x4\n\
+             ghost at -500,0 4x4 (off screen)\n\
+             text: \"SCORE 123456789\" at 10,1"
+        );
+        let saved = fs::read_to_string(folder.join("frame-000015.scene.json")).unwrap();
+        assert!(
+            saved.contains(r#""frame": 15"#)
+                && saved.contains(r#"{"name": "player", "world": [15, 2, 4, 4]"#),
+            "{saved}"
+        );
+        assert!(folder.join("last.scene.json").exists());
+
+        let warnings = &outcome.warnings;
+        assert_eq!(warnings.len(), 3, "{warnings:#?}");
+        assert!(
+            warnings[0]
+                .starts_with(r#"frame 1: labels "player" at 1,2 and "enemy" at 3,2 overlap"#),
+            "{warnings:#?}"
+        );
+        assert!(
+            warnings[1].starts_with(r#"frame 1: the text "SCORE 123456789""#),
+            "{warnings:#?}"
+        );
+        assert!(
+            warnings[2].starts_with(r#"label "ghost" is off screen in every checked frame"#),
+            "{warnings:#?}"
+        );
+        let log = fs::read_to_string(folder.join("log.json")).unwrap();
+        assert!(log.contains(r#""warnings": ["frame 1: labels"#), "{log}");
+    }
+
+    #[test]
+    fn a_clean_game_has_no_warnings() {
+        let folder = test_folder("scenes-clean");
+        let options = HeadlessOptions {
+            frames: 30,
+            out: Some(folder.clone()),
+            ..HeadlessOptions::default()
+        };
+        let (_, outcome) = run_and_save(config(), Mover { x: 0.0, quit_at: 0 }, &options).unwrap();
+        assert!(outcome.warnings.is_empty(), "{:?}", outcome.warnings);
+    }
+
     #[test]
     fn a_silent_game_saves_no_audio() {
         let folder = test_folder("audio-none");
@@ -1107,9 +1261,13 @@ mod tests {
                 "closeup-000030.png",
                 "closeup.png",
                 "frame-000010.png",
+                "frame-000010.scene.json",
                 "frame-000020.png",
+                "frame-000020.scene.json",
                 "frame-000030.png",
+                "frame-000030.scene.json",
                 "last.png",
+                "last.scene.json",
                 "log.json",
                 "notes.txt",
                 "run.gif",
@@ -1135,7 +1293,7 @@ mod tests {
         assert_eq!(changes.len(), 30);
         assert_eq!(changes[9]["far"], true);
         assert!(changes[10].get("far").is_none());
-        assert_eq!(log["files"].as_array().unwrap().len(), 11); // all but notes.txt
+        assert_eq!(log["files"].as_array().unwrap().len(), 15); // all but notes.txt
     }
 
     #[test]
@@ -1143,6 +1301,9 @@ mod tests {
         assert!(is_our_file("frame-000060.png"));
         assert!(is_our_file("closeup-123456.png"));
         assert!(is_our_file("log.json"));
+        assert!(is_our_file("frame-000060.scene.json"));
+        assert!(is_our_file("last.scene.json"));
+        assert!(!is_our_file("frame-000060.json"));
         assert!(!is_our_file("frame-60.png"));
         assert!(!is_our_file("frame-00006x.png"));
         assert!(!is_our_file("holiday.png"));

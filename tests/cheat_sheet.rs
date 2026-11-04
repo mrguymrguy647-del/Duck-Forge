@@ -151,6 +151,7 @@ impl Game for Everything {
         canvas.push_camera(&self.camera);
         canvas.push_offset(vec2(1.0, 1.0));
         canvas.blit_sprite(&self.duck, vec2(20.0, 20.0), Blit::default());
+        canvas.label("duck", Rect::new(20.0, 20.0, 4.0, 2.0));
         let blit = Blit {
             flip_x: true,
             flip_y: true,
@@ -202,6 +203,24 @@ fn the_game_parts_of_the_cheat_sheet_work() {
     sim.release_mouse(MouseButton::Left);
     sim.scroll(1.0);
     sim.run(5);
+    let scene = sim.scene();
+    let duck = scene.labels_named("duck").next().unwrap();
+    let _ = (
+        duck.name.as_str(),
+        duck.world,
+        duck.screen,
+        duck.on_screen,
+        scene.frame,
+    );
+    let _ = (
+        scene.camera.map(|c| (c.position, c.zoom)),
+        scene.texts.len(),
+    );
+    assert!(
+        scene.describe().contains("duck at 20,20"),
+        "{}",
+        scene.describe()
+    );
     sim.resize(200, 100);
     sim.set_debug_overlay(true);
     let _ = sim.picture();

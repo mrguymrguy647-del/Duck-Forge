@@ -84,6 +84,11 @@ const OPTIONS: &[OptionInfo] = &[
         help: "where the debug overlay's box goes: top-left, top-right, bottom-left or bottom-right (default)",
     },
     OptionInfo {
+        name: "--describe",
+        value: None,
+        help: "after a headless run, describe the last frame in words: every canvas.label, and the text drawn",
+    },
+    OptionInfo {
         name: "--tune",
         value: Some("FILE"),
         help: "read ctx.tune values from FILE (default: examples/<game>.tune.json, if it exists)",
@@ -128,6 +133,7 @@ pub(crate) struct Options {
     pub tune: Option<PathBuf>,
     pub set: Vec<(String, f32)>,
     pub write_tune: bool,
+    pub describe: bool,
 }
 
 impl Options {
@@ -163,6 +169,7 @@ impl Options {
                 "--tune" => options.tune = Some(PathBuf::from(value)),
                 "--set" => options.set.push(crate::tune::parse_set(value)?),
                 "--write-tune" => options.write_tune = true,
+                "--describe" => options.describe = true,
                 "--crop" => options.crop = Some(Crop::parse(value)?),
                 "--snapshot-every" => {
                     let every = value.parse().map_err(|_| {
@@ -200,6 +207,7 @@ impl Options {
             ("--gif", options.gif),
             ("--crop", options.crop.is_some()),
             ("--zoom", options.zoom.is_some()),
+            ("--describe", options.describe),
         ];
         if let Some((name, _)) = saves_files.iter().find(|(_, used)| *used) {
             if !options.headless {

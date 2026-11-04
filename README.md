@@ -272,6 +272,7 @@ after `--` goes to the game, not to Cargo):
 | `--record FILE` | In a window, record everything you do to FILE (F10 records too) |
 | `--debug` | Show the debug overlay (F1 in a window); with `--headless` it's in every saved picture |
 | `--debug-corner C` | Where the overlay's box goes: `top-left`, `top-right`, `bottom-left` or `bottom-right` (the default) |
+| `--describe` | After a headless run, describe the last frame in words: every `canvas.label`, and the text drawn |
 | `--tune FILE` | Read `ctx.tune` values from FILE (default: `examples/<game>.tune.json`, if it exists) |
 | `--set NAME=N` | Set one `ctx.tune` value, over the file (repeat it for more) |
 | `--write-tune` | After the run, write every `ctx.tune` name the game used, with its value, to the tune file |
@@ -373,6 +374,31 @@ window the file is read again whenever you save it, so you can tweak a
 running game. `--write-tune` creates the file with every name the game
 asked for, and `log.json` records each value and where it came from.
 `examples/template.rs` and `examples/template.tune.json` show it.
+
+### Seeing without pictures: labels
+
+In `draw`, name what you draw:
+
+```rust
+canvas.label("player", self.player);
+for rock in &self.rocks {
+    canvas.label("rock", *rock);
+}
+```
+
+Labels draw nothing (the F1 overlay outlines them with their names).
+Headless runs save a `last.scene.json` (and one per snapshot) with every
+label's position in the world and on the screen, `--describe` prints the
+last frame in words, and the summary warns about labels that are never on
+screen, text that runs off the edge, and labels that overlap on the first
+frame:
+
+```text
+frame 600, camera 160,120 zoom 1
+rock x4 at 45,213 264,141 302,70 222,-1
+duck at 154,216 12x12
+text: "TIME 10.0" at 4,4; "LIVES 3" at 289,4
+```
 
 ### The debug overlay
 

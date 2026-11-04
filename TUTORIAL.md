@@ -4660,6 +4660,31 @@ the duck is drawn. Collisions that "feel wrong" are very often a hitbox
 that's a few pixels off from its picture. Without a screen,
 `--headless --debug` puts the overlay into every saved picture.
 
+### Name what you draw
+
+A picture is easy for you to read and slow for a program. So the
+template also *names* its objects, right after drawing them:
+
+```rust
+canvas.label("player", self.hitbox());
+```
+
+A label draws nothing. The engine just remembers it, with where it is in
+the world and on the screen. Run the template headless with `--describe`
+and it tells you what's on screen in words:
+
+```text
+frame 120, camera 160,120 zoom 1
+ground at 0,220 960x20
+platform x8 at 120,180 220,150 (+6 off screen)
+coin x8 at 140,162 240,132 (+6 off screen)
+player at 40,206 12x14
+text: "Coins 0/8" at 4,4
+```
+
+Press F1 in a window and every label gets a green outline with its name.
+Tests can read labels too: `sim.scene().labels_named("player")`.
+
 ### Tweak numbers while it runs
 
 The template reads its speeds through `ctx.tune`:

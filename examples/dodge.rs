@@ -244,6 +244,7 @@ impl Game for Dodge {
                     ..Default::default()
                 },
             );
+            canvas.label("rock", *block);
         }
         // Flicker while safe after a hit: half see-through 4 times a second.
         let faded = self.safe_time > 0.0 && (self.safe_time * 8.0) as u32 % 2 == 1;
@@ -254,6 +255,7 @@ impl Game for Dodge {
         };
         let frame = self.art.waddle.frame_at(self.walk_time);
         canvas.blit_sprite(frame, vec2(self.player.x, self.player.y), duck);
+        canvas.label("duck", self.player);
         canvas.pop_camera();
 
         // The score sits on its own dark strip, so falling blocks can't hide

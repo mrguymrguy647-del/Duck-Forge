@@ -296,8 +296,9 @@ impl Context {
     }
 
     /// What draws 3D: `"CPU"`, or `"GPU: "` plus the graphics card's name.
-    /// Known from the second frame on, because the GPU starts up when the
-    /// first mesh is drawn.
+    /// On the CPU (always, headless) it's known from the first update;
+    /// with the GPU, from the second frame on, because the GPU starts up
+    /// when the first mesh is drawn.
     pub fn renderer_name(&self) -> &str {
         &self.renderer_name
     }

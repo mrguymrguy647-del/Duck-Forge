@@ -1084,3 +1084,62 @@ same seed and tune values give an identical run (log and pictures), and a
 different value gives a different one; `--write-tune` keeps the file's
 names and adds new ones; bad files and bad `--set` values give one
 sentence each; and the game name loses the test hash.
+
+## Step 4: Labels and scene dumps
+
+**Words are cheaper than pictures.** Looking at an image costs an agent
+far more than reading a few lines, and "is the duck on the ground?" is a
+question about positions, not pixels. So a game can name what it draws:
+`canvas.label("duck", rect)`. A label draws nothing; the canvas records
+its name, its rect as given (world coordinates inside `push_camera`) and
+where that is on screen (through the same view the drawing uses), and
+whether any of it is on screen. The canvas also records each line of
+text drawn, with its screen area, so the HUD can be read without
+pixels. After the game's `draw`, the simulation keeps these, with the
+camera, as a `Scene` (the overlay's own text is left out).
+
+**Three ways to read a scene.** `--describe` prints the last frame in a
+few lines, with repeats grouped (`rock x4 at ...`, `(+6 off screen)`), so
+the usual check after a change needs no image at all. Every snapshot and
+`last.png` gets a matching `.scene.json` with exact numbers. And tests can
+use `sim.scene()`, which draws the current frame if needed.
+
+**Warnings that name the frame and the label.** The run checks scenes
+from frame 1, 16 frames spread over the run, every snapshot and the last
+frame (drawing those extra frames costs a few milliseconds, and drawing
+never changes the game). It warns about:
+
+- a kind of label that's in every checked frame but never on screen
+  (usually drawn outside the camera, or with the wrong coordinates);
+- text drawn partly outside the canvas (each text once);
+- labels overlapping on frame 1, a common spawn bug. One label entirely
+  inside another (an enemy inside a "level" area) doesn't count, or a
+  game that labels its level would warn about everything.
+
+A test runs a game made to have all three problems and checks the exact
+warnings; another checks a clean game has none, and Dodge and the
+template run with no warnings.
+
+**Why "every checked frame" and not "any frame".** A label off screen in
+one frame is normal (a bullet leaving, a level scrolling). Off screen in
+every checked frame, while present in all of them, is almost always a
+bug.
+
+**Labels in the overlay** are green outlines with the name above them,
+next to the magenta and cyan `debug_rect` / `debug_circle` shapes. Labels
+are for "what is this", debug shapes for "what does the game think"
+(hitboxes, ranges); the overlay shows both.
+
+**The template and Dodge label their main objects** (player, ground,
+platforms, coins; duck, rocks), so their scenes and `--describe` are
+useful, and they serve as examples to copy.
+
+**A bug the extra drawing found.** Comparing every example's pictures
+before and after this step found one change: stress3d's frame 60 now
+showed "CPU" in its corner. The game prints `ctx.renderer_name()`, which
+the engine only learned the first time a frame was drawn. The new scene
+checks draw frame 1, so the name was known sooner. Drawing must never
+change what the game sees, so now a canvas that draws 3D on the CPU (as
+every headless run does) tells the context its name before the first
+update. A test checks that drawing extra frames, or not, gives the game
+exactly the same view. Every other example's pictures are unchanged.

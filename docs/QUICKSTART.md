@@ -80,6 +80,8 @@ Bigger start: copy `examples/template.rs` (platformer, sprites, camera, sound).
    An input script is `{"events": [{"frame": 10, "press": "Right"}, {"frame": 70, "release": "Right"}]}`.
 3. **Read the summary** it prints, then `out/catch/log.json`: every
    `ctx.report` value whenever it changed, and every sound with its frame.
+   Name things in `draw` with `canvas.label("star", rect)` and add
+   `--describe` to get the last frame in words.
 4. **Look at** `out/catch/sheet.png` (16 frames on one page). Add
    `--debug` to see hitboxes you marked with `ctx.debug_rect(rect)`.
 5. **Pin it down with a play test** in the same file, then
