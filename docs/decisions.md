@@ -703,3 +703,44 @@ either way.
 it plays, stereo, and music. Each would need a handle to a playing sound,
 which is a bigger API than "play this". They're in the AI guide's list
 of things the engine can't do yet.
+
+## Step 5: Text and font
+
+**Lowercase fits without moving anything.** Capitals and digits stay
+exactly as they were (5 rows, 3 columns). Lowercase letters use the
+bottom four rows (tall ones like `b d f h k l t` reach the top row), and
+the tails of `g j p q y` use a sixth row that hangs into the 2-pixel gap
+between lines. So line spacing, `text_width` and every capital stay the
+same, and text with capitals and digits draws the same pixels as before.
+
+**What did change:** text written in lowercase used to be drawn in
+capitals; now it's drawn in lowercase, as written. In this repository,
+only Dodge's "press space to start" changed (checked with the before and
+after snapshots of every example). Its play tests check reports, not
+pixels, so they pass unchanged.
+
+**Every printable ASCII character.** Space to `~`, including `" # $ % &
+* ; < > @ [ \ ] ^ _ ` { | } ~`, so an AI never has to remember which
+symbols are safe. Tests check each one has a real glyph, that no two
+characters look alike (it caught nothing, but it's cheap insurance for
+future edits), and that only `g j p q y` hang below the line. Anything
+outside ASCII is still drawn as `?`.
+
+**`m` and `w` are the hard ones.** Three pixels is very narrow for
+letters with three strokes. They were drawn several ways and compared in
+words like "my vow" and "brown"; the chosen `m` has a solid top (so it
+doesn't read as `n`) and `w` is a small capital W. Lowercase is readable
+at scale 1 but clearer at scale 2; the AI guide says so.
+
+**`text_height` and `line_height` are `Canvas::` functions, like
+`text_width`.** They don't need a canvas (they only depend on the font),
+so they're called `Canvas::text_height(2)` rather than
+`canvas.text_height(2)`, the same way as the existing `text_width`. One
+way to call all three. `text_height` is the height of a capital, which
+is what you center on; `line_height` is the distance from one line's top
+to the next.
+
+**Multi-line text already worked.** `draw_text` already started a new
+line at `'\n'` (and ignored the `'\r'` of Windows line endings), and
+`text_width` already measured the widest line. Now the docs say so, and
+`draw_text` uses `line_height` itself, so the two can't disagree.

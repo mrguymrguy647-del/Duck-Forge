@@ -69,7 +69,7 @@ cargo run --no-default-features --example breakout -- --headless --frames 600 --
 ## Features
 
 - **2D drawing:** rectangles, circles, lines, triangles, text in a built-in
-  pixel font, see-through colors (`Color::rgba`, `with_alpha`), and `.png`
+  pixel font (every ASCII character, lowercase too, multi-line), see-through colors (`Color::rgba`, `with_alpha`), and `.png`
   or `.bmp` screenshots.
 - **Sprites:** load a `.png`, or draw one with letters in your code
   (`Sprite::from_ascii`); cut frames from a sprite sheet, animate them, and
@@ -445,7 +445,7 @@ higher.
 | `src/physics.rs`  | `PhysicsWorld` and `Body`: collisions and an impulse solver, for `Vec2` or `Vec3` |
 | `src/input.rs`    | Keyboard and mouse: held, just pressed, just released               |
 | `src/math.rs`     | `Vec2`, `Rect`, `Vec3`, `Mat4`, and the `Vector` trait that makes physics generic |
-| `src/font.rs`     | A built-in 3x5 pixel font                                           |
+| `src/font.rs`     | A built-in 3-pixel-wide font: every printable ASCII character        |
 | `src/color.rs`    | RGB colors and blending                                             |
 | `src/rng.rs`      | A tiny xorshift random number generator                             |
 | `examples/`       | `hello`, `shapes`, `breakout`, `dodge`, `physics`, `world3d` and `stress3d` |

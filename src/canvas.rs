@@ -526,9 +526,18 @@ impl Canvas {
         }
     }
 
-    /// Draws text with the built-in 3x5 pixel font. `pos` is the top-left
+    /// Draws text with the built-in pixel font. `pos` is the top-left
     /// corner; `scale` makes each font pixel a `scale` x `scale` square.
-    /// A `'\n'` starts a new line.
+    ///
+    /// Every printable ASCII character has a glyph: capitals and digits
+    /// are 5 pixels tall, lowercase letters 4 (`g j p q y` hang one pixel
+    /// lower). A `'\n'` starts a new line, [`Canvas::line_height`] below:
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// # let mut canvas = Canvas::new(100, 40);
+    /// canvas.draw_text("Score: 120\nLives: 3", vec2(4.0, 4.0), 2, Color::WHITE);
+    /// ```
     pub fn draw_text(&mut self, text: &str, pos: Vec2, scale: u32, color: Color) {
         let s = scale as f32;
         let mut cursor = pos;
@@ -536,7 +545,7 @@ impl Canvas {
         for c in text.chars() {
             if c == '\n' {
                 cursor.x = pos.x;
-                cursor.y += font::LINE_HEIGHT as f32 * s;
+                cursor.y += Canvas::line_height(scale);
                 continue;
             }
             if c == '\r' {
@@ -544,7 +553,7 @@ impl Canvas {
             }
 
             let glyph = font::glyph(c);
-            for row in 0..font::GLYPH_HEIGHT {
+            for row in 0..font::GLYPH_ROWS {
                 for col in 0..font::GLYPH_WIDTH {
                     if font::is_lit(&glyph, col, row) {
                         let x = cursor.x + col as f32 * s;
@@ -563,7 +572,7 @@ impl Canvas {
     /// It's centered on the *screen* even inside a camera (then `y` and the
     /// size are in world units, as for `draw_text`).
     pub fn draw_text_centered(&mut self, text: &str, y: f32, scale: u32, color: Color) {
-        let line_height = font::LINE_HEIGHT as f32 * scale as f32;
+        let line_height = Canvas::line_height(scale);
         for (i, line) in text.lines().enumerate() {
             let x = if self.view.is_screen() {
                 (self.width as f32 - Canvas::text_width(line, scale)) / 2.0
@@ -575,6 +584,27 @@ impl Canvas {
             };
             self.draw_text(line, vec2(x, y + i as f32 * line_height), scale, color);
         }
+    }
+
+    /// How many pixels tall one line of text is at `scale`: the height of a
+    /// capital letter (5 pixels at scale 1). The tails of `g j p q y` hang
+    /// one font pixel below it.
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// // Center a line of text vertically on y = 120:
+    /// let top = 120.0 - Canvas::text_height(2) / 2.0;
+    /// # assert_eq!(top, 115.0);
+    /// ```
+    pub fn text_height(scale: u32) -> f32 {
+        font::GLYPH_HEIGHT as f32 * scale as f32
+    }
+
+    /// How far down each new line of text starts, at `scale` (7 pixels at
+    /// scale 1: a line of text plus a 2-pixel gap). `draw_text` uses this
+    /// for `'\n'`, so the second line's top is at `pos.y + line_height`.
+    pub fn line_height(scale: u32) -> f32 {
+        font::LINE_HEIGHT as f32 * scale as f32
     }
 
     /// How many pixels wide `text` is when drawn at `scale` (its widest line).

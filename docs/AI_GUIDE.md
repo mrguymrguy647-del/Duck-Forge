@@ -33,7 +33,7 @@ Contents:
 | Frames | Counted from **1**: `ctx.frame()` is 1 during the first `update`. Frame 600 = 10 seconds. Scripts and logs use the same numbers. |
 | Randomness | Use `ctx.rng` only (`range`, `range_i32`, `chance`). Headless runs use seed 1 unless told otherwise, so **the same command gives the same result**. |
 | Drawing | `draw(&self, canvas)` can't change the game. Start it with `canvas.clear(...)`. Later draws go on top. |
-| Text | Built-in 3x5 pixel font: `A-Z 0-9 . , : ! ? - + = / ( ) '` and space. Lowercase is drawn as uppercase; anything else becomes `?`. Scale 1 is 5 px tall. |
+| Text | Built-in 3-pixel-wide font with every printable ASCII character (space to `~`: capitals, lowercase, digits, all punctuation). Anything else (accents, emoji) becomes `?`. At scale 1, capitals are 5 px tall (`Canvas::text_height(1)`), lines are 7 px apart (`Canvas::line_height(1)`), and `g j p q y` hang 1 px below. `'\n'` starts a new line. |
 | Colors | `Color::rgb(r, g, b)` (solid), `Color::rgba(r, g, b, a)` and `color.with_alpha(a)` (a: 0 invisible to 255 solid; every drawing function blends), `Color::from_hex(0x14_14_28)`, constants `BLACK WHITE GRAY RED ORANGE YELLOW GREEN BLUE PURPLE`, `a.lerp(b, t)`. Build colors with these functions, never `Color { r, g, b }` (it has a 4th field, `a`). |
 | Engine keys | In a window: F3 = FPS counter, F10 = record, F12 = screenshot. Escape quitting is each game's choice (`ctx.quit()`). |
 | Output | `--headless` writes `last.png` and `log.json` (plus what you ask for) to `duckforge-out/`, or the folder in `--out`. |
@@ -521,7 +521,9 @@ press), `was_released(key)`, `axis(Key::Left, Key::Right)` (-1, 0 or 1),
 `set_pixel(x, y, color)`, `get_pixel(x, y)`,
 `draw_text(text, pos, scale, color)`,
 `draw_text_centered(text, y, scale, color)`,
-`Canvas::text_width(text, scale)`, `width()`, `height()`. Any color with
+`Canvas::text_width(text, scale)` (widest line), `Canvas::text_height(scale)`
+(a capital's height), `Canvas::line_height(scale)` (from one line's top to
+the next; `'\n'` in `draw_text` uses it), `width()`, `height()`. Any color with
 alpha below 255 is drawn see-through (`clear` ignores alpha).
 
 **Sprites**: `Sprite::from_ascii(&["..yy", "yyyo"], &[('y', Color::YELLOW), ('o', Color::ORANGE)])`
@@ -629,9 +631,12 @@ game objects is hard to read: in `dodge`, white score text over a red
 block coming in at the top was a blur. The fix was a dark strip behind
 the score.
 
-**Text that disappears or becomes `?`.** The font has capitals, digits and
-`. , : ! ? - + = / ( ) '`. No other symbols. `draw_text_centered` centers
-the text horizontally; you choose `y`.
+**Text that becomes `?`.** The font has every printable ASCII character,
+but nothing else: `é`, `£`, `→` and emoji become `?`. `draw_text_centered`
+centers the text horizontally; you choose `y` (for vertical centering,
+`y = middle - Canvas::text_height(scale) / 2.0`). Lowercase is only 4
+pixels tall, so at scale 1 it's harder to read than capitals: use scale 2,
+or capitals, for anything important.
 
 **Reporting in `draw`.** You can't: `draw` gets no `ctx`. Report in
 `update`.
@@ -807,7 +812,7 @@ Plan around these. Don't spend time looking for them:
 - No stereo panning: every sound is mono.
 - Physics boxes don't rotate (balls and axis-aligned boxes only).
 - No running in a web browser.
-- One built-in pixel font, capitals only.
+- One built-in pixel font (ASCII only), and no other fonts.
 - No gamepads.
 
 For anything else, read the source: it's small, commented, and the

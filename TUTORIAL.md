@@ -56,11 +56,12 @@ Keep the source files open next to this guide. When you see a file like
   - [29. Sprites](#29-sprites)
   - [30. A 2D camera](#30-a-2d-camera)
   - [31. Sound](#31-sound)
+  - [32. Text](#32-text)
 - **Part 5: Your turn**
-  - [32. Exercises](#32-exercises)
-  - [33. Common compiler errors](#33-common-compiler-errors)
-  - [34. What a code review found](#34-what-a-code-review-found)
-  - [35. Where to go next](#35-where-to-go-next)
+  - [33. Exercises](#33-exercises)
+  - [34. Common compiler errors](#34-common-compiler-errors)
+  - [35. What a code review found](#35-what-a-code-review-found)
+  - [36. Where to go next](#36-where-to-go-next)
 
 ---
 
@@ -525,7 +526,7 @@ added, and the slot's generation goes up by one. So an old id still points
 at the right slot, but its generation doesn't match any more, and looking
 it up finds nothing instead of the wrong body. This trick is called a
 *generational index*, and most game engines use it to name their objects.
-(Chapter 34 tells the story of the bug that led to it.)
+(Chapter 35 tells the story of the bug that led to it.)
 
 ## 5. Enums and pattern matching
 
@@ -1731,7 +1732,7 @@ a lot on 1960s hardware.
 Before stepping, the line is *clipped*: cut down to the part that's on the
 canvas (see `clip_line`). Without that, a line to a point far off-screen
 would step through millions of invisible pixels, and could even crash (see
-[chapter 34](#34-what-a-code-review-found)).
+[chapter 35](#35-what-a-code-review-found)).
 
 ### Triangles
 
@@ -1754,10 +1755,11 @@ say how close the pixel is to each corner. The 3D renderer uses these
 
 ### Text
 
-`src/font.rs` stores each character as five rows of three bits:
+`src/font.rs` stores each character as rows of three bits (five rows,
+plus a sixth for the tails of `g j p q y`, which is empty for `A`):
 
 ```rust
-'A' => [0b010, 0b101, 0b111, 0b101, 0b101],
+'A' => [0b010, 0b101, 0b111, 0b101, 0b101, 0b000],
 ```
 
 ```text
@@ -2784,7 +2786,7 @@ and shifting right pulls the high bits back down. After a few rounds,
 changing one bit of the seed changes about half the bits of the result.
 Notice `wrapping_mul`: the multiplication overflows on purpose, and in a
 debug build a plain `*` would panic when it overflows
-([chapter 34](#34-what-a-code-review-found)). `wrapping_mul` says "wrap
+([chapter 35](#35-what-a-code-review-found)). `wrapping_mul` says "wrap
 around, that's what I want".
 
 A new test in `src/rng.rs` checks that the first numbers from seeds 1 to
@@ -4335,9 +4337,99 @@ That's the one place in the engine where two threads share data, so the
 list of playing sounds sits behind a `Mutex`, a lock that lets only one
 thread at a time touch it.
 
+## 32. Text
+
+The built-in font has every printable ASCII character: capitals,
+lowercase, digits, and all the punctuation on a keyboard, from space to
+`~`. Capitals are 5 pixels tall at scale 1; lowercase letters are 4, and
+`g j p q y` hang one pixel below the line.
+
+Three functions help with layout:
+
+```rust
+Canvas::text_width("Hello", 2)  // 38.0: how wide, in pixels
+Canvas::text_height(2)          // 10.0: how tall a capital is
+Canvas::line_height(2)          // 14.0: from the top of one line to the next
+```
+
+And `draw_text` starts a new line at every `'\n'`:
+
+```rust
+canvas.draw_text("Score: 120\nLives: 3", vec2(4.0, 4.0), 2, Color::WHITE);
+```
+
+### A message box
+
+```rust
+use duckforge::prelude::*;
+
+/// Draws `text` in a box with a border, centered on `center`.
+fn message_box(canvas: &mut Canvas, text: &str, center: Vec2, scale: u32) {
+    let lines = text.lines().count() as f32;
+    let width = Canvas::text_width(text, scale);
+    let height = Canvas::line_height(scale) * (lines - 1.0) + Canvas::text_height(scale);
+    let padding = 3.0 * scale as f32;
+    let box_rect = Rect::from_center(center, width + padding * 2.0, height + padding * 2.0);
+    canvas.fill_rect(box_rect, Color::rgba(0, 0, 40, 220));
+    canvas.draw_rect(box_rect, Color::WHITE);
+    let top_left = vec2(center.x - width / 2.0, center.y - height / 2.0);
+    canvas.draw_text(text, top_left, scale, Color::WHITE);
+}
+
+struct Talk {
+    page: usize,
+}
+
+const PAGES: [&str; 3] = [
+    "Hello! I'm a duck.\nPress Space.",
+    "Ducks can't type,\nbut I'm trying my best!",
+    "That's all, folks :)\n(Space starts again)",
+];
+
+impl Game for Talk {
+    fn update(&mut self, ctx: &mut Context) {
+        if ctx.input.was_pressed(Key::Space) {
+            self.page = (self.page + 1) % PAGES.len();
+        }
+    }
+
+    fn draw(&self, canvas: &mut Canvas) {
+        canvas.clear(Color::from_hex(0x3a6ea5));
+        message_box(canvas, PAGES[self.page], vec2(160.0, 120.0), 2);
+    }
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    duckforge::run(Config::default(), Talk { page: 0 })
+}
+```
+
+Save it as `examples/talk.rs` and run `cargo run --example talk`.
+
+### Rust idea: `const` arrays of `&str`
+
+`PAGES` is a `const`: a value fixed when the program is compiled. Its
+type, `[&str; 3]`, is an array of exactly three pieces of text. The `3`
+is part of the type, so the compiler stops you if you list two or four.
+`PAGES[self.page]` picks one; `% PAGES.len()` wraps back to 0 after the
+last page, so the index can never be out of range.
+
+### How lowercase fits
+
+Capitals use five rows, and the engine leaves a 2-pixel gap between lines.
+Lowercase letters fit in the bottom four rows of the five (the tall ones,
+like `b`, `d`, `h` and `t`, reach the top row), and the tails of
+`g j p q y` use one more row, *in the gap* below. So adding lowercase
+didn't move anything: capitals are exactly the same pixels as before, and
+lines are still 7 pixels apart.
+
+A test checks every character from space to `~` has a real glyph, that no
+two characters look the same, and that only `g j p q y` hang below the
+line.
+
 # Part 5: Your turn
 
-## 32. Exercises
+## 33. Exercises
 
 Do them in order. After each change, run the game and see what happened.
 When the compiler complains, **read the whole error message**: Rust's error
@@ -4458,7 +4550,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     to a ball body) across floating platforms, with the camera following
     it. Or 3D Breakout, with a `PhysicsWorld<Vec3>`.
 
-## 33. Common compiler errors
+## 34. Common compiler errors
 
 | Error    | Message (short)                                   | Usually means                                                 |
 |----------|---------------------------------------------------|---------------------------------------------------------------|
@@ -4473,7 +4565,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 For a long explanation of any error, run `rustc --explain E0502`.
 
-## 34. What a code review found
+## 35. What a code review found
 
 After the engine was built, it got a careful review: every file read line
 by line, looking for bugs, crashes and confusing code. It found about 20
@@ -4624,7 +4716,7 @@ Together, the renderer was back to its old speed, 79 to 81 FPS.
 
 **Lesson:** after fixing something, run the benchmark again.
 
-## 35. Where to go next
+## 36. Where to go next
 
 - **The Rust Programming Language** ("the Book"), free at
   <https://doc.rust-lang.org/book/>. The best way to learn Rust properly.
