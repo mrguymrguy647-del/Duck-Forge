@@ -7,7 +7,7 @@ use std::path::Path;
 
 use crate::canvas::Canvas;
 use crate::color::Color;
-use crate::math::vec2;
+use crate::math::{Rect, vec2};
 
 /// A part of the picture: `width` x `height` pixels, starting at `x`, `y`
 /// (the top-left corner).
@@ -64,6 +64,39 @@ impl Crop {
             ))
         }
     }
+}
+
+/// A copy of `canvas` with a light grid every `every` pixels, and the
+/// coordinates written along the bottom and left edges (most games put
+/// their score along the top), so positions can be read off the picture
+/// (`--grid N`).
+pub(crate) fn with_grid(canvas: &Canvas, every: usize) -> Canvas {
+    let mut picture = canvas.copy_picture();
+    let every = every.max(2);
+    let (width, height) = (canvas.width(), canvas.height());
+    let line = Color::rgba(255, 255, 255, 60);
+    for x in (every..width).step_by(every) {
+        picture.fill_rect(Rect::new(x as f32, 0.0, 1.0, height as f32), line);
+    }
+    for y in (every..height).step_by(every) {
+        picture.fill_rect(Rect::new(0.0, y as f32, width as f32, 1.0), line);
+    }
+    // Numbers on some of the lines: far enough apart not to run into each
+    // other (at least 24 pixels), on a dark see-through patch to stay readable.
+    let label_every = every * 24usize.div_ceil(every);
+    let number = |picture: &mut Canvas, text: &str, x: f32, y: f32| {
+        let w = Canvas::text_width(text, 1);
+        picture.fill_rect(Rect::new(x, y, w + 2.0, 7.0), Color::rgba(0, 0, 0, 150));
+        picture.draw_text(text, vec2(x + 1.0, y + 1.0), 1, Color::WHITE);
+    };
+    let bottom = height as f32 - 7.0;
+    for x in (label_every..width).step_by(label_every) {
+        number(&mut picture, &x.to_string(), x as f32 + 1.0, bottom);
+    }
+    for y in (label_every..height).step_by(label_every) {
+        number(&mut picture, &y.to_string(), 0.0, y as f32 + 1.0);
+    }
+    picture
 }
 
 /// The `crop` part of `canvas`, enlarged `zoom` times: every pixel becomes a

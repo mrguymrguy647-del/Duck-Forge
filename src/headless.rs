@@ -74,6 +74,9 @@ pub struct HeadlessOptions {
     /// frame, camera, mouse, and the shapes the game registered with
     /// `ctx.debug_rect` and `ctx.debug_circle`.
     pub debug: bool,
+    /// Draw a light grid every this many pixels, with coordinates, on
+    /// `last.png`, the snapshots and the close-ups (`--grid N`).
+    pub grid: Option<usize>,
     /// The tune file for `ctx.tune` (`--tune FILE`). `None` uses
     /// `examples/<game>.tune.json` if it exists.
     pub tune_file: Option<PathBuf>,
@@ -97,6 +100,7 @@ impl Default for HeadlessOptions {
             crop: None,
             zoom: 1,
             debug: false,
+            grid: None,
             tune_file: None,
             tune: Vec::new(),
             write_tune: false,
@@ -255,8 +259,9 @@ fn run_and_save<G: Game>(
             scenes.push(sim.scene().clone());
         }
         if snapshot {
+            let picture = for_saving(sim.picture(), options.grid);
             let name = format!("frame-{frame:06}.png");
-            save_png(sim.picture(), &folder.join(&name))?;
+            save_png(&picture, &folder.join(&name))?;
             saved.push(name);
             let name = format!("frame-{frame:06}.scene.json");
             save_text(&sim.scene().to_json(), &folder.join(&name))?;
@@ -264,7 +269,7 @@ fn run_and_save<G: Game>(
             if let Some((crop, zoom)) = close_up {
                 let name = format!("closeup-{frame:06}.png");
                 save_png(
-                    &pictures::close_up(sim.picture(), crop, zoom),
+                    &pictures::close_up(&picture, crop, zoom),
                     &folder.join(&name),
                 )?;
                 saved.push(name);
@@ -283,7 +288,8 @@ fn run_and_save<G: Game>(
     drop(gif); // finishes the GIF file
 
     let last = sim.context().frame();
-    save_png(sim.picture(), &folder.join("last.png"))?;
+    let last_picture = for_saving(sim.picture(), options.grid);
+    save_png(&last_picture, &folder.join("last.png"))?;
     saved.push(String::from("last.png"));
     save_text(&sim.scene().to_json(), &folder.join("last.scene.json"))?;
     saved.push(String::from("last.scene.json"));
@@ -293,7 +299,7 @@ fn run_and_save<G: Game>(
     let warnings = scene::warnings(&scenes, width as f32, height as f32);
     if let Some((crop, zoom)) = close_up {
         save_png(
-            &pictures::close_up(sim.picture(), crop, zoom),
+            &pictures::close_up(&last_picture, crop, zoom),
             &folder.join("closeup.png"),
         )?;
         saved.push(String::from("closeup.png"));
@@ -328,6 +334,14 @@ fn run_and_save<G: Game>(
             warnings,
         },
     ))
+}
+
+/// The picture as it's saved: with `--grid`'s grid on it, if asked for.
+fn for_saving(picture: &Canvas, grid: Option<usize>) -> Canvas {
+    match grid {
+        Some(every) => pictures::with_grid(picture, every),
+        None => picture.copy_picture(),
+    }
 }
 
 fn save_text(text: &str, path: &Path) -> Result<(), String> {
@@ -434,6 +448,12 @@ fn log_json<G: Game>(
         ))
     );
     text += &format!("  \"game_quit\": {},\n", sim.quit_requested());
+    // Extras drawn on the saved pictures, so --diff can tell they differ.
+    text += &format!(
+        "  \"drawn_on_pictures\": {{\"grid\": {}, \"debug\": {}}},\n",
+        options.grid.map_or(String::from("null"), |n| n.to_string()),
+        options.debug
+    );
     if let Some(script) = &options.inputs {
         let replayed = script
             .events
@@ -524,6 +544,7 @@ pub(crate) fn run_from_command_line<G: Game>(
             .zoom
             .unwrap_or(if options.crop.is_some() { 4 } else { 1 }),
         debug: options.debug,
+        grid: options.grid,
         tune_file: options.tune.clone(),
         tune: options.set.clone(),
         write_tune: options.write_tune,
@@ -1066,6 +1087,48 @@ mod tests {
         };
         let (_, outcome) = run_and_save(config(), Mover { x: 0.0, quit_at: 0 }, &options).unwrap();
         assert!(outcome.warnings.is_empty(), "{:?}", outcome.warnings);
+    }
+
+    #[test]
+    fn grid_lines_and_numbers_go_on_the_saved_pictures_only() {
+        let folder = test_folder("grid");
+        let tall = Config {
+            width: 64,
+            height: 64,
+            ..config()
+        };
+        let options = HeadlessOptions {
+            frames: 1,
+            out: Some(folder.clone()),
+            grid: Some(16),
+            ..HeadlessOptions::default()
+        };
+        let mut sim = run_headless(tall, Mover { x: 0.0, quit_at: 0 }, &options).unwrap();
+        let saved = Canvas::load_png_for_tests(&folder.join("last.png"));
+        let on_line = saved.get_pixel(16, 40).unwrap();
+        assert!(
+            on_line.r > 0 && on_line.r < 255,
+            "a faint line at x = 16: {on_line:?}"
+        );
+        assert_eq!(
+            saved.get_pixel(20, 40),
+            Some(Color::BLACK),
+            "nothing between lines"
+        );
+        // "32" is written along the bottom edge, next to the line at x = 32.
+        let numbers =
+            (33..45).any(|x| (58..63).any(|y| saved.get_pixel(x, y) == Some(Color::WHITE)));
+        assert!(numbers, "coordinates along the edge");
+        assert_eq!(
+            sim.picture().get_pixel(16, 40),
+            Some(Color::BLACK),
+            "the game's own picture has no grid"
+        );
+        let log = fs::read_to_string(folder.join("log.json")).unwrap();
+        assert!(
+            log.contains(r#""drawn_on_pictures": {"grid": 16, "debug": false}"#),
+            "{log}"
+        );
     }
 
     #[test]

@@ -502,6 +502,11 @@ pub fn run<G: Game>(config: Config, game: G) -> Result<(), Box<dyn Error>> {
         print!("{}", cli::help());
         return Ok(());
     }
+    if let Some((old, new)) = &options.diff {
+        // Comparing two runs needs no game: it's done before starting one.
+        println!("{}", crate::diff::diff_runs(old, new).map_err(EngineError)?);
+        return Ok(());
+    }
     if options.headless {
         headless::run_from_command_line(config, game, &options).map_err(EngineError)?;
         return Ok(());

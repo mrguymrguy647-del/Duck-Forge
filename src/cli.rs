@@ -84,6 +84,16 @@ const OPTIONS: &[OptionInfo] = &[
         help: "where the debug overlay's box goes: top-left, top-right, bottom-left or bottom-right (default)",
     },
     OptionInfo {
+        name: "--grid",
+        value: Some("N"),
+        help: "draw a light grid every N pixels, with coordinates, on last.png, snapshots and close-ups",
+    },
+    OptionInfo {
+        name: "--diff",
+        value: Some("OLD_DIR NEW_DIR"),
+        help: "compare two headless runs' pictures, scenes and reports (the game isn't run)",
+    },
+    OptionInfo {
         name: "--describe",
         value: None,
         help: "after a headless run, describe the last frame in words: every canvas.label, and the text drawn",
@@ -134,6 +144,8 @@ pub(crate) struct Options {
     pub set: Vec<(String, f32)>,
     pub write_tune: bool,
     pub describe: bool,
+    pub grid: Option<usize>,
+    pub diff: Option<(PathBuf, PathBuf)>,
 }
 
 impl Options {
@@ -170,6 +182,20 @@ impl Options {
                 "--set" => options.set.push(crate::tune::parse_set(value)?),
                 "--write-tune" => options.write_tune = true,
                 "--describe" => options.describe = true,
+                "--grid" => {
+                    let every = value
+                        .parse()
+                        .ok()
+                        .filter(|every| (2..=1000).contains(every))
+                        .ok_or_else(|| {
+                            format!("--grid needs a number of pixels from 2 to 1000, not {value:?}")
+                        })?;
+                    options.grid = Some(every);
+                }
+                "--diff" => {
+                    let (old, new) = value.split_once('\n').unwrap_or((value, ""));
+                    options.diff = Some((PathBuf::from(old), PathBuf::from(new)));
+                }
                 "--crop" => options.crop = Some(Crop::parse(value)?),
                 "--snapshot-every" => {
                     let every = value.parse().map_err(|_| {
@@ -208,6 +234,7 @@ impl Options {
             ("--crop", options.crop.is_some()),
             ("--zoom", options.zoom.is_some()),
             ("--describe", options.describe),
+            ("--grid", options.grid.is_some()),
         ];
         if let Some((name, _)) = saves_files.iter().find(|(_, used)| *used) {
             if !options.headless {
@@ -264,15 +291,29 @@ fn try_split(args: impl IntoIterator<Item = String>) -> Result<Split, String> {
             game.push(word);
             continue;
         };
-        let value =
-            match (option.value, attached) {
-                (None, None) => None,
-                (None, Some(_)) => return Err(format!("{} doesn't take a value", option.name)),
-                (Some(_), Some(value)) => Some(value),
-                (Some(what), None) => Some(words.next().ok_or_else(|| {
-                    format!("{} needs a value: {} {what}", option.name, option.name)
-                })?),
-            };
+        // A value written as two words, like "OLD_DIR NEW_DIR", takes the
+        // next two words (joined with a line break, which paths never have).
+        let words_wanted = option.value.map_or(0, |what| what.split(' ').count());
+        let value = match (option.value, attached) {
+            (None, None) => None,
+            (None, Some(_)) => return Err(format!("{} doesn't take a value", option.name)),
+            (Some(what), Some(_)) if words_wanted > 1 => {
+                return Err(format!(
+                    "{} needs {words_wanted} values: {} {what}",
+                    option.name, option.name
+                ));
+            }
+            (Some(_), Some(value)) => Some(value),
+            (Some(what), None) => {
+                let mut values = Vec::new();
+                for _ in 0..words_wanted {
+                    values.push(words.next().ok_or_else(|| {
+                        format!("{} needs a value: {} {what}", option.name, option.name)
+                    })?);
+                }
+                Some(values.join("\n"))
+            }
+        };
         engine.push((option.name, value));
     }
     Ok((engine, game))
@@ -429,12 +470,13 @@ mod tests {
             "--debug-corner" => "top-left",
             "--tune" => "game.tune.json",
             "--set" => "speed=2",
+            "--diff" => "old new",
             _ => "2",
         };
         for option in OPTIONS {
             let mut words = vec![option.name.to_string()];
             if option.value.is_some() {
-                words.push(value(option.name).to_string());
+                words.extend(value(option.name).split(' ').map(String::from));
             }
             // Most options are for --headless; --record only works in a window.
             if option.name != "--record" {
@@ -452,6 +494,31 @@ mod tests {
         assert_eq!(
             Options::parse([String::from("--my-game-option")]),
             Ok(Options::default())
+        );
+    }
+
+    #[test]
+    fn diff_takes_two_folders() {
+        let options = parse("--diff out/a out/b").unwrap();
+        assert_eq!(
+            options.diff,
+            Some((PathBuf::from("out/a"), PathBuf::from("out/b")))
+        );
+        assert!(
+            parse("--diff out/a")
+                .unwrap_err()
+                .contains("needs a value: --diff OLD_DIR NEW_DIR")
+        );
+        assert!(
+            parse("--diff=out/a")
+                .unwrap_err()
+                .contains("needs 2 values")
+        );
+        assert_eq!(parse("--headless --grid 32").unwrap().grid, Some(32));
+        assert!(
+            parse("--headless --grid 1")
+                .unwrap_err()
+                .contains("from 2 to 1000")
         );
     }
 

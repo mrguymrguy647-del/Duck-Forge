@@ -34,6 +34,7 @@ pub mod canvas;
 mod cli;
 pub mod color;
 mod debug;
+mod diff;
 pub mod engine;
 pub mod error;
 #[cfg(feature = "gpu")]

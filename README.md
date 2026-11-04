@@ -272,6 +272,8 @@ after `--` goes to the game, not to Cargo):
 | `--record FILE` | In a window, record everything you do to FILE (F10 records too) |
 | `--debug` | Show the debug overlay (F1 in a window); with `--headless` it's in every saved picture |
 | `--debug-corner C` | Where the overlay's box goes: `top-left`, `top-right`, `bottom-left` or `bottom-right` (the default) |
+| `--grid N` | Draw a faint grid every N pixels, numbered along the edges, on `last.png`, snapshots and close-ups |
+| `--diff OLD NEW` | Compare two headless runs' folders: pictures (pixels changed, with highlighted copies in `NEW/diff/`), labels that moved, final reports. The game isn't run |
 | `--describe` | After a headless run, describe the last frame in words: every `canvas.label`, and the text drawn |
 | `--tune FILE` | Read `ctx.tune` values from FILE (default: `examples/<game>.tune.json`, if it exists) |
 | `--set NAME=N` | Set one `ctx.tune` value, over the file (repeat it for more) |
@@ -399,6 +401,24 @@ rock x4 at 45,213 264,141 302,70 222,-1
 duck at 154,216 12x12
 text: "TIME 10.0" at 4,4; "LIVES 3" at 289,4
 ```
+
+### Comparing two runs
+
+After changing code, run the same command into a new folder and compare:
+
+```sh
+cargo run --no-default-features --example dodge -- --headless --inputs playthroughs/dodge.json --out out/before
+# ... change the code ...
+cargo run --no-default-features --example dodge -- --headless --inputs playthroughs/dodge.json --out out/after
+cargo run --no-default-features --example dodge -- --diff out/before out/after
+```
+
+It lists how many pixels changed in each picture (and where), which
+labelled things moved, and which reported values ended differently, and
+saves copies of the changed pictures with the changed pixels in magenta.
+"Did my fix change only what I meant to change?" in one command. Add
+`--grid 32` to a run to put numbered gridlines on its pictures, so
+positions can be read off them.
 
 ### The debug overlay
 

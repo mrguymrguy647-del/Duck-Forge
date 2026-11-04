@@ -4685,6 +4685,25 @@ text: "Coins 0/8" at 4,4
 Press F1 in a window and every label gets a green outline with its name.
 Tests can read labels too: `sim.scene().labels_named("player")`.
 
+### Before and after
+
+When you change something, it's easy to break something else without
+noticing. Save a run before the change and one after, and let the engine
+compare them:
+
+```sh
+cargo run --example template -- --headless --frames 120 --out before
+# change the code...
+cargo run --example template -- --headless --frames 120 --out after
+cargo run --example template -- --diff before after
+```
+
+It says which pictures changed and by how many pixels, which labelled
+things moved, and which reported values ended differently.
+`after/diff/` has copies of the changed pictures with the changed pixels
+in bright magenta. (`--grid 32` on a run draws numbered gridlines on its
+pictures, to read positions off them.)
+
 ### Tweak numbers while it runs
 
 The template reads its speeds through `ctx.tune`:

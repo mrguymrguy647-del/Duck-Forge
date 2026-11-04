@@ -1143,3 +1143,45 @@ change what the game sees, so now a canvas that draws 3D on the CPU (as
 every headless run does) tells the context its name before the first
 update. A test checks that drawing extra frames, or not, gives the game
 exactly the same view. Every other example's pictures are unchanged.
+
+## Step 5: Grid and diff
+
+**`--grid N` makes pictures measurable.** An agent looking at a picture
+often needs a position ("is the duck at 150 or 160?"). A faint line every
+N pixels, numbered, answers that by eye. The numbers sit along the
+bottom and left edges: the first try put them along the top, where they
+covered Dodge's score, the same lesson as the debug box. The grid is
+drawn on copies made for saving (`last.png`, snapshots and close-ups, so
+a close-up shows real coordinates), never on the game's own picture, the
+scenes, the sheet or the GIF (shrunk, the numbers would be unreadable).
+Lines are see-through white, so the picture stays visible under them.
+
+**`--diff OLD_DIR NEW_DIR` answers "did my fix change only what I meant
+to?"** It needs no game, so it runs before the engine starts one (any
+example can run it). For each picture in both folders: the number of
+changed pixels, the box around them, and a copy of the new picture,
+darkened, with the changed pixels in magenta (in `NEW_DIR/diff/`). For
+each scene file in both: labels that moved (matched by name, in drawing
+order), appeared or disappeared. From `log.json`: reported values that
+ended differently. Unchanged pictures are listed on one line, and
+pictures only in one run are listed too. A test builds two folders by
+hand and checks the whole report, line by line.
+
+**Comparing apples with apples.** Trying `--diff` on the template right
+after adding `--grid` gave "5619 pixels changed" in every picture: one
+run had a grid and the other didn't. So `log.json` now records what was
+drawn on the pictures (`"drawn_on_pictures": {"grid": 32, "debug":
+false}`), and `--diff` adds a note when the two runs differ, instead of
+leaving the agent to work out why everything changed.
+
+**A real check.** Running the template with a jump twice, once with
+`--set jump_speed=420`, `--diff` reported 184 changed pixels in a 10 x 53
+box and "player moved 40,151 to 40,112": the change, located and
+explained, without opening an image. (An earlier attempt with the jump
+under a platform reported "unchanged", which was right: the duck bumped
+its head either way.)
+
+**Two-word values.** `--diff` takes two folders, and the option parser
+took one value per option. An option's value description can now be
+several words (`"OLD_DIR NEW_DIR"`), and the parser takes that many;
+`--diff=a` gets a clear error instead.

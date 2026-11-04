@@ -312,6 +312,12 @@ Open, in this order:
    `closeup-000060.png` and so on for every snapshot.
 4. **`run.gif`**: for motion. It's for people, mostly.
 
+**Reading positions off a picture:** add `--grid 32` (any size from 2):
+a faint line every 32 pixels, numbered along the bottom and left edges,
+on `last.png`, the snapshots and the close-ups (not on the sheet or GIF,
+which are shrunk). The game's own picture, scenes and `--diff` baselines
+aren't affected, but compare runs made with the same `--grid`.
+
 To see one particular moment, stop the run there: `--frames 427` makes
 `last.png` frame 427. To see the moments before something happened, add
 `--snapshot-every 4` and look at the last few.
@@ -400,7 +406,27 @@ about a `--set` name the game never asked for (usually a typo).
 
 ### Step 7: Fix, and go round again
 
-Change one thing at a time, and rerun the same command. Because runs are
+Change one thing at a time, and rerun the same command. Then check that
+the change did only what you meant, in one command:
+
+```sh
+cargo run --no-default-features --example mygame -- --diff out/before out/after
+```
+
+```text
+frame-000015.png: 184 pixels changed (0.2%), in 40,146 10x30; see diff/frame-000015.png
+last.png: 184 pixels changed (0.2%), in 40,112 10x53; see diff/last.png
+unchanged: frame-000030.png
+last.scene.json: player moved 40,151 to 40,112
+reported at the end: score 10 to 12
+```
+
+It compares every picture both runs saved (pixels changed, and the box
+around them), the scene files (labels that moved, appeared or
+disappeared) and the final reported values. Changed pictures get a copy
+in `out/after/diff/` with the changed pixels in magenta. Keep a "before"
+folder by running once with `--out out/before` before you change the
+code. Because runs are
 repeatable, any difference comes from your change and not from luck.
 
 ## 5. Input scripts in two minutes
@@ -684,10 +710,12 @@ and `Simulation::new(config, game)` with `press`, `release`,
 
 **Command line**: `--headless`, `--frames N`, `--out DIR`, `--seed N`,
 `--inputs FILE`, `--snapshot-every N`, `--sheet`, `--gif`,
-`--crop X,Y,W,H`, `--zoom N`, `--describe`, `--debug`, `--debug-corner top-right` (where
+`--crop X,Y,W,H`, `--zoom N`, `--grid N` (a coordinate grid on saved
+pictures), `--describe`, `--debug`, `--debug-corner top-right` (where
 the overlay's box goes; bottom-right by default), `--tune FILE`,
 `--set NAME=N` (repeatable), `--write-tune`, `--record FILE` (window
-only), `--help`.
+only), `--diff OLD_DIR NEW_DIR` (compare two runs; any example runs it,
+the game isn't started), `--help`.
 They go after `--` with `cargo run`: `cargo run --example x -- --headless`.
 
 **Labels and scenes**: in `draw`, `canvas.label("name", rect)` (draws
