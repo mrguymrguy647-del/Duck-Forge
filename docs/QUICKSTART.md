@@ -3,7 +3,9 @@
 duckforge is a small Rust game engine for 2D (and some 3D) games. Every
 game also runs **headless**: no window, as fast as possible, saving
 pictures, sound and a log you can read. This page is all you need to make
-a game; [AI_GUIDE.md](AI_GUIDE.md) is the full reference.
+a game. [AI_GUIDE.md](AI_GUIDE.md) is the full reference (every option,
+the API cheat sheet, more mistakes); [TUTORIAL.md](../TUTORIAL.md)
+teaches Rust from scratch.
 
 ## Build without a screen
 
@@ -45,6 +47,7 @@ impl Game for Catch {
             self.star = vec2(ctx.rng.range(10.0, 310.0), 0.0);
         }
         ctx.report("score", self.score);
+        ctx.report("paddle_x", self.paddle.x);
     }
 
     fn draw(&self, canvas: &mut Canvas) {
@@ -78,15 +81,14 @@ Bigger start: copy `examples/template.rs` (platformer, sprites, camera, sound).
 2. **Run headless**, with inputs if the game needs them:
    `cargo run --no-default-features --example catch -- --headless --inputs out/start.json --sheet --out out/catch`.
    An input script is `{"events": [{"frame": 10, "press": "Right"}, {"frame": 70, "release": "Right"}]}`.
-3. **Read the summary** it prints (also in `out/catch/summary.txt`; `--quiet` shows only problems), then `out/catch/log.json`: every
-   `ctx.report` value whenever it changed, and every sound with its frame.
-   Name things in `draw` with `canvas.label("star", rect)` and add
+3. **Read the summary** it prints (also in `summary.txt`; `--quiet` prints
+   only problems). `log.json` has every `ctx.report` change and sound.
+   Name things in `draw` with `canvas.label("star", rect)`, and add
    `--describe` to get the last frame in words.
 4. **Look at** `out/catch/sheet.png` (16 frames on one page). Add
    `--debug` to see hitboxes you marked with `ctx.debug_rect(rect)`.
-5. **Pin it down with a play test** in the same file, then
-   `cargo test --no-default-features --example catch` (list the example in
-   `Cargo.toml` with `test = true` first):
+5. **Pin it down with a play test** in the same file (and list the
+   example in `Cargo.toml` with `test = true`):
 
 ```rust
 #[cfg(test)]
@@ -104,9 +106,12 @@ mod tests {
 }
 ```
 
-6. **Fix** one thing and go round again (same command, same result).
-   Add rules with `ctx.check("on screen", ok)`, then `--fuzz 200` plays
-   200 random games and reports crashes, broken rules and freezes.
+6. **Verify**: `tools/verify.sh catch` (`tools\verify.bat catch` on
+   Windows) runs the play tests, replays every `playthroughs/catch*.json`,
+   plays 50 random games (`--fuzz`) looking for crashes, broken
+   `ctx.check("on screen", ok)` rules and freezes, and ends with
+   `VERIFY OK` or `VERIFY FAILED` and what failed.
+7. **Fix** one thing and go round again (same command, same result).
 
 ## Five common mistakes
 
@@ -118,8 +123,3 @@ mod tests {
 - Randomness or time not from `ctx`: runs stop being repeatable.
 - Drawing the score inside `push_camera` ... `pop_camera`: it moves with
   the world. Draw the HUD after `pop_camera`.
-
-## More
-
-[AI_GUIDE.md](AI_GUIDE.md): every option, the API cheat sheet, scripts,
-play tests, more mistakes. [TUTORIAL.md](../TUTORIAL.md): Rust from scratch.

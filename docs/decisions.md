@@ -1330,3 +1330,48 @@ examples/x.rs:13:22: index out of bounds ...`, giving the frame, the
 file and line, and the message. `RUST_BACKTRACE=full` brings the long
 version back. `--fuzz` reads the new line (tested), and other errors were
 already one line naming the file.
+
+## Step 8: One command for the whole loop
+
+`tools/verify.sh <game>` (and `tools\verify.bat <game>` on Windows) is
+the check to run after every change. It builds the example headless,
+runs its play tests, replays every `playthroughs/<game>.json` and
+`playthroughs/<game>-*.json` with `--sheet --debug --quiet`, fuzzes 50
+runs (a second argument asks for more), and prints one line per step and
+a last line, `VERIFY OK` or `VERIFY FAILED` with exit code 1. A failed
+step prints its first six lines of detail, and everything it saved is
+in `out/verify/<game>/` (now in `.gitignore`).
+
+**A script, not an engine flag.** Running the play tests means running
+`cargo test`, which a game's own program can't do from inside itself,
+and the script is short enough to read and change. It only strings
+together commands an agent could type, so nothing it does is hidden.
+Playthroughs are matched as `<game>.json` and `<game>-*.json`, not
+`<game>*.json`, so `dodge` doesn't pick up a game called `dodge2`.
+
+**`--quiet` made it simple.** Each replay's output is empty when all is
+well, so "did anything print?" is the whole test, and the summary's
+`final:` line from `summary.txt` gives the report its one line of
+results.
+
+**Two tests keep the scripts honest:** every flag they use exists, and
+both use the same flags. The batch file couldn't be run here (no
+Windows); it mirrors the shell script line by line.
+
+**What it found right away.** On its first run over the examples:
+
+- Breakout's "press Space to launch" screen was called a freeze. It now
+  calls `ctx.idle_ok()` when not playing, like Dodge.
+- The physics sandbox was called frozen after the fuzzer pressed arrow
+  keys it never reads. The engine now notes every key a game asks about
+  (`is_down`, `was_pressed`, `was_released`, `axis`) and writes them to
+  `log.json` as `"keys_read"`; the fuzzer only counts presses of those
+  keys when looking for a freeze. (Tested both ways.) Noting a key costs
+  one set insert per question, and drawing can't ask, so runs stay
+  identical.
+- The quick start's Catch reported only its score, so moving the paddle
+  while stars fell past looked like nothing happening. It now also
+  reports `paddle_x`. A game whose reports don't show the player's
+  actions can't be checked by anything that reads reports, so that's a
+  lesson for the guide too. The quick start page now ends its loop with
+  `verify`, and stays at 125 lines.

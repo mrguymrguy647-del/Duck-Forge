@@ -590,6 +590,12 @@ fn log_json<G: Game>(
         .map(|(a, b)| format!("[{a}, {b}]"))
         .collect();
     text += &format!("  \"idle\": [{}],\n", idle.join(", "));
+    // The keys the game ever asked about: --fuzz ignores presses of others.
+    let keys: Vec<Value> = ctx.input.keys_read().into_iter().map(Value::from).collect();
+    text += &format!(
+        "  \"keys_read\": {},\n",
+        json(Value::from(keys)).replace(',', ", ")
+    );
     text += &format!(
         "  \"checks\": {{\"rules\": {}, \"failed\": [{}]}},\n",
         sim.context().checks_seen(),

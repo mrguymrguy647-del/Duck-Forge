@@ -324,8 +324,23 @@ impl Fuzz {
         changes.sort_unstable();
         changes.dedup();
         let frames = log["frames"].as_u64().unwrap_or(0);
+        // Only presses of keys the game reads could change anything.
+        let keys_read: Option<Vec<&str>> = log["keys_read"]
+            .as_array()
+            .map(|keys| keys.iter().filter_map(Value::as_str).collect());
+        let press_frames: Vec<u64> = script
+            .events
+            .iter()
+            .filter(|e| match &e.action {
+                InputAction::Press(key) => keys_read
+                    .as_ref()
+                    .is_none_or(|read| read.contains(&key.name().as_str())),
+                _ => false,
+            })
+            .map(|e| e.frame)
+            .collect();
         let frozen =
-            reports_something.then(|| freeze(&changes, frames, script, self.freeze_frames));
+            reports_something.then(|| freeze(&changes, frames, &press_frames, self.freeze_frames));
         if let Some(frame) = frozen.flatten() {
             problems.push(Problem::Freeze {
                 frame,
@@ -378,16 +393,10 @@ impl Fuzz {
 /// frames with no change to any reported value while at least one key was
 /// pressed in it. `None` if the game never reports anything (then there's
 /// nothing to watch).
-fn freeze(changes: &[u64], frames: u64, script: &InputScript, freeze_frames: u64) -> Option<u64> {
+fn freeze(changes: &[u64], frames: u64, press_frames: &[u64], freeze_frames: u64) -> Option<u64> {
     if changes.is_empty() {
         return None;
     }
-    let press_frames: Vec<u64> = script
-        .events
-        .iter()
-        .filter(|e| matches!(e.action, InputAction::Press(_)))
-        .map(|e| e.frame)
-        .collect();
     let mut stretches: Vec<(u64, u64)> = changes.windows(2).map(|w| (w[0], w[1])).collect();
     stretches.push((*changes.last().unwrap(), frames + 1));
     for (from, to) in stretches {
@@ -612,16 +621,7 @@ mod tests {
 
     #[test]
     fn a_freeze_needs_silence_while_keys_are_pressed() {
-        let script = |presses: &[u64]| InputScript {
-            events: presses
-                .iter()
-                .map(|&frame| InputEvent {
-                    frame,
-                    action: InputAction::Press(Key::Space),
-                })
-                .collect(),
-            ..InputScript::default()
-        };
+        let script = |presses: &[u64]| presses.to_vec();
         // Changes on frames 1 and 50, then nothing until the end (frame 2000).
         let changes = [1, 50];
         assert_eq!(freeze(&changes, 2000, &script(&[100]), 600), Some(650));
@@ -694,6 +694,40 @@ mod tests {
         assert!(matches!(
             fuzz.read_log(&path, &pressing_later).unwrap()[..],
             [Problem::Freeze { frame: 900, .. }]
+        ));
+        let _ = fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn pressing_keys_the_game_never_reads_is_not_a_freeze() {
+        let folder =
+            std::env::temp_dir().join(format!("duckforge-fuzz-keys-{}", std::process::id()));
+        fs::create_dir_all(&folder).unwrap();
+        let path = folder.join("log.json");
+        let fuzz = settings(2000);
+        let pressing = InputScript {
+            events: vec![InputEvent {
+                frame: 100,
+                action: InputAction::Press(Key::Left),
+            }],
+            ..InputScript::default()
+        };
+        // The game only ever reads Space, so pressing Left can't do anything.
+        fs::write(
+            &path,
+            r#"{"frames": 2000, "changes": [{"frame": 1}], "keys_read": ["Space"]}"#,
+        )
+        .unwrap();
+        assert!(fuzz.read_log(&path, &pressing).unwrap().is_empty());
+        // If it reads Left, it's a freeze again.
+        fs::write(
+            &path,
+            r#"{"frames": 2000, "changes": [{"frame": 1}], "keys_read": ["Left", "Space"]}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            fuzz.read_log(&path, &pressing).unwrap()[..],
+            [Problem::Freeze { frame: 601, .. }]
         ));
         let _ = fs::remove_dir_all(folder);
     }

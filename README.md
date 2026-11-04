@@ -455,6 +455,19 @@ first of each kind shrunk to the fewest key presses that still cause it:
 `--inputs fuzz/seed-14.json` replays it exactly. Runs go in parallel on
 every core: 200 runs of 30 seconds of a small game take a few seconds.
 
+### Checking everything in one command
+
+```sh
+tools/verify.sh dodge        # on Windows: tools\verify.bat dodge
+```
+
+builds the game headless, runs its play tests, replays every
+`playthroughs/dodge.json` and `playthroughs/dodge-*.json` with a contact
+sheet and the debug overlay, fuzzes 50 runs (`tools/verify.sh dodge 200`
+for more), and prints one line per step, ending in `VERIFY OK` or
+`VERIFY FAILED` (exit code 1). Each failed step shows its first lines of
+detail; everything is saved in `out/verify/dodge/`.
+
 ### The debug overlay
 
 Press **F1** in any game (or pass `--debug`, which also works headless)

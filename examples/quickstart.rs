@@ -21,6 +21,7 @@ impl Game for Catch {
             self.star = vec2(ctx.rng.range(10.0, 310.0), 0.0);
         }
         ctx.report("score", self.score);
+        ctx.report("paddle_x", self.paddle.x);
     }
 
     fn draw(&self, canvas: &mut Canvas) {

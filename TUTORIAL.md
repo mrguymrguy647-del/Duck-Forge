@@ -4740,6 +4740,26 @@ A pause screen *should* sit still. So the template tells the engine,
 while paused: `ctx.idle_ok();` and the fuzzer doesn't count that waiting
 as a freeze.
 
+### Everything at once: `verify`
+
+Building, the play tests, replaying your recordings and fuzzing are four
+commands. `tools/verify.sh template` (on Windows, `tools\verify.bat
+template`) runs them all and prints one line each:
+
+```text
+verify template
+  build                        ok: built without a window
+  play tests                   ok: 3 passed; 0 failed; 0 ignored
+  playthroughs                 ok: none (save one as playthroughs/template.json)
+  fuzz 50 runs                 ok: no problems found
+VERIFY OK: template in 2 s (pictures and summaries in out/verify/template)
+```
+
+Recordings named `playthroughs/template.json` or
+`playthroughs/template-*.json` (press F10 in the game to make one) are
+replayed with a contact sheet you can look at in `out/verify/template/`.
+Run it before you put the game away for the day.
+
 ### Rust idea: `std::thread::scope`
 
 `--fuzz` runs several games at once (`src/fuzz.rs`). Each runs as a

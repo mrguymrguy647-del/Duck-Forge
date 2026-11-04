@@ -1,5 +1,6 @@
 //! Keyboard and mouse input.
 
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::hash::Hash;
 
@@ -240,6 +241,9 @@ pub struct Input {
     mouse_position: Option<Vec2>,
     mouse_delta: Vec2,
     scroll: f32,
+    /// Every key the game has asked about (`is_down`, `was_pressed`...),
+    /// so `--fuzz` knows which key presses the game could notice.
+    keys_read: RefCell<HashSet<Key>>,
 }
 
 impl Input {
@@ -276,18 +280,33 @@ impl Input {
     /// Is the key held down right now? True on every frame while it is held.
     /// Good for continuous actions like movement.
     pub fn is_down(&self, key: Key) -> bool {
+        self.note_read(key);
         self.keys.is_down(key)
     }
 
     /// Was the key pressed *this* frame? True for exactly one frame per press.
     /// Good for one-shot actions like jumping, shooting or opening a menu.
     pub fn was_pressed(&self, key: Key) -> bool {
+        self.note_read(key);
         self.keys.was_pressed(key)
     }
 
     /// Was the key let go this frame?
     pub fn was_released(&self, key: Key) -> bool {
+        self.note_read(key);
         self.keys.was_released(key)
+    }
+
+    fn note_read(&self, key: Key) {
+        self.keys_read.borrow_mut().insert(key);
+    }
+
+    /// Every key the game has asked about so far, by name, in alphabetical
+    /// order (for `log.json`'s `"keys_read"`).
+    pub(crate) fn keys_read(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.keys_read.borrow().iter().map(|k| k.name()).collect();
+        names.sort();
+        names
     }
 
     /// Turns two keys into a direction: -1.0 if only `negative` is held,

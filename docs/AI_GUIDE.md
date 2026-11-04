@@ -234,6 +234,32 @@ a bot that makes recordings), `examples/physics.rs` (physics bodies), and
 
 You can't play the game, so you work in a loop. Each turn takes seconds.
 
+**The default check is one command:**
+
+```sh
+tools/verify.sh mygame          # tools\verify.bat mygame on Windows
+```
+
+```text
+verify dodge
+  build                        ok: built without a window
+  play tests                   ok: 8 passed; 0 failed; 1 ignored
+  dodge.json                   ok: 1844 frames; dodged = 60, hits = 3, lives = 0, seconds = 29, state = "GameOver"
+  fuzz 50 runs                 ok: no problems found
+VERIFY OK: dodge in 2 s (pictures and summaries in out/verify/dodge)
+```
+
+It builds the game headless, runs its play tests, replays every
+`playthroughs/mygame.json` and `playthroughs/mygame-*.json` with a
+contact sheet and the debug overlay, plays 50 random games (`--fuzz`;
+`tools/verify.sh mygame 200` for more), and prints one line per step. A
+failed step shows its first few lines of detail (the failing test, the
+check that broke, the fuzz problem with its replay command) and the run
+ends with `VERIFY FAILED` and exit code 1. Everything it saved is in
+`out/verify/mygame/`: each playthrough's `sheet.png`, `last.png`,
+`summary.txt` and `log.json`, and the fuzz scripts. Run it after every
+change; the steps below are what it does, and how to dig into a failure.
+
 ### Step 1: Build
 
 ```sh
@@ -437,7 +463,8 @@ Each run uses the next seed and random taps and holds of the fuzz keys
 game's start key). It reports, once per different problem, the first
 seed and frame of: a **panic** (with the message and line), a **failed
 check**, or a **freeze**: no reported value changed for 10 seconds
-(`--freeze-seconds`) while keys were pressed. A freeze can be a stuck
+(`--freeze-seconds`) while keys the game reads were pressed (presses of
+keys the game never asks about don't count). A freeze can be a stuck
 game, or a menu waiting for a key the fuzzer didn't press. Tell the
 engine when waiting is expected: call `ctx.idle_ok()` in `update` on
 every frame of a title, pause or game-over screen, and those frames never
@@ -871,6 +898,12 @@ how many blocks were on screen. It changed every few frames, and buried
 the interesting lines in `log.json`. Report things a test or a person
 cares about. Counters of events (`hits`, `dodged`) are better than
 values that churn (`blocks_on_screen`).
+
+**Reports that don't show what the player does.** The quick start's
+Catch first reported only its score. Moving the paddle while stars fell
+past changed nothing in `log.json`, so `--fuzz` called it a freeze, and
+a bug that stopped the paddle would have been invisible too. Report the
+player's position (or whatever their keys change), as well as the score.
 
 **Reading the first entry of `history` or `changes` as an event.** The
 first entry holds the starting values. `dodge`'s test for "the first hit

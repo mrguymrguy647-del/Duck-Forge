@@ -311,6 +311,9 @@ impl Game for Breakout {
         if self.state != State::Paused {
             self.update_particles(ctx.dt());
         }
+        if self.state != State::Playing {
+            ctx.idle_ok(); // waiting for a key here is expected, not a freeze
+        }
 
         // Tell tests and headless runs how the game is going (see log.json).
         ctx.report("score", self.score);

@@ -501,7 +501,6 @@ mod tests {
         "--no-default-features",
         "--features",
         "--release",
-        "--quiet",
         "--open",
         "--test",
         "--ignored",
@@ -541,6 +540,32 @@ mod tests {
         }
         for flag in &engine {
             assert!(help.contains(flag), "{flag} isn't in --help");
+        }
+    }
+
+    #[test]
+    fn the_verify_scripts_use_real_flags_and_the_same_ones() {
+        let sh = flags_in(include_str!("../tools/verify.sh"));
+        let bat = flags_in(include_str!("../tools/verify.bat"));
+        for flag in &sh {
+            assert!(
+                OPTIONS.iter().any(|o| o.name == flag) || NOT_ENGINE_FLAGS.contains(&flag.as_str()),
+                "tools/verify.sh uses {flag}, but the engine has no such option"
+            );
+        }
+        assert_eq!(
+            sh, bat,
+            "tools/verify.sh and tools/verify.bat should do the same"
+        );
+        for needed in [
+            "--headless",
+            "--inputs",
+            "--sheet",
+            "--debug",
+            "--quiet",
+            "--fuzz",
+        ] {
+            assert!(sh.iter().any(|f| f == needed), "verify should use {needed}");
         }
     }
 
