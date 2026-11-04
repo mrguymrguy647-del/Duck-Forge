@@ -71,9 +71,9 @@ cargo run --no-default-features --example breakout -- --headless --sheet --out c
 The last command should print something like:
 
 ```text
-duckforge: ran "Breakout - duckforge" without a window for 600 frames (10.0 s of game time) in 0.01 s, seed 1
-duckforge: saved in check: last.png, sheet.png, log.json
-duckforge: the game reported bricks_left = 60, lives = 3, score = 0, state = "Serving"
+duckforge: ran "Breakout - duckforge" for 600 frames (10.0 s of game time) in 0.05 s, seed 1
+final: bricks_left = 60, lives = 3, score = 0, state = "Serving"
+saved in check: last.png, last.scene.json, sheet.png, log.json, summary.txt
 ```
 
 Open `check/sheet.png`: you should see Breakout. If you can't view images,
@@ -251,7 +251,32 @@ cargo run --no-default-features --example mygame -- --headless --sheet --out out
 ```
 
 Does the title screen show? Does anything move by itself? Does the game
-crash? A panic prints its message and the line, like any Rust program.
+crash? A panic is one line with the frame, the place and the message:
+`duckforge: the game panicked on frame 88 at examples/mygame.rs:40:9: attempt to subtract with overflow`.
+Run `--frames 87` to see the picture just before it. (Set
+`RUST_BACKTRACE=full` to get Rust's full message and backtrace too.)
+
+Every run prints a short summary, at most about 15 lines, and saves it
+as `summary.txt`: the final reported values, the lowest and highest of
+each number, the frames where text values changed, how many times each
+sound played, failed checks, warnings, and where the files are. **Read it
+first**; open pictures and `log.json` only when it raises a question.
+
+```text
+duckforge: ran "Dodge - duckforge" for 1844 frames (30.7 s of game time) in 0.57 s, seed 1, replaying 432 of 432 input events
+final: dodged = 60, hits = 3, lives = 0, seconds = 29, state = "GameOver"
+lowest to highest: dodged 0 to 60, hits 0 to 3, lives 0 to 3, seconds 0 to 29
+state: "Playing" on frame 1, "GameOver" on 1784
+sounds: beep x1, coin x6, explosion x1, hit x2
+checks: 2 rules, none failed
+saved in out/dodge: run.gif, last.png, last.scene.json, sheet.png, audio.wav, log.json, summary.txt
+```
+
+`--quiet` prints only the problems (`CHECK FAILED: ...` and
+`warning: ...` lines), so no output means nothing went wrong. `--json`
+prints the summary as one line of JSON (with `"ok": true` when there are
+no failed checks or warnings) for a program to read. Errors are always one
+line, naming the file and frame when there is one.
 
 ### Step 3: Play it with a script
 
@@ -341,7 +366,7 @@ close-up: on, on, off, off, on, on, off, off...
   "seconds": 22.0,
   "game_quit": false,
   "inputs": {"events": 2, "replayed": 2},
-  "files": ["run.gif", "last.png", "sheet.png", "log.json"],
+  "files": ["run.gif", "last.png", "sheet.png", "log.json", "summary.txt"],
   "final": {"dodged": 28, "hits": 3, "lives": 0, "seconds": 17, "state": "GameOver"},
   "changes": [
     {"frame": 1, "dodged": 0, "hits": 0, "lives": 3, "seconds": 0, "state": "Ready"},

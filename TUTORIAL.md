@@ -2950,13 +2950,14 @@ cargo run --no-default-features --example breakout -- --headless --frames 600 --
 ```
 
 ```text
-duckforge: ran "Breakout - duckforge" without a window for 600 frames (10.0 s of game time) in 0.00 s, seed 1
-duckforge: saved in shots: last.png, log.json
-duckforge: the game reported bricks_left = 60, lives = 3, score = 0, state = "Serving"
+duckforge: ran "Breakout - duckforge" for 600 frames (10.0 s of game time) in 0.00 s, seed 1
+final: bricks_left = 60, lives = 3, score = 0, state = "Serving"
+saved in shots: last.png, last.scene.json, log.json, summary.txt
 ```
 
 (`log.json` and the reported values come later, in
-[chapter 25](#25-seeing-a-whole-game).)
+[chapter 25](#25-seeing-a-whole-game). `summary.txt` is the same short
+summary that was just printed, kept for later.)
 
 ### Cargo features: leaving code out
 
@@ -3405,11 +3406,19 @@ cargo run --example breakout -- --headless --inputs playthroughs/breakout-win.js
 ```
 
 ```text
-duckforge: ran "Breakout - duckforge" without a window for 3499 frames (58.3 s of game time) in 0.42 s, seed 7
-duckforge: replayed 901 of the 901 input events in playthroughs/breakout-win.json
-duckforge: saved in win: run.gif, last.png, sheet.png, log.json
-duckforge: the game reported bricks_left = 0, lives = 3, score = 2100, state = "Won"
+duckforge: ran "Breakout - duckforge" for 3499 frames (58.3 s of game time) in 0.42 s, seed 7, replaying 901 of 901 input events
+final: bricks_left = 0, lives = 3, score = 2100, state = "Won"
+lowest to highest: bricks_left 0 to 60, score 0 to 2100
+state: "Serving" on frame 1, "Playing" on 30, "Won" on 3409
+saved in win: run.gif, last.png, last.scene.json, sheet.png, log.json, summary.txt
 ```
+
+That's the run in a few lines: the final values the game reported, the
+lowest and highest of each number, when each text value changed, and
+where the files are. Failed checks and warnings would be listed too. It's
+also saved as `win/summary.txt`. Add `--quiet` to print only problems
+(nothing, if all went well), or `--json` to print it as one line of JSON
+for a program to read.
 
 `win/sheet.png` is the whole game on one page:
 

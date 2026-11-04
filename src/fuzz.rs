@@ -399,23 +399,22 @@ fn freeze(changes: &[u64], frames: u64, script: &InputScript, freeze_frames: u64
     None
 }
 
-/// The panic in a run's error output: its message and place, and the
-/// frame the engine printed.
+/// The panic in a run's error output: its message, place and frame, from
+/// the engine's one line,
+/// `duckforge: the game panicked on frame 88 at examples/x.rs:10:5: message`.
 fn panic_from(stderr: &str) -> Option<Problem> {
-    let lines: Vec<&str> = stderr.lines().collect();
-    let at = lines.iter().position(|l| l.contains("panicked at "))?;
-    let place = lines[at]
-        .split("panicked at ")
-        .nth(1)
-        .unwrap_or("")
-        .trim_end_matches(':');
-    let message = lines.get(at + 1).map_or("", |l| l.trim());
-    let frame = lines
-        .iter()
-        .find_map(|l| l.strip_prefix("duckforge: the game panicked on frame "))
-        .and_then(|n| n.trim().parse().ok());
+    let line = stderr.lines().find_map(|l| {
+        l.strip_prefix("duckforge: the game panicked on frame ")
+            .or_else(|| l.strip_prefix("duckforge: panicked"))
+    })?;
+    let (frame, rest) = match line.split_once(' ') {
+        Some((n, rest)) if n.parse::<u64>().is_ok() => (n.parse().ok(), rest),
+        _ => (None, line),
+    };
+    let rest = rest.trim_start().strip_prefix("at ").unwrap_or(rest);
+    let (place, message) = rest.split_once(": ").unwrap_or(("", rest));
     Some(Problem::Panic {
-        message: format!("{message} ({place})"),
+        message: format!("{} ({place})", message.trim()),
         frame,
     })
 }
@@ -701,8 +700,8 @@ mod tests {
 
     #[test]
     fn panics_are_read_from_the_error_output() {
-        let stderr = "thread 'main' panicked at examples/x.rs:10:5:\nattempt to subtract with overflow\n\
-                      note: run with `RUST_BACKTRACE=1`\nduckforge: the game panicked on frame 88\n";
+        let stderr = "duckforge: the game panicked on frame 88 at examples/x.rs:10:5: \
+                      attempt to subtract with overflow\n";
         assert_eq!(
             panic_from(stderr),
             Some(Problem::Panic {
@@ -711,6 +710,13 @@ mod tests {
             })
         );
         assert_eq!(panic_from("Error: something else"), None);
+        assert_eq!(
+            panic_from("duckforge: panicked at src/a.rs:1:2: no game yet"),
+            Some(Problem::Panic {
+                message: String::from("no game yet (src/a.rs:1:2)"),
+                frame: None,
+            })
+        );
     }
 
     #[test]

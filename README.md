@@ -278,6 +278,8 @@ after `--` goes to the game, not to Cargo):
 | `--fuzz N` | Play N headless runs (seeds 1 to N) with random but realistic key presses, and report crashes, failed `ctx.check` rules and freezes, with each failing run's inputs saved (and one per problem shrunk) as a replayable script |
 | `--fuzz-keys K` | The keys `--fuzz` presses, like `Left,Right,Up,Space` (default: arrows, Space, Z, X) |
 | `--freeze-seconds S` | How long nothing may change while keys are pressed before `--fuzz` calls it a freeze (default 10) |
+| `--quiet` | After a headless run, print only problems (failed checks, warnings), or nothing; `summary.txt` still has everything |
+| `--json` | After a headless run, print the summary as one line of JSON, for programs |
 | `--describe` | After a headless run, describe the last frame in words: every `canvas.label`, and the text drawn |
 | `--tune FILE` | Read `ctx.tune` values from FILE (default: `examples/<game>.tune.json`, if it exists) |
 | `--set NAME=N` | Set one `ctx.tune` value, over the file (repeat it for more) |
@@ -315,8 +317,12 @@ format. In code, `InputScript::load`, `Simulation::follow` and
 
 ### Seeing what happened
 
-A headless run always saves `last.png` and `log.json`. Add `--sheet` for
-the whole run on one page, and `--gif` to watch it:
+A headless run always saves `last.png`, `log.json` and `summary.txt`,
+and prints that summary: at most about 15 lines with the final reported
+values, the lowest and highest of each number, when text values changed,
+how many times each sound played, failed checks and warnings. `--quiet`
+prints only the problems; `--json` prints the summary as JSON. Add
+`--sheet` for the whole run on one page, and `--gif` to watch it:
 
 ```sh
 cargo run --example breakout -- --headless --inputs playthroughs/breakout-win.json --sheet --gif --out win

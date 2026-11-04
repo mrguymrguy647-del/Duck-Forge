@@ -1290,3 +1290,43 @@ line, would make every fuzz command repeat knowledge the game already
 has, and depends on how a game names its states; one call in the code
 says it once. Dodge and the template call it on their waiting screens,
 and both now fuzz clean over 100 runs.
+
+## Step 7: Short, clear output
+
+A run used to print one long line per kind of thing, and the useful
+part (did anything go wrong?) could be anywhere in it. Now every
+headless run builds one summary (`src/summary.rs`), prints it, and saves
+it as `summary.txt`. It's at most about 15 lines, in a fixed order: the
+run itself (frames, time, seed, input events replayed), the final
+reported values, the lowest and highest of each number that changed, the
+frames where text or yes/no values changed, how many times each sound
+played, tune values that didn't come from the code, the checks, the
+problems, and where the files are. A test builds the busiest summary it
+can (30 values, 30 sounds, 5 changing states, 9 failed checks, 9
+warnings) and checks it stays within 15 lines.
+
+**Cut, never lost.** Long lists stop with "and 20 more (see log.json)",
+a state that changed 20 times shows its first three and last two
+changes, and problems past the third become "and 15 more problems".
+`log.json` has everything, and `--json` prints the summary uncut.
+
+**Three ways to print it.** Normal prints the summary. `--quiet` prints
+only the problem lines (`CHECK FAILED: ...`, `warning: ...`), so no
+output means all is well, which is what a script like `verify` wants.
+`--json` prints it as one line of JSON with `"ok"` first, for programs.
+`summary.txt` is the same in all three. Using both flags is an error:
+they'd fight over the same output.
+
+**Warnings are gathered in one place.** A replay recorded at a
+different speed, and a `--set` name the game never asked for, used to be
+printed on their own lines; now they're warnings like the scene's, so
+they appear in the summary, in `log.json` and in `--quiet`.
+
+**One-line panics.** A crash printed Rust's message over several lines,
+and on servers that set `RUST_BACKTRACE=1` (this one does) about 30 more
+lines of backtrace, with the frame number last. Now a headless run's
+panic is one line, `duckforge: the game panicked on frame 25 at
+examples/x.rs:13:22: index out of bounds ...`, giving the frame, the
+file and line, and the message. `RUST_BACKTRACE=full` brings the long
+version back. `--fuzz` reads the new line (tested), and other errors were
+already one line naming the file.

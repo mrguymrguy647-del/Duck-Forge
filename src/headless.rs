@@ -22,6 +22,7 @@ use crate::scene;
 use crate::script::{self, InputScript};
 use crate::simulation::Simulation;
 use crate::sound;
+use crate::summary::Summary;
 
 /// What a headless run should do. Make one with `HeadlessOptions::default()`
 /// and change what you need:
@@ -139,29 +140,46 @@ pub fn run_headless<G: Game>(
     run_and_save(config, game, options).map(|(sim, _)| sim)
 }
 
-/// What a run saved, and what looked wrong.
-#[derive(Default)]
-struct Outcome {
-    /// The names of the files saved.
-    files: Vec<String>,
-    /// Problems found in the scenes (see [`scene::warnings`]).
-    warnings: Vec<String>,
-}
-
 /// The frame a headless run is on, for the message when a game panics.
 static RUNNING_FRAME: AtomicU64 = AtomicU64::new(0);
 
-/// After Rust's usual panic message, also says which frame it happened on,
-/// so a crash can be replayed to just before it (`--frames N`).
+/// Makes a panic one line that says where and on which frame it happened,
+/// so a crash can be replayed to just before it (`--frames N`):
+/// `duckforge: the game panicked on frame 12 at examples/x.rs:40:9: message`.
+/// With `RUST_BACKTRACE=full`, Rust's usual message and backtrace follow.
+/// (Many servers set `RUST_BACKTRACE=1` for everything, so that alone
+/// doesn't turn the long version on.)
 fn report_panic_frames() {
     let usual = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        usual(info);
-        let frame = RUNNING_FRAME.load(Ordering::Relaxed);
-        if frame > 0 {
-            eprintln!("duckforge: the game panicked on frame {frame}");
+        eprintln!(
+            "{}",
+            panic_line(RUNNING_FRAME.load(Ordering::Relaxed), info)
+        );
+        if std::env::var_os("RUST_BACKTRACE").is_some_and(|v| v == "full") {
+            usual(info);
         }
     }));
+}
+
+/// The one line [`report_panic_frames`] prints.
+fn panic_line(frame: u64, info: &std::panic::PanicHookInfo) -> String {
+    let payload = info.payload();
+    let message = payload
+        .downcast_ref::<&str>()
+        .map(|s| s.to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| String::from("(no message)"));
+    let message = message.replace('\n', " / ");
+    let place = info
+        .location()
+        .map(|l| format!(" at {}:{}:{}", l.file(), l.line(), l.column()))
+        .unwrap_or_default();
+    if frame > 0 {
+        format!("duckforge: the game panicked on frame {frame}{place}: {message}")
+    } else {
+        format!("duckforge: panicked{place}: {message}")
+    }
 }
 
 /// How many frames, spread over the run, are checked for scene warnings.
@@ -172,8 +190,9 @@ fn run_and_save<G: Game>(
     mut config: Config,
     game: G,
     options: &HeadlessOptions,
-) -> Result<(Simulation<G>, Outcome), String> {
+) -> Result<(Simulation<G>, Summary), String> {
     config.check()?;
+    let started = Instant::now();
     let close_up = match (options.crop, options.zoom) {
         (Some(crop), zoom) => Some((crop, zoom.max(1))),
         (None, zoom) if zoom > 1 => Some((
@@ -201,6 +220,10 @@ fn run_and_save<G: Game>(
     };
     let title = config.title.clone();
     let (width, height) = (config.width, config.height);
+    let timestep_warning = options
+        .inputs
+        .as_ref()
+        .and_then(|script| script::timestep_warning(script, &config));
 
     let tunes = crate::tune::Tunes::load(options.tune_file.as_deref(), &options.tune)?;
     let mut sim = Simulation::new(config, game);
@@ -213,8 +236,11 @@ fn run_and_save<G: Game>(
     // Without a folder, there's nothing to save: just run.
     let Some(folder) = &options.out else {
         sim.run(options.frames);
-        write_tune_if_asked(&mut sim, options)?;
-        return Ok((sim, Outcome::default()));
+        if let Some(note) = write_tune_if_asked(&mut sim, options)? {
+            println!("duckforge: {note}");
+        }
+        let summary = Summary::of(&sim, &title, started.elapsed().as_secs_f32());
+        return Ok((sim, summary));
     };
     fs::create_dir_all(folder)
         .map_err(|err| format!("could not create the folder {}: {err}", folder.display()))?;
@@ -318,7 +344,8 @@ fn run_and_save<G: Game>(
     if scenes.last().is_none_or(|scene| scene.frame != last) && last > 0 {
         scenes.push(sim.scene().clone());
     }
-    let warnings = scene::warnings(&scenes, width as f32, height as f32);
+    let mut warnings: Vec<String> = timestep_warning.into_iter().collect();
+    warnings.extend(scene::warnings(&scenes, width as f32, height as f32));
     if let Some((crop, zoom)) = close_up {
         save_png(
             &pictures::close_up(&last_picture, crop, zoom),
@@ -344,18 +371,25 @@ fn run_and_save<G: Game>(
             .map_err(|err| format!("could not save {}: {err}", path.display()))?;
         saved.push(String::from("audio.wav"));
     }
+    warnings.extend(unused_set_warnings(&sim));
     saved.push(String::from("log.json"));
+    saved.push(String::from("summary.txt"));
     let log = log_json(&title, &sim, updates_per_second, options, &saved, &warnings);
     let path = folder.join("log.json");
     fs::write(&path, log).map_err(|err| format!("could not save {}: {err}", path.display()))?;
-    write_tune_if_asked(&mut sim, options)?;
-    Ok((
-        sim,
-        Outcome {
-            files: saved,
-            warnings,
-        },
-    ))
+    let note = write_tune_if_asked(&mut sim, options)?;
+
+    let mut summary = Summary::of(&sim, &title, started.elapsed().as_secs_f32());
+    if let Some(script) = &options.inputs {
+        let replayed = script.events.iter().filter(|e| e.frame <= last).count();
+        summary.inputs = Some((replayed, script.events.len()));
+    }
+    summary.warnings = warnings;
+    summary.notes.extend(note);
+    summary.folder = Some(folder.clone());
+    summary.files = saved;
+    save_text(&summary.to_text(), &folder.join("summary.txt"))?;
+    Ok((sim, summary))
 }
 
 /// The picture as it's saved: with `--grid`'s grid on it, if asked for
@@ -378,17 +412,45 @@ fn save_text(text: &str, path: &Path) -> Result<(), String> {
     fs::write(path, text).map_err(|err| format!("could not save {}: {err}", path.display()))
 }
 
-/// `--write-tune`: saves every tune name the game used to the tune file.
+/// `--write-tune`: saves every tune name the game used to the tune file,
+/// and says so.
 fn write_tune_if_asked<G: Game>(
     sim: &mut Simulation<G>,
     options: &HeadlessOptions,
-) -> Result<(), String> {
-    if options.write_tune {
-        let path = sim.tunes().write_file()?;
-        let count = sim.tunes().used().len();
-        println!("duckforge: wrote {count} tune values to {}", path.display());
+) -> Result<Option<String>, String> {
+    if !options.write_tune {
+        return Ok(None);
     }
-    Ok(())
+    let path = sim.tunes().write_file()?;
+    let count = sim.tunes().used().len();
+    Ok(Some(format!(
+        "wrote {count} tune values to {}",
+        path.display()
+    )))
+}
+
+/// A warning for each `--set NAME=N` the game never asked for.
+fn unused_set_warnings<G: Game>(sim: &Simulation<G>) -> Vec<String> {
+    let asked: Vec<String> = sim
+        .tunes()
+        .used()
+        .into_iter()
+        .map(|(name, ..)| name)
+        .collect();
+    let asked = if asked.is_empty() {
+        String::from("nothing")
+    } else {
+        asked.join(", ")
+    };
+    sim.tunes()
+        .unused_sets()
+        .into_iter()
+        .map(|name| {
+            format!(
+                "--set {name} was never asked for (the game asked for: {asked}); check the spelling, and read tune values at the top of update"
+            )
+        })
+        .collect()
 }
 
 /// GIF timing is in hundredths of a second. Picks the smallest step of at
@@ -446,6 +508,7 @@ fn is_our_file(name: &str) -> bool {
             | "run.gif"
             | "audio.wav"
             | "log.json"
+            | "summary.txt"
     ) || numbered("frame-", ".png")
         || numbered("frame-", ".scene.json")
         || numbered("closeup-", ".png")
@@ -567,12 +630,6 @@ pub(crate) fn run_from_command_line<G: Game>(
         Some(path) => Some(InputScript::load(path)?),
         None => None,
     };
-    if let Some(warning) = inputs
-        .as_ref()
-        .and_then(|script| script::timestep_warning(script, &config))
-    {
-        eprintln!("duckforge: {warning}");
-    }
     // How long to run: as asked, or as long as the recording, or 10 seconds.
     let frames = options
         .frames
@@ -606,118 +663,23 @@ pub(crate) fn run_from_command_line<G: Game>(
     if let Some(corner) = options.debug_corner {
         config.debug_corner = corner;
     }
-    let title = config.title.clone();
-    let started = Instant::now();
     report_panic_frames();
-    let (mut sim, outcome) = run_and_save(config, game, &headless)?;
-    let saved = &outcome.files;
-    let seconds = started.elapsed().as_secs_f32();
-
-    let ctx = sim.context();
-    let mut summary = format!(
-        "duckforge: ran {title:?} without a window for {} frames ({:.1} s of game time) in {seconds:.2} s, seed {}",
-        ctx.frame(),
-        ctx.time(),
-        sim.seed(),
-    );
-    if sim.quit_requested() {
-        summary += "; the game quit by itself";
-    }
-    println!("{summary}");
-    if let (Some(path), Some(script)) = (&options.inputs, &headless.inputs) {
-        let used = script
-            .events
-            .iter()
-            .filter(|event| event.frame <= ctx.frame())
-            .count();
-        println!(
-            "duckforge: replayed {used} of the {} input events in {}",
-            script.events.len(),
-            path.display()
-        );
-    }
-    if let Some(folder) = &headless.out {
-        let snapshots = saved
-            .iter()
-            .filter(|name| name.starts_with("frame-") && name.ends_with(".png"))
-            .count();
-        let mut listed: Vec<String> = saved
-            .iter()
-            .filter(|name| !name.starts_with("frame-") && !name.starts_with("closeup-0"))
-            .cloned()
-            .collect();
-        if snapshots > 0 {
-            listed.push(format!(
-                "{snapshots} snapshots (frame-NNNNNN.png, each with frame-NNNNNN.scene.json)"
-            ));
+    let (mut sim, summary) = run_and_save(config, game, &headless)?;
+    if options.json {
+        let mut value = summary.to_json();
+        if options.describe {
+            value["describe"] = Value::from(sim.scene().describe());
         }
-        println!(
-            "duckforge: saved in {}: {}",
-            folder.display(),
-            listed.join(", ")
-        );
-        let sounds = sim.sounds().len();
-        if sounds > 0 {
-            println!(
-                "duckforge: the game played {sounds} sound{}; audio.wav has them all, and log.json lists each one with its frame",
-                if sounds == 1 { "" } else { "s" }
-            );
-            if saved.iter().any(|name| name == "run.gif") {
-                println!(
-                    "duckforge: to watch with sound, join them with ffmpeg:\n  \
-                     ffmpeg -i {gif} -i {wav} -c:v libx264 -pix_fmt yuv420p -vf \"scale=trunc(iw/2)*2:trunc(ih/2)*2\" -c:a aac -shortest {mp4}",
-                    gif = folder.join("run.gif").display(),
-                    wav = folder.join("audio.wav").display(),
-                    mp4 = folder.join("run.mp4").display(),
-                );
-            }
+        println!("{value}");
+    } else if options.quiet {
+        for line in summary.problems() {
+            println!("duckforge: {line}");
         }
-    }
-    let tuned: Vec<String> = sim
-        .tunes()
-        .used()
-        .into_iter()
-        .filter(|(_, _, source)| *source != crate::tune::Source::Default)
-        .map(|(name, value, source)| format!("{name} = {value} ({})", source.name()))
-        .collect();
-    if !tuned.is_empty() {
-        println!("duckforge: tuned {}", tuned.join(", "));
-    }
-    for name in sim.tunes().unused_sets() {
-        let asked: Vec<String> = sim
-            .tunes()
-            .used()
-            .into_iter()
-            .map(|(name, ..)| name)
-            .collect();
-        println!(
-            "duckforge: warning: --set {name} was never asked for in this run (the game asked for: {}); check the spelling, and read tune values at the top of update so they're always asked for",
-            if asked.is_empty() {
-                String::from("nothing")
-            } else {
-                asked.join(", ")
-            }
-        );
-    }
-    let mut reported: Vec<String> = sim
-        .reports()
-        .map(|(name, value)| format!("{name} = {value}"))
-        .collect();
-    if !reported.is_empty() {
-        reported.truncate(12);
-        println!("duckforge: the game reported {}", reported.join(", "));
-    }
-    for failed in sim.failed_checks() {
-        println!(
-            "duckforge: CHECK FAILED: {:?} first failed on frame {}",
-            failed.name, failed.frame
-        );
-    }
-    for warning in &outcome.warnings {
-        println!("duckforge: warning: {warning}");
-    }
-    if options.describe {
-        println!("{}", sim.scene().describe());
+    } else {
+        print!("{}", summary.to_text());
+        if options.describe {
+            println!("{}", sim.scene().describe());
+        }
     }
     Ok(())
 }
@@ -1583,6 +1545,7 @@ mod tests {
                 "notes.txt",
                 "run.gif",
                 "sheet.png",
+                "summary.txt",
             ]
         );
 
@@ -1604,7 +1567,24 @@ mod tests {
         assert_eq!(changes.len(), 30);
         assert_eq!(changes[9]["far"], true);
         assert!(changes[10].get("far").is_none());
-        assert_eq!(log["files"].as_array().unwrap().len(), 15); // all but notes.txt
+        assert_eq!(log["files"].as_array().unwrap().len(), 16); // all but notes.txt
+
+        // The summary: final values, the number's range, when "far" changed.
+        let summary = fs::read_to_string(folder.join("summary.txt")).unwrap();
+        assert!(summary.contains("for 30 frames"), "{summary}");
+        assert!(
+            summary.contains("\nfinal: far = true, x = 30\n"),
+            "{summary}"
+        );
+        assert!(
+            summary.contains("\nlowest to highest: x 1 to 30\n"),
+            "{summary}"
+        );
+        assert!(
+            summary.contains("\nfar: false on frame 1, true on 10\n"),
+            "{summary}"
+        );
+        assert!(summary.contains("3 snapshots"), "{summary}");
     }
 
     #[test]
@@ -1612,6 +1592,7 @@ mod tests {
         assert!(is_our_file("frame-000060.png"));
         assert!(is_our_file("closeup-123456.png"));
         assert!(is_our_file("log.json"));
+        assert!(is_our_file("summary.txt"));
         assert!(is_our_file("frame-000060.scene.json"));
         assert!(is_our_file("last.scene.json"));
         assert!(!is_our_file("frame-000060.json"));

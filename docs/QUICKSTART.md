@@ -78,7 +78,7 @@ Bigger start: copy `examples/template.rs` (platformer, sprites, camera, sound).
 2. **Run headless**, with inputs if the game needs them:
    `cargo run --no-default-features --example catch -- --headless --inputs out/start.json --sheet --out out/catch`.
    An input script is `{"events": [{"frame": 10, "press": "Right"}, {"frame": 70, "release": "Right"}]}`.
-3. **Read the summary** it prints, then `out/catch/log.json`: every
+3. **Read the summary** it prints (also in `out/catch/summary.txt`; `--quiet` shows only problems), then `out/catch/log.json`: every
    `ctx.report` value whenever it changed, and every sound with its frame.
    Name things in `draw` with `canvas.label("star", rect)` and add
    `--describe` to get the last frame in words.

@@ -119,6 +119,16 @@ const OPTIONS: &[OptionInfo] = &[
         help: "after a headless run, describe the last frame in words: every canvas.label, and the text drawn",
     },
     OptionInfo {
+        name: "--quiet",
+        value: None,
+        help: "after a headless run, print only problems (failed checks, warnings); summary.txt still has everything",
+    },
+    OptionInfo {
+        name: "--json",
+        value: None,
+        help: "after a headless run, print the summary as one line of JSON, for programs",
+    },
+    OptionInfo {
         name: "--tune",
         value: Some("FILE"),
         help: "read ctx.tune values from FILE (default: examples/<game>.tune.json, if it exists)",
@@ -164,6 +174,8 @@ pub(crate) struct Options {
     pub set: Vec<(String, f32)>,
     pub write_tune: bool,
     pub describe: bool,
+    pub quiet: bool,
+    pub json: bool,
     pub grid: Option<usize>,
     pub grid_world: bool,
     pub diff: Option<(PathBuf, PathBuf)>,
@@ -206,6 +218,8 @@ impl Options {
                 "--set" => options.set.push(crate::tune::parse_set(value)?),
                 "--write-tune" => options.write_tune = true,
                 "--describe" => options.describe = true,
+                "--quiet" => options.quiet = true,
+                "--json" => options.json = true,
                 "--fuzz" => {
                     let runs = value
                         .parse()
@@ -285,6 +299,8 @@ impl Options {
             ("--crop", options.crop.is_some()),
             ("--zoom", options.zoom.is_some()),
             ("--describe", options.describe),
+            ("--quiet", options.quiet),
+            ("--json", options.json),
             ("--grid", options.grid.is_some() && !options.grid_world),
             ("--grid-world", options.grid_world),
         ];
@@ -305,6 +321,11 @@ impl Options {
             if options.fuzz.is_none() {
                 return Err(format!("{name} only works with --fuzz N"));
             }
+        }
+        if options.quiet && options.json {
+            return Err(String::from(
+                "use either --quiet or --json, not both (--json already prints only the summary)",
+            ));
         }
         if options.record.is_some() && options.headless {
             return Err(String::from(
@@ -604,6 +625,29 @@ mod tests {
         assert_eq!(options.tune, Some(PathBuf::from("t.json")));
         assert!(options.write_tune);
         assert!(parse("--set speed").unwrap_err().contains("NAME=NUMBER"));
+    }
+
+    #[test]
+    fn quiet_and_json_choose_what_a_headless_run_prints() {
+        let quiet = parse("--headless --quiet").unwrap();
+        assert!(quiet.quiet && !quiet.json);
+        let json = parse("--headless --json --describe").unwrap();
+        assert!(json.json && json.describe);
+        assert!(
+            parse("--quiet")
+                .unwrap_err()
+                .contains("only works with --headless")
+        );
+        assert!(
+            parse("--json")
+                .unwrap_err()
+                .contains("only works with --headless")
+        );
+        assert!(
+            parse("--headless --quiet --json")
+                .unwrap_err()
+                .contains("not both")
+        );
     }
 
     #[test]
