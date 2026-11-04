@@ -1,0 +1,6 @@
+{
+  "bullet_speed": 480,
+  "enemy_fire": 0.06,
+  "fire_delay": 0.12,
+  "ship_speed": 150
+}

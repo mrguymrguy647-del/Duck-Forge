@@ -56,7 +56,7 @@ result=$(grep -E '^test result' "$out/tests.txt" | tail -n 1 | sed -E 's/^test r
 if [ $code -eq 0 ]; then
     report "play tests" ok "${result:-no tests}"
 else
-    grep -E '^---- |panicked|^error' "$out/tests.txt" >"$out/tests-failed.txt"
+    grep -E '^---- |panicked|^error|^ *--> ' "$out/tests.txt" >"$out/tests-failed.txt"
     report "play tests" FAILED "${result:-did not run}; all in $out/tests.txt" "$out/tests-failed.txt"
 fi
 

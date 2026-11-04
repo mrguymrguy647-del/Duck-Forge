@@ -54,7 +54,7 @@ if "!code!"=="0" (
     set "detail="
     call :report "play tests" ok
 ) else (
-    findstr /r /c:"^---- " /c:"panicked" /c:"^error" "%out%\tests.txt" > "%out%\tests-failed.txt"
+    findstr /r /c:"^---- " /c:"panicked" /c:"^error" /c:"^ *--> " "%out%\tests.txt" > "%out%\tests-failed.txt"
     set "msg=!result!; all in %out%\tests.txt"
     set "detail=%out%\tests-failed.txt"
     call :report "play tests" FAILED

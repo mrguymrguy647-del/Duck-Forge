@@ -1,0 +1,5 @@
+{
+  "enemy_speed": 50,
+  "player_speed": 90,
+  "sight": 100
+}

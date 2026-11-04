@@ -1424,3 +1424,57 @@ macOS). A new crate, even one that arrives with an update of `png`,
 fails the test with a message saying to measure the clean build first
 and, if it's worth it, add the crate to the list. If `cargo tree` can't
 run, the test says so and passes, since that isn't the engine's fault.
+
+## Step 10: Genre starters
+
+Two more games to copy, next to the platformer template:
+`examples/starter_topdown.rs` and `examples/starter_shooter.rs`, about
+700 lines each with their tests (the template is 360). Each uses sprites drawn with
+letters, the camera, sounds, labels, `ctx.check` rules, `ctx.tune` with a
+tune file, `ctx.idle_ok()` on waiting screens, a recorded playthrough in
+`playthroughs/`, and play tests, and passes `tools/verify.sh` with 200
+fuzz runs. The quick start lists them.
+
+**Top-down.** The level is a text map (`'#'`, `'c'`, `'e'`, `'p'`), which
+is easy to read, change and get right without an editor. Walls are a
+grid of booleans, and `wall_touching` only looks at the tiles a body
+covers, so collision stays cheap however big the map gets. Movement is
+8-direction by default and normalized (a test checks diagonals aren't
+faster); `DIAGONALS = false` gives 4-direction movement that follows the
+key pressed last. Enemies wander until you're within `sight`, then
+chase; sliding along walls (one axis at a time) means they don't get
+stuck on corners as often. A hit costs a life, knocks you back and gives
+1.5 seconds of safety (tested).
+
+**Shooter.** Bullets move 480 px/s, 8 pixels a frame, more than their
+6-pixel length, so they're checked with `swept_aabb` along the whole
+move; a play test fires at 3000 px/s (50 pixels a frame, five times an
+enemy's height) and still hits. Waves grow from 6 to 18 enemies that fly
+in, sway, dive at the ship and shoot. Explosions use their own `Rng`,
+seeded once, so adding or removing particles never changes what the
+enemies do (the guide's "effects that use `ctx.rng` change the game"
+mistake, avoided). The hitbox is smaller than the ship's picture, which
+feels fair. The window is tall (240 x 320).
+
+**What building them found.** Verify and the tests caught five problems
+before they were committed, which is the point of the tools:
+
+- The top-down game first reported the tile you stand on, to keep
+  `log.json` short. The fuzzer then called a short key press a freeze:
+  you moved, but not into another tile, so no report changed. It now
+  reports `x` and `y` in pixels, like the template.
+- The shooter's enemy fire rate used `wave - 1` before the first wave
+  (wave 0): an overflow panic, found by the first play test.
+- The shooter's rule "no bullet inside an enemy" failed on frame 164 of
+  the playthrough: bullets were checked, then the enemies moved onto
+  them. Enemies now move first, then bullets are checked against where
+  enemies are now.
+- `verify`'s first lines for a test that didn't compile named the error
+  but not the file and line; it now also prints the `-->` lines.
+- The playthrough bots needed a step before reading reports (there are
+  none before the first update).
+
+The playthroughs are made by bots in ignored tests (`record_playthrough`):
+the top-down one walks the shortest path to the nearest coin that keeps
+two tiles from enemies (a breadth-first search on the map); the shooter
+one holds fire, flies under the nearest enemy and sidesteps shots.

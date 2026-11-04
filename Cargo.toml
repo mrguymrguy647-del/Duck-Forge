@@ -73,6 +73,14 @@ name = "template"
 test = true
 
 [[example]]
+name = "starter_topdown"
+test = true
+
+[[example]]
+name = "starter_shooter"
+test = true
+
+[[example]]
 name = "world3d"
 test = true
 

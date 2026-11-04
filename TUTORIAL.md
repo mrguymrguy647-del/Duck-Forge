@@ -156,6 +156,8 @@ examples/
   hello.rs          the smallest game
   shapes.rs         a tour of the 2D drawing functions
   template.rs       a small platformer to copy when you start a game
+  starter_topdown.rs  a top-down starter: walls, chasing enemies, coins
+  starter_shooter.rs  a shooter starter: fast bullets, waves, explosions
   breakout.rs       a complete 2D game
   dodge.rs          a small game built without a screen (see docs/AI_GUIDE.md)
   duckling_parade.rs  a bigger game, also built without a screen
@@ -4650,6 +4652,20 @@ Then change one thing at a time and run it again. Good first changes:
 make `JUMP_SPEED` bigger, redraw the duck in `DUCK` (keep every row the
 same length), add a platform in `Template::new`, or change the sky color
 in `draw`.
+
+Making a different kind of game? Two more starters work the same way:
+
+- `examples/starter_topdown.rs`: a hero walks around a map drawn as text
+  (`'#'` is a wall, `'c'` a coin, `'e'` an enemy), collecting coins while
+  enemies chase when you come close. Set `DIAGONALS` to `false` for
+  old-style 4-direction movement. Its `slide` function moves one axis at
+  a time, which is how you slide along a wall instead of sticking to it.
+- `examples/starter_shooter.rs`: a ship, bullets, and waves of enemies
+  that sway, dive and shoot back. Bullets move 8 pixels a frame, more
+  than their own length, so they use `swept_aabb` to check the whole way
+  they moved (chapter 33), and a rule (`ctx.check`) makes sure no bullet
+  ever ends up inside an enemy. Explosions are a handful of 2-pixel
+  squares flying apart and fading out.
 
 ### See what the game thinks: F1
 

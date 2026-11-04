@@ -22,7 +22,13 @@ headless, and the five most common mistakes.
 **Starting a new game? Copy [examples/template.rs](examples/template.rs)**:
 a small, commented platformer with a sprite drawn in code, a camera that
 follows the player, jump and coin sounds, a see-through pause screen and
-play tests. Run it with `cargo run --example template`.
+play tests. Run it with `cargo run --example template`. For other kinds of
+game, start from [examples/starter_topdown.rs](examples/starter_topdown.rs)
+(walk a walled map, collect coins, escape chasing enemies; 4 or 8
+directions) or [examples/starter_shooter.rs](examples/starter_shooter.rs)
+(fast bullets, waves of enemies that dive and shoot, particle
+explosions). Each has a tune file, a playthrough, rules and play tests,
+and passes `tools/verify.sh`.
 
 **New to Rust? Start with [TUTORIAL.md](TUTORIAL.md)**. It teaches the
 language through this engine's code and explains how every part works.
@@ -628,7 +634,7 @@ higher.
 | `src/font.rs`     | A built-in 3-pixel-wide font: every printable ASCII character        |
 | `src/color.rs`    | Colors with alpha, and see-through blending                         |
 | `src/rng.rs`      | A tiny xorshift random number generator                             |
-| `examples/`       | `hello`, `shapes`, `template`, `breakout`, `dodge`, `duckling_parade`, `door_short`, `door_show_3d`, `physics`, `world3d` and `stress3d` |
+| `examples/`       | `hello`, `shapes`, `template`, `starter_topdown`, `starter_shooter`, `breakout`, `dodge`, `duckling_parade`, `door_short`, `door_show_3d`, `physics`, `world3d` and `stress3d` |
 | `test.bat`        | Runs every test on Windows with a double-click                       |
 
 Only `src/window.rs` knows minifb exists, so the window library could be

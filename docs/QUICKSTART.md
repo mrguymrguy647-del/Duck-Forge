@@ -3,9 +3,8 @@
 duckforge is a small Rust game engine for 2D (and some 3D) games. Every
 game also runs **headless**: no window, as fast as possible, saving
 pictures, sound and a log you can read. This page is all you need to make
-a game. [AI_GUIDE.md](AI_GUIDE.md) is the full reference (every option,
-the API cheat sheet, more mistakes); [TUTORIAL.md](../TUTORIAL.md)
-teaches Rust from scratch.
+a game. [AI_GUIDE.md](AI_GUIDE.md) is the full reference;
+[TUTORIAL.md](../TUTORIAL.md) teaches Rust from scratch.
 
 ## Build without a screen
 
@@ -73,7 +72,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     duckforge::run(Config::default(), new_game())
 }
 ```
-Bigger start: copy `examples/template.rs` (platformer, sprites, camera, sound).
+Bigger starts to copy (sprites, camera, sounds, checks, tune file, play
+tests): `examples/template.rs` (platformer), `starter_topdown.rs` (walls,
+chasing enemies, coins), `starter_shooter.rs` (bullets, waves, explosions).
 
 ## The loop
 
@@ -106,11 +107,10 @@ mod tests {
 }
 ```
 
-6. **Verify**: `tools/verify.sh catch` (`tools\verify.bat catch` on
-   Windows) runs the play tests, replays every `playthroughs/catch*.json`,
-   plays 50 random games (`--fuzz`) looking for crashes, broken
-   `ctx.check("on screen", ok)` rules and freezes, and ends with
-   `VERIFY OK` or `VERIFY FAILED` and what failed.
+6. **Verify**: `tools/verify.sh catch` (`tools\verify.bat` on Windows)
+   runs the play tests and `playthroughs/catch*.json`, plays 50 random
+   games (`--fuzz`) looking for crashes, broken `ctx.check("on screen", ok)`
+   rules and freezes, and ends with `VERIFY OK` or `VERIFY FAILED`.
 7. **Fix** one thing and go round again (same command, same result).
 
 ## Five common mistakes
