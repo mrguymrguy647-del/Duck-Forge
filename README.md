@@ -272,6 +272,9 @@ after `--` goes to the game, not to Cargo):
 | `--record FILE` | In a window, record everything you do to FILE (F10 records too) |
 | `--debug` | Show the debug overlay (F1 in a window); with `--headless` it's in every saved picture |
 | `--debug-corner C` | Where the overlay's box goes: `top-left`, `top-right`, `bottom-left` or `bottom-right` (the default) |
+| `--tune FILE` | Read `ctx.tune` values from FILE (default: `examples/<game>.tune.json`, if it exists) |
+| `--set NAME=N` | Set one `ctx.tune` value, over the file (repeat it for more) |
+| `--write-tune` | After the run, write every `ctx.tune` name the game used, with its value, to the tune file |
 | `--help` | List the options |
 
 ```sh
@@ -354,6 +357,22 @@ lists them:
 The same seed and inputs always give a byte-for-byte identical
 `audio.wav`. With `--gif`, the engine prints an `ffmpeg` command that
 joins `run.gif` and `audio.wav` into `run.mp4`, to watch with sound.
+
+### Tuning without rebuilding
+
+Numbers you'll want to adjust (speeds, gravity, timers) can be read by
+name, with a default:
+
+```rust
+let jump_speed = ctx.tune("jump_speed", 330.0);
+```
+
+Then change them without recompiling: in `examples/<game>.tune.json`
+(`{"jump_speed": 400}`), or for one run with `--set jump_speed=400`. In a
+window the file is read again whenever you save it, so you can tweak a
+running game. `--write-tune` creates the file with every name the game
+asked for, and `log.json` records each value and where it came from.
+`examples/template.rs` and `examples/template.tune.json` show it.
 
 ### The debug overlay
 

@@ -61,6 +61,7 @@ impl Game for Everything {
     fn update(&mut self, ctx: &mut Context) {
         // Context
         let _ = (ctx.dt(), ctx.time(), ctx.frame(), ctx.width(), ctx.height());
+        ctx.report("jump", ctx.tune("jump_speed", 330.0));
         ctx.report("frame", ctx.frame());
         ctx.report("state", format!("{:?}", Timestep::RealTime));
         // Input
@@ -234,8 +235,19 @@ fn headless_and_play_tests() {
     let played = PlayTest::new(config(), Everything::new())
         .script(r#"{"events": [{"frame": 2, "press": "Right"}]}"#)
         .frames(30)
+        .tune("jump_speed", 400.0)
         .run();
     played.assert_sound("coin", 3, 1);
+    assert_eq!(played.number("jump"), 400.0);
+    let tune_file =
+        std::env::temp_dir().join(format!("cheat-sheet-{}.tune.json", std::process::id()));
+    std::fs::write(&tune_file, r#"{"jump_speed": 350}"#).unwrap();
+    let played = PlayTest::new(config(), Everything::new())
+        .tune_file(&tune_file)
+        .frames(2)
+        .run();
+    assert_eq!(played.number("jump"), 350.0);
+    let _ = std::fs::remove_file(tune_file);
     let _ = std::fs::remove_dir_all(folder);
 }
 

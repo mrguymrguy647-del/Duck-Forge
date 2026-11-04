@@ -160,7 +160,10 @@ pub(crate) fn run<G: Game>(
     window.set_target_fps(config.target_fps);
 
     let renderer = renderer_from_env().unwrap_or(config.renderer);
+    let tunes =
+        crate::tune::Tunes::load(options.tune.as_deref(), &options.set).map_err(EngineError)?;
     let mut sim = Simulation::start(&config, game, renderer);
+    sim.set_tunes(tunes);
     sim.forget_report_log();
     #[cfg(feature = "audio")]
     let speaker = match crate::speaker::Speaker::open() {
@@ -185,6 +188,7 @@ pub(crate) fn run<G: Game>(
     sim.set_debug_overlay(show_debug);
     let mut keys_last_frame = Vec::new();
     let mut last_frame = Instant::now();
+    let mut last_tune_check = Instant::now();
 
     let frames = options.frames.unwrap_or(u64::MAX);
 
@@ -278,11 +282,28 @@ pub(crate) fn run<G: Game>(
             window.set_title(&wanted);
             title = wanted;
         }
+
+        // Pick up edits to the tune file, twice a second.
+        if last_tune_check.elapsed().as_secs_f32() >= 0.5 {
+            last_tune_check = Instant::now();
+            match sim.tunes_mut().reload_if_changed() {
+                Some(Ok(message)) => println!("duckforge: {message}"),
+                Some(Err(problem)) => println!("duckforge: {problem}; keeping the old values"),
+                None => {}
+            }
+        }
     }
 
     // Closing the window doesn't lose a recording.
     if recorder.on {
         recorder.toggle(&sim);
+    }
+    for name in sim.tunes().unused_sets() {
+        println!("duckforge: warning: --set {name} was never asked for (check the spelling)");
+    }
+    if options.write_tune {
+        let path = sim.tunes().write_file().map_err(EngineError)?;
+        println!("duckforge: wrote the tune values to {}", path.display());
     }
     Ok(())
 }

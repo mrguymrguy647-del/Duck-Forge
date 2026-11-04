@@ -15,6 +15,7 @@ use crate::render3d::Renderer;
 use crate::report::ReportValue;
 use crate::rng::Rng;
 use crate::sound::{Sound, SoundRequest, Wav};
+use crate::tune::Tunes;
 
 /// What every game must provide. The engine calls `update` and `draw` once
 /// per frame.
@@ -228,6 +229,8 @@ pub struct Context {
     sounds: Vec<SoundRequest>,
     /// Shapes to outline in the debug overlay, from the latest update.
     debug_shapes: Vec<DebugShape>,
+    /// Tuned numbers: from `--set`, the tune file, or the game's defaults.
+    tunes: Tunes,
 }
 
 impl Context {
@@ -247,6 +250,7 @@ impl Context {
             reports: Vec::new(),
             sounds: Vec::new(),
             debug_shapes: Vec::new(),
+            tunes: Tunes::default(),
         }
     }
 
@@ -331,6 +335,33 @@ impl Context {
     /// ```
     pub fn report(&mut self, name: &str, value: impl Into<ReportValue>) {
         self.reports.push((name.to_string(), value.into()));
+    }
+
+    /// A number the game can tune without being rebuilt: the value of
+    /// `name` from `--set name=VALUE`, else from the tune file
+    /// (`examples/<game>.tune.json`, or `--tune FILE`), else `default`.
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// # fn example(ctx: &mut Context) {
+    /// let jump_speed = ctx.tune("jump_speed", 330.0);
+    /// # }
+    /// ```
+    ///
+    /// Call it where the number is used, every update: it's cheap, and
+    /// then a window picks up edits to the tune file while the game runs.
+    /// `log.json` lists every value used and where it came from, and
+    /// `--write-tune` writes all the names the game asked for to the file.
+    pub fn tune(&self, name: &str, default: f32) -> f32 {
+        self.tunes.get(name, default)
+    }
+
+    pub(crate) fn tunes(&self) -> &Tunes {
+        &self.tunes
+    }
+
+    pub(crate) fn tunes_mut(&mut self) -> &mut Tunes {
+        &mut self.tunes
     }
 
     /// Plays a sound from the built-in synthesizer: a ready-made one like

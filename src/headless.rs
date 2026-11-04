@@ -73,6 +73,14 @@ pub struct HeadlessOptions {
     /// frame, camera, mouse, and the shapes the game registered with
     /// `ctx.debug_rect` and `ctx.debug_circle`.
     pub debug: bool,
+    /// The tune file for `ctx.tune` (`--tune FILE`). `None` uses
+    /// `examples/<game>.tune.json` if it exists.
+    pub tune_file: Option<PathBuf>,
+    /// Tune values that win over the file (`--set name=value`).
+    pub tune: Vec<(String, f32)>,
+    /// After the run, write every name the game passed to `ctx.tune`, with
+    /// its value, to the tune file (`--write-tune`).
+    pub write_tune: bool,
 }
 
 impl Default for HeadlessOptions {
@@ -88,6 +96,9 @@ impl Default for HeadlessOptions {
             crop: None,
             zoom: 1,
             debug: false,
+            tune_file: None,
+            tune: Vec::new(),
+            write_tune: false,
         }
     }
 }
@@ -153,7 +164,9 @@ fn run_and_save<G: Game>(
     let title = config.title.clone();
     let (width, height) = (config.width, config.height);
 
+    let tunes = crate::tune::Tunes::load(options.tune_file.as_deref(), &options.tune)?;
     let mut sim = Simulation::new(config, game);
+    sim.set_tunes(tunes);
     sim.set_debug_overlay(options.debug);
     if let Some(script) = &options.inputs {
         sim.follow(script.clone());
@@ -162,6 +175,7 @@ fn run_and_save<G: Game>(
     // Without a folder, there's nothing to save: just run.
     let Some(folder) = &options.out else {
         sim.run(options.frames);
+        write_tune_if_asked(&mut sim, options)?;
         return Ok((sim, Vec::new()));
     };
     fs::create_dir_all(folder)
@@ -273,7 +287,21 @@ fn run_and_save<G: Game>(
     let log = log_json(&title, &sim, updates_per_second, options, &saved);
     let path = folder.join("log.json");
     fs::write(&path, log).map_err(|err| format!("could not save {}: {err}", path.display()))?;
+    write_tune_if_asked(&mut sim, options)?;
     Ok((sim, saved))
+}
+
+/// `--write-tune`: saves every tune name the game used to the tune file.
+fn write_tune_if_asked<G: Game>(
+    sim: &mut Simulation<G>,
+    options: &HeadlessOptions,
+) -> Result<(), String> {
+    if options.write_tune {
+        let path = sim.tunes().write_file()?;
+        let count = sim.tunes().used().len();
+        println!("duckforge: wrote {count} tune values to {}", path.display());
+    }
+    Ok(())
 }
 
 /// GIF timing is in hundredths of a second. Picks the smallest step of at
@@ -379,6 +407,7 @@ fn log_json<G: Game>(
         .map(|(name, value)| format!("{}: {}", json(Value::from(name)), value.to_json()))
         .collect();
     text += &format!("  \"final\": {{{}}},\n", last.join(", "));
+    text += &format!("  \"tune\": {},\n", sim.tunes().to_json());
     text += "  \"sounds\": [";
     let sounds = sim.sounds();
     for (index, played) in sounds.iter().enumerate() {
@@ -442,6 +471,9 @@ pub(crate) fn run_from_command_line<G: Game>(
             .zoom
             .unwrap_or(if options.crop.is_some() { 4 } else { 1 }),
         debug: options.debug,
+        tune_file: options.tune.clone(),
+        tune: options.set.clone(),
+        write_tune: options.write_tune,
     };
     if let Some(corner) = options.debug_corner {
         config.debug_corner = corner;
@@ -508,6 +540,32 @@ pub(crate) fn run_from_command_line<G: Game>(
                 );
             }
         }
+    }
+    let tuned: Vec<String> = sim
+        .tunes()
+        .used()
+        .into_iter()
+        .filter(|(_, _, source)| *source != crate::tune::Source::Default)
+        .map(|(name, value, source)| format!("{name} = {value} ({})", source.name()))
+        .collect();
+    if !tuned.is_empty() {
+        println!("duckforge: tuned {}", tuned.join(", "));
+    }
+    for name in sim.tunes().unused_sets() {
+        let asked: Vec<String> = sim
+            .tunes()
+            .used()
+            .into_iter()
+            .map(|(name, ..)| name)
+            .collect();
+        println!(
+            "duckforge: warning: --set {name} was never asked for in this run (the game asked for: {}); check the spelling, and read tune values at the top of update so they're always asked for",
+            if asked.is_empty() {
+                String::from("nothing")
+            } else {
+                asked.join(", ")
+            }
+        );
     }
     let mut reported: Vec<String> = sim
         .reports()
@@ -730,6 +788,130 @@ mod tests {
         assert_eq!(samples[start], 16384, "the file's samples, at its frame");
         assert_eq!(samples[start + 99], 16384);
         assert_eq!(samples[start + 100], 0, "and only for as long as the file");
+    }
+
+    /// A ball whose speed, size and randomness come from `ctx.tune`.
+    struct Tuned {
+        x: f32,
+    }
+
+    impl Game for Tuned {
+        fn update(&mut self, ctx: &mut Context) {
+            let speed = ctx.tune("speed", 10.0);
+            let wobble = ctx.tune("wobble", 0.0);
+            self.x += speed * ctx.dt() + ctx.rng.range(0.0, wobble);
+            ctx.report("speed", speed);
+            ctx.report("size", ctx.tune("size", 4.0));
+            ctx.report("x", self.x);
+        }
+
+        fn draw(&self, canvas: &mut Canvas) {
+            canvas.clear(Color::BLACK);
+            canvas.fill_rect(Rect::new(self.x, 2.0, 2.0, 2.0), Color::WHITE);
+        }
+    }
+
+    fn tuned_run(
+        name: &str,
+        file: Option<&str>,
+        set: &[(&str, f32)],
+    ) -> (Simulation<Tuned>, String) {
+        let folder = test_folder(name);
+        fs::create_dir_all(&folder).unwrap();
+        let tune_file = file.map(|text| {
+            let path = folder.join("game.tune.json");
+            fs::write(&path, text).unwrap();
+            path
+        });
+        let options = HeadlessOptions {
+            frames: 60,
+            out: Some(folder.join("out")),
+            tune_file,
+            tune: set
+                .iter()
+                .map(|&(name, value)| (name.to_string(), value))
+                .collect(),
+            ..HeadlessOptions::default()
+        };
+        let sim = run_headless(config(), Tuned { x: 0.0 }, &options).unwrap();
+        let log = fs::read_to_string(folder.join("out/log.json")).unwrap();
+        (sim, log)
+    }
+
+    #[test]
+    fn set_beats_the_tune_file_which_beats_the_default() {
+        let file = r#"{"speed": 20, "size": 6}"#;
+        let (defaults, _) = tuned_run("tune-default", None, &[]);
+        assert_eq!(defaults.number("speed"), 10.0);
+        let (from_file, _) = tuned_run("tune-file", Some(file), &[]);
+        assert_eq!(
+            (from_file.number("speed"), from_file.number("size")),
+            (20.0, 6.0)
+        );
+        let (from_set, log) = tuned_run("tune-set", Some(file), &[("speed", 30.0)]);
+        assert_eq!(
+            (from_set.number("speed"), from_set.number("size")),
+            (30.0, 6.0)
+        );
+        assert!(
+            log.contains(
+                r#""tune": {"size": {"value": 6, "from": "file"}, "speed": {"value": 30, "from": "set"}, "wobble": {"value": 0, "from": "default"}}"#
+            ),
+            "{log}"
+        );
+    }
+
+    #[test]
+    fn the_same_seed_and_tune_values_give_the_same_run() {
+        let file = r#"{"wobble": 2.5}"#;
+        let (mut a, log_a) = tuned_run("tune-same-a", Some(file), &[("speed", 7.0)]);
+        let (mut b, log_b) = tuned_run("tune-same-b", Some(file), &[("speed", 7.0)]);
+        assert_eq!(log_a, log_b);
+        assert_eq!(a.picture().pixels(), b.picture().pixels());
+        let (other, _) = tuned_run("tune-same-c", Some(file), &[("speed", 8.0)]);
+        assert_ne!(
+            other.number("x"),
+            a.number("x"),
+            "a different value plays differently"
+        );
+    }
+
+    #[test]
+    fn write_tune_lists_every_name_the_game_used() {
+        let folder = test_folder("tune-write");
+        fs::create_dir_all(&folder).unwrap();
+        let path = folder.join("written.tune.json");
+        let options = HeadlessOptions {
+            frames: 2,
+            tune_file: None,
+            tune: vec![(String::from("speed"), 12.0)],
+            write_tune: true,
+            ..HeadlessOptions::default()
+        };
+        // With no file at all, --write-tune needs to know where to write.
+        let mut with_path = options.clone();
+        with_path.tune_file = Some(path.clone());
+        fs::write(&path, "{}").unwrap();
+        run_headless(config(), Tuned { x: 0.0 }, &with_path).unwrap();
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "{\n  \"size\": 4,\n  \"speed\": 12,\n  \"wobble\": 0\n}\n"
+        );
+    }
+
+    #[test]
+    fn a_missing_tune_file_is_one_clear_error() {
+        let options = HeadlessOptions {
+            tune_file: Some(PathBuf::from("nowhere/game.tune.json")),
+            ..HeadlessOptions::default()
+        };
+        let error = run_headless(config(), Tuned { x: 0.0 }, &options)
+            .err()
+            .unwrap();
+        assert!(
+            error.contains("couldn't find the tune file nowhere/game.tune.json"),
+            "{error}"
+        );
     }
 
     #[test]

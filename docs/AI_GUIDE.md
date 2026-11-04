@@ -360,6 +360,21 @@ When something works, pin it down with a play test
 things. When something's broken, write the test first, watch it fail,
 then fix it.
 
+### Step 6b: Tune without rebuilding
+
+Speeds, gravity and timers that you'll adjust go through `ctx.tune`.
+Then trying a value is one command, with no rebuild:
+
+```sh
+cargo run --no-default-features --example mygame -- --headless --inputs out/start.json \
+    --set jump_speed=400 --set gravity=1100 --sheet --out out/try
+```
+
+When a value is right, put it in `examples/mygame.tune.json` (or run once
+with `--write-tune` to create the file with every value, then edit it).
+The summary prints which values came from the file or `--set`, and warns
+about a `--set` name the game never asked for (usually a typo).
+
 ### Step 7: Fix, and go round again
 
 Change one thing at a time, and rerun the same command. Because runs are
@@ -593,6 +608,18 @@ frame (bullets), or it passes through thin walls.
 `step = rate * ctx.dt()`), `remap(value, (from_a, from_b), (to_a, to_b))`
 (not clamped).
 
+**Tuning** (change numbers without rebuilding):
+`let jump = ctx.tune("jump_speed", 330.0);` gives `--set jump_speed=400`
+if given, else the tune file's value, else the default. The tune file is
+`examples/<game>.tune.json` (a JSON object of numbers, like
+`{"jump_speed": 400}`; found by the program's name, also in `cargo test`)
+or `--tune FILE`. `--write-tune` writes every name the game asked for,
+with its value. Read all tune values at the top of `update`: a name is
+only known once the code reading it runs. `log.json` has
+`"tune": {"jump_speed": {"value": 400, "from": "set"}, ...}`. In play
+tests: `PlayTest::new(..).tune("jump_speed", 400.0)` or
+`.tune_file("x.json")`. A window re-reads the file when it changes.
+
 **Reports**: `ctx.report("name", value)` with a number (any integer or
 float type), a `bool`, a `&str` or a `String`. Enums: report
 `format!("{:?}", self.state)`.
@@ -635,7 +662,8 @@ and `Simulation::new(config, game)` with `press`, `release`,
 **Command line**: `--headless`, `--frames N`, `--out DIR`, `--seed N`,
 `--inputs FILE`, `--snapshot-every N`, `--sheet`, `--gif`,
 `--crop X,Y,W,H`, `--zoom N`, `--debug`, `--debug-corner top-right` (where
-the overlay's box goes; bottom-right by default), `--record FILE` (window
+the overlay's box goes; bottom-right by default), `--tune FILE`,
+`--set NAME=N` (repeatable), `--write-tune`, `--record FILE` (window
 only), `--help`.
 They go after `--` with `cargo run`: `cargo run --example x -- --headless`.
 

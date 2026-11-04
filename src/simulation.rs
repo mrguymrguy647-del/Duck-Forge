@@ -123,9 +123,13 @@ impl<G: Game> Simulation<G> {
         let seed = config.seed.unwrap_or(DEFAULT_SEED);
         let mut canvas = Canvas::new(config.width, config.height);
         canvas.set_renderer(renderer);
+        let tunes = crate::tune::Tunes::load(None, &[])
+            .unwrap_or_else(|problem| panic!("bad tune file: {problem}"));
+        let mut ctx = Context::new(config.width, config.height, seed);
+        *ctx.tunes_mut() = tunes;
         Self {
             game,
-            ctx: Context::new(config.width, config.height, seed),
+            ctx,
             canvas,
             dt: config.step_time(),
             seed,
@@ -530,6 +534,22 @@ impl<G: Game> Simulation<G> {
         self.sounds_sent = 0;
         self.reports.keep_changes = false;
         self.reports.changes.clear();
+    }
+
+    /// Uses these tune values from now on (from `--tune` and `--set`).
+    pub(crate) fn set_tunes(&mut self, tunes: crate::tune::Tunes) {
+        *self.ctx.tunes_mut() = tunes;
+    }
+
+    /// The tune values: for logging and `--write-tune`.
+    pub(crate) fn tunes(&self) -> &crate::tune::Tunes {
+        self.ctx.tunes()
+    }
+
+    /// The tune values, to reload the file.
+    #[cfg_attr(not(feature = "window"), allow(dead_code))] // only the window reloads
+    pub(crate) fn tunes_mut(&mut self) -> &mut crate::tune::Tunes {
+        self.ctx.tunes_mut()
     }
 
     /// Turns the debug overlay on or off for every picture from now on

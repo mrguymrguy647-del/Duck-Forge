@@ -4660,6 +4660,42 @@ the duck is drawn. Collisions that "feel wrong" are very often a hitbox
 that's a few pixels off from its picture. Without a screen,
 `--headless --debug` puts the overlay into every saved picture.
 
+### Tweak numbers while it runs
+
+The template reads its speeds through `ctx.tune`:
+
+```rust
+let jump_speed = ctx.tune("jump_speed", JUMP_SPEED);
+```
+
+That's `JUMP_SPEED` unless `examples/template.tune.json` says otherwise.
+Run the game, open the tune file in your editor, change `jump_speed` to
+`450` and save: the duck jumps higher straight away, no rebuild. When it
+feels right, copy the number back into the constant if you like. For a
+single run, `cargo run --example template -- --set jump_speed=450` wins
+over the file.
+
+### Rust idea: `RefCell`, changing data behind `&`
+
+`ctx.tune` takes `&self`, a shared borrow, yet it writes down every name
+it's asked for (for `log.json`). How? The list sits in a **`RefCell`**
+(`src/tune.rs`), which lets you change what's inside through a shared
+reference, and checks the borrowing rules while the program runs instead
+of when it compiles: `self.used.borrow_mut()` hands out a mutable borrow,
+and panics if another borrow of the same cell is still alive.
+
+Why bother? Because with `&mut self`, this line wouldn't compile:
+
+```rust
+ctx.report("jump", ctx.tune("jump_speed", 330.0));
+```
+
+`report` already borrows `ctx` mutably, and a second mutable borrow for
+`tune` isn't allowed. With `tune(&self)`, Rust can lend `ctx` for reading
+first, then for `report`. Use `RefCell` sparingly: it moves a check from
+the compiler to run time. Here it's tiny and can't fail, since the
+borrow ends inside `tune`.
+
 ### When something goes wrong
 
 The engine tries to say what went wrong in one sentence, and how to fix

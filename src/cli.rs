@@ -84,6 +84,21 @@ const OPTIONS: &[OptionInfo] = &[
         help: "where the debug overlay's box goes: top-left, top-right, bottom-left or bottom-right (default)",
     },
     OptionInfo {
+        name: "--tune",
+        value: Some("FILE"),
+        help: "read ctx.tune values from FILE (default: examples/<game>.tune.json, if it exists)",
+    },
+    OptionInfo {
+        name: "--set",
+        value: Some("NAME=N"),
+        help: "set one ctx.tune value, over the tune file; repeat it for more",
+    },
+    OptionInfo {
+        name: "--write-tune",
+        value: None,
+        help: "after the run, write every ctx.tune name the game used, with its value, to the tune file",
+    },
+    OptionInfo {
         name: "--help",
         value: None,
         help: "show this help and quit",
@@ -110,6 +125,9 @@ pub(crate) struct Options {
     pub zoom: Option<usize>,
     pub debug: bool,
     pub debug_corner: Option<Corner>,
+    pub tune: Option<PathBuf>,
+    pub set: Vec<(String, f32)>,
+    pub write_tune: bool,
 }
 
 impl Options {
@@ -142,6 +160,9 @@ impl Options {
                 "--gif" => options.gif = true,
                 "--debug" => options.debug = true,
                 "--debug-corner" => options.debug_corner = Some(Corner::parse(value)?),
+                "--tune" => options.tune = Some(PathBuf::from(value)),
+                "--set" => options.set.push(crate::tune::parse_set(value)?),
+                "--write-tune" => options.write_tune = true,
                 "--crop" => options.crop = Some(Crop::parse(value)?),
                 "--snapshot-every" => {
                     let every = value.parse().map_err(|_| {
@@ -398,6 +419,8 @@ mod tests {
             "--inputs" | "--record" => "run.json",
             "--crop" => "0,0,10,10",
             "--debug-corner" => "top-left",
+            "--tune" => "game.tune.json",
+            "--set" => "speed=2",
             _ => "2",
         };
         for option in OPTIONS {
@@ -422,6 +445,23 @@ mod tests {
             Options::parse([String::from("--my-game-option")]),
             Ok(Options::default())
         );
+    }
+
+    #[test]
+    fn set_can_be_repeated() {
+        let options =
+            parse("--headless --set speed=2 --set=gravity=900.5 --tune t.json --write-tune")
+                .unwrap();
+        assert_eq!(
+            options.set,
+            [
+                (String::from("speed"), 2.0),
+                (String::from("gravity"), 900.5)
+            ]
+        );
+        assert_eq!(options.tune, Some(PathBuf::from("t.json")));
+        assert!(options.write_tune);
+        assert!(parse("--set speed").unwrap_err().contains("NAME=NUMBER"));
     }
 
     #[test]

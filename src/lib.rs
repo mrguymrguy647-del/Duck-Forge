@@ -53,6 +53,7 @@ pub mod sound;
 #[cfg(all(feature = "audio", feature = "window"))]
 mod speaker;
 pub mod sprite;
+mod tune;
 #[cfg(feature = "window")]
 mod window;
 

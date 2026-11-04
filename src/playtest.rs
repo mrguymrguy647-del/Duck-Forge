@@ -105,6 +105,20 @@ impl<G: Game> PlayTest<G> {
         self
     }
 
+    /// Sets one `ctx.tune` value for this test, over the tune file (like
+    /// `--set name=value`). Call it again for more.
+    pub fn tune(mut self, name: &str, value: f32) -> Self {
+        self.options.tune.push((name.to_string(), value));
+        self
+    }
+
+    /// Reads `ctx.tune` values from this file instead of
+    /// `examples/<game>.tune.json` (like `--tune FILE`).
+    pub fn tune_file(mut self, path: impl Into<PathBuf>) -> Self {
+        self.options.tune_file = Some(path.into());
+        self
+    }
+
     /// Also saves pictures of the run in `folder`: `last.png`, `sheet.png`
     /// and `log.json`, to look at when a test fails.
     pub fn save_to(mut self, folder: impl Into<PathBuf>) -> Self {

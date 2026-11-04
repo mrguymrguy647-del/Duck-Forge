@@ -20,6 +20,10 @@
 use duckforge::prelude::*;
 
 // ---- Settings: change these first ----
+//
+// GRAVITY, RUN_SPEED and JUMP_SPEED are *tunable*: the game reads them with
+// `ctx.tune`, so examples/template.tune.json (or `--set jump_speed=400`)
+// can change them without rebuilding, even while the game runs.
 
 const WIDTH: f32 = 320.0; // the screen, in pixels
 const HEIGHT: f32 = 240.0;
@@ -138,6 +142,13 @@ impl Template {
 
 impl Game for Template {
     fn update(&mut self, ctx: &mut Context) {
+        // The tunable numbers, read at the top of every update: then the
+        // tune file always lists all of them (--write-tune), and edits to it
+        // apply straight away while the game runs.
+        let run_speed = ctx.tune("run_speed", RUN_SPEED);
+        let jump_speed = ctx.tune("jump_speed", JUMP_SPEED);
+        let gravity = ctx.tune("gravity", GRAVITY);
+
         if ctx.input.was_pressed(Key::Escape) {
             ctx.quit();
         }
@@ -153,8 +164,8 @@ impl Game for Template {
             let dt = ctx.dt();
             // Run: -1, 0 or 1 from the keys, then ease the speed towards it.
             let run = ctx.input.axis(Key::Left, Key::Right) + ctx.input.axis(Key::A, Key::D);
-            let target = run.clamp(-1.0, 1.0) * RUN_SPEED;
-            self.vel.x = approach(self.vel.x, target, RUN_SPEED * 8.0 * dt);
+            let target = run.clamp(-1.0, 1.0) * run_speed;
+            self.vel.x = approach(self.vel.x, target, run_speed * 8.0 * dt);
             if run != 0.0 {
                 self.facing_left = run < 0.0;
                 self.walk_time += dt;
@@ -164,10 +175,10 @@ impl Game for Template {
                 .iter()
                 .any(|&k| ctx.input.was_pressed(k));
             if jump && self.on_ground {
-                self.vel.y = -JUMP_SPEED;
+                self.vel.y = -jump_speed;
                 ctx.play(Sound::jump());
             }
-            self.vel.y = (self.vel.y + GRAVITY * dt).min(400.0); // falling speed limit
+            self.vel.y = (self.vel.y + gravity * dt).min(400.0); // falling speed limit
             self.move_player(dt);
 
             // Coins: keep the ones the player isn't touching.

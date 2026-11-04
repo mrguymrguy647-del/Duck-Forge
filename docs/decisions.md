@@ -1026,3 +1026,61 @@ camera. The rest are in the guide.
 statement on its own line; squeezing it to 30 would mean either fewer
 features (no sound, no score) or unformatted code, and both teach the
 wrong thing.
+
+## Step 3: Tuning values without rebuilding
+
+**Why.** Most changes while making a game feel right are numbers: jump
+speed, gravity, enemy speed. Each one cost an agent a rebuild (seconds to
+a minute) and a person a restart. `ctx.tune("jump_speed", 330.0)` makes
+a number changeable from outside, with the default still in the code, so
+the game works with no file at all.
+
+**Three sources, one order.** `--set name=value` beats the tune file,
+which beats the default in code. `--set` is for trying a value for one
+run (an agent can try five values with five commands and no rebuild); the
+file is for keeping values. Numbers only, named by strings: no types,
+nesting or expressions, so there's nothing to learn and nothing to
+misparse.
+
+**The file is found by the program's name.** `examples/<game>.tune.json`,
+where `<game>` comes from the running program (`target/.../examples/dodge`
+is `dodge`). Test programs are named like `dodge-1a2b3c4d5e6f7a8b`, so the
+hash is stripped and `cargo test --example dodge` reads the same file:
+play tests test the tuned game, not the defaults. (Checked by setting
+`jump_speed` to 0 in the template's file: its jump test failed.) A
+missing default file is fine; a missing file named with `--tune` is an
+error, because then you asked for it.
+
+**Hot reload in a window, numbers only.** Twice a second the window
+checks the tune file's modified time and, if it changed, reads it again;
+a broken file prints one line and keeps the old values. The game sees
+the new numbers the next time it calls `ctx.tune`, so the advice is to
+read tune values at the top of `update`. Nothing else is reloaded: no
+code, no assets, no state, which is what keeps this simple and safe.
+Replays and recordings don't capture live edits; a recording plays with
+whatever values are in the file when it's replayed.
+
+**A name is known only when the code reading it runs.** That has two
+consequences, both found by trying it on the template: `--write-tune`
+only writes names the game asked for during that run, and a `--set` for a
+name read only in rarely-run code looks unused. So the template reads all
+its tune values at the top of `update`, the docs recommend it, and the
+warning for an unused `--set` says "never asked for in this run" and
+suggests checking the spelling (it's usually a typo, like `jumpspeed`).
+
+**`log.json` records every value and its source** (`"from": "default"`,
+`"file"` or `"set"`), so a run can be reproduced exactly, and the summary
+prints the values that didn't come from the code.
+
+**`ctx.tune` takes `&self`.** It records which names were used, which
+needs to change something. With `&mut self`,
+`ctx.report("jump", ctx.tune("jump_speed", 330.0))` would be a borrow
+error, the kind that costs a beginner (and an agent) a confused rebuild.
+The list of used names sits in a `RefCell`, so `tune` can take `&self`;
+the tutorial explains `RefCell` with exactly this example.
+
+**Tests:** `--set` beats the file and the file beats the default; the
+same seed and tune values give an identical run (log and pictures), and a
+different value gives a different one; `--write-tune` keeps the file's
+names and adds new ones; bad files and bad `--set` values give one
+sentence each; and the game name loses the test hash.
