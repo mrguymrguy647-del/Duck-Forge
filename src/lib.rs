@@ -41,6 +41,7 @@ pub mod math;
 pub mod physics;
 pub mod render3d;
 pub mod rng;
+pub mod script;
 pub mod simulation;
 #[cfg(feature = "window")]
 mod window;
@@ -51,6 +52,7 @@ mod font;
 pub use cli::game_args;
 pub use engine::run;
 pub use headless::{HeadlessOptions, run_headless};
+pub use script::{InputAction, InputEvent, InputScript};
 pub use simulation::Simulation;
 
 /// Everything a game usually needs, importable in one line:

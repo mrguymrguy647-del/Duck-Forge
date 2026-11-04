@@ -11,6 +11,7 @@ use std::time::Instant;
 
 use crate::cli::{self, Options};
 use crate::engine::{Config, Game};
+use crate::script::{self, InputScript};
 use crate::simulation::Simulation;
 
 /// What a headless run should do. Make one with `HeadlessOptions::default()`
@@ -34,10 +35,14 @@ pub struct HeadlessOptions {
     /// The folder to save files in: `last.png`, the last frame. It's
     /// created if it doesn't exist. `None` saves nothing.
     pub out: Option<PathBuf>,
-    /// The random seed. `None` uses `Config::seed`, or if that's `None` too,
+    /// The random seed. `None` uses the script's seed, or `Config::seed`,
+    /// or if those are `None` too,
     /// [`DEFAULT_SEED`](crate::simulation::DEFAULT_SEED), so runs are
     /// repeatable unless you ask otherwise.
     pub seed: Option<u32>,
+    /// Inputs to replay: a recorded playthrough, or one written by hand or
+    /// by a program. `None` runs the game with nobody touching anything.
+    pub inputs: Option<InputScript>,
 }
 
 impl Default for HeadlessOptions {
@@ -46,6 +51,7 @@ impl Default for HeadlessOptions {
             frames: 600,
             out: None,
             seed: None,
+            inputs: None,
         }
     }
 }
@@ -64,8 +70,12 @@ pub fn run_headless<G: Game>(
     options: &HeadlessOptions,
 ) -> Result<Simulation<G>, String> {
     config.check()?;
-    config.seed = options.seed.or(config.seed);
+    let script_seed = options.inputs.as_ref().and_then(|script| script.seed);
+    config.seed = options.seed.or(script_seed).or(config.seed);
     let mut sim = Simulation::new(config, game);
+    if let Some(script) = &options.inputs {
+        sim.follow(script.clone());
+    }
     sim.run(options.frames);
 
     if let Some(folder) = &options.out {
@@ -88,8 +98,23 @@ pub(crate) fn run_from_command_line<G: Game>(
     game: G,
     options: &Options,
 ) -> Result<(), String> {
+    let inputs = match &options.inputs {
+        Some(path) => Some(InputScript::load(path)?),
+        None => None,
+    };
+    if let Some(warning) = inputs
+        .as_ref()
+        .and_then(|script| script::timestep_warning(script, &config))
+    {
+        eprintln!("duckforge: {warning}");
+    }
+    // How long to run: as asked, or as long as the recording, or 10 seconds.
+    let frames = options
+        .frames
+        .or(inputs.as_ref().and_then(|script| script.frames))
+        .unwrap_or(HeadlessOptions::default().frames);
     let headless = HeadlessOptions {
-        frames: options.frames.unwrap_or(HeadlessOptions::default().frames),
+        frames,
         out: Some(
             options
                 .out
@@ -97,6 +122,7 @@ pub(crate) fn run_from_command_line<G: Game>(
                 .unwrap_or_else(|| PathBuf::from(cli::DEFAULT_OUT)),
         ),
         seed: options.seed,
+        inputs,
     };
     let title = config.title.clone();
     let started = Instant::now();
@@ -114,6 +140,18 @@ pub(crate) fn run_from_command_line<G: Game>(
         summary += "; the game quit by itself";
     }
     println!("{summary}");
+    if let (Some(path), Some(script)) = (&options.inputs, &headless.inputs) {
+        let used = script
+            .events
+            .iter()
+            .filter(|event| event.frame <= ctx.frame())
+            .count();
+        println!(
+            "duckforge: replayed {used} of the {} input events in {}",
+            script.events.len(),
+            path.display()
+        );
+    }
     if let Some(folder) = &headless.out {
         println!("duckforge: saved {}", folder.join("last.png").display());
     }
@@ -231,5 +269,44 @@ mod tests {
         };
         let err = run_headless(config(), game(), &options).err().unwrap();
         assert!(err.contains("could not create the folder"), "{err}");
+    }
+
+    #[test]
+    fn inputs_are_replayed_with_their_seed() {
+        struct Counter {
+            presses: u32,
+            first_number: Option<f32>,
+        }
+        impl Game for Counter {
+            fn update(&mut self, ctx: &mut Context) {
+                self.first_number.get_or_insert(ctx.rng.next_f32());
+                if ctx.input.was_pressed(crate::input::Key::Space) {
+                    self.presses += 1;
+                }
+            }
+            fn draw(&self, _: &mut Canvas) {}
+        }
+        let script = InputScript::parse(
+            r#"{"seed": 9, "events": [
+                {"frame": 2, "press": "Space"}, {"frame": 3, "release": "Space"},
+                {"frame": 9, "press": "Space"}, {"frame": 10, "release": "Space"},
+                {"frame": 50, "press": "Space"}
+            ]}"#,
+        )
+        .unwrap();
+        let options = HeadlessOptions {
+            frames: 20,
+            inputs: Some(script),
+            ..HeadlessOptions::default()
+        };
+        let game = Counter {
+            presses: 0,
+            first_number: None,
+        };
+        let sim = run_headless(config(), game, &options).unwrap();
+        assert_eq!(sim.game().presses, 2); // frame 50 is never reached
+        assert_eq!(sim.seed(), 9);
+        let mut rng = crate::rng::Rng::new(9);
+        assert_eq!(sim.game().first_number, Some(rng.next_f32()));
     }
 }

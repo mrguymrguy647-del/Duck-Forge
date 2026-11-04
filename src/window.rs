@@ -8,6 +8,7 @@
 //! on a machine with no screen at all.
 
 use std::error::Error;
+use std::path::PathBuf;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use minifb::{MouseMode, ScaleMode, Window, WindowOptions};
@@ -20,6 +21,7 @@ use crate::input::{Key, MouseButton};
 use crate::math::{Rect, Vec2, vec2};
 use crate::render3d::Renderer;
 use crate::rng;
+use crate::script::{InputScript, timestep_warning};
 use crate::simulation::Simulation;
 
 /// In [`Timestep::RealTime`] mode, the longest time step a game will ever
@@ -114,10 +116,22 @@ pub(crate) fn run<G: Game>(
     options: &Options,
 ) -> Result<(), Box<dyn Error>> {
     config.check().map_err(EngineError)?;
-    // Pick the seed now, so a run without one still knows which it used.
+    let script = match &options.inputs {
+        Some(path) => Some(InputScript::load(path).map_err(EngineError)?),
+        None => None,
+    };
+    if let Some(warning) = script
+        .as_ref()
+        .and_then(|script| timestep_warning(script, &config))
+    {
+        eprintln!("duckforge: {warning}");
+    }
+    // Pick the seed now, so a run without one still knows which it used
+    // (a recording needs it). A replay uses the seed it was recorded with.
     config.seed = Some(
         options
             .seed
+            .or(script.as_ref().and_then(|script| script.seed))
             .or(config.seed)
             .unwrap_or_else(rng::seed_from_clock),
     );
@@ -143,6 +157,15 @@ pub(crate) fn run<G: Game>(
 
     let renderer = renderer_from_env().unwrap_or(config.renderer);
     let mut sim = Simulation::start(&config, game, renderer);
+    if let Some(script) = script {
+        sim.follow(script);
+    }
+    let mut recorder = Recorder {
+        file: options.record.clone(),
+        on: options.record.is_some(),
+    };
+    let mut title = String::new();
+    let mut was_replaying = sim.is_replaying();
     let mut pacer = Pacer::new(config.timestep);
     let mut show_fps = config.show_fps;
     let mut keys_last_frame = Vec::new();
@@ -158,14 +181,17 @@ pub(crate) fn run<G: Game>(
         sim.measure_frame(frame_time as f32);
         let (updates, dt) = pacer.updates_due(frame_time);
 
-        // 2. Input: translate the window library's keys and buttons into our own types.
+        // 2. Input: translate the window library's keys and buttons into our
+        // own types. During a replay, the script plays instead of the player.
         let keys: Vec<Key> = window
             .get_keys()
             .into_iter()
             .filter_map(convert_key)
             .collect();
-        sim.hold_keys(&keys);
-        read_mouse(&window, (config.width, config.height), &mut sim);
+        if !sim.is_replaying() {
+            sim.hold_keys(&keys);
+            read_mouse(&window, (config.width, config.height), &mut sim);
+        }
 
         // 3. The game's turn to update, as many times as are due. On a
         // computer that keeps up, that's once.
@@ -189,13 +215,76 @@ pub(crate) fn run<G: Game>(
         if pressed(Key::F12) {
             save_screenshot(canvas);
         }
+        let toggle_recording = pressed(Key::F10);
 
         // 5. Show the frame. This also collects new keyboard and mouse events from the OS.
         window.update_with_buffer(canvas.pixels(), canvas.width(), canvas.height())?;
         keys_last_frame = keys;
+
+        if toggle_recording {
+            recorder.toggle(&sim);
+        }
+        if was_replaying && !sim.is_replaying() && !sim.quit_requested() {
+            println!("duckforge: the replay is over, and you're in control");
+        }
+        was_replaying = sim.is_replaying();
+        let wanted = match (recorder.on, was_replaying) {
+            (true, _) => format!("{} [REC]", config.title),
+            (false, true) => format!("{} [REPLAY]", config.title),
+            (false, false) => config.title.clone(),
+        };
+        if wanted != title {
+            window.set_title(&wanted);
+            title = wanted;
+        }
     }
 
+    // Closing the window doesn't lose a recording.
+    if recorder.on {
+        recorder.toggle(&sim);
+    }
     Ok(())
+}
+
+/// Whether F10 (or `--record`) is recording, and where to save it.
+struct Recorder {
+    /// The file from `--record`, or `None` to pick `recording-1.json` and so on.
+    file: Option<PathBuf>,
+    on: bool,
+}
+
+impl Recorder {
+    /// Starts recording, or stops and saves.
+    fn toggle<G: Game>(&mut self, sim: &Simulation<G>) {
+        if !self.on {
+            self.on = true;
+            println!("duckforge: recording; press F10 again to save");
+            return;
+        }
+        self.on = false;
+        let path = self.file.clone().unwrap_or_else(next_recording_file);
+        // A replay always starts from the beginning of the game, so the file
+        // holds everything since the game started, not just since F10.
+        let recording = sim.recording();
+        match recording.save(&path) {
+            Ok(()) => println!(
+                "duckforge: saved {} ({} frames, {} input events); replay it with --inputs {}",
+                path.display(),
+                recording.frames.unwrap_or(0),
+                recording.events.len(),
+                path.display(),
+            ),
+            Err(err) => eprintln!("duckforge: {err}"),
+        }
+    }
+}
+
+/// The first of `recording-1.json`, `recording-2.json`, ... that doesn't exist yet.
+fn next_recording_file() -> PathBuf {
+    (1..)
+        .map(|n| PathBuf::from(format!("recording-{n}.json")))
+        .find(|path| !path.exists())
+        .expect("there is always a free number")
 }
 
 /// Passes the mouse's position, buttons and scroll wheel on to the game.

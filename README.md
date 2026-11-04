@@ -2,8 +2,8 @@
 
 A small game engine written in Rust, covering **2D graphics, 3D graphics
 (on the graphics card, or on the CPU) and physics**, plus six example
-programs. It was written to be read: about 6,600 lines of commented engine
-code, and 112 tests. [minifb](https://crates.io/crates/minifb) opens the
+programs. It was written to be read: about 7,500 lines of commented engine
+code, and 121 tests. [minifb](https://crates.io/crates/minifb) opens the
 window, [wgpu](https://wgpu.rs) talks to the graphics card and
 [png](https://crates.io/crates/png) saves pictures; everything else is
 written from scratch: drawing, text, both 3D renderers, the physics
@@ -52,7 +52,7 @@ cargo run --no-default-features --example breakout -- --headless --frames 600 --
 | `breakout` | Left/Right or A/D move · Space launches · P pauses · R restarts |
 | `hello`    | Arrow keys or WASD move · click to teleport |
 | `stress3d` | 1–6 pick 500 to 20,000 objects · O toggles orbit/fly |
-| every game | **F3** shows the FPS · **F12** saves a screenshot (PNG) · Escape quits |
+| every game | **F3** shows the FPS · **F10** starts and stops recording · **F12** saves a screenshot (PNG) · Escape quits |
 
 ## Features
 
@@ -76,7 +76,10 @@ cargo run --no-default-features --example breakout -- --headless --frames 600 --
   play out exactly the same way. A `Simulation` runs a game step by step
   without a window, for tests.
 - **Headless:** every game understands `--headless`, `--frames`, `--out`
-  and `--seed` on the command line. The engine builds without any window
+  and `--seed` on the command line.
+- **Recording and replaying:** F10 records everything you do to a JSON
+  input script, and `--inputs FILE` replays one exactly, in a window or
+  without one. The engine builds without any window
   or graphics libraries (`--no-default-features`), for servers.
 
 ## Writing a game
@@ -203,6 +206,8 @@ after `--` goes to the game, not to Cargo):
 | `--frames N` | Stop after N updates (default 600 with `--headless`, which is 10 seconds of game time) |
 | `--out DIR` | Where `--headless` saves its files (default `duckforge-out`) |
 | `--seed N` | The random seed. Headless runs use seed 1 unless told otherwise, so they're repeatable |
+| `--inputs FILE` | Replay an input script, in a window or with `--headless` |
+| `--record FILE` | In a window, record everything you do to FILE (F10 records too) |
 | `--help` | List the options |
 
 ```sh
@@ -216,6 +221,22 @@ libraries at all; then games can only run with `--headless`. From code,
 back the finished `Simulation`. A game with command-line options of its own
 should read them from `duckforge::game_args()`, which leaves out the
 engine's.
+
+### Recording and replaying
+
+Press **F10** in any game to start recording, and F10 again to save
+`recording-1.json`. Then replay it, exactly, in a window or without one:
+
+```sh
+cargo run --example breakout -- --inputs recording-1.json
+cargo run --example breakout -- --headless --inputs recording-1.json --out replay
+```
+
+The file is a short list of events like `{"frame": 127, "press": "Space"}`,
+plus the seed the game ran with, so people and programs can also write
+scripts by hand. [docs/input-format.md](docs/input-format.md) describes the
+format. In code, `InputScript::load`, `Simulation::follow` and
+`HeadlessOptions::inputs` do the same.
 
 ## Choosing a renderer, and benchmarking
 
@@ -291,6 +312,7 @@ higher.
 | `src/window.rs`   | The window and the real-time game loop (only built with the `window` feature) |
 | `src/headless.rs` | `run_headless`: runs a game without a window and saves PNG pictures |
 | `src/cli.rs`      | The command-line options every game understands                    |
+| `src/script.rs`   | `InputScript`: recording and replaying inputs as JSON              |
 | `src/canvas.rs`   | Software renderer: pixels, 2D shapes, text, triangles, depth buffer, screenshots |
 | `src/render3d.rs` | 3D: `Camera3D`, `Mesh`, `Transform`, `Renderer`, and the CPU renderer |
 | `src/gpu.rs`      | The GPU renderer: wgpu setup, mesh cache, instancing, reading the picture back |

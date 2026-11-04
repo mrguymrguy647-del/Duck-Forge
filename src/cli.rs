@@ -31,6 +31,16 @@ const OPTIONS: &[OptionInfo] = &[
         help: "the folder --headless saves its files in (default: duckforge-out)",
     },
     OptionInfo {
+        name: "--inputs",
+        value: Some("FILE"),
+        help: "replay an input script (a recording) in a window or with --headless",
+    },
+    OptionInfo {
+        name: "--record",
+        value: Some("FILE"),
+        help: "record everything you do in the window to FILE (F10 also records)",
+    },
+    OptionInfo {
         name: "--seed",
         value: Some("N"),
         help: "the seed for random numbers, to make a run repeatable",
@@ -53,6 +63,8 @@ pub(crate) struct Options {
     pub frames: Option<u64>,
     pub out: Option<PathBuf>,
     pub seed: Option<u32>,
+    pub inputs: Option<PathBuf>,
+    pub record: Option<PathBuf>,
 }
 
 impl Options {
@@ -80,6 +92,8 @@ impl Options {
                     options.frames = Some(frames);
                 }
                 "--out" => options.out = Some(PathBuf::from(value)),
+                "--inputs" => options.inputs = Some(PathBuf::from(value)),
+                "--record" => options.record = Some(PathBuf::from(value)),
                 "--seed" => {
                     let seed = value.parse().map_err(|_| {
                         format!("--seed needs a whole number from 0 to 4294967295, not {value:?}")
@@ -92,6 +106,11 @@ impl Options {
         if options.out.is_some() && !options.headless {
             return Err(String::from(
                 "--out only works with --headless (a window doesn't save files)",
+            ));
+        }
+        if options.record.is_some() && options.headless {
+            return Err(String::from(
+                "--record only works in a window: it records what a person does",
             ));
         }
         Ok(options)
@@ -217,6 +236,7 @@ mod tests {
                 out: Some(PathBuf::from("shots")),
                 seed: Some(7),
                 help: false,
+                ..Options::default()
             }
         );
         assert_eq!(parse("").unwrap(), Options::default());
@@ -239,6 +259,11 @@ mod tests {
                 .unwrap_err()
                 .contains("only works with --headless")
         );
+        let error = parse("--headless --record r.json").unwrap_err();
+        assert!(error.contains("only works in a window"));
+        let replay = parse("--inputs win.json --record again.json").unwrap();
+        assert_eq!(replay.inputs, Some(PathBuf::from("win.json")));
+        assert_eq!(replay.record, Some(PathBuf::from("again.json")));
     }
 
     #[test]

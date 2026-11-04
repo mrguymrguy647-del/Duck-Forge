@@ -80,12 +80,112 @@ pub enum Key {
     F12,
 }
 
+impl Key {
+    /// Every key, in the order they're listed above.
+    pub const ALL: [Key; 63] = [
+        Key::A,
+        Key::B,
+        Key::C,
+        Key::D,
+        Key::E,
+        Key::F,
+        Key::G,
+        Key::H,
+        Key::I,
+        Key::J,
+        Key::K,
+        Key::L,
+        Key::M,
+        Key::N,
+        Key::O,
+        Key::P,
+        Key::Q,
+        Key::R,
+        Key::S,
+        Key::T,
+        Key::U,
+        Key::V,
+        Key::W,
+        Key::X,
+        Key::Y,
+        Key::Z,
+        Key::Digit0,
+        Key::Digit1,
+        Key::Digit2,
+        Key::Digit3,
+        Key::Digit4,
+        Key::Digit5,
+        Key::Digit6,
+        Key::Digit7,
+        Key::Digit8,
+        Key::Digit9,
+        Key::Left,
+        Key::Right,
+        Key::Up,
+        Key::Down,
+        Key::Space,
+        Key::Enter,
+        Key::Escape,
+        Key::Tab,
+        Key::Backspace,
+        Key::LeftShift,
+        Key::RightShift,
+        Key::LeftCtrl,
+        Key::RightCtrl,
+        Key::LeftAlt,
+        Key::RightAlt,
+        Key::F1,
+        Key::F2,
+        Key::F3,
+        Key::F4,
+        Key::F5,
+        Key::F6,
+        Key::F7,
+        Key::F8,
+        Key::F9,
+        Key::F10,
+        Key::F11,
+        Key::F12,
+    ];
+
+    /// The key's name, as written in Rust and in input scripts: `"Space"`,
+    /// `"Left"`, `"A"`, `"Digit1"`, `"F5"`.
+    pub fn name(self) -> String {
+        format!("{self:?}") // the derived `Debug` prints exactly the variant name
+    }
+
+    /// The key with this name, ignoring upper/lower case (`"space"` works
+    /// too). `None` if there's no such key.
+    pub fn from_name(name: &str) -> Option<Key> {
+        Key::ALL
+            .into_iter()
+            .find(|key| key.name().eq_ignore_ascii_case(name))
+    }
+}
+
 /// A button on the mouse.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MouseButton {
     Left,
     Right,
     Middle,
+}
+
+impl MouseButton {
+    /// Every mouse button.
+    pub const ALL: [MouseButton; 3] = [MouseButton::Left, MouseButton::Right, MouseButton::Middle];
+
+    /// The button's name: `"Left"`, `"Right"` or `"Middle"`.
+    pub fn name(self) -> String {
+        format!("{self:?}")
+    }
+
+    /// The button with this name, ignoring upper/lower case.
+    pub fn from_name(name: &str) -> Option<MouseButton> {
+        MouseButton::ALL
+            .into_iter()
+            .find(|button| button.name().eq_ignore_ascii_case(name))
+    }
 }
 
 /// Remembers which buttons are held this frame and which were held last
@@ -295,5 +395,18 @@ mod tests {
         assert_eq!(input.mouse_position(), vec2(15.0, 18.0));
         assert_eq!(input.mouse_delta(), Vec2::ZERO);
         assert!(input.was_mouse_released(MouseButton::Left));
+    }
+
+    #[test]
+    fn keys_and_buttons_have_names() {
+        assert_eq!(Key::Space.name(), "Space");
+        assert_eq!(Key::from_name("Digit7"), Some(Key::Digit7));
+        assert_eq!(Key::from_name("space"), Some(Key::Space));
+        assert_eq!(Key::from_name("Spcae"), None);
+        assert_eq!(MouseButton::from_name("right"), Some(MouseButton::Right));
+        // Every key's name leads back to that key.
+        for key in Key::ALL {
+            assert_eq!(Key::from_name(&key.name()), Some(key));
+        }
     }
 }

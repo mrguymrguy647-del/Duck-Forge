@@ -206,6 +206,7 @@ dependencies = [
  "minifb",
  "png",
  "pollster",
+ "serde_json",
  "wgpu",
 ]
 

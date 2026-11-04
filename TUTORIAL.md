@@ -45,11 +45,12 @@ Keep the source files open next to this guide. When you see a file like
 - **Part 3: Games without a screen**
   - [22. Same inputs, same game](#22-same-inputs-same-game)
   - [23. Running without a screen](#23-running-without-a-screen)
+  - [24. Recording and replaying](#24-recording-and-replaying)
 - **Part 4: Your turn**
-  - [24. Exercises](#24-exercises)
-  - [25. Common compiler errors](#25-common-compiler-errors)
-  - [26. What a code review found](#26-what-a-code-review-found)
-  - [27. Where to go next](#27-where-to-go-next)
+  - [25. Exercises](#25-exercises)
+  - [26. Common compiler errors](#26-common-compiler-errors)
+  - [27. What a code review found](#27-what-a-code-review-found)
+  - [28. Where to go next](#28-where-to-go-next)
 
 ---
 
@@ -110,6 +111,7 @@ src/
   window.rs         the window and the real-time game loop (the only file that uses minifb)
   headless.rs       running a game without a window, saving pictures
   cli.rs            the command-line options every game understands
+  script.rs         input scripts: recording and replaying what a player does
   canvas.rs         the pixel buffer: 2D drawing, triangles, the depth buffer
   font.rs           a tiny 3x5 pixel font
   input.rs          keyboard and mouse
@@ -509,7 +511,7 @@ added, and the slot's generation goes up by one. So an old id still points
 at the right slot, but its generation doesn't match any more, and looking
 it up finds nothing instead of the wrong body. This trick is called a
 *generational index*, and most game engines use it to name their objects.
-(Chapter 26 tells the story of the bug that led to it.)
+(Chapter 27 tells the story of the bug that led to it.)
 
 ## 5. Enums and pattern matching
 
@@ -1480,6 +1482,7 @@ you fix a bug, try writing a test that would have caught it.
 |  window.rs    the real-time game loop in a window              |
 |               <- the ONLY file that knows minifb exists        |
 |  headless.rs  runs a game with no window, saves PNG pictures   |
+|  script.rs    input scripts: recordings you can replay         |
 |                                                                |
 |  canvas.rs    pixels, 2D drawing, triangles, depth buffer      |
 |  font.rs      the pixel font that canvas.rs draws text with    |
@@ -1711,7 +1714,7 @@ a lot on 1960s hardware.
 Before stepping, the line is *clipped*: cut down to the part that's on the
 canvas (see `clip_line`). Without that, a line to a point far off-screen
 would step through millions of invisible pixels, and could even crash (see
-[chapter 26](#26-what-a-code-review-found)).
+[chapter 27](#27-what-a-code-review-found)).
 
 ### Triangles
 
@@ -2764,7 +2767,7 @@ and shifting right pulls the high bits back down. After a few rounds,
 changing one bit of the seed changes about half the bits of the result.
 Notice `wrapping_mul`: the multiplication overflows on purpose, and in a
 debug build a plain `*` would panic when it overflows
-([chapter 26](#26-what-a-code-review-found)). `wrapping_mul` says "wrap
+([chapter 27](#27-what-a-code-review-found)). `wrapping_mul` says "wrap
 around, that's what I want".
 
 A new test in `src/rng.rs` checks that the first numbers from seeds 1 to
@@ -3109,9 +3112,211 @@ impl fmt::Debug for EngineError {
 message now ends with "On a computer without a screen, run the game with
 --headless instead."
 
+## 24. Recording and replaying
+
+Because a game with the same inputs and seed always plays out the same way
+([chapter 22](#22-same-inputs-same-game)), a whole playthrough can be
+written down as a short list: "on frame 127, press Space; on frame 133,
+press Right; on frame 164, let go of Right". Replay the list and you get
+the same game, pixel for pixel. That's how a person's game can be replayed
+by a program with no screen, and how a program's game can be watched by a
+person.
+
+Try it: press **F10** in any game, play a little, press F10 again, and
+the engine saves `recording-1.json`. Then:
+
+```sh
+cargo run --example breakout -- --inputs recording-1.json                  # watch it
+cargo run --example breakout -- --headless --inputs recording-1.json --out replay   # or replay it with no screen
+```
+
+The file looks like this (the format is described in
+[docs/input-format.md](docs/input-format.md)):
+
+```json
+{
+  "duckforge_inputs": 1,
+  "seed": 472467398,
+  "updates_per_second": 60,
+  "frames": 1062,
+  "events": [
+    {"frame": 127, "press": "Space"},
+    {"frame": 132, "release": "Space"},
+    {"frame": 133, "press": "Right"},
+    {"frame": 164, "release": "Right"},
+    {"frame": 1062, "press": "Escape"}
+  ]
+}
+```
+
+### Actions as an enum
+
+`src/script.rs` describes one thing a player can do:
+
+```rust
+pub enum InputAction {
+    Press(Key),
+    Release(Key),
+    MouseMove(Vec2),
+    MousePress(MouseButton),
+    MouseRelease(MouseButton),
+    Scroll(f32),
+}
+```
+
+Each variant carries exactly the data it needs, and nothing else. An
+`InputEvent` pairs an action with its frame, and an `InputScript` is a list
+of events plus the seed and length.
+
+### One door for all input
+
+In `Simulation`, `press`, `release`, `move_mouse` and the others are now
+one-liners that all go through the same method:
+
+```rust
+pub fn press(&mut self, key: Key) {
+    self.apply(InputAction::Press(key));
+}
+```
+
+`apply` changes the held keys or the mouse, and if anything actually
+changed, remembers it:
+
+```rust
+if changed && !engine_key {
+    self.history.push(InputEvent {
+        frame: self.ctx.frame() + 1, // the frame that will see it
+        action,
+    });
+}
+```
+
+A test calling `sim.press`, the window passing on the real keyboard, and
+a replayed script all come through this one door. So recording works the
+same way no matter where the input came from, and replaying a recording
+records exactly the same events again. When code has several ways in,
+funnelling them into one place is often the simplest way to make them
+behave the same.
+
+`recording()` then turns the history into a script, and `follow(script)`
+replays one: before each update, `apply_script_events` applies every event
+due by the coming frame.
+
+### Reading JSON with `serde_json`
+
+Rust's standard library doesn't read JSON, so we use the `serde_json`
+crate. It turns JSON text into a `Value`, an enum with one variant per
+kind of JSON thing:
+
+```rust
+pub enum Value {
+    Null,
+    Bool(bool),
+    Number(Number),
+    String(String),
+    Array(Vec<Value>),
+    Object(Map<String, Value>),
+}
+```
+
+The script reader matches on it, step by step, and complains precisely when
+something isn't what it expects:
+
+```rust
+let Value::Object(top) = value else {
+    return Err(String::from(
+        "an input script is a JSON object like {\"events\": [...]}",
+    ));
+};
+```
+
+That's `let ... else` again ([chapter 23](#23-running-without-a-screen)),
+this time with an enum variant: if `value` is an object, `top` is its
+fields; if not, return an error.
+
+Checking that each event has exactly one action uses a **slice pattern**:
+
+```rust
+let actions: Vec<(&str, &Value)> = ACTIONS
+    .iter()
+    .filter_map(|&name| fields.get(name).map(|value| (name, value)))
+    .collect();
+let [(name, value)] = actions[..] else {
+    return Err(format!(
+        "it needs exactly one of {}; put each action in its own event",
+        ACTIONS.join(", ")
+    ));
+};
+```
+
+`[(name, value)]` only matches a list with exactly one item, and unpacks
+it at the same time. Zero actions or two actions fall through to the
+`else`.
+
+Each error is wrapped with where it happened, so a typo in a long script
+gives a message like this:
+
+```text
+Error: inputs.json: event 3 ({"frame":30,"press":"Spcae"}): unknown key "Spcae". Key names look like "Space", "Left", "A", "Digit1" or "F5"; docs/input-format.md lists them all
+```
+
+Why not just ignore a field we don't recognise? Because a misspelled
+`"preess"` would then be silently skipped, and the replay would quietly do
+something different from what you wrote. **Strict input with clear errors
+beats lenient input with surprises.**
+
+### Names for keys
+
+The script says `"Space"`, so `Key` needed a way to go between keys and
+their names. The derived `Debug` already prints a variant's name, so
+`name` is one line, and `from_name` searches a list of every key:
+
+```rust
+pub fn name(self) -> String {
+    format!("{self:?}") // the derived `Debug` prints exactly the variant name
+}
+
+pub fn from_name(name: &str) -> Option<Key> {
+    Key::ALL
+        .into_iter()
+        .find(|key| key.name().eq_ignore_ascii_case(name))
+}
+```
+
+`Key::ALL` is an *associated constant*: a constant that belongs to the
+type, here an array of all 63 keys. A test checks that every key's name
+leads back to the same key, so the list can't silently fall out of step
+with the enum.
+
+### Writing numbers back
+
+Mouse positions are `f32`s. The first version of the writer turned them
+into JSON through `f64` and wrote `0.3333333432674408` for a third: the
+`f64` closest to the `f32`, printed in full. Rust's own `{}` for an `f32`
+prints the *shortest* text that reads back as exactly the same `f32`:
+`0.33333334`. A test writes a script, reads it back, and checks it's
+equal, so the round trip is exact.
+
+### Recording from the very start
+
+You can press F10 halfway through a game, but the file still starts at
+frame 1. Why? A replay can only start at the beginning of the game, and
+where the ball is when you pressed F10 depends on everything you did
+before. So the engine always remembers every input (a few bytes each), and
+F10 decides when to save. The recording stores the seed too, since a game
+in a window gets a new seed every run.
+
+### The proof
+
+The real test of all this: we played Breakout in a window, took an F12
+screenshot, and then replayed the recording without a window. The last
+frame of the replay and the screenshot were compared pixel by pixel:
+**0 differences**. Then the same recording was watched in a window:
+0 differences again.
+
 # Part 4: Your turn
 
-## 24. Exercises
+## 25. Exercises
 
 Do them in order. After each change, run the game and see what happened.
 When the compiler complains, **read the whole error message**: Rust's error
@@ -3232,7 +3437,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     to a ball body) across floating platforms, with the camera following
     it. Or 3D Breakout, with a `PhysicsWorld<Vec3>`.
 
-## 25. Common compiler errors
+## 26. Common compiler errors
 
 | Error    | Message (short)                                   | Usually means                                                 |
 |----------|---------------------------------------------------|---------------------------------------------------------------|
@@ -3247,7 +3452,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 For a long explanation of any error, run `rustc --explain E0502`.
 
-## 26. What a code review found
+## 27. What a code review found
 
 After the engine was built, it got a careful review: every file read line
 by line, looking for bugs, crashes and confusing code. It found about 20
@@ -3398,7 +3603,7 @@ Together, the renderer was back to its old speed, 79 to 81 FPS.
 
 **Lesson:** after fixing something, run the benchmark again.
 
-## 27. Where to go next
+## 28. Where to go next
 
 - **The Rust Programming Language** ("the Book"), free at
   <https://doc.rust-lang.org/book/>. The best way to learn Rust properly.

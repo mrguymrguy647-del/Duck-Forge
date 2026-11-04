@@ -6,10 +6,16 @@
 //! window and in a test.
 
 use crate::canvas::Canvas;
-use crate::engine::{Config, Context, Game};
+use crate::engine::{Config, Context, Game, Timestep};
 use crate::input::{Key, MouseButton};
 use crate::math::Vec2;
 use crate::render3d::Renderer;
+use crate::script::{InputAction, InputEvent, InputScript};
+
+/// Keys the engine itself uses in a window (FPS counter, recording,
+/// screenshots). They still reach the game, but aren't recorded, so a replay
+/// doesn't start recording or take screenshots.
+const ENGINE_KEYS: [Key; 3] = [Key::F3, Key::F10, Key::F12];
 
 /// The seed a [`Simulation`] uses when [`Config::seed`] is `None`.
 ///
@@ -68,6 +74,12 @@ pub struct Simulation<G> {
     scroll: f32,
     /// The frame the canvas shows a picture of, if it holds a clean one.
     drawn_frame: Option<u64>,
+    /// `Some` with a fixed timestep: how many updates per second.
+    updates_per_second: Option<u32>,
+    /// Every input change so far, for [`recording`](Simulation::recording).
+    history: Vec<InputEvent>,
+    /// A script being replayed, and how many of its events are done.
+    script: Option<(InputScript, usize)>,
 }
 
 impl<G: Game> Simulation<G> {
@@ -103,6 +115,12 @@ impl<G: Game> Simulation<G> {
             mouse_buttons_down: Vec::new(),
             scroll: 0.0,
             drawn_frame: None,
+            updates_per_second: match config.timestep {
+                Timestep::Fixed { updates_per_second } => Some(updates_per_second),
+                Timestep::RealTime => None,
+            },
+            history: Vec::new(),
+            script: None,
         }
     }
 
@@ -126,6 +144,7 @@ impl<G: Game> Simulation<G> {
 
     /// One update that moves the game forward by `dt` seconds.
     pub(crate) fn step_by(&mut self, dt: f32) {
+        self.apply_script_events();
         self.ctx.begin_frame(dt, self.keys_down.iter().copied());
         let buttons = self.mouse_buttons_down.iter().copied();
         self.ctx
@@ -143,37 +162,140 @@ impl<G: Game> Simulation<G> {
     /// To tap a key, press it, step, then release it: pressing and releasing
     /// between the same two steps means the game never sees it.
     pub fn press(&mut self, key: Key) {
-        if !self.keys_down.contains(&key) {
-            self.keys_down.push(key);
-        }
+        self.apply(InputAction::Press(key));
     }
 
     /// Lets go of a key.
     pub fn release(&mut self, key: Key) {
-        self.keys_down.retain(|&held| held != key);
+        self.apply(InputAction::Release(key));
     }
 
     /// Moves the mouse pointer to `position`, in canvas pixels.
     pub fn move_mouse(&mut self, position: Vec2) {
-        self.mouse_position = Some(position);
+        self.apply(InputAction::MouseMove(position));
     }
 
     /// Holds a mouse button down until [`release_mouse`](Simulation::release_mouse).
     pub fn press_mouse(&mut self, button: MouseButton) {
-        if !self.mouse_buttons_down.contains(&button) {
-            self.mouse_buttons_down.push(button);
-        }
+        self.apply(InputAction::MousePress(button));
     }
 
     /// Lets go of a mouse button.
     pub fn release_mouse(&mut self, button: MouseButton) {
-        self.mouse_buttons_down.retain(|&held| held != button);
+        self.apply(InputAction::MouseRelease(button));
     }
 
     /// Rolls the scroll wheel during the next step: up (away from you) for
     /// a positive `amount`, down for a negative one.
     pub fn scroll(&mut self, amount: f32) {
-        self.scroll = (self.scroll + amount).signum();
+        self.apply(InputAction::Scroll(amount));
+    }
+
+    /// Does one input action, seen by the game at the next step. All the
+    /// methods above come here, and so does a replayed script.
+    ///
+    /// Actions that change something are remembered, for
+    /// [`recording`](Simulation::recording). Pressing a key that's already
+    /// held changes nothing, so it isn't.
+    pub fn apply(&mut self, action: InputAction) {
+        let changed = match action {
+            InputAction::Press(key) => {
+                let new = !self.keys_down.contains(&key);
+                if new {
+                    self.keys_down.push(key);
+                }
+                new
+            }
+            InputAction::Release(key) => {
+                let held = self.keys_down.contains(&key);
+                self.keys_down.retain(|&down| down != key);
+                held
+            }
+            InputAction::MouseMove(position) => {
+                let moved = self.mouse_position != Some(position);
+                self.mouse_position = Some(position);
+                moved
+            }
+            InputAction::MousePress(button) => {
+                let new = !self.mouse_buttons_down.contains(&button);
+                if new {
+                    self.mouse_buttons_down.push(button);
+                }
+                new
+            }
+            InputAction::MouseRelease(button) => {
+                let held = self.mouse_buttons_down.contains(&button);
+                self.mouse_buttons_down.retain(|&down| down != button);
+                held
+            }
+            InputAction::Scroll(amount) => {
+                self.scroll = (self.scroll + amount).signum();
+                amount != 0.0
+            }
+        };
+        let engine_key = match action {
+            InputAction::Press(key) | InputAction::Release(key) => ENGINE_KEYS.contains(&key),
+            _ => false,
+        };
+        if changed && !engine_key {
+            self.history.push(InputEvent {
+                frame: self.ctx.frame() + 1, // the frame that will see it
+                action,
+            });
+        }
+    }
+
+    // ---- Recording and replaying ----
+
+    /// Replays `script`: from now on, each step first does the script's
+    /// events for that frame, exactly as if a player did them.
+    ///
+    /// Frame numbers in the script count from the start of the game, so
+    /// follow a script before the first step. (For the same game to unfold,
+    /// the seed must match too: use the script's `seed` in the config.)
+    pub fn follow(&mut self, script: InputScript) {
+        self.script = Some((script, 0));
+    }
+
+    /// Is a script being replayed, with events or frames still to come?
+    pub fn is_replaying(&self) -> bool {
+        match &self.script {
+            Some((script, done)) => {
+                *done < script.events.len() || self.ctx.frame() < script.frames.unwrap_or(0)
+            }
+            None => false,
+        }
+    }
+
+    /// Everything done to the game so far, as a script that replays it:
+    /// every input change since the first frame, with the seed and the
+    /// number of frames.
+    pub fn recording(&self) -> InputScript {
+        InputScript {
+            seed: Some(self.seed),
+            updates_per_second: self.updates_per_second,
+            frames: Some(self.ctx.frame()),
+            events: self.history.clone(),
+        }
+    }
+
+    /// Does the script's events that are due by the coming frame.
+    fn apply_script_events(&mut self) {
+        let Some((script, done)) = &mut self.script else {
+            return;
+        };
+        let coming_frame = self.ctx.frame() + 1;
+        let mut due = Vec::new();
+        while let Some(event) = script.events.get(*done) {
+            if event.frame > coming_frame {
+                break;
+            }
+            due.push(event.action);
+            *done += 1;
+        }
+        for action in due {
+            self.apply(action);
+        }
     }
 
     /// Makes exactly `keys` the held keys: presses the new ones and releases the rest.
@@ -437,6 +559,96 @@ mod tests {
         sim.hold_mouse_buttons(&[MouseButton::Right]);
         sim.hold_mouse_buttons(&[]);
         assert!(sim.mouse_buttons_down.is_empty());
+    }
+
+    /// Plays a little: holds Space, clicks, scrolls, and presses the
+    /// engine's own F12. Returns the simulation.
+    fn play_a_little(seed: u32) -> Simulation<Recorder> {
+        let config = Config {
+            seed: Some(seed),
+            ..config()
+        };
+        let mut sim = Simulation::new(config, Recorder::default());
+        sim.step();
+        sim.press(Key::Space);
+        sim.press(Key::F12);
+        sim.run(3);
+        sim.release(Key::Space);
+        sim.move_mouse(vec2(2.0, 5.0));
+        sim.press_mouse(MouseButton::Left);
+        sim.step();
+        sim.release_mouse(MouseButton::Left);
+        sim.scroll(1.0);
+        sim.run(5);
+        sim
+    }
+
+    #[test]
+    fn a_recording_replays_exactly() {
+        let played = play_a_little(42);
+        let recording = played.recording();
+        assert_eq!(recording.seed, Some(42));
+        assert_eq!(recording.frames, Some(10));
+        assert_eq!(recording.updates_per_second, Some(60));
+        // Space down (seen on frame 2); then before frame 5: Space up, the
+        // mouse move and the click; before frame 6: the click's release and the scroll.
+        let frames: Vec<u64> = recording.events.iter().map(|event| event.frame).collect();
+        assert_eq!(frames, [2, 5, 5, 5, 6, 6]);
+        // F12 belongs to the engine, so it isn't in the recording.
+        assert!(
+            !recording
+                .events
+                .iter()
+                .any(|event| event.action == InputAction::Press(Key::F12))
+        );
+
+        // Replay it in a new simulation, through a JSON file's worth of text.
+        let script = InputScript::parse(&recording.to_json()).unwrap();
+        let replay_config = Config {
+            seed: script.seed,
+            ..config()
+        };
+        let mut replay = Simulation::new(replay_config, Recorder::default());
+        replay.follow(script);
+        assert!(replay.is_replaying());
+        replay.run(10);
+        assert!(!replay.is_replaying());
+
+        let (a, b) = (played.game(), replay.game());
+        assert_eq!((a.presses, a.held_frames), (b.presses, b.held_frames));
+        assert_eq!(a.clicks, b.clicks);
+        assert_eq!(a.scrolls, b.scrolls);
+        assert_eq!(a.numbers, b.numbers);
+        // And a replay records the same thing again.
+        assert_eq!(replay.recording().events, played.recording().events);
+    }
+
+    #[test]
+    fn things_that_change_nothing_are_not_recorded() {
+        let mut sim = Simulation::new(config(), Recorder::default());
+        sim.release(Key::A); // wasn't held
+        sim.press(Key::A);
+        sim.press(Key::A); // already held
+        sim.move_mouse(vec2(1.0, 1.0));
+        sim.move_mouse(vec2(1.0, 1.0)); // same place
+        sim.scroll(0.0);
+        assert_eq!(sim.recording().events.len(), 2);
+    }
+
+    #[test]
+    fn script_events_happen_on_their_frame() {
+        let script = InputScript::parse(
+            r#"{"events": [{"frame": 3, "press": "Space"}, {"frame": 4, "release": "Space"}]}"#,
+        )
+        .unwrap();
+        let mut sim = Simulation::new(config(), Recorder::default());
+        sim.follow(script);
+        sim.run(2);
+        assert_eq!(sim.game().presses, 0);
+        sim.step(); // frame 3
+        assert_eq!((sim.game().presses, sim.game().held_frames), (1, 1));
+        sim.run(5);
+        assert_eq!(sim.game().held_frames, 1);
     }
 
     #[test]

@@ -149,3 +149,72 @@ shows line breaks as `\n`. The engine's errors use a small `EngineError`
 type that prints the message as it is. And if a window can't open, the
 error now suggests `--headless`, because that's what you need on a
 machine without a screen.
+
+## Step 3: Recording and replaying inputs
+
+The goal: a person's playthrough can be replayed by a program with no
+screen, and a program's playthrough can be watched by a person, exactly.
+
+**JSON, one event per line.** We chose JSON over a made-up text format
+because every language and tool can read and write it, and an AI writes it
+without thinking. The file is written by hand-made code, not a JSON
+library's pretty-printer, so each event fits on one line
+(`{"frame": 12, "press": "Space"}`). That keeps recordings short to read
+and makes two recordings easy to compare. The format is in
+`docs/input-format.md`.
+
+**Events are "changes", not "what's held each frame".** A recording lists
+when keys go down and up, not the full keyboard on every frame. That's how
+people think about it ("hold Right from frame 30 to 90"), it keeps files
+small, and it's easy to write by hand.
+
+**Frames count from 1, like `ctx.frame()`.** An event on frame 10 is seen
+by the game's tenth update. Frame 0 is refused with an explanation, rather
+than quietly treated as frame 1.
+
+**Strict reading, friendly messages.** A misspelled key, an unknown field
+(`"preess"`), two actions in one event: each is an error that says which
+event and what's wrong, and suggests the fix. Ignoring a mistake would mean
+a replay that quietly does something else. The JSON is read with
+`serde_json` into general JSON values and checked by hand, which gives
+better messages than mapping it straight onto Rust types.
+
+**Key names are case-insensitive.** `"space"` and `"Space"` both work.
+Recordings are always written in the engine's own spelling.
+
+**One path for every input.** In `Simulation`, `press`, `release`,
+`move_mouse`, a replayed script and the window's real keyboard all go
+through one method, `apply`. It remembers every change, so recording works
+the same way however the input arrived, and replaying a recording records
+the same events again (a test checks this).
+
+**A recording always starts at frame 1.** You can press F10 halfway
+through a game, but a replay has to start from the beginning: where the
+ball is when you pressed F10 depends on everything before. So the engine
+always remembers the inputs from the start (a few bytes per key press), and
+the saved file covers the whole game up to the second F10. We thought
+about recording only from F10 onwards, but such a file couldn't be
+replayed correctly.
+
+**The recording carries the seed.** A game in a window gets a new seed
+every run. The recording stores it, and a replay uses it, unless `--seed`
+says otherwise. The timestep is stored too; a replay at a different
+timestep prints a warning, because the same inputs would land at different
+moments of the game.
+
+**The engine's own keys aren't recorded.** F3, F10 and F12 belong to the
+window (FPS counter, recording, screenshots). Recording them would make a
+replay start recording or take screenshots. Games still see these keys, as
+before.
+
+**During a windowed replay, the player's keys are ignored**, except the
+engine's keys, so you can still take screenshots or record. When the script
+runs out, the player takes over, and the engine says so.
+
+**Closing the window saves a recording in progress.** Losing a long
+playthrough because you closed the window would be painful.
+
+**Checked end to end.** We played Breakout in a window (in a virtual
+display), took a screenshot, then replayed the recording without a window:
+the last frame was identical, pixel for pixel. Watching the same recording
+in a window gave the same picture again.
