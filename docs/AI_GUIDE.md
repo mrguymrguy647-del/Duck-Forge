@@ -58,9 +58,11 @@ then `. "$HOME/.cargo/env"`.)
 
 Build and run **without the window, GPU and sound playback code**, with
 `--no-default-features`. Without it, Cargo also builds the window library
-(minifb), the GPU library (wgpu) and the speaker code: minutes longer,
-and a window can't open on a server anyway. Sounds still work: headless
-runs save them in `audio.wav`.
+(minifb), the GPU library (wgpu) and the speaker code: a first build of
+about a minute instead of about 11 seconds (on 4 cores), and a window
+can't open on a server anyway. Sounds still work: headless runs save
+them in `audio.wav`. After the first build, changing a line in your game
+and building again takes under half a second.
 
 ```sh
 cargo build --no-default-features --examples

@@ -1375,3 +1375,52 @@ Windows); it mirrors the shell script line by line.
   actions can't be checked by anything that reads reports, so that's a
   lesson for the guide too. The quick start page now ends its loop with
   `verify`, and stays at 125 lines.
+
+## Step 9: Build speed
+
+**Measured** on this cloud machine (4 cores, Rust 1.97), building
+`examples/dodge.rs` from an empty target folder, then again after
+changing one constant in it:
+
+| Build | Clean build | One-line change |
+|---|---|---|
+| Headless (`--no-default-features`), before | 15.2 s | 0.46 s |
+| Headless, after | 11.4 s | 0.37 s |
+| Default features (window, GPU, sound), before | 87.2 s | 0.89 s |
+| Default features, after | 66.1 s | 0.55 s |
+
+The one-line rebuild was already fast: only the example is compiled
+again, incrementally, and linked. The clean build is what an agent pays
+on every fresh cloud machine. Headless, `cargo build --timings` showed
+half of it is the engine itself (7.5 s); `png`, `serde_json`, `gif` and
+the compression crates are 1 to 3 s each, mostly in parallel.
+
+**What changed: less debug information.** Debug builds wrote full
+debug info (for stepping through code in a debugger, which nothing here
+uses). Now the engine and games keep only line numbers
+(`debug = "line-tables-only"`), which is all a backtrace needs, and the
+libraries keep none. The machine code is the same (same `opt-level`),
+so games run exactly as fast and runs stay identical; panic messages
+still name the file and line (they never came from debug info).
+Headless clean builds are 25% faster, default ones 24%.
+
+**Tried or considered, and left alone:**
+
+- Leaving out wgpu's OpenGL backend (`gles`) would cut the default build
+  further, but on machines without Vulkan, DirectX 12 or Metal the GPU
+  renderer would be gone and 3D would fall back to the slower CPU
+  renderer. That's slowing games, so no.
+- Optimizing the libraries more (`opt-level = 2` or `3` for
+  dependencies) would make PNG saving a little faster but every clean
+  build slower.
+- A faster linker (mold, lld) helps link times, but can't be required
+  on Windows and every machine. Rust 1.90+ already uses lld by default
+  on x86-64 Linux.
+
+**Keeping it that way.** `tests/dependencies.rs` runs `cargo tree` and
+lists every crate the headless build compiles (18 today: duckforge,
+png, gif, serde_json and what they use, the same on Linux, Windows and
+macOS). A new crate, even one that arrives with an update of `png`,
+fails the test with a message saying to measure the clean build first
+and, if it's worth it, add the crate to the list. If `cargo tree` can't
+run, the test says so and passes, since that isn't the engine's fault.

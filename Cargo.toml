@@ -80,3 +80,11 @@ test = true
 # plain `cargo run` (the default debug build is very slow for pixel work).
 [profile.dev]
 opt-level = 1
+# Debug info only for line numbers (enough for backtraces): builds about a
+# quarter faster than full debug info, and the games run exactly the same.
+debug = "line-tables-only"
+
+# No debug info at all for the libraries the engine uses: you don't step
+# through their code, and the window/GPU build gets about 10% faster.
+[profile.dev.package."*"]
+debug = false
