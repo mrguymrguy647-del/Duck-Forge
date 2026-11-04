@@ -158,6 +158,7 @@ examples/
   template.rs       a small platformer to copy when you start a game
   starter_topdown.rs  a top-down starter: walls, chasing enemies, coins
   starter_shooter.rs  a shooter starter: fast bullets, waves, explosions
+  pollen_run.rs     a bee game made from the top-down starter, with the skill
   breakout.rs       a complete 2D game
   dodge.rs          a small game built without a screen (see docs/AI_GUIDE.md)
   duckling_parade.rs  a bigger game, also built without a screen

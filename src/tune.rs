@@ -151,6 +151,24 @@ impl Tunes {
         names
     }
 
+    /// Names in the tune file the game never asked for: left over from an
+    /// older version (or a copied game), or misspelt.
+    pub(crate) fn unused_file_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .file
+            .keys()
+            .filter(|name| !self.used.borrow().contains_key(*name))
+            .cloned()
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// The tune file's path, if there is one.
+    pub(crate) fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
+    }
+
     /// The tune section of `log.json`:
     /// `{"gravity": {"value": 900, "from": "file"}, ...}`.
     pub(crate) fn to_json(&self) -> String {

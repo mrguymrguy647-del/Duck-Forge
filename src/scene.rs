@@ -19,7 +19,7 @@
 
 use serde_json::Value;
 
-use crate::math::{Rect, Vec2};
+use crate::math::{Rect, Vec2, vec2};
 
 /// Everything a game labelled in one frame, and the text it drew.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -258,7 +258,15 @@ pub(crate) fn warnings(scenes: &[Scene], width: f32, height: f32) -> Vec<String>
     }
 
     // A kind of label that's in every checked frame, but never on screen.
-    if scenes.len() >= 2 {
+    // Only when the view never scrolls: in a game whose camera moves (a
+    // top-down map, a long level), plenty of things are off screen, and
+    // that's normal.
+    let screen_center = vec2(width / 2.0, height / 2.0);
+    let scrolls = scenes.iter().any(|s| {
+        s.camera
+            .is_some_and(|c| c.position.distance(screen_center) > 0.5 || c.zoom != 1.0)
+    });
+    if scenes.len() >= 2 && !scrolls {
         let mut names: Vec<&str> = Vec::new();
         for label in scenes.iter().flat_map(|s| &s.labels) {
             if !names.contains(&label.name.as_str()) {
@@ -285,7 +293,6 @@ pub(crate) fn warnings(scenes: &[Scene], width: f32, height: f32) -> Vec<String>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::math::vec2;
 
     fn label(name: &str, x: f32, y: f32, on_screen: bool) -> Label {
         let r = Rect::new(x, y, 10.0, 10.0);
@@ -372,5 +379,24 @@ mod tests {
             warnings[2]
                 .starts_with(r#"label "ghost" is off screen in every checked frame (1, 60)"#)
         );
+    }
+
+    #[test]
+    fn off_screen_things_are_normal_when_the_view_scrolls() {
+        let scene = |frame: u64, camera_x: f32| Scene {
+            frame,
+            camera: Some(SceneCamera {
+                position: vec2(camera_x, 120.0),
+                zoom: 1.0,
+            }),
+            labels: vec![label("wasp", 900.0, 10.0, false)],
+            ..Scene::default()
+        };
+        // A camera that stays put, showing exactly the screen: a warning.
+        let still = [scene(1, 160.0), scene(60, 160.0)];
+        assert_eq!(warnings(&still, 320.0, 240.0).len(), 1);
+        // One that has moved: the wasp is just elsewhere in the world.
+        let scrolled = [scene(1, 160.0), scene(60, 300.0)];
+        assert!(warnings(&scrolled, 320.0, 240.0).is_empty());
     }
 }

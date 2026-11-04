@@ -423,26 +423,28 @@ fn write_tune_if_asked<G: Game>(
     }
     let path = sim.tunes().write_file()?;
     let count = sim.tunes().used().len();
-    Ok(Some(format!(
-        "wrote {count} tune values to {}",
-        path.display()
-    )))
+    let kept = sim.tunes().unused_file_names();
+    let mut note = format!("wrote {count} tune values to {}", path.display());
+    if !kept.is_empty() {
+        note += &format!(
+            " (and kept {}, which the game didn't ask for)",
+            kept.join(", ")
+        );
+    }
+    Ok(Some(note))
 }
 
-/// A warning for each `--set NAME=N` the game never asked for.
+/// A warning for each `--set NAME=N` the game never asked for, and one
+/// for names in the tune file it never asked for.
 fn unused_set_warnings<G: Game>(sim: &Simulation<G>) -> Vec<String> {
-    let asked: Vec<String> = sim
-        .tunes()
-        .used()
-        .into_iter()
-        .map(|(name, ..)| name)
-        .collect();
+    let tunes = sim.tunes();
+    let asked: Vec<String> = tunes.used().into_iter().map(|(name, ..)| name).collect();
     let asked = if asked.is_empty() {
         String::from("nothing")
     } else {
         asked.join(", ")
     };
-    sim.tunes()
+    let mut warnings: Vec<String> = tunes
         .unused_sets()
         .into_iter()
         .map(|name| {
@@ -450,7 +452,16 @@ fn unused_set_warnings<G: Game>(sim: &Simulation<G>) -> Vec<String> {
                 "--set {name} was never asked for (the game asked for: {asked}); check the spelling, and read tune values at the top of update"
             )
         })
-        .collect()
+        .collect();
+    let stale = tunes.unused_file_names();
+    if let (false, Some(path)) = (stale.is_empty(), tunes.path()) {
+        warnings.push(format!(
+            "{} has {}, which the game never asked for (it asked for: {asked}); remove them, or check the spelling",
+            path.display(),
+            stale.join(", ")
+        ));
+    }
+    warnings
 }
 
 /// GIF timing is in hundredths of a second. Picks the smallest step of at
@@ -1012,6 +1023,37 @@ mod tests {
     }
 
     #[test]
+    fn tune_file_names_the_game_never_asks_for_are_a_warning() {
+        let folder = test_folder("tune-stale");
+        fs::create_dir_all(&folder).unwrap();
+        let path = folder.join("copied.tune.json");
+        // Copied from another game: "speed" is used, the other two aren't.
+        fs::write(
+            &path,
+            r#"{"speed": 3, "player_speed": 90, "enemy_speed": 50}"#,
+        )
+        .unwrap();
+        let options = HeadlessOptions {
+            frames: 2,
+            out: Some(folder.join("out")),
+            tune_file: Some(path.clone()),
+            ..HeadlessOptions::default()
+        };
+        let (_, summary) = run_and_save(config(), Tuned { x: 0.0 }, &options).unwrap();
+        assert_eq!(summary.warnings.len(), 1, "{:?}", summary.warnings);
+        let warning = &summary.warnings[0];
+        assert!(
+            warning.contains("has enemy_speed, player_speed, which the game never asked for"),
+            "{warning}"
+        );
+        assert!(
+            warning.contains("it asked for: size, speed, wobble"),
+            "{warning}"
+        );
+        let _ = fs::remove_dir_all(folder);
+    }
+
+    #[test]
     fn a_missing_tune_file_is_one_clear_error() {
         let options = HeadlessOptions {
             tune_file: Some(PathBuf::from("nowhere/game.tune.json")),
@@ -1087,8 +1129,10 @@ mod tests {
         );
         assert!(folder.join("last.scene.json").exists());
 
+        // The ghost is never on screen, but this camera scrolls, so being
+        // off screen is normal and not a warning (see scene::warnings).
         let warnings = &outcome.warnings;
-        assert_eq!(warnings.len(), 3, "{warnings:#?}");
+        assert_eq!(warnings.len(), 2, "{warnings:#?}");
         assert!(
             warnings[0]
                 .starts_with(r#"frame 1: labels "player" at 1,2 and "enemy" at 3,2 overlap"#),
@@ -1096,10 +1140,6 @@ mod tests {
         );
         assert!(
             warnings[1].starts_with(r#"frame 1: the text "SCORE 123456789""#),
-            "{warnings:#?}"
-        );
-        assert!(
-            warnings[2].starts_with(r#"label "ghost" is off screen in every checked frame"#),
             "{warnings:#?}"
         );
         let log = fs::read_to_string(folder.join("log.json")).unwrap();

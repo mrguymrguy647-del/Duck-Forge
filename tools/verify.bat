@@ -54,7 +54,20 @@ if "!code!"=="0" (
     set "detail="
     call :report "play tests" ok
 ) else (
-    findstr /r /c:"^---- " /c:"panicked" /c:"^error" /c:"^ *--> " "%out%\tests.txt" > "%out%\tests-failed.txt"
+    rem Each failing test's place and message (the line after "panicked"),
+    rem and compile errors with their file and line.
+    set "next=0"
+    (for /f "usebackq delims=" %%L in ("%out%\tests.txt") do (
+        set "line=%%L"
+        if "!next!"=="1" echo %%L
+        set "next=0"
+        if not "!line:panicked=!"=="!line!" (
+            echo %%L
+            set "next=1"
+        )
+        if "!line:~0,5!"=="error" echo %%L
+        if not "!line:--> =!"=="!line!" echo %%L
+    )) > "%out%\tests-failed.txt"
     set "msg=!result!; all in %out%\tests.txt"
     set "detail=%out%\tests-failed.txt"
     call :report "play tests" FAILED

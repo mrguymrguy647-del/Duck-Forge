@@ -81,6 +81,10 @@ name = "starter_shooter"
 test = true
 
 [[example]]
+name = "pollen_run"
+test = true
+
+[[example]]
 name = "world3d"
 test = true
 

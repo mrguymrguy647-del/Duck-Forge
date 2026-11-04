@@ -638,7 +638,7 @@ higher.
 | `src/font.rs`     | A built-in 3-pixel-wide font: every printable ASCII character        |
 | `src/color.rs`    | Colors with alpha, and see-through blending                         |
 | `src/rng.rs`      | A tiny xorshift random number generator                             |
-| `examples/`       | `hello`, `shapes`, `template`, `starter_topdown`, `starter_shooter`, `breakout`, `dodge`, `duckling_parade`, `door_short`, `door_show_3d`, `physics`, `world3d` and `stress3d` |
+| `examples/`       | `hello`, `shapes`, `template`, `starter_topdown`, `starter_shooter`, `pollen_run`, `breakout`, `dodge`, `duckling_parade`, `door_short`, `door_show_3d`, `physics`, `world3d` and `stress3d` |
 | `test.bat`        | Runs every test on Windows with a double-click                       |
 
 Only `src/window.rs` knows minifb exists, so the window library could be

@@ -56,7 +56,10 @@ result=$(grep -E '^test result' "$out/tests.txt" | tail -n 1 | sed -E 's/^test r
 if [ $code -eq 0 ]; then
     report "play tests" ok "${result:-no tests}"
 else
-    grep -E '^---- |panicked|^error|^ *--> ' "$out/tests.txt" >"$out/tests-failed.txt"
+    # Each failing test's name, where it panicked and the message (the line
+    # after "panicked"), and compile errors with their file and line.
+    grep -E -A1 'panicked' "$out/tests.txt" | grep -v -E '^--$|^note: ' >"$out/tests-failed.txt"
+    grep -E '^error|^ *--> ' "$out/tests.txt" >>"$out/tests-failed.txt"
     report "play tests" FAILED "${result:-did not run}; all in $out/tests.txt" "$out/tests-failed.txt"
 fi
 

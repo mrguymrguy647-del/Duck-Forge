@@ -229,7 +229,7 @@ impl Summary {
                 && self.files.iter().any(|f| f == "audio.wav")
             {
                 lines.push(format!(
-                    "watch with sound: ffmpeg -y -i {gif} -i {wav} -c:v libx264 -pix_fmt yuv420p -vf \"scale=trunc(iw/2)*2:trunc(ih/2)*2\" -c:a aac -shortest {mp4}",
+                    "watch with sound: ffmpeg -y -i {gif} -i {wav} -c:v libx264 -pix_fmt yuv420p -vf \"scale=iw*4:ih*4:flags=neighbor\" -c:a aac -shortest {mp4}",
                     gif = folder.join("run.gif").display(),
                     wav = folder.join("audio.wav").display(),
                     mp4 = folder.join("run.mp4").display(),

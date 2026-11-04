@@ -82,7 +82,7 @@ Read numbers you'll adjust at the top of `update`:
 `let speed = ctx.tune("player_speed", 90.0);`. Try values with
 `--set player_speed=120` (repeatable); keep them in
 `examples/mygame.tune.json`. `--write-tune` writes every name the game
-asked for. The summary warns about a `--set` name nobody asked for.
+asked for. The summary warns about `--set` or tune-file names nobody asked for.
 
 ## 5. Labels: know what's on screen without pictures
 

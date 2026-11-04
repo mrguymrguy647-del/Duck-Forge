@@ -345,7 +345,9 @@ text: "TIME 10.0" at 4,4; "LIVES 3" at 289,4
 the same as JSON, with each label's world rect, screen rect and
 `on_screen`. The summary also warns, naming the frame and the label,
 about: a label that's off screen in every checked frame (the first, 16
-spread over the run, every snapshot, the last), text drawn partly off the
+spread over the run, every snapshot, the last; only in games whose
+camera never moves, since in a scrolling game things off screen are
+normal), text drawn partly off the
 screen, and labels that overlap on frame 1 (things spawned on top of each
 other; a label entirely inside another, like an enemy inside a "level",
 doesn't count).
@@ -497,7 +499,10 @@ cargo run --no-default-features --example mygame -- --headless --inputs out/star
 When a value is right, put it in `examples/mygame.tune.json` (or run once
 with `--write-tune` to create the file with every value, then edit it).
 The summary prints which values came from the file or `--set`, and warns
-about a `--set` name the game never asked for (usually a typo).
+about a `--set` name the game never asked for (usually a typo), and
+about names in the tune file it never asked for (often left over from a
+copied starter: delete them, or a value like `sight` may quietly differ
+from the code's default).
 
 ### Step 7: Fix, and go round again
 

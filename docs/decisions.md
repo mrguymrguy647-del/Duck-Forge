@@ -1506,3 +1506,74 @@ checks every flag it mentions is a real one. Placeholder names for the
 reader's own game (`mygame`) are skipped. A deliberate typo in each kind
 (an example, a function, a file, a flag) was tried, and each failed with
 a message naming the problem.
+
+## Step 12: Proving it with Pollen Run
+
+`examples/pollen_run.rs` was made from the top-down starter by following
+only `skills/duckforge/SKILL.md` and the quick start: copy the starter
+and its tune file, add it to `Cargo.toml`, then the loop with
+`tools/verify.sh`. A bee picks pollen from flowers (three at most, each
+slowing it by 12%) and carries it to the hive, while wasps chase it; a
+sting costs a life and puts the pollen back on its flowers. It has six
+rules (`"pollen adds up"`: delivered + carried + on flowers is always the
+total), five play tests, a tune file, labels and a bot-made playthrough,
+and passes verify with 200 fuzz runs and `--release --fuzz 200`.
+
+**What the loop found and what was fixed.**
+
+- *Balance (tuning).* The bot's first playthrough was stung out after
+  3 of 18 pollen: with a full bag the bee flew at 52 px/s, the wasps at
+  50, so it couldn't escape. Five tune settings tried by editing the tune
+  file and re-running the bot: slowdown 0.12, wasp speed 42 and sight 80
+  let the bot deliver 15 of 18 in 70 seconds. Copied back into the code.
+- *A copied tune file quietly changed the game.* The starter's file set
+  `sight` to 100 (the new code said 90), and its `player_speed` and
+  `enemy_speed` meant nothing here, with no warning. The summary now warns
+  about tune-file names the game never asks for, and `--write-tune` says
+  which ones it kept.
+- *A false alarm.* "label wasp is off screen in every checked frame" came
+  up on every short run, since the wasps start out of view. That warning
+  now only applies when the camera never moves; in a scrolling game,
+  things off screen are normal. (It would have failed `verify`'s
+  `--quiet` replay.)
+- *verify hid the useful line.* A failed play test showed where it
+  panicked but not the message (`47.5 vs 30.4`), which is on the next
+  line. It now shows both. (The failure was my test hard-coding a 60%
+  speed limit; it now uses the constant.)
+- *The mp4 was tiny:* 160 x 120, because the GIF is shrunk to stay small.
+  The printed `ffmpeg` command now enlarges it 4 times with sharp pixels
+  (640 x 480 for a 320 x 240 game).
+- The fuzzer found nothing in 400 runs. That's good, but see below.
+
+**What still felt slow or uncomfortable** (not fixed; candidates for later):
+
+1. *Starting a game is five hand edits*: copy two files, add three lines
+   to `Cargo.toml`, change the title, change the playthrough path in the
+   bot test, then rename `TopDown`/`Enemy` everywhere. A
+   `tools/new_game.sh <name> <starter>` would make it one command.
+2. *The bot is the slowest part to write.* Every playthrough here came
+   from a bot in an ignored test (a breadth-first search for the top-down
+   games), about 60 lines, and how well it plays decides what the
+   playthrough shows. This one stops when every path passes near a wasp.
+3. *Playthroughs go stale silently.* After changing a tune value or
+   anything that uses `ctx.rng`, replaying the old inputs tells a
+   different story, and `verify` still says `ok` (it only checks that
+   nothing broke). Re-recording is easy to forget.
+4. *The fuzzer gives no sense of coverage.* "No problems found" doesn't
+   say whether any random run ever delivered pollen or reached the end.
+   The range of each report across all runs (delivered 0 to 2, say)
+   would show what the random player reached.
+5. *The contact sheet spreads 16 frames evenly*, so a 70-second run can
+   skip the moment of a sting. Frames chosen where a report changes
+   (`lives`, `state`) would show the events.
+6. *Small sprites are hard to judge on the sheet*: a 12-pixel bee in a
+   16-frame grid, and with `--debug` the labels' names cover it.
+7. *The Windows batch file has never run on Windows* (there's none here);
+   it mirrors the shell script line by line and a test checks it uses
+   the same flags, but that's all.
+8. *Starters are long* (about 700 lines with tests and bot), more to read
+   before the first change than the 360-line template.
+
+What was not slow: a one-line change rebuilds in under half a second,
+and `verify` takes 2 to 3 seconds including 200 fuzz runs, so the loop
+itself never got in the way.
