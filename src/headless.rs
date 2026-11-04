@@ -682,6 +682,54 @@ mod tests {
     }
 
     #[test]
+    fn a_loaded_wav_is_played_into_audio_wav_and_logged() {
+        let folder = test_folder("audio-wav-file");
+        fs::create_dir_all(&folder).unwrap();
+        // A 100-sample .wav file, every sample at half volume.
+        let path = folder.join("quack.wav");
+        fs::write(
+            &path,
+            sound::wav_bytes(std::iter::repeat_n(16384, 100), 100),
+        )
+        .unwrap();
+        let quack = crate::sound::Wav::load(&path).unwrap();
+        assert_eq!(quack.name(), "quack");
+
+        struct Quacker(crate::sound::Wav);
+        impl Game for Quacker {
+            fn update(&mut self, ctx: &mut Context) {
+                if ctx.frame() == 3 {
+                    ctx.play_wav(&self.0);
+                }
+            }
+            fn draw(&self, _: &mut Canvas) {}
+        }
+        let out = folder.join("run");
+        let options = HeadlessOptions {
+            frames: 5,
+            out: Some(out.clone()),
+            ..HeadlessOptions::default()
+        };
+        let sim = run_headless(config(), Quacker(quack), &options).unwrap();
+        sim.assert_sound("quack", 3, 0);
+        let log = fs::read_to_string(out.join("log.json")).unwrap();
+        assert!(
+            log.contains(r#"{"frame": 3, "sound": "quack", "file": "#),
+            "{log}"
+        );
+        let wav = fs::read(out.join("audio.wav")).unwrap();
+        let samples: Vec<i16> = wav[44..]
+            .chunks_exact(2)
+            .map(|b| i16::from_le_bytes([b[0], b[1]]))
+            .collect();
+        let start = 2 * 735; // frame 3 starts 2 updates in
+        assert_eq!(samples[start - 1], 0);
+        assert_eq!(samples[start], 16384, "the file's samples, at its frame");
+        assert_eq!(samples[start + 99], 16384);
+        assert_eq!(samples[start + 100], 0, "and only for as long as the file");
+    }
+
+    #[test]
     fn a_silent_game_saves_no_audio() {
         let folder = test_folder("audio-none");
         let options = HeadlessOptions {
