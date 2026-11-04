@@ -97,6 +97,9 @@ pub struct HeadlessOptions {
     /// (`--sheet-events`), each with what changed under it, instead of
     /// spreading them evenly.
     pub sheet_events: bool,
+    /// Also save `sheet-follow.png`: the same frames, each cut down to the
+    /// area around this label and enlarged three times (`--sheet-follow NAME`).
+    pub sheet_follow: Option<String>,
 }
 
 impl Default for HeadlessOptions {
@@ -119,6 +122,7 @@ impl Default for HeadlessOptions {
             write_tune: false,
             inputs_file: None,
             sheet_events: false,
+            sheet_follow: None,
         }
     }
 }
@@ -258,7 +262,7 @@ fn run_and_save<G: Game>(
 
     // Which frames go on the sheet. (With --sheet-events, these are only
     // the evenly spread ones that fill the gaps between events.)
-    let any_sheet = options.sheet || options.sheet_events;
+    let any_sheet = options.sheet || options.sheet_events || options.sheet_follow.is_some();
     let mut picker = sheet::SheetPicker::default();
     let sheet_frames: BTreeSet<u64> = if !any_sheet {
         BTreeSet::new()
@@ -409,6 +413,13 @@ fn run_and_save<G: Game>(
         let picture = pictures::contact_sheet_with_captions(&captioned, updates_per_second as f32);
         save_png(&picture, &folder.join("sheet.png"))?;
         saved.push(String::from("sheet.png"));
+        if let Some(name) = &options.sheet_follow {
+            let followed = sheet::follow(&frames, name);
+            let picture =
+                pictures::contact_sheet_with_captions(&followed, updates_per_second as f32);
+            save_png(&picture, &folder.join("sheet-follow.png"))?;
+            saved.push(String::from("sheet-follow.png"));
+        }
     }
     if !sim.sounds().is_empty() {
         // Every sound, mixed at the sample where its frame starts. The
@@ -606,6 +617,7 @@ fn is_our_file(name: &str) -> bool {
             | "last.scene.json"
             | "closeup.png"
             | "sheet.png"
+            | "sheet-follow.png"
             | "run.gif"
             | "audio.wav"
             | "log.json"
@@ -778,6 +790,7 @@ pub(crate) fn run_from_command_line<G: Game>(
         write_tune: options.write_tune,
         inputs_file: options.inputs.clone(),
         sheet_events: options.sheet_events,
+        sheet_follow: options.sheet_follow.clone(),
     };
     if let Some(corner) = options.debug_corner {
         config.debug_corner = corner;
@@ -1678,7 +1691,7 @@ mod tests {
         assert!(summary.files.contains(&String::from("sheet.png")));
         let sheet = Canvas::load_png_for_tests(&folder.join("sheet.png"));
         // 16 frames of 64 x 8 in 4 rows, with a caption line each.
-        assert_eq!(sheet.height(), 4 + 4 * (8 + 14 + 9 + 4));
+        assert_eq!(sheet.height(), 4 + 4 * (8 + 14 + 13 + 4));
         let _ = fs::remove_dir_all(folder);
     }
 

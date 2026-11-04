@@ -39,6 +39,20 @@ const LABEL: Color = Color::rgb(0, 255, 0);
 /// Draws the overlay onto `canvas`, which already holds the game's picture,
 /// and returns where its info box is (so `--grid` can keep its numbers
 /// out of it).
+/// A label's name: one line of the smallest text, plus a pixel all round.
+const NAME_HEIGHT: f32 = 7.0;
+
+/// Where a label's name goes: just above its box, or just below it when
+/// there's no room above.
+fn name_position(boxed: Rect) -> (f32, f32) {
+    let above = boxed.y - NAME_HEIGHT;
+    if above >= 0.0 {
+        (boxed.x + 1.0, above + 1.0)
+    } else {
+        (boxed.x + 1.0, boxed.bottom() + 2.0)
+    }
+}
+
 pub(crate) fn draw_overlay(
     canvas: &mut Canvas,
     ctx: &Context,
@@ -47,11 +61,19 @@ pub(crate) fn draw_overlay(
     camera: Option<&Camera2D>,
     corner: Corner,
 ) -> Rect {
-    // Labels: a green outline where they are on screen, with the name above.
-    for label in labels.iter().filter(|l| l.on_screen) {
+    // Labels: a green outline where they are on screen, with the name
+    // just outside it (above, or below at the top of the screen) on a dark
+    // strip, so it never covers what's labelled and reads on any background.
+    let on_screen: Vec<&Label> = labels.iter().filter(|l| l.on_screen).collect();
+    for label in &on_screen {
         canvas.draw_rect(label.screen, LABEL);
-        let name_at = vec2(label.screen.x, (label.screen.y - 6.0).max(0.0));
-        canvas.draw_text(&label.name, name_at, 1, LABEL);
+    }
+    for label in &on_screen {
+        let (x, y) = name_position(label.screen);
+        let width = Canvas::text_width(&label.name, 1);
+        let strip = Rect::new(x - 1.0, y - 1.0, width + 2.0, NAME_HEIGHT);
+        canvas.fill_rect(strip, Color::BLACK.with_alpha(170));
+        canvas.draw_text(&label.name, vec2(x, y), 1, LABEL);
     }
     let to_screen = |p: Vec2| camera.map_or(p, |c| c.world_to_screen(p));
     let zoom = camera.map_or(1.0, |c| {
@@ -236,6 +258,35 @@ mod tests {
     /// Whether any pixel in the area is the overlay's yellow text.
     fn yellow_in(picture: &Canvas, x: i32, y: i32, w: i32, h: i32) -> bool {
         (y..y + h).any(|py| (x..x + w).any(|px| picture.get_pixel(px, py) == Some(Color::YELLOW)))
+    }
+
+    #[test]
+    fn label_names_never_cover_what_they_label() {
+        struct Small;
+        impl Game for Small {
+            fn update(&mut self, _: &mut Context) {}
+            fn draw(&self, canvas: &mut Canvas) {
+                canvas.clear(Color::BLACK);
+                canvas.label("bee", Rect::new(100.0, 100.0, 12.0, 12.0));
+                canvas.label("top", Rect::new(40.0, 1.0, 12.0, 12.0)); // no room above
+            }
+        }
+        let mut sim = Simulation::new(Config::default(), Small);
+        sim.set_debug_overlay(true);
+        sim.step();
+        let picture = sim.picture();
+        let green_in = |x0: i32, y0: i32, w: i32, h: i32| {
+            (y0..y0 + h)
+                .flat_map(|y| (x0..x0 + w).map(move |x| (x, y)))
+                .filter(|&(x, y)| picture.get_pixel(x, y) == Some(super::LABEL))
+                .count()
+        };
+        // Inside each box (within the outline): nothing.
+        assert_eq!(green_in(101, 101, 10, 10), 0, "bee's box is clear");
+        assert_eq!(green_in(41, 2, 10, 10), 0, "top's box is clear");
+        // The names: above the bee, below the one at the top.
+        assert!(green_in(100, 92, 16, 8) > 5, "bee's name above it");
+        assert!(green_in(40, 14, 16, 8) > 5, "top's name below it");
     }
 
     #[test]

@@ -89,8 +89,9 @@ asked for. The summary warns about `--set` or tune-file names nobody asked for.
 In `draw`, name things right after drawing them:
 `canvas.label("enemy", rect)`. Add `--describe` to a headless run to get
 the last frame in words; every saved picture gets a `.scene.json`; the
-summary warns about labels never on screen. `--grid 20` (or
-`--grid-world 32`, in world units) draws coordinates on saved pictures.
+summary warns about labels never on screen; `--sheet-follow enemy` zooms
+each sheet frame in on that label. `--grid 20` (`--grid-world 32` in world
+units) draws coordinates on saved pictures.
 
 ## 6. Rules and fuzzing
 
@@ -146,5 +147,4 @@ add `--accept` to the replay to keep the new ending, or re-record.
 cargo run --no-default-features --example mygame -- --headless --inputs playthroughs/mygame.json --sheet-events --gif --out out/show
 ```
 
-The summary prints the `ffmpeg` command that joins `run.gif` and
-`audio.wav` into `run.mp4`. Send the sheet, the mp4 and the verify report.
+The summary prints the `ffmpeg` command for `run.mp4`, with sound. Send the sheet, the mp4 and the verify report.

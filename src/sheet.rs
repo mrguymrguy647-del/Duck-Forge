@@ -1,4 +1,5 @@
-//! Choosing a contact sheet's frames by what happened (`--sheet-events`).
+//! Choosing a contact sheet's frames by what happened (`--sheet-events`),
+//! and following one label up close (`--sheet-follow NAME`).
 //!
 //! An evenly spread sheet of a 70-second run shows a frame every 4.5
 //! seconds, and can skip the moment the player lost three lives. With
@@ -14,7 +15,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::canvas::Canvas;
-use crate::pictures;
+use crate::pictures::{self, Crop};
 use crate::report::ReportValue;
 use crate::scene::Scene;
 
@@ -43,7 +44,6 @@ struct Kept {
 pub(crate) struct SheetFrame {
     pub frame: u64,
     pub picture: Canvas,
-    #[allow(dead_code)] // for following a label up close (Fix 5)
     pub scene: Scene,
     /// What made it worth showing, like `lives 2` or `state Lost`.
     pub caption: String,
@@ -215,6 +215,42 @@ fn spread_pick(frames: &[u64], count: usize) -> Vec<u64> {
         .collect()
 }
 
+/// `--sheet-follow NAME`: each frame cut down to the area around the label
+/// `name`, three times bigger, so a small sprite is easy to see. A frame
+/// without that label is centred where it was last seen, and says so.
+pub(crate) fn follow(frames: &[SheetFrame], name: &str) -> Vec<(u64, Canvas, String)> {
+    const ZOOM: usize = 3;
+    let mut last_center = None;
+    frames
+        .iter()
+        .map(|f| {
+            let (width, height) = (f.picture.width(), f.picture.height());
+            let (crop_w, crop_h) = ((width / ZOOM).max(1), (height / ZOOM).max(1));
+            let label = f.scene.labels_named(name).next();
+            let center = label
+                .map(|l| l.screen.center())
+                .or(last_center)
+                .unwrap_or(crate::math::vec2(width as f32 / 2.0, height as f32 / 2.0));
+            if label.is_some() {
+                last_center = Some(center);
+            }
+            let x = (center.x - crop_w as f32 / 2.0).clamp(0.0, (width - crop_w) as f32) as usize;
+            let y = (center.y - crop_h as f32 / 2.0).clamp(0.0, (height - crop_h) as f32) as usize;
+            let crop = Crop {
+                x,
+                y,
+                width: crop_w,
+                height: crop_h,
+            };
+            let mut caption = f.caption.clone();
+            if label.is_none() {
+                caption = format!("(no {name}) {caption}");
+            }
+            (f.frame, pictures::close_up(&f.picture, crop, ZOOM), caption)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -289,6 +325,49 @@ mod tests {
             chosen.iter().all(|f| !f.caption.contains('x')),
             "{frames:?}"
         );
+    }
+
+    #[test]
+    fn following_a_label_zooms_in_around_it() {
+        use crate::color::Color;
+        use crate::math::Rect;
+        use crate::scene::Label;
+        let frame = |n: u64, bee: Option<Rect>| {
+            let mut picture = Canvas::new(90, 60);
+            picture.clear(Color::BLACK);
+            let labels = bee
+                .map(|at| {
+                    picture.fill_rect(at, Color::YELLOW);
+                    vec![Label {
+                        name: String::from("bee"),
+                        world: at,
+                        screen: at,
+                        on_screen: true,
+                    }]
+                })
+                .unwrap_or_default();
+            SheetFrame {
+                frame: n,
+                picture,
+                scene: Scene {
+                    labels,
+                    ..Scene::default()
+                },
+                caption: String::from("lives 2"),
+            }
+        };
+        let bee = Rect::new(70.0, 40.0, 4.0, 4.0);
+        let followed = follow(&[frame(1, Some(bee)), frame(2, None)], "bee");
+        let (_, close, caption) = &followed[0];
+        // A third of the picture (30 x 20), three times bigger.
+        assert_eq!((close.width(), close.height()), (90, 60));
+        assert_eq!(caption, "lives 2");
+        // The bee is in the middle, big.
+        assert_eq!(close.get_pixel(45, 30), Some(Color::YELLOW));
+        // Without the label: where it was last, and it says so.
+        let (_, close, caption) = &followed[1];
+        assert_eq!(caption, "(no bee) lives 2");
+        assert_eq!(close.get_pixel(45, 30), Some(Color::BLACK));
     }
 
     #[test]

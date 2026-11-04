@@ -1698,3 +1698,28 @@ run, and needs a game that can be built twice.
 
 `verify` now uses `--sheet-events` for every playthrough. Plain `--sheet`
 is unchanged (evenly spread, or the snapshots with `--snapshot-every`).
+
+## Fix 5: Small sprites on the sheet, and debug label names
+
+A sheet frame of a 320 x 240 game is shown at its own size, but a
+12-pixel bee in it is still a smudge. `--sheet-follow NAME` also saves
+`sheet-follow.png`: the same frames (evenly spread, or the event frames
+with `--sheet-events`, with the same captions), each cut to the third of
+the screen around the label `NAME` and enlarged three times, so the bee
+is 36 pixels across. The label's position comes from each frame's scene,
+which the sheet now keeps alongside the picture. A frame where the label
+is missing (the player is dead, say) is centred where it was last seen
+and captioned `(no bee)`. The normal `sheet.png` is still saved.
+
+The captions under sheet frames were the smallest text, too small to
+read once the sheet is shown on a screen; they now use the same size as
+the frame numbers, cut to the width of the cell.
+
+**Debug label names.** With `--debug`, each label's name was drawn just
+above its box, but at the top of the screen it was pushed inside the box,
+and green text on a green lawn couldn't be read. The simplest readable
+fix: the name always sits just outside the box (above it, or below it
+when there's no room above) on a small dark strip. It can still cover a
+neighbour, but never the thing it names. (Smaller text isn't possible:
+the font is already the smallest that reads; leaving names off small
+labels would hide exactly the ones that are hard to tell apart.)

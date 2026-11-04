@@ -366,7 +366,9 @@ doesn't count).
 ### Step 4: Look
 
 Add `--debug` to see what the game *thinks* is there: hitboxes and zones
-it marked with `ctx.debug_rect` / `ctx.debug_circle` are outlined, and a
+it marked with `ctx.debug_rect` / `ctx.debug_circle` are outlined, every
+label gets a green outline with its name just outside it (above, or below
+at the top of the screen, on a dark strip, never over the thing), and a
 small box in the bottom-right corner shows the frame number, camera and
 mouse. When a collision looks
 wrong, this answers "is the hitbox where the sprite is?" at a glance.
@@ -384,6 +386,11 @@ Open, in this order:
    evenly to 16, each with what changed under it (`LIVES 2`,
    `STATE LOST, LIVES 0`). A value that changes more than 20 times (a
    position, a timer) isn't an event and is ignored. `verify` uses it.
+   Small sprites are hard to judge in a shrunk sheet: add
+   **`--sheet-follow player`** (any label name) to also save
+   `sheet-follow.png`, the same frames each cut to the third of the
+   screen around that label and enlarged three times, so a 12-pixel
+   character fills a good part of its cell.
 2. **`last.png`**: how it ended.
 3. **A close-up**, when you need to see exact pixels: is the ball touching
    the paddle, or one pixel above? `--crop X,Y,W,H --zoom 4` saves

@@ -214,7 +214,7 @@ const LABEL_HEIGHT: usize = 14;
 /// Frames in a sheet are shrunk to at most this wide.
 const SHEET_CELL_WIDTH: usize = 320;
 /// The caption line under a frame's number (`--sheet-events`).
-const CAPTION_HEIGHT: usize = 9;
+const CAPTION_HEIGHT: usize = 13;
 const CAPTION_COLOR: Color = Color::from_hex(0xff_e0_60);
 /// More frames than this in one sheet would be too small to see.
 pub(crate) const SHEET_MAX_FRAMES: usize = 64;
@@ -261,10 +261,12 @@ pub(crate) fn contact_sheet_with_captions(
         if !caption.is_empty() {
             // As much as fits in the cell's width, in capitals (easier to
             // read at this size).
-            let fits = (cell_width as f32 / Canvas::text_width("M", 1).max(1.0)) as usize;
+            let advance =
+                Canvas::text_width("MM", LABEL_SCALE) - Canvas::text_width("M", LABEL_SCALE);
+            let fits = ((cell_width as f32 + 1.0) / advance.max(1.0)) as usize;
             let text: String = caption.to_uppercase().chars().take(fits.max(1)).collect();
-            let position = vec2(left as f32, (top + cell_height + LABEL_HEIGHT + 1) as f32);
-            sheet.draw_text(&text, position, 1, CAPTION_COLOR);
+            let position = vec2(left as f32, (top + cell_height + LABEL_HEIGHT) as f32);
+            sheet.draw_text(&text, position, LABEL_SCALE, CAPTION_COLOR);
         }
     }
     sheet
@@ -437,8 +439,9 @@ mod tests {
             .map(|(n, picture)| (*n, picture.copy_picture(), String::from("lives 2")))
             .collect();
         let sheet = contact_sheet_with_captions(&captioned, 60.0);
-        assert_eq!(sheet.height(), 4 + 2 * (30 + 14 + 9 + 4));
-        let caption_row = (4 + 30 + 14..4 + 30 + 14 + 9).flat_map(|y| (4..44).map(move |x| (x, y)));
+        assert_eq!(sheet.height(), 4 + 2 * (30 + 14 + 13 + 4));
+        let caption_row =
+            (4 + 30 + 14..4 + 30 + 14 + 13).flat_map(|y| (4..44).map(move |x| (x, y)));
         let yellow = caption_row
             .filter(|&(x, y)| sheet.get_pixel(x, y) == Some(CAPTION_COLOR))
             .count();
