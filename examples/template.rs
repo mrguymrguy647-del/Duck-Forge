@@ -160,6 +160,12 @@ impl Game for Template {
             };
         }
 
+        // Paused (or won), the game waits on purpose: tell --fuzz, so it
+        // doesn't call that a freeze.
+        if self.state != State::Playing {
+            ctx.idle_ok();
+        }
+
         if self.state == State::Playing {
             let dt = ctx.dt();
             // Run: -1, 0 or 1 from the keys, then ease the speed towards it.

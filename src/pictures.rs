@@ -5,9 +5,10 @@ use std::fs::File;
 use std::io::{self, BufWriter};
 use std::path::Path;
 
+use crate::camera::Camera2D;
 use crate::canvas::Canvas;
 use crate::color::Color;
-use crate::math::{Rect, vec2};
+use crate::math::{Rect, Vec2, vec2};
 
 /// A part of the picture: `width` x `height` pixels, starting at `x`, `y`
 /// (the top-left corner).
@@ -66,35 +67,89 @@ impl Crop {
     }
 }
 
-/// A copy of `canvas` with a light grid every `every` pixels, and the
+/// A copy of `canvas` with a light grid every `every` units, and the
 /// coordinates written along the bottom and left edges (most games put
-/// their score along the top), so positions can be read off the picture
-/// (`--grid N`).
-pub(crate) fn with_grid(canvas: &Canvas, every: usize) -> Canvas {
+/// their score along the top), so positions can be read off the picture.
+///
+/// With `camera` (`--grid-world N`), the lines are at world coordinates,
+/// placed through the camera, and numbered in world units; without it
+/// (`--grid N`) they're every `every` screen pixels. Nothing is drawn over
+/// `keep_clear` (the debug overlay's box), so both stay readable.
+pub(crate) fn with_grid(
+    canvas: &Canvas,
+    every: usize,
+    camera: Option<&Camera2D>,
+    keep_clear: Option<Rect>,
+) -> Canvas {
     let mut picture = canvas.copy_picture();
-    let every = every.max(2);
-    let (width, height) = (canvas.width(), canvas.height());
-    let line = Color::rgba(255, 255, 255, 60);
-    for x in (every..width).step_by(every) {
-        picture.fill_rect(Rect::new(x as f32, 0.0, 1.0, height as f32), line);
-    }
-    for y in (every..height).step_by(every) {
-        picture.fill_rect(Rect::new(0.0, y as f32, width as f32, 1.0), line);
-    }
-    // Numbers on some of the lines: far enough apart not to run into each
-    // other (at least 24 pixels), on a dark see-through patch to stay readable.
-    let label_every = every * 24usize.div_ceil(every);
-    let number = |picture: &mut Canvas, text: &str, x: f32, y: f32| {
-        let w = Canvas::text_width(text, 1);
-        picture.fill_rect(Rect::new(x, y, w + 2.0, 7.0), Color::rgba(0, 0, 0, 150));
-        picture.draw_text(text, vec2(x + 1.0, y + 1.0), 1, Color::WHITE);
+    let every = every.max(2) as f32;
+    let (width, height) = (canvas.width() as f32, canvas.height() as f32);
+    let to_screen = |p: Vec2| camera.map_or(p, |c| c.world_to_screen(p));
+    let to_world = |p: Vec2| camera.map_or(p, |c| c.screen_to_world(p));
+    let (top_left, bottom_right) = (to_world(Vec2::ZERO), to_world(vec2(width, height)));
+    // How far apart neighbouring lines are on screen, to space the numbers
+    // at least 24 pixels apart.
+    let spacing = (to_screen(vec2(every, 0.0)).x - to_screen(Vec2::ZERO).x)
+        .abs()
+        .max(0.001);
+    let label_step = (24.0 / spacing).ceil().max(1.0) as i64;
+    // The multiples of `every` that are on screen, along one axis.
+    let lines = |from: f32, to: f32| -> Vec<i64> {
+        let (first, last) = ((from / every).ceil() as i64, (to / every).floor() as i64);
+        (first..=last.min(first + 10_000)).collect()
     };
-    let bottom = height as f32 - 7.0;
-    for x in (label_every..width).step_by(label_every) {
-        number(&mut picture, &x.to_string(), x as f32 + 1.0, bottom);
+
+    let line = Color::rgba(255, 255, 255, 60);
+    let xs = lines(top_left.x, bottom_right.x);
+    let ys = lines(top_left.y, bottom_right.y);
+    for &k in &xs {
+        let x = to_screen(vec2(k as f32 * every, 0.0)).x.round();
+        if x >= 1.0 {
+            picture.fill_rect(Rect::new(x, 0.0, 1.0, height), line);
+        }
     }
-    for y in (label_every..height).step_by(label_every) {
-        number(&mut picture, &y.to_string(), 0.0, y as f32 + 1.0);
+    for &k in &ys {
+        let y = to_screen(vec2(0.0, k as f32 * every)).y.round();
+        if y >= 1.0 {
+            picture.fill_rect(Rect::new(0.0, y, width, 1.0), line);
+        }
+    }
+    // Numbers on some of the lines, on a dark see-through patch.
+    let mut number = |text: String, x: f32, y: f32| {
+        let patch = Rect::new(x, y, Canvas::text_width(&text, 1) + 2.0, 7.0);
+        if keep_clear.is_some_and(|clear| clear.overlaps(&patch)) || x < 0.0 || y < 0.0 {
+            return;
+        }
+        picture.fill_rect(patch, Color::rgba(0, 0, 0, 150));
+        picture.draw_text(&text, vec2(x + 1.0, y + 1.0), 1, Color::WHITE);
+    };
+    let bottom = height - 7.0;
+    for &k in xs.iter().filter(|k| k.rem_euclid(label_step) == 0) {
+        let x = to_screen(vec2(k as f32 * every, 0.0)).x.round();
+        if x >= 1.0 {
+            number(format!("{}", (k as f32 * every).round()), x + 1.0, bottom);
+        }
+    }
+    for &k in ys.iter().filter(|k| k.rem_euclid(label_step) == 0) {
+        let y = to_screen(vec2(0.0, k as f32 * every)).y.round();
+        if y >= 1.0 && y < bottom - 7.0 {
+            number(format!("{}", (k as f32 * every).round()), 0.0, y + 1.0);
+        }
+    }
+    // Put the debug overlay's box back exactly as it was: no lines over it.
+    if let Some(clear) = keep_clear {
+        let (x0, y0) = (clear.x.max(0.0) as i32, clear.y.max(0.0) as i32);
+        let (x1, y1) = (
+            clear.right().min(width) as i32,
+            clear.bottom().min(height) as i32,
+        );
+        for y in y0..y1 {
+            for x in x0..x1 {
+                if let Some(color) = canvas.get_pixel(x, y) {
+                    picture.set_pixel(x, y, color);
+                }
+            }
+        }
     }
     picture
 }

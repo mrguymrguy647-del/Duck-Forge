@@ -1252,3 +1252,41 @@ program to run, which a unit test doesn't have. The pieces are tested
 panics, keeping presses and releases together while shrinking, the
 options), and the whole was tried on a planted-bug game, the template
 (100 runs, no problems) and Dodge (100 runs, the title-screen freeze).
+
+## Fixes from a review of steps 0 to 6
+
+**The grid covered the debug box.** With `--grid` and `--debug`
+together, the grid's numbers and lines were drawn over the overlay's
+box, and both became unreadable. The simulation now remembers where it
+drew the box, and the grid skips any number that would touch it and puts
+the box's pixels back exactly as they were (tested: identical with and
+without the grid).
+
+**`--grid-world N`.** Games with a `Camera2D` place everything in world
+coordinates, and a screen-pixel grid made the agent convert by hand.
+`--grid-world 50` draws a line every 50 world units, through the frame's
+camera (the first one the game pushed, shake included), numbered in world
+coordinates, the same numbers as the game's positions and the scene
+files' `world` rects. It's a second flag rather than a switch on `--grid`
+so one word says what you get; using both is an error. Without a camera
+it's the same as `--grid`. Numbers stay at least 24 screen pixels apart
+whatever the zoom.
+
+**`--diff` reported invisible moves.** A frame could be "unchanged" in
+pixels and still have "2 of 2 frog moved", because a label had moved by
+a fraction of a pixel. A move now counts only if it's at least one pixel
+on screen (the world move times the camera's zoom), so the scene report
+agrees with the pictures. At zoom 4, a 0.4-unit move is 1.6 pixels and
+still counts (tested both ways).
+
+**Waiting on purpose isn't a freeze.** `--fuzz` called Dodge's title
+screen a freeze when Space wasn't pressed for 10 seconds. A game now
+says when waiting is expected: `ctx.idle_ok()` in `update`, on every
+frame it's true (title, pause, game over). The frames are recorded in
+`log.json` as stretches (`"idle": [[1, 9], [1805, 1844]]`), and the
+fuzzer treats them like a change, so the 10 seconds only count outside
+them. The alternative, `--freeze-ignore state=Paused` on the command
+line, would make every fuzz command repeat knowledge the game already
+has, and depends on how a game names its states; one call in the code
+says it once. Dodge and the template call it on their waiting screens,
+and both now fuzz clean over 100 runs.

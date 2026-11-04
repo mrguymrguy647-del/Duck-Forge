@@ -89,6 +89,11 @@ const OPTIONS: &[OptionInfo] = &[
         help: "draw a light grid every N pixels, with coordinates, on last.png, snapshots and close-ups",
     },
     OptionInfo {
+        name: "--grid-world",
+        value: Some("N"),
+        help: "like --grid, but every N world units through the game's camera, numbered in world coordinates",
+    },
+    OptionInfo {
         name: "--diff",
         value: Some("OLD_DIR NEW_DIR"),
         help: "compare two headless runs' pictures, scenes and reports (the game isn't run)",
@@ -160,6 +165,7 @@ pub(crate) struct Options {
     pub write_tune: bool,
     pub describe: bool,
     pub grid: Option<usize>,
+    pub grid_world: bool,
     pub diff: Option<(PathBuf, PathBuf)>,
     pub fuzz: Option<u32>,
     pub fuzz_keys: Option<Vec<crate::input::Key>>,
@@ -223,13 +229,17 @@ impl Options {
                         })?;
                     options.freeze_seconds = Some(seconds);
                 }
-                "--grid" => {
+                "--grid" | "--grid-world" => {
+                    if options.grid.is_some() {
+                        return Err(String::from("use either --grid or --grid-world, not both"));
+                    }
+                    options.grid_world = name == "--grid-world";
                     let every = value
                         .parse()
                         .ok()
                         .filter(|every| (2..=1000).contains(every))
                         .ok_or_else(|| {
-                            format!("--grid needs a number of pixels from 2 to 1000, not {value:?}")
+                            format!("{name} needs a number from 2 to 1000, not {value:?}")
                         })?;
                     options.grid = Some(every);
                 }
@@ -275,7 +285,8 @@ impl Options {
             ("--crop", options.crop.is_some()),
             ("--zoom", options.zoom.is_some()),
             ("--describe", options.describe),
-            ("--grid", options.grid.is_some()),
+            ("--grid", options.grid.is_some() && !options.grid_world),
+            ("--grid-world", options.grid_world),
         ];
         if let Some((name, _)) = saves_files.iter().find(|(_, used)| *used) {
             // --fuzz runs headless by itself, and --out is where its scripts go.

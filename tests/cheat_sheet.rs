@@ -68,6 +68,9 @@ impl Game for Everything {
             level.contains(vec2(self.x + 160.0, 120.0)),
         );
         ctx.check("frame 50 never comes", ctx.frame() != 50);
+        if ctx.frame() > 1000 {
+            ctx.idle_ok(); // waiting on purpose (a pause screen, say)
+        }
         ctx.report("frame", ctx.frame());
         ctx.report("state", format!("{:?}", Timestep::RealTime));
         // Input

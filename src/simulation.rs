@@ -102,6 +102,13 @@ pub struct Simulation<G> {
     debug_corner: Corner,
     /// What the last drawn frame labelled, and its text.
     scene: Scene,
+    /// The first camera the last drawn frame pushed, for `--grid-world`.
+    frame_camera: Option<crate::camera::Camera2D>,
+    /// Where the debug overlay's info box is in the last drawn frame.
+    debug_box: Option<crate::math::Rect>,
+    /// The stretches of frames (first, last) on which the game called
+    /// `ctx.idle_ok()`.
+    idle: Vec<(u64, u64)>,
 }
 
 impl<G: Game> Simulation<G> {
@@ -164,6 +171,9 @@ impl<G: Game> Simulation<G> {
             debug_overlay: false,
             debug_corner: config.debug_corner,
             scene: Scene::default(),
+            frame_camera: None,
+            debug_box: None,
+            idle: Vec::new(),
         }
     }
 
@@ -201,6 +211,13 @@ impl<G: Game> Simulation<G> {
         self.game.update(&mut self.ctx);
         let reported = self.ctx.take_reports();
         self.reports.record(self.ctx.frame(), reported);
+        if self.ctx.was_idle_ok() {
+            let frame = self.ctx.frame();
+            match self.idle.last_mut() {
+                Some(stretch) if stretch.1 + 1 == frame => stretch.1 = frame,
+                _ => self.idle.push((frame, frame)),
+            }
+        }
         let start = self.sample_at(self.ctx.frame());
         for request in self.ctx.take_sounds() {
             self.sounds.push(PlayedSound {
@@ -567,6 +584,20 @@ impl<G: Game> Simulation<G> {
         &self.scene
     }
 
+    /// The stretches of frames on which the game called `ctx.idle_ok()`,
+    /// each as (first, last).
+    pub(crate) fn idle_frames(&self) -> &[(u64, u64)] {
+        &self.idle
+    }
+
+    /// The camera of the last drawn frame, and where the debug overlay's
+    /// box was: what `--grid` needs to draw around the picture.
+    pub(crate) fn drawn_extras(
+        &self,
+    ) -> (Option<&crate::camera::Camera2D>, Option<crate::math::Rect>) {
+        (self.frame_camera.as_ref(), self.debug_box)
+    }
+
     /// Uses these tune values from now on (from `--tune` and `--set`).
     pub(crate) fn set_tunes(&mut self, tunes: crate::tune::Tunes) {
         *self.ctx.tunes_mut() = tunes;
@@ -740,19 +771,21 @@ impl<G: Game> Simulation<G> {
             labels,
             texts,
         };
+        self.debug_box = None;
         if self.debug_overlay {
             let shapes = self.ctx.debug_shapes();
             let corner = self.debug_corner;
-            crate::debug::draw_overlay(
+            self.debug_box = Some(crate::debug::draw_overlay(
                 &mut self.canvas,
                 &self.ctx,
                 shapes,
                 &self.scene.labels,
                 camera.as_ref(),
                 corner,
-            );
+            ));
             self.canvas.take_scene(); // the overlay's own text isn't the game's
         }
+        self.frame_camera = camera;
         self.canvas.flush_3d(); // make sure any 3D from the graphics card is in the pixels
         self.ctx.set_renderer_name(self.canvas.renderer_name());
     }
@@ -819,6 +852,22 @@ mod tests {
         }
         assert_eq!(drawn.game().0, not_drawn.game().0);
         assert_eq!(drawn.game().0[0], "CPU", "known from the first update");
+    }
+
+    #[test]
+    fn idle_frames_are_kept_as_stretches() {
+        struct Waiter;
+        impl Game for Waiter {
+            fn update(&mut self, ctx: &mut Context) {
+                if (3..=5).contains(&ctx.frame()) || ctx.frame() == 8 {
+                    ctx.idle_ok();
+                }
+            }
+            fn draw(&self, _: &mut Canvas) {}
+        }
+        let mut sim = Simulation::new(Config::default(), Waiter);
+        sim.run(10);
+        assert_eq!(sim.idle_frames(), [(3, 5), (8, 8)]);
     }
 
     #[test]

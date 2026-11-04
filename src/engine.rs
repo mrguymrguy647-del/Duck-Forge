@@ -236,6 +236,8 @@ pub struct Context {
     checked: HashSet<String>,
     /// The rules that failed, each with the first frame it failed on.
     failed_checks: Vec<FailedCheck>,
+    /// Whether the game said waiting is fine during this update.
+    idle_ok: bool,
 }
 
 /// A rule from [`Context::check`] that didn't hold.
@@ -267,6 +269,7 @@ impl Context {
             tunes: Tunes::default(),
             checked: HashSet::new(),
             failed_checks: Vec::new(),
+            idle_ok: false,
         }
     }
 
@@ -403,6 +406,29 @@ impl Context {
         }
     }
 
+    /// Says that nothing happening right now is expected: the game is on a
+    /// title screen, paused, or waiting for "press a key". Call it in
+    /// `update`, on every frame it's true:
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// # fn example(ctx: &mut Context, paused: bool) {
+    /// if paused {
+    ///     ctx.idle_ok();
+    /// }
+    /// # }
+    /// ```
+    ///
+    /// `--fuzz` then doesn't call those frames a freeze. (`log.json` lists
+    /// them under `"idle"`.)
+    pub fn idle_ok(&mut self) {
+        self.idle_ok = true;
+    }
+
+    pub(crate) fn was_idle_ok(&self) -> bool {
+        self.idle_ok
+    }
+
     /// Every rule that failed so far, in the order they first failed.
     pub fn failed_checks(&self) -> &[FailedCheck] {
         &self.failed_checks
@@ -509,6 +535,7 @@ impl Context {
         self.time += dt as f64;
         self.frame += 1;
         self.debug_shapes.clear(); // only the latest update's shapes are shown
+        self.idle_ok = false;
         self.input.begin_frame(keys_down);
     }
 

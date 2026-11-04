@@ -12,7 +12,8 @@
 //! - **panics** (crashes): the message, where, and the frame;
 //! - **breaks a rule** from `ctx.check`: the rule and the first frame;
 //! - **freezes**: no reported value changes for `--freeze-seconds`
-//!   (10 by default) while keys are being pressed.
+//!   (10 by default) while keys are being pressed, except on frames where
+//!   the game called `ctx.idle_ok()` (a title or pause screen waiting).
 //!
 //! The inputs of every run with a problem are saved as an input script
 //! (`fuzz/seed-17.json`), so `--inputs fuzz/seed-17.json` replays it
@@ -306,12 +307,26 @@ impl Fuzz {
                 frame: failed["frame"].as_u64().unwrap_or(0),
             })
             .collect();
-        let changes: Vec<u64> = log["changes"]
+        // Frames where something changed, or the game said waiting is fine
+        // (`ctx.idle_ok()`): a freeze is a long stretch with neither.
+        let mut changes: Vec<u64> = log["changes"]
             .as_array()
             .map(|changes| changes.iter().filter_map(|c| c["frame"].as_u64()).collect())
             .unwrap_or_default();
+        let reports_something = !changes.is_empty();
+        for stretch in log["idle"].as_array().into_iter().flatten() {
+            let (from, to) = (
+                stretch[0].as_u64().unwrap_or(0),
+                stretch[1].as_u64().unwrap_or(0),
+            );
+            changes.extend(from..=to);
+        }
+        changes.sort_unstable();
+        changes.dedup();
         let frames = log["frames"].as_u64().unwrap_or(0);
-        if let Some(frame) = freeze(&changes, frames, script, self.freeze_frames) {
+        let frozen =
+            reports_something.then(|| freeze(&changes, frames, script, self.freeze_frames));
+        if let Some(frame) = frozen.flatten() {
             problems.push(Problem::Freeze {
                 frame,
                 seconds: self.freeze_seconds,
@@ -631,6 +646,57 @@ mod tests {
             Some(1240),
             "a later stretch"
         );
+    }
+
+    #[test]
+    fn idle_frames_are_not_a_freeze() {
+        let folder =
+            std::env::temp_dir().join(format!("duckforge-fuzz-idle-{}", std::process::id()));
+        fs::create_dir_all(&folder).unwrap();
+        let path = folder.join("log.json");
+        let fuzz = settings(2000);
+        let pressing = InputScript {
+            events: vec![InputEvent {
+                frame: 100,
+                action: InputAction::Press(Key::Space),
+            }],
+            ..InputScript::default()
+        };
+        // Something changed on frame 1, then nothing: a freeze at frame 601...
+        fs::write(
+            &path,
+            r#"{"frames": 2000, "changes": [{"frame": 1}], "idle": []}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            fuzz.read_log(&path, &pressing).unwrap()[..],
+            [Problem::Freeze { frame: 601, .. }]
+        ));
+        // ...unless the game said it was waiting on purpose the whole time.
+        fs::write(
+            &path,
+            r#"{"frames": 2000, "changes": [{"frame": 1}], "idle": [[2, 2000]]}"#,
+        )
+        .unwrap();
+        assert!(fuzz.read_log(&path, &pressing).unwrap().is_empty());
+        // Waiting only until frame 300 moves the freeze later.
+        fs::write(
+            &path,
+            r#"{"frames": 2000, "changes": [{"frame": 1}], "idle": [[2, 300]]}"#,
+        )
+        .unwrap();
+        let pressing_later = InputScript {
+            events: vec![InputEvent {
+                frame: 400,
+                action: InputAction::Press(Key::Space),
+            }],
+            ..InputScript::default()
+        };
+        assert!(matches!(
+            fuzz.read_log(&path, &pressing_later).unwrap()[..],
+            [Problem::Freeze { frame: 900, .. }]
+        ));
+        let _ = fs::remove_dir_all(folder);
     }
 
     #[test]

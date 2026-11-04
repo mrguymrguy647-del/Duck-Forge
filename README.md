@@ -273,6 +273,7 @@ after `--` goes to the game, not to Cargo):
 | `--debug` | Show the debug overlay (F1 in a window); with `--headless` it's in every saved picture |
 | `--debug-corner C` | Where the overlay's box goes: `top-left`, `top-right`, `bottom-left` or `bottom-right` (the default) |
 | `--grid N` | Draw a faint grid every N pixels, numbered along the edges, on `last.png`, snapshots and close-ups |
+| `--grid-world N` | Like `--grid`, but every N world units through the game's camera, numbered in world coordinates |
 | `--diff OLD NEW` | Compare two headless runs' folders: pictures (pixels changed, with highlighted copies in `NEW/diff/`), labels that moved, final reports. The game isn't run |
 | `--fuzz N` | Play N headless runs (seeds 1 to N) with random but realistic key presses, and report crashes, failed `ctx.check` rules and freezes, with each failing run's inputs saved (and one per problem shrunk) as a replayable script |
 | `--fuzz-keys K` | The keys `--fuzz` presses, like `Left,Right,Up,Space` (default: arrows, Space, Z, X) |
@@ -442,7 +443,8 @@ cargo run --release --no-default-features --example template -- --fuzz 200
 
 It reports every crash (with its message, line and frame), failed check
 and freeze (nothing reported changes for 10 s while keys are pressed),
-with the seed, and saves each failing run's inputs as a script, the
+with the seed (call `ctx.idle_ok()` on title and pause screens, so
+waiting there isn't called a freeze), and saves each failing run's inputs as a script, the
 first of each kind shrunk to the fewest key presses that still cause it:
 `--inputs fuzz/seed-14.json` replays it exactly. Runs go in parallel on
 every core: 200 runs of 30 seconds of a small game take a few seconds.

@@ -315,7 +315,10 @@ Open, in this order:
 **Reading positions off a picture:** add `--grid 32` (any size from 2):
 a faint line every 32 pixels, numbered along the bottom and left edges,
 on `last.png`, the snapshots and the close-ups (not on the sheet or GIF,
-which are shrunk). The game's own picture, scenes and `--diff` baselines
+which are shrunk). For a game with a `Camera2D`, `--grid-world 50` puts
+the lines every 50 *world* units, through the camera, numbered with world
+coordinates: the same numbers as the game's positions and the labels in
+the scene files. The grid never covers the `--debug` box. The game's own picture, scenes and `--diff` baselines
 aren't affected, but compare runs made with the same `--grid`.
 
 To see one particular moment, stop the run there: `--frames 427` makes
@@ -410,8 +413,10 @@ game's start key). It reports, once per different problem, the first
 seed and frame of: a **panic** (with the message and line), a **failed
 check**, or a **freeze**: no reported value changed for 10 seconds
 (`--freeze-seconds`) while keys were pressed. A freeze can be a stuck
-game, or a menu waiting for a key the fuzzer didn't press: the replay
-tells you which. Every failing run's inputs are saved in `fuzz/` (or
+game, or a menu waiting for a key the fuzzer didn't press. Tell the
+engine when waiting is expected: call `ctx.idle_ok()` in `update` on
+every frame of a title, pause or game-over screen, and those frames never
+count towards a freeze. Every failing run's inputs are saved in `fuzz/` (or
 `--out`), and one per problem is shrunk to the fewest key presses that
 still cause it, so `--inputs fuzz/seed-14.json --sheet --debug` shows the
 bug in a short replay. Runs go in parallel on every core; `--frames` sets
@@ -451,8 +456,8 @@ reported at the end: score 10 to 12
 ```
 
 It compares every picture both runs saved (pixels changed, and the box
-around them), the scene files (labels that moved, appeared or
-disappeared) and the final reported values. Changed pictures get a copy
+around them), the scene files (labels that moved at least a pixel on
+screen, appeared or disappeared) and the final reported values. Changed pictures get a copy
 in `out/after/diff/` with the changed pixels in magenta. Keep a "before"
 folder by running once with `--out out/before` before you change the
 code. Because runs are
@@ -706,6 +711,8 @@ summary prints `CHECK FAILED`, `log.json` has
 `"checks": {"rules": 2, "failed": [{"name": ..., "frame": ...}]}`, the
 debug overlay shows them in red, and a `PlayTest` **fails** if any check
 failed (add `.ignore_checks()` when a failure is expected).
+`ctx.idle_ok()` (call it every frame the game is waiting on purpose:
+title, pause, game over) stops `--fuzz` calling that a freeze.
 
 **Reports**: `ctx.report("name", value)` with a number (any integer or
 float type), a `bool`, a `&str` or a `String`. Enums: report
@@ -749,7 +756,8 @@ and `Simulation::new(config, game)` with `press`, `release`,
 **Command line**: `--headless`, `--frames N`, `--out DIR`, `--seed N`,
 `--inputs FILE`, `--snapshot-every N`, `--sheet`, `--gif`,
 `--crop X,Y,W,H`, `--zoom N`, `--grid N` (a coordinate grid on saved
-pictures), `--describe`, `--debug`, `--debug-corner top-right` (where
+pictures), `--grid-world N` (the same in world units, through the
+camera), `--describe`, `--debug`, `--debug-corner top-right` (where
 the overlay's box goes; bottom-right by default), `--tune FILE`,
 `--set NAME=N` (repeatable), `--write-tune`, `--record FILE` (window
 only), `--diff OLD_DIR NEW_DIR` (compare two runs; any example runs it,

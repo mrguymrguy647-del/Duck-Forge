@@ -78,6 +78,9 @@ pub struct HeadlessOptions {
     /// Draw a light grid every this many pixels, with coordinates, on
     /// `last.png`, the snapshots and the close-ups (`--grid N`).
     pub grid: Option<usize>,
+    /// Draw that grid in world coordinates, through the game's camera,
+    /// instead of every N screen pixels (`--grid-world N`).
+    pub grid_world: bool,
     /// The tune file for `ctx.tune` (`--tune FILE`). `None` uses
     /// `examples/<game>.tune.json` if it exists.
     pub tune_file: Option<PathBuf>,
@@ -102,6 +105,7 @@ impl Default for HeadlessOptions {
             zoom: 1,
             debug: false,
             grid: None,
+            grid_world: false,
             tune_file: None,
             tune: Vec::new(),
             write_tune: false,
@@ -277,7 +281,7 @@ fn run_and_save<G: Game>(
             scenes.push(sim.scene().clone());
         }
         if snapshot {
-            let picture = for_saving(sim.picture(), options.grid);
+            let picture = for_saving(&mut sim, options);
             let name = format!("frame-{frame:06}.png");
             save_png(&picture, &folder.join(&name))?;
             saved.push(name);
@@ -306,7 +310,7 @@ fn run_and_save<G: Game>(
     drop(gif); // finishes the GIF file
 
     let last = sim.context().frame();
-    let last_picture = for_saving(sim.picture(), options.grid);
+    let last_picture = for_saving(&mut sim, options);
     save_png(&last_picture, &folder.join("last.png"))?;
     saved.push(String::from("last.png"));
     save_text(&sim.scene().to_json(), &folder.join("last.scene.json"))?;
@@ -354,11 +358,19 @@ fn run_and_save<G: Game>(
     ))
 }
 
-/// The picture as it's saved: with `--grid`'s grid on it, if asked for.
-fn for_saving(picture: &Canvas, grid: Option<usize>) -> Canvas {
-    match grid {
-        Some(every) => pictures::with_grid(picture, every),
-        None => picture.copy_picture(),
+/// The picture as it's saved: with `--grid`'s grid on it, if asked for
+/// (in world coordinates with `--grid-world`, and never over the debug
+/// overlay's box).
+fn for_saving<G: Game>(sim: &mut Simulation<G>, options: &HeadlessOptions) -> Canvas {
+    sim.picture();
+    let picture = sim.picture().copy_picture();
+    match options.grid {
+        Some(every) => {
+            let (camera, debug_box) = sim.drawn_extras();
+            let camera = if options.grid_world { camera } else { None };
+            pictures::with_grid(&picture, every, camera, debug_box)
+        }
+        None => picture,
     }
 }
 
@@ -468,8 +480,9 @@ fn log_json<G: Game>(
     text += &format!("  \"game_quit\": {},\n", sim.quit_requested());
     // Extras drawn on the saved pictures, so --diff can tell they differ.
     text += &format!(
-        "  \"drawn_on_pictures\": {{\"grid\": {}, \"debug\": {}}},\n",
+        "  \"drawn_on_pictures\": {{\"grid\": {}, \"grid_world\": {}, \"debug\": {}}},\n",
         options.grid.map_or(String::from("null"), |n| n.to_string()),
+        options.grid_world,
         options.debug
     );
     if let Some(script) = &options.inputs {
@@ -508,6 +521,12 @@ fn log_json<G: Game>(
             )
         })
         .collect();
+    let idle: Vec<String> = sim
+        .idle_frames()
+        .iter()
+        .map(|(a, b)| format!("[{a}, {b}]"))
+        .collect();
+    text += &format!("  \"idle\": [{}],\n", idle.join(", "));
     text += &format!(
         "  \"checks\": {{\"rules\": {}, \"failed\": [{}]}},\n",
         sim.context().checks_seen(),
@@ -579,6 +598,7 @@ pub(crate) fn run_from_command_line<G: Game>(
             .unwrap_or(if options.crop.is_some() { 4 } else { 1 }),
         debug: options.debug,
         grid: options.grid,
+        grid_world: options.grid_world,
         tune_file: options.tune.clone(),
         tune: options.set.clone(),
         write_tune: options.write_tune,
@@ -1167,7 +1187,9 @@ mod tests {
         );
         let log = fs::read_to_string(folder.join("log.json")).unwrap();
         assert!(
-            log.contains(r#""drawn_on_pictures": {"grid": 16, "debug": false}"#),
+            log.contains(
+                r#""drawn_on_pictures": {"grid": 16, "grid_world": false, "debug": false}"#
+            ),
             "{log}"
         );
     }
@@ -1240,6 +1262,120 @@ mod tests {
         assert!(
             fine.failed_checks().is_empty(),
             "holds for the first 20 frames"
+        );
+    }
+
+    /// Looks at world point (1000, 500) at zoom 2 on a 160 x 120 screen.
+    struct Zoomed;
+
+    impl Game for Zoomed {
+        fn update(&mut self, _: &mut Context) {}
+
+        fn draw(&self, canvas: &mut Canvas) {
+            canvas.clear(Color::BLACK);
+            let mut camera = crate::camera::Camera2D::new(160.0, 120.0);
+            camera.position = vec2(1000.0, 500.0);
+            camera.zoom = 2.0;
+            canvas.push_camera(&camera);
+            canvas.fill_rect(Rect::new(1000.0, 500.0, 1.0, 1.0), Color::RED);
+            canvas.pop_camera();
+        }
+    }
+
+    fn saved_last(name: &str, game_config: Config, options: HeadlessOptions) -> Canvas {
+        let folder = test_folder(name);
+        let options = HeadlessOptions {
+            frames: 2,
+            out: Some(folder.clone()),
+            ..options
+        };
+        run_headless(game_config, Zoomed, &options).unwrap();
+        Canvas::load_png_for_tests(&folder.join("last.png"))
+    }
+
+    #[test]
+    fn a_world_grid_follows_the_camera() {
+        let small = Config {
+            width: 160,
+            height: 120,
+            ..config()
+        };
+        let options = HeadlessOptions {
+            grid: Some(50),
+            grid_world: true,
+            ..HeadlessOptions::default()
+        };
+        let picture = saved_last("grid-world", small, options);
+        // World x = 1000 is the middle of the screen (x = 80); x = 1050 is
+        // 50 world units = 100 pixels further, off the screen; 950 is at -20.
+        // So the one vertical line is at x = 80, and it's labelled "1000".
+        let column = |x: i32| {
+            (20..100)
+                .filter(|&y| picture.get_pixel(x, y) != Some(Color::BLACK))
+                .count()
+        };
+        assert!(column(80) > 50, "a line at world x = 1000");
+        assert_eq!(
+            column(70),
+            1,
+            "no screen-pixel lines, only the crossing world y = 500"
+        );
+        let row = |y: i32| {
+            (0..160)
+                .filter(|&x| picture.get_pixel(x, y) != Some(Color::BLACK))
+                .count()
+        };
+        assert!(
+            row(60) > 100,
+            "a line at world y = 500, the middle of the screen"
+        );
+        let numbers: String = (81..100)
+            .map(|x| {
+                if (113..118).any(|y| picture.get_pixel(x, y) == Some(Color::WHITE)) {
+                    '#'
+                } else {
+                    '.'
+                }
+            })
+            .collect();
+        assert!(
+            numbers.contains('#'),
+            "a number next to the line: {numbers}"
+        );
+    }
+
+    #[test]
+    fn the_grid_leaves_the_debug_box_alone() {
+        let small = Config {
+            width: 160,
+            height: 120,
+            ..config()
+        };
+        let plain = saved_last(
+            "grid-debug-plain",
+            small.clone(),
+            HeadlessOptions {
+                debug: true,
+                ..HeadlessOptions::default()
+            },
+        );
+        let gridded = saved_last(
+            "grid-debug-grid",
+            small,
+            HeadlessOptions {
+                debug: true,
+                grid: Some(8),
+                ..HeadlessOptions::default()
+            },
+        );
+        // The box is in the bottom-right corner: identical with or without the grid.
+        for (x, y) in [(159, 119), (120, 110), (150, 105)] {
+            assert_eq!(plain.get_pixel(x, y), gridded.get_pixel(x, y), "({x}, {y})");
+        }
+        assert_ne!(
+            plain.get_pixel(8, 40),
+            gridded.get_pixel(8, 40),
+            "the grid is there elsewhere"
         );
     }
 

@@ -236,6 +236,8 @@ fn read_json(path: &Path) -> Result<Value, String> {
 
 /// Labels that moved, appeared or disappeared between two scene files.
 /// Labels with the same name are matched in the order they were drawn.
+/// A move of less than one pixel on screen (the world move times the
+/// camera's zoom) doesn't count: the pictures can't show it.
 fn compare_scenes(old: &Path, new: &Path) -> Result<Vec<String>, String> {
     let labels = |scene: &Value| -> BTreeMap<String, Vec<(f64, f64)>> {
         let mut by_name: BTreeMap<String, Vec<(f64, f64)>> = BTreeMap::new();
@@ -247,7 +249,13 @@ fn compare_scenes(old: &Path, new: &Path) -> Result<Vec<String>, String> {
         }
         by_name
     };
-    let (a, b) = (labels(&read_json(old)?), labels(&read_json(new)?));
+    let new_scene = read_json(new)?;
+    let zoom = new_scene["camera"]["zoom"]
+        .as_f64()
+        .unwrap_or(1.0)
+        .abs()
+        .max(0.0001);
+    let (a, b) = (labels(&read_json(old)?), labels(&new_scene));
     let mut notes = Vec::new();
     let names: BTreeSet<&String> = a.keys().chain(b.keys()).collect();
     for name in names {
@@ -260,7 +268,7 @@ fn compare_scenes(old: &Path, new: &Path) -> Result<Vec<String>, String> {
         let moved: Vec<String> = before
             .iter()
             .zip(after)
-            .filter(|(p, q)| (p.0 - q.0).abs() > 0.01 || (p.1 - q.1).abs() > 0.01)
+            .filter(|(p, q)| (p.0 - q.0).abs() * zoom >= 1.0 || (p.1 - q.1).abs() * zoom >= 1.0)
             .map(|(p, q)| format!("{:.0},{:.0} to {:.0},{:.0}", p.0, p.1, q.0, q.1))
             .collect();
         match moved.len() {
@@ -367,6 +375,29 @@ mod tests {
         assert!(
             !new.join("diff/frame-000010.png").exists(),
             "no picture for an unchanged one"
+        );
+    }
+
+    #[test]
+    fn moves_smaller_than_a_pixel_are_ignored() {
+        let (old, new) = (folder("sub-old"), folder("sub-new"));
+        let scene = |frog_x: f32, zoom: f32| {
+            format!(
+                r#"{{"frame": 150, "camera": {{"x": 0, "y": 0, "zoom": {zoom}}}, "labels": [
+                    {{"name": "frog", "world": [{frog_x}, 5, 4, 4]}}, {{"name": "frog", "world": [50, 5, 4, 4]}}]}}"#
+            )
+        };
+        fs::write(old.join("frame-000150.scene.json"), scene(10.0, 1.0)).unwrap();
+        fs::write(new.join("frame-000150.scene.json"), scene(10.4, 1.0)).unwrap();
+        assert!(
+            !diff_runs(&old, &new).unwrap().contains("frog"),
+            "0.4 pixels: not a move"
+        );
+        fs::write(new.join("frame-000150.scene.json"), scene(10.4, 4.0)).unwrap();
+        let report = diff_runs(&old, &new).unwrap();
+        assert!(
+            report.contains("1 of 2 frog moved"),
+            "0.4 world units at zoom 4 is 1.6 pixels: {report}"
         );
     }
 

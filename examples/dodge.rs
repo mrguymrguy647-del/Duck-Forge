@@ -208,6 +208,12 @@ impl Game for Dodge {
         }
         self.camera.update(ctx);
 
+        // The title and game-over screens wait for Space on purpose: tell
+        // --fuzz, so it doesn't call the waiting a freeze.
+        if self.state != State::Playing {
+            ctx.idle_ok();
+        }
+
         // Rules that must always hold (the run summary, play tests and --fuzz check them).
         ctx.check(
             "duck on screen",

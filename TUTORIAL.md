@@ -4727,6 +4727,10 @@ broken rule or "freeze" (nothing changing for 10 seconds while keys are
 pressed), with a script that replays it:
 `cargo run --example template -- --inputs fuzz/seed-14.json`.
 
+A pause screen *should* sit still. So the template tells the engine,
+while paused: `ctx.idle_ok();` and the fuzzer doesn't count that waiting
+as a freeze.
+
 ### Rust idea: `std::thread::scope`
 
 `--fuzz` runs several games at once (`src/fuzz.rs`). Each runs as a

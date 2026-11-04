@@ -36,7 +36,9 @@ const OUTLINE: Color = Color::rgb(255, 0, 255);
 const CIRCLE: Color = Color::rgb(0, 255, 255);
 const LABEL: Color = Color::rgb(0, 255, 0);
 
-/// Draws the overlay onto `canvas`, which already holds the game's picture.
+/// Draws the overlay onto `canvas`, which already holds the game's picture,
+/// and returns where its info box is (so `--grid` can keep its numbers
+/// out of it).
 pub(crate) fn draw_overlay(
     canvas: &mut Canvas,
     ctx: &Context,
@@ -44,7 +46,7 @@ pub(crate) fn draw_overlay(
     labels: &[Label],
     camera: Option<&Camera2D>,
     corner: Corner,
-) {
+) -> Rect {
     // Labels: a green outline where they are on screen, with the name above.
     for label in labels.iter().filter(|l| l.on_screen) {
         canvas.draw_rect(label.screen, LABEL);
@@ -110,6 +112,7 @@ pub(crate) fn draw_overlay(
             Color::rgb(255, 80, 80),
         );
     }
+    Rect::new(x, y, size.x, size.y)
 }
 
 /// The overlay's two short lines, like
