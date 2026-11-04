@@ -4645,13 +4645,19 @@ platforms, a `Camera2D` that follows the duck, `Sound::jump()` and
 three play tests at the bottom.
 
 ```sh
-cp examples/template.rs examples/mygame.rs     # Windows: copy examples\template.rs examples\mygame.rs
+tools/new_game.sh mygame platformer     # Windows: tools\new_game.bat mygame platformer
 cargo run --example mygame
 ```
 
+`new_game` copies `examples/template.rs` to `examples/mygame.rs` (and its
+tune file), renames the `Template` type to `Mygame`, sets the window
+title, adds the game to `Cargo.toml` so its play tests run, and checks it
+with `verify`. (`topdown`, `shooter` and `tiny` start from the other
+starters.)
+
 Then change one thing at a time and run it again. Good first changes:
 make `JUMP_SPEED` bigger, redraw the duck in `DUCK` (keep every row the
-same length), add a platform in `Template::new`, or change the sky color
+same length), add a platform in `Mygame::new`, or change the sky color
 in `draw`.
 
 Making a different kind of game? Two more starters work the same way:

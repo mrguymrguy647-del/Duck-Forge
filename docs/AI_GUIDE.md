@@ -23,6 +23,13 @@ copy `examples/starter_topdown/`; for a shooter (fast bullets with
 playthrough in `playthroughs/` and play tests, and pass
 `tools/verify.sh`. Section 3 has an even smaller template.
 
+**Don't copy by hand: `tools/new_game.sh mygame topdown`** (or
+`platformer`, `shooter`, `tiny`) copies the starter and its tune file,
+renames its main type (`TopDown` becomes `Mygame`), sets the window title,
+points its bot at `playthroughs/mygame.json`, adds the `[[example]]` entry
+to `Cargo.toml`, records a first playthrough with the bot, and runs
+`verify`, which passes. On Windows: `tools\new_game.bat mygame topdown`.
+
 Contents:
 
 1. [Quick facts](#1-quick-facts)

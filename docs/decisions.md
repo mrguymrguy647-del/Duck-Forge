@@ -1752,3 +1752,46 @@ bots wrote byte-for-byte the same playthroughs.
 The template (360 lines, no bot) and the quick start game stay single
 files: the quick start's point is a whole game with its test on one page.
 `verify` accepts either layout.
+
+## Fix 6: One command to start a game
+
+Starting from a starter was five hand edits (copy two files, add three
+lines to `Cargo.toml`, change the title, change the bot's playthrough
+path, rename the main type everywhere). Now:
+
+```sh
+tools/new_game.sh bee_maze topdown      # or platformer, shooter, tiny
+```
+
+copies the starter (a file or a folder) and its tune file, renames the
+game's type (`TopDown` becomes `BeeMaze`, or `BeeMazeGame` if the starter
+already uses that word, as with `enemy` and the top-down `Enemy`), sets
+the title (`"Bee maze - duckforge"`), replaces the starter's name in
+commands and paths (`playthroughs/bee_maze.json`), adds the `[[example]]`
+entry, records a first playthrough with the starter's bot (so verify has
+something to replay), and runs `tools/verify.sh bee_maze`. A name that's
+taken or isn't lowercase letters, digits and `_` is refused before
+anything is written.
+
+**Whole words only.** Replacements use "not next to a letter, digit or
+`_`" on both sides, written as plain extended regular expressions, which
+work in both GNU and BSD `sed` (Linux and macOS). The title is replaced
+before the type, since `"Template - duckforge"` contains `Template`; the
+quick test caught that order mistake.
+
+**Windows.** `tools/new_game.bat` does the same, but the text edits are in
+`tools/new_game.ps1`: a batch file can't safely replace whole words
+inside files, and PowerShell comes with Windows. It's run with
+`-ExecutionPolicy Bypass`, which needs no administrator rights. It writes
+UTF-8 without a byte order mark, like the files it read.
+
+**Tests.** `tests/new_game.rs` copies the project (without `target/`)
+to a temporary folder. The quick test makes a game from each of the four
+starters with `NEW_GAME_NO_VERIFY=1` and checks the type and starter
+name are gone, the new type, title, tune file, bot path and `Cargo.toml`
+entry are there, the starter itself is unchanged, and that a taken name,
+a bad name and an unknown starter are refused. The slow test, ignored by
+default (`cargo test --test new_game -- --ignored`, about 30 seconds),
+makes all four games and runs `verify` on each in its own target folder;
+all four pass. Both need `bash`, so on Windows they say so and pass.
+There's no CI here, so the slow test is run by hand before a release.

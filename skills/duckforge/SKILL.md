@@ -30,30 +30,25 @@ options go after `--`: `cargo run --no-default-features --example dodge -- --hea
 
 ## 2. Start from a starter
 
-| Kind of game | Copy |
-|---|---|
-| Platformer (gravity, platforms, coins) | `examples/template.rs` |
-| Top-down (walls, chasing enemies, coins) | `examples/starter_topdown/` |
-| Shooter (fast bullets, waves, explosions) | `examples/starter_shooter/` |
-| Something tiny | `examples/quickstart.rs` |
+| Kind of game | Starter | Made from |
+|---|---|---|
+| Platformer (gravity, platforms, coins) | `platformer` | `examples/template.rs` |
+| Top-down (walls, chasing enemies, coins) | `topdown` | `examples/starter_topdown/` |
+| Shooter (fast bullets, waves, explosions) | `shooter` | `examples/starter_shooter/` |
+| Something tiny | `tiny` | `examples/quickstart.rs` |
 
 ```sh
-cp -r examples/starter_topdown examples/mygame
-cp examples/starter_topdown.tune.json examples/mygame.tune.json
+tools/new_game.sh mygame topdown
 ```
 
-Then add it to `Cargo.toml` so its play tests run, change the `title` in
-`config()`, and the file name in its `record_playthrough` test:
-
-```toml
-[[example]]
-name = "mygame"
-test = true
-```
+It copies the starter and its tune file, renames the game's type, sets
+the title, points the bot at `playthroughs/mygame.json`, adds the
+`[[example]]` entry to `Cargo.toml`, records a first playthrough, and runs
+`verify` (on Windows: `tools\new_game.bat mygame topdown`).
 
 ## 3. The loop
 
-1. **Change one thing** in `examples/mygame.rs`.
+1. **Change one thing** in `examples/mygame/main.rs` (or `examples/mygame.rs`).
 2. **Verify**: `tools/verify.sh mygame`. It builds, runs the play tests,
    replays every `playthroughs/mygame*.json` with a contact sheet, fuzzes
    50 runs, and prints one line per step. Fix the first `FAILED` line

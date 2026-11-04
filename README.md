@@ -28,7 +28,9 @@ game, start from [examples/starter_topdown/](examples/starter_topdown/main.rs)
 directions) or [examples/starter_shooter/](examples/starter_shooter/main.rs)
 (fast bullets, waves of enemies that dive and shoot, particle
 explosions). Each has a tune file, a playthrough, rules and play tests,
-and passes `tools/verify.sh`.
+and passes `tools/verify.sh`. One command makes a new game from any of
+them, renamed and ready: `tools/new_game.sh mygame topdown` (or
+`platformer`, `shooter`, `tiny`; on Windows `tools\new_game.bat`).
 
 **New to Rust? Start with [TUTORIAL.md](TUTORIAL.md)**. It teaches the
 language through this engine's code and explains how every part works.

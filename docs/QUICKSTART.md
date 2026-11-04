@@ -72,9 +72,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     duckforge::run(Config::default(), new_game())
 }
 ```
-Bigger starts to copy (sprites, camera, sounds, checks, tune file, play
-tests): `examples/template.rs` (platformer), `starter_topdown/` (walls,
-chasing enemies, coins), `starter_shooter/` (bullets, waves, explosions).
+Bigger starts, with sprites, camera, sounds, checks, tune file and play
+tests: `tools/new_game.sh mygame topdown` makes `examples/mygame/` from a
+starter (`platformer`, `topdown`, `shooter` or `tiny`) and verifies it.
 
 ## The loop
 
