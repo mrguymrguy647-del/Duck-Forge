@@ -2,7 +2,7 @@
 
 This guide teaches you Rust using the code in this repository: a small
 game engine called **duckforge**, which does 2D, 3D (on the CPU or the
-graphics card) and physics, and six example programs built on it. Every Rust concept is shown in real code that
+graphics card) and physics, and seven example programs built on it. Every Rust concept is shown in real code that
 you can run, change and break.
 
 - **Part 1** teaches the Rust language, one idea at a time.
@@ -48,11 +48,12 @@ Keep the source files open next to this guide. When you see a file like
   - [24. Recording and replaying](#24-recording-and-replaying)
   - [25. Seeing a whole game](#25-seeing-a-whole-game)
   - [26. Play tests](#26-play-tests)
+  - [27. Building a game without ever seeing it](#27-building-a-game-without-ever-seeing-it)
 - **Part 4: Your turn**
-  - [27. Exercises](#27-exercises)
-  - [28. Common compiler errors](#28-common-compiler-errors)
-  - [29. What a code review found](#29-what-a-code-review-found)
-  - [30. Where to go next](#30-where-to-go-next)
+  - [28. Exercises](#28-exercises)
+  - [29. Common compiler errors](#29-common-compiler-errors)
+  - [30. What a code review found](#30-what-a-code-review-found)
+  - [31. Where to go next](#31-where-to-go-next)
 
 ---
 
@@ -131,6 +132,7 @@ examples/
   hello.rs          the smallest game
   shapes.rs         a tour of the 2D drawing functions
   breakout.rs       a complete 2D game
+  dodge.rs          a small game built without a screen (see docs/AI_GUIDE.md)
   physics.rs        a 2D physics sandbox
   world3d.rs        a 3D playground with physics
   stress3d.rs       a 3D stress test and benchmark
@@ -516,7 +518,7 @@ added, and the slot's generation goes up by one. So an old id still points
 at the right slot, but its generation doesn't match any more, and looking
 it up finds nothing instead of the wrong body. This trick is called a
 *generational index*, and most game engines use it to name their objects.
-(Chapter 29 tells the story of the bug that led to it.)
+(Chapter 30 tells the story of the bug that led to it.)
 
 ## 5. Enums and pattern matching
 
@@ -1722,7 +1724,7 @@ a lot on 1960s hardware.
 Before stepping, the line is *clipped*: cut down to the part that's on the
 canvas (see `clip_line`). Without that, a line to a point far off-screen
 would step through millions of invisible pixels, and could even crash (see
-[chapter 29](#29-what-a-code-review-found)).
+[chapter 30](#30-what-a-code-review-found)).
 
 ### Triangles
 
@@ -2775,7 +2777,7 @@ and shifting right pulls the high bits back down. After a few rounds,
 changing one bit of the seed changes about half the bits of the result.
 Notice `wrapping_mul`: the multiplication overflows on purpose, and in a
 debug build a plain `*` would panic when it overflows
-([chapter 29](#29-what-a-code-review-found)). `wrapping_mul` says "wrap
+([chapter 30](#30-what-a-code-review-found)). `wrapping_mul` says "wrap
 around, that's what I want".
 
 A new test in `src/rng.rs` checks that the first numbers from seeds 1 to
@@ -3649,9 +3651,101 @@ assertion `left == right` failed: something left the box
 With bricks worth no points, both Breakout playthrough tests failed. Put
 the game back, and they pass. Try it yourself with any test you write.
 
+## 27. Building a game without ever seeing it
+
+The last chapters gave a game a way to run, replay, show and test itself
+without a screen. This chapter puts them to work: `examples/dodge.rs` was
+written on a server with no screen at all, using only those tools. It's
+the worked example in [docs/AI_GUIDE.md](docs/AI_GUIDE.md), a guide for
+AI assistants that build games this way. Here's how it went, and what it
+teaches about Rust and about games.
+
+Run it yourself (in a window this time):
+
+```sh
+cargo run --example dodge
+```
+
+Blocks fall; move left and right to dodge them. They fall faster and
+faster, and you have three lives.
+
+### The loop
+
+Each round of work went the same way: change the code, run it headless,
+look at the sheet, read `log.json`, fix.
+
+```sh
+cargo run --no-default-features --example dodge -- --headless --inputs start.json --frames 900 --sheet --out run
+```
+
+The first version's log showed lives going from 3 to 1 on frames 450 and
+487: two hits 0.6 seconds apart, because a block that hit you kept
+overlapping you on the next frames. The fix was a moment of safety after
+each hit (`SAFE_TIME`), shown by making the player blink. The sheet showed
+two more problems: blocks frozen on top of the "TRY AGAIN" text, and
+blocks covering the score as they came in at the top. None of this needed
+a screen.
+
+### Testing difficulty with a bot
+
+Is the game too hard? `careful_player` in Dodge's tests is a small bot
+that steps away from the nearest block about to land on it. Its first
+version died quickly, which looked like "too hard". Close-ups of the
+frames before each hit told the real story: as soon as a block was level
+with the player, the bot stopped counting it as dangerous, walked back
+toward the middle, and ran into its side. The bot was wrong, not the game.
+
+Two pieces of Rust from the bot are worth knowing. Floats can't be
+compared with `max`, because `f32` isn't fully ordered (NaN isn't bigger
+or smaller than anything), so picking the lowest block uses `max_by` with
+`total_cmp`, which gives every float a place in a single order:
+
+```rust
+.max_by(|a, b| a.y.total_cmp(&b.y));
+```
+
+And checking that hits are never too close together uses `windows(2)`,
+which walks a slice in overlapping pairs:
+
+```rust
+for pair in hit_frames.windows(2) {
+    assert!(pair[1] - pair[0] >= (SAFE_TIME * 60.0) as u64, "{hit_frames:?}");
+}
+```
+
+For `[450, 813, 1069]`, `windows(2)` gives `[450, 813]`, then
+`[813, 1069]`.
+
+With the bot fixed, running it on ten seeds for three minutes each gave a
+picture of the difficulty: standing still loses in about 20 seconds; the
+careful bot is first hit after 1 to 3 minutes. Those numbers became play
+tests: doing nothing loses (but not in the first 3 seconds), a careful
+player survives a minute, and the game gets harder.
+
+### `history`: an engine change from using the engine
+
+Several tests needed "on which frames did `hits` change?". Digging that
+out of `report_log` took six lines each time, so the engine gained
+`Simulation::history(name)`, which returns `(frame, value)` pairs. One
+trap remained, and it's in the guide: the first entry is the value the
+game *started* with (`hits = 0` on frame 1), not a change, so the tests
+`skip(1)` it.
+
+Using your own code for a real job is the best way to find what it's
+missing.
+
+### For AI assistants
+
+[docs/AI_GUIDE.md](docs/AI_GUIDE.md) is written for an AI assistant (or
+anyone) working without a screen. It covers setting up on Linux, a
+template for a new game, the loop above step by step, input scripts, play
+tests, an API cheat sheet, a list of common mistakes with their fixes,
+and how to judge whether a game feels good using numbers: speeds, reaction
+times, bots, seeds and what the sheet looks like shrunk small.
+
 # Part 4: Your turn
 
-## 27. Exercises
+## 28. Exercises
 
 Do them in order. After each change, run the game and see what happened.
 When the compiler complains, **read the whole error message**: Rust's error
@@ -3772,7 +3866,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     to a ball body) across floating platforms, with the camera following
     it. Or 3D Breakout, with a `PhysicsWorld<Vec3>`.
 
-## 28. Common compiler errors
+## 29. Common compiler errors
 
 | Error    | Message (short)                                   | Usually means                                                 |
 |----------|---------------------------------------------------|---------------------------------------------------------------|
@@ -3787,7 +3881,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 For a long explanation of any error, run `rustc --explain E0502`.
 
-## 29. What a code review found
+## 30. What a code review found
 
 After the engine was built, it got a careful review: every file read line
 by line, looking for bugs, crashes and confusing code. It found about 20
@@ -3938,7 +4032,7 @@ Together, the renderer was back to its old speed, 79 to 81 FPS.
 
 **Lesson:** after fixing something, run the benchmark again.
 
-## 30. Where to go next
+## 31. Where to go next
 
 - **The Rust Programming Language** ("the Book"), free at
   <https://doc.rust-lang.org/book/>. The best way to learn Rust properly.

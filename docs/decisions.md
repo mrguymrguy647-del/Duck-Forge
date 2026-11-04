@@ -352,3 +352,53 @@ dropped), `moving` (how many are still faster than 5 pixels a second) and
 `escaped` (how many left the box). Together they answer "did everything
 fall, land and stay inside?" without any knowledge of how the physics
 engine works inside.
+
+## Step 6: A guide for AI game makers
+
+The goal: an AI assistant on a machine with no screen can build the engine,
+make a new game, and improve it, using only headless runs, pictures,
+`log.json` and play tests. The guide is [`AI_GUIDE.md`](AI_GUIDE.md).
+
+**The guide was tested by following it.** Before writing it, we built a
+new game, `examples/dodge.rs`, the way the guide describes: no window,
+only `--headless`, sheets, close-ups, `log.json` and play tests. Every
+mistake made along the way went into the guide's "Common mistakes", with
+the real numbers: reporting a value that changed all the time and buried
+the log; treating the log's first entry (the starting values) as an event;
+a sheet half-wasted on a long game-over screen; falling blocks covering
+the score; two hits 0.6 seconds apart because there was no safe time; and
+a bot that died because *it* was wrong, not the game, found by zooming in
+on the frames before each hit. Then every command and code block in the
+guide was run as written: the template game and its play tests compile
+and pass, and the quoted outputs and logs are real.
+
+**`Simulation::history(name)`**, added because of that work. Tests kept
+asking "on which frames did `hits` change?", and the answer took six lines
+of digging through `report_log`. Now it's
+`played.history("hits")`, a list of `(frame, value)`.
+
+**Written for an AI, so: facts first, exact commands, no guessing.** It
+opens with a table of facts an AI would otherwise have to discover (y
+points down, frames count from 1, speeds are per second, which characters
+the font has). Commands are complete and copyable, and always include
+`--no-default-features`, which on a server saves minutes per build. The API
+cheat sheet lists real names and arguments, checked against the source.
+
+**Judging "feel" with numbers.** An AI can't feel a game, so the guide
+turns feel into things you can measure: how long the player takes to
+cross the screen (1 to 2 seconds), how long a threat is visible before it
+hits (at least the 0.25 s people need to react), whether doing nothing
+loses (and not instantly), whether a simple bot can win, how the results
+spread over ten seeds, whether hits come too close together, and what the
+sheet looks like shrunk small.
+
+**The template is a tiny real game,** "catch the falling star", rather
+than an empty skeleton. It has a title screen, losing, restarting, random
+numbers, collisions and reports, so it shows the shape of a whole game,
+and it compiles without warnings (the first draft warned that `GameOver`
+was never used).
+
+**Dodge is kept as an example.** It's small (about 300 lines with its
+tests), shows everything the guide talks about (states, a difficulty
+ramp, safe time after a hit, a readable score, reports, play tests and a
+bot), and is the worked example the guide points to.

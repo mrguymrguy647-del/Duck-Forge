@@ -434,6 +434,32 @@ impl<G: Game> Simulation<G> {
             .map(|(name, value)| (name.as_str(), value))
     }
 
+    /// Every value `name` had, with the frame it changed on, oldest first.
+    /// The first entry is the value it started with (usually on frame 1).
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// # struct Game2;
+    /// # impl Game for Game2 {
+    /// #     fn update(&mut self, ctx: &mut Context) {
+    /// #         ctx.report("lives", if ctx.frame() < 100 { 3 } else { 2 });
+    /// #     }
+    /// #     fn draw(&self, _: &mut Canvas) {}
+    /// # }
+    /// # let mut sim = Simulation::new(Config::default(), Game2);
+    /// sim.run(200);
+    /// let lives = sim.history("lives");
+    /// assert_eq!(lives[0], (1, &ReportValue::Number(3.0)));
+    /// assert_eq!(lives[1], (100, &ReportValue::Number(2.0))); // lost a life on frame 100
+    /// ```
+    pub fn history(&self, name: &str) -> Vec<(u64, &ReportValue)> {
+        self.reports
+            .changes
+            .iter()
+            .filter_map(|report| report.changes.get(name).map(|value| (report.frame, value)))
+            .collect()
+    }
+
     /// When each reported value changed: one entry per frame where
     /// something changed, oldest first.
     pub fn report_log(&self) -> &[FrameReport] {

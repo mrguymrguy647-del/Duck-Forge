@@ -71,6 +71,7 @@ pub mod prelude {
     pub use crate::math::{Rect, Vec2, Vec3, vec2, vec3};
     pub use crate::playtest::PlayTest;
     pub use crate::render3d::{Camera3D, Mesh, Renderer, Transform};
+    pub use crate::report::ReportValue;
     pub use crate::rng::Rng;
     pub use crate::simulation::Simulation;
 }

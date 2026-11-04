@@ -1,9 +1,9 @@
 # duckforge: a game engine for learning Rust
 
 A small game engine written in Rust, covering **2D graphics, 3D graphics
-(on the graphics card, or on the CPU) and physics**, plus six example
+(on the graphics card, or on the CPU) and physics**, plus seven example
 programs. It was written to be read: about 9,100 lines of commented engine
-code, and 151 tests. [minifb](https://crates.io/crates/minifb) opens the
+code, and 157 tests. [minifb](https://crates.io/crates/minifb) opens the
 window, [wgpu](https://wgpu.rs) talks to the graphics card and
 [png](https://crates.io/crates/png) saves pictures; everything else is
 written from scratch: drawing, text, both 3D renderers, the physics
@@ -14,6 +14,11 @@ an AI that writes games and needs to see what they draw.
 
 **New to Rust? Start with [TUTORIAL.md](TUTORIAL.md)**. It teaches the
 language through this engine's code and explains how every part works.
+
+**An AI assistant building games? Start with [docs/AI_GUIDE.md](docs/AI_GUIDE.md)**.
+It covers building on a server with no screen, the loop of running a game
+headless, looking at pictures of it, reading what it reports and testing
+it, common mistakes, and how to judge whether a game feels good.
 
 <p>
 <img src="docs/world3d.png" width="49%" alt="The 3D playground: crates, balls and a floating pyramid on a checkerboard">
@@ -31,6 +36,7 @@ cargo run --example world3d    # 3D world with physics: fly around, throw balls
 cargo run --release --example stress3d   # thousands of spinning 3D shapes
 cargo run --example physics    # 2D physics sandbox: click to drop balls and boxes
 cargo run --example breakout   # the classic game
+cargo run --example dodge      # dodge the falling blocks (built without a screen)
 cargo run --example hello      # the smallest possible game
 cargo run --example shapes     # every 2D drawing function, animated
 cargo test                     # run the tests
@@ -50,6 +56,7 @@ cargo run --no-default-features --example breakout -- --headless --frames 600 --
 | `world3d`  | W/A/S/D move · Q/E down/up · Shift faster · arrows or right-drag to look · Space or click throws a ball · B drops a crate · R resets |
 | `physics`  | Left click drops a ball · right click drops a box · Space drops a shower · C clears |
 | `breakout` | Left/Right or A/D move · Space launches · P pauses · R restarts |
+| `dodge`    | Left/Right or A/D move · Space starts and restarts |
 | `hello`    | Arrow keys or WASD move · click to teleport |
 | `stress3d` | 1–6 pick 500 to 20,000 objects · O toggles orbit/fly |
 | every game | **F3** shows the FPS · **F10** starts and stops recording · **F12** saves a screenshot (PNG) · Escape quits |
@@ -387,6 +394,7 @@ higher.
 | `src/report.rs`   | `ctx.report`: values a game shares about itself                    |
 | `src/pictures.rs` | Contact sheets, GIFs and close-ups                                 |
 | `src/playtest.rs` | `PlayTest`: play a game inside `cargo test` and check its reports  |
+| `docs/`           | `AI_GUIDE.md` (for AI assistants), `decisions.md` (why things are the way they are), `input-format.md` |
 | `playthroughs/`   | Example input scripts for Breakout (win, lose) and the physics sandbox |
 | `src/canvas.rs`   | Software renderer: pixels, 2D shapes, text, triangles, depth buffer, screenshots |
 | `src/render3d.rs` | 3D: `Camera3D`, `Mesh`, `Transform`, `Renderer`, and the CPU renderer |
@@ -398,7 +406,7 @@ higher.
 | `src/font.rs`     | A built-in 3x5 pixel font                                           |
 | `src/color.rs`    | RGB colors and blending                                             |
 | `src/rng.rs`      | A tiny xorshift random number generator                             |
-| `examples/`       | `hello`, `shapes`, `breakout`, `physics`, `world3d` and `stress3d`  |
+| `examples/`       | `hello`, `shapes`, `breakout`, `dodge`, `physics`, `world3d` and `stress3d` |
 
 Only `src/window.rs` knows minifb exists, so the window library could be
 swapped out by rewriting one file.
