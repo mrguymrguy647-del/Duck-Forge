@@ -74,14 +74,14 @@ if "!code!"=="0" (
     call :report "play tests" FAILED
 )
 
-rem 3. Every playthrough, with a contact sheet and the debug overlay.
+rem 3. Every playthrough, with a contact sheet of its events and the debug overlay.
 set "found=0"
 for %%S in ("playthroughs\%game%.json" "playthroughs\%game%-*.json") do (
     if exist "%%~S" (
         set "found=1"
         set "name=%%~nS"
         set "folder=%out%\%%~nS"
-        cargo run -q --no-default-features --example %game% -- --headless --inputs "%%~S" --sheet --debug --quiet --out "!folder!" > "!folder!.txt" 2>&1
+        cargo run -q --no-default-features --example %game% -- --headless --inputs "%%~S" --sheet-events --debug --quiet --out "!folder!" > "!folder!.txt" 2>&1
         set "failed=!errorlevel!"
         set "changed=0"
         for %%A in ("!folder!.txt") do if %%~zA GTR 0 (

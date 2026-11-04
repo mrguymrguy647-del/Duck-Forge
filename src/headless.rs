@@ -20,6 +20,7 @@ use crate::pictures::{self, Crop, GifWriter};
 use crate::report;
 use crate::scene;
 use crate::script::{self, InputScript};
+use crate::sheet;
 use crate::simulation::Simulation;
 use crate::sound;
 use crate::summary::Summary;
@@ -92,6 +93,10 @@ pub struct HeadlessOptions {
     pub write_tune: bool,
     /// The file `inputs` came from, if any, to name it in warnings.
     pub inputs_file: Option<PathBuf>,
+    /// Make `sheet.png` from the frames where reported values changed
+    /// (`--sheet-events`), each with what changed under it, instead of
+    /// spreading them evenly.
+    pub sheet_events: bool,
 }
 
 impl Default for HeadlessOptions {
@@ -113,6 +118,7 @@ impl Default for HeadlessOptions {
             tune: Vec::new(),
             write_tune: false,
             inputs_file: None,
+            sheet_events: false,
         }
     }
 }
@@ -250,10 +256,13 @@ fn run_and_save<G: Game>(
     remove_old_files(folder);
     let mut saved = Vec::new();
 
-    // Which frames go on the sheet.
-    let sheet_frames: BTreeSet<u64> = if !options.sheet {
+    // Which frames go on the sheet. (With --sheet-events, these are only
+    // the evenly spread ones that fill the gaps between events.)
+    let any_sheet = options.sheet || options.sheet_events;
+    let mut picker = sheet::SheetPicker::default();
+    let sheet_frames: BTreeSet<u64> = if !any_sheet {
         BTreeSet::new()
-    } else if let Some(every) = options.snapshot_every {
+    } else if let (Some(every), false) = (options.snapshot_every, options.sheet_events) {
         let snapshots = options.frames / every;
         let keep_every = snapshots.div_ceil(pictures::SHEET_MAX_FRAMES as u64).max(1);
         (1..=snapshots)
@@ -326,8 +335,21 @@ fn run_and_save<G: Game>(
                 saved.push(name);
             }
         }
-        if sheet_frames.contains(&frame) {
-            sheet.push((frame, sim.picture().copy_picture()));
+        let spread = sheet_frames.contains(&frame);
+        if options.sheet_events {
+            let changed = sim
+                .report_log()
+                .last()
+                .filter(|report| report.frame == frame)
+                .map(|report| report.changes.clone())
+                .unwrap_or_default();
+            if picker.reasons(frame, &changed) || spread {
+                let picture = sim.picture().copy_picture();
+                picker.keep(frame, picture, sim.scene().clone(), spread);
+            }
+        } else if spread {
+            let picture = sim.picture().copy_picture();
+            sheet.push((frame, picture, sim.scene().clone()));
         }
         if let Some(gif) = &mut gif {
             if (frame - 1).is_multiple_of(gif_every) {
@@ -357,12 +379,34 @@ fn run_and_save<G: Game>(
         )?;
         saved.push(String::from("closeup.png"));
     }
-    if options.sheet {
+    if any_sheet {
         // Always end the sheet on the last frame, even if the game quit early.
-        if sheet.last().is_none_or(|(frame, _)| *frame != last) && last > 0 {
-            sheet.push((last, sim.picture().copy_picture()));
-        }
-        let picture = pictures::contact_sheet(&sheet, updates_per_second as f32);
+        let frames: Vec<sheet::SheetFrame> = if options.sheet_events {
+            if last > 0 {
+                let picture = sim.picture().copy_picture();
+                picker.keep(last, picture, sim.scene().clone(), true);
+            }
+            picker.choose(last, SHEET_FRAMES)
+        } else {
+            if sheet.last().is_none_or(|(frame, ..)| *frame != last) && last > 0 {
+                let picture = sim.picture().copy_picture();
+                sheet.push((last, picture, sim.scene().clone()));
+            }
+            sheet
+                .into_iter()
+                .map(|(frame, picture, scene)| sheet::SheetFrame {
+                    frame,
+                    picture,
+                    scene,
+                    caption: String::new(),
+                })
+                .collect()
+        };
+        let captioned: Vec<(u64, Canvas, String)> = frames
+            .iter()
+            .map(|f| (f.frame, f.picture.copy_picture(), f.caption.clone()))
+            .collect();
+        let picture = pictures::contact_sheet_with_captions(&captioned, updates_per_second as f32);
         save_png(&picture, &folder.join("sheet.png"))?;
         saved.push(String::from("sheet.png"));
     }
@@ -733,6 +777,7 @@ pub(crate) fn run_from_command_line<G: Game>(
         tune: options.set.clone(),
         write_tune: options.write_tune,
         inputs_file: options.inputs.clone(),
+        sheet_events: options.sheet_events,
     };
     if let Some(corner) = options.debug_corner {
         config.debug_corner = corner;
@@ -1602,6 +1647,38 @@ mod tests {
         shorter.frames = 20;
         let (_, summary) = run_and_save(config(), ReportingMover { x: 0.0 }, &shorter).unwrap();
         assert!(summary.changed.is_empty());
+        let _ = fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn an_event_sheet_shows_the_frames_where_values_changed() {
+        /// Loses a life on frames 500 and 550; "x" changes every frame.
+        struct Lives;
+        impl Game for Lives {
+            fn update(&mut self, ctx: &mut Context) {
+                let frame = ctx.frame();
+                ctx.report(
+                    "lives",
+                    3 - u32::from(frame >= 500) - u32::from(frame >= 550),
+                );
+                ctx.report("x", frame);
+            }
+            fn draw(&self, canvas: &mut Canvas) {
+                canvas.clear(Color::BLACK);
+            }
+        }
+        let folder = test_folder("sheet-events");
+        let options = HeadlessOptions {
+            frames: 600,
+            out: Some(folder.clone()),
+            sheet_events: true,
+            ..HeadlessOptions::default()
+        };
+        let (_, summary) = run_and_save(config(), Lives, &options).unwrap();
+        assert!(summary.files.contains(&String::from("sheet.png")));
+        let sheet = Canvas::load_png_for_tests(&folder.join("sheet.png"));
+        // 16 frames of 64 x 8 in 4 rows, with a caption line each.
+        assert_eq!(sheet.height(), 4 + 4 * (8 + 14 + 9 + 4));
         let _ = fs::remove_dir_all(folder);
     }
 

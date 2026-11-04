@@ -64,7 +64,7 @@ else
     report "play tests" FAILED "${result:-did not run}; all in $out/tests.txt" "$out/tests-failed.txt"
 fi
 
-# 3. Every playthrough, with a contact sheet and the debug overlay.
+# 3. Every playthrough, with a contact sheet of its events and the debug overlay.
 found=0
 for script in "playthroughs/$game.json" playthroughs/"$game"-*.json; do
     [ -f "$script" ] || continue
@@ -72,7 +72,7 @@ for script in "playthroughs/$game.json" playthroughs/"$game"-*.json; do
     name=$(basename "$script" .json)
     folder="$out/$name"
     cargo run -q --no-default-features --example "$game" -- \
-        --headless --inputs "$script" --sheet --debug --quiet --out "$folder" \
+        --headless --inputs "$script" --sheet-events --debug --quiet --out "$folder" \
         >"$folder.txt" 2>&1
     code=$?
     if [ $code -eq 0 ] && [ ! -s "$folder.txt" ]; then

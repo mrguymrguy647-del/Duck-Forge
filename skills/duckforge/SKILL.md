@@ -63,7 +63,7 @@ test = true
    it. A run by hand:
 
 ```sh
-cargo run --no-default-features --example mygame -- --headless --inputs playthroughs/mygame.json --sheet --debug --out out/look
+cargo run --no-default-features --example mygame -- --headless --inputs playthroughs/mygame.json --sheet-events --debug --out out/look
 ```
 
 4. **Compare** before and after a change: run once with `--out out/before`,
@@ -143,7 +143,7 @@ add `--accept` to the replay to keep the new ending, or re-record.
 ## 9. Show your work
 
 ```sh
-cargo run --no-default-features --example mygame -- --headless --inputs playthroughs/mygame.json --sheet --gif --out out/show
+cargo run --no-default-features --example mygame -- --headless --inputs playthroughs/mygame.json --sheet-events --gif --out out/show
 ```
 
 The summary prints the `ffmpeg` command that joins `run.gif` and

@@ -213,32 +213,59 @@ const LABEL_SCALE: u32 = 2;
 const LABEL_HEIGHT: usize = 14;
 /// Frames in a sheet are shrunk to at most this wide.
 const SHEET_CELL_WIDTH: usize = 320;
+/// The caption line under a frame's number (`--sheet-events`).
+const CAPTION_HEIGHT: usize = 9;
+const CAPTION_COLOR: Color = Color::from_hex(0xff_e0_60);
 /// More frames than this in one sheet would be too small to see.
 pub(crate) const SHEET_MAX_FRAMES: usize = 64;
 
 /// A grid of frames, each with its frame number underneath, to see a
 /// whole run at a glance.
+#[cfg(test)]
 pub(crate) fn contact_sheet(frames: &[(u64, Canvas)], updates_per_second: f32) -> Canvas {
-    let Some((_, first)) = frames.first() else {
+    let captioned: Vec<(u64, Canvas, String)> = frames
+        .iter()
+        .map(|(frame, picture)| (*frame, picture.copy_picture(), String::new()))
+        .collect();
+    contact_sheet_with_captions(&captioned, updates_per_second)
+}
+
+/// A contact sheet with a line of text under each frame's number, saying
+/// why it's there (`--sheet-events`), when any frame has one.
+pub(crate) fn contact_sheet_with_captions(
+    frames: &[(u64, Canvas, String)],
+    updates_per_second: f32,
+) -> Canvas {
+    let Some((_, first, _)) = frames.first() else {
         return Canvas::new(1, 1);
     };
     let factor = shrink_factor(first.width(), SHEET_CELL_WIDTH);
     let (cell_width, cell_height) = (first.width() / factor, first.height() / factor);
     let columns = (frames.len() as f64).sqrt().ceil().max(1.0) as usize;
     let rows = frames.len().div_ceil(columns);
+    let captions = frames.iter().any(|(_, _, caption)| !caption.is_empty());
+    let label_height = LABEL_HEIGHT + if captions { CAPTION_HEIGHT } else { 0 };
     let width = SHEET_GAP + columns * (cell_width + SHEET_GAP);
-    let height = SHEET_GAP + rows * (cell_height + LABEL_HEIGHT + SHEET_GAP);
+    let height = SHEET_GAP + rows * (cell_height + label_height + SHEET_GAP);
 
     let mut sheet = Canvas::new(width, height);
     sheet.clear(SHEET_BACKGROUND);
-    for (index, (frame, picture)) in frames.iter().enumerate() {
+    for (index, (frame, picture, caption)) in frames.iter().enumerate() {
         let left = SHEET_GAP + (index % columns) * (cell_width + SHEET_GAP);
-        let top = SHEET_GAP + (index / columns) * (cell_height + LABEL_HEIGHT + SHEET_GAP);
+        let top = SHEET_GAP + (index / columns) * (cell_height + label_height + SHEET_GAP);
         sheet.blit(&shrink(picture, factor), left, top);
         let seconds = *frame as f32 / updates_per_second;
         let label = format!("FRAME {frame}  {seconds:.1}S");
         let position = vec2(left as f32, (top + cell_height + 3) as f32);
         sheet.draw_text(&label, position, LABEL_SCALE, Color::WHITE);
+        if !caption.is_empty() {
+            // As much as fits in the cell's width, in capitals (easier to
+            // read at this size).
+            let fits = (cell_width as f32 / Canvas::text_width("M", 1).max(1.0)) as usize;
+            let text: String = caption.to_uppercase().chars().take(fits.max(1)).collect();
+            let position = vec2(left as f32, (top + cell_height + LABEL_HEIGHT + 1) as f32);
+            sheet.draw_text(&text, position, 1, CAPTION_COLOR);
+        }
     }
     sheet
 }
@@ -403,6 +430,19 @@ mod tests {
             .filter(|&(x, y)| sheet.get_pixel(x, y) == Some(Color::WHITE))
             .count();
         assert!(white > 10);
+
+        // With captions, each cell gets a line more, in yellow.
+        let captioned: Vec<(u64, Canvas, String)> = frames
+            .iter()
+            .map(|(n, picture)| (*n, picture.copy_picture(), String::from("lives 2")))
+            .collect();
+        let sheet = contact_sheet_with_captions(&captioned, 60.0);
+        assert_eq!(sheet.height(), 4 + 2 * (30 + 14 + 9 + 4));
+        let caption_row = (4 + 30 + 14..4 + 30 + 14 + 9).flat_map(|y| (4..44).map(move |x| (x, y)));
+        let yellow = caption_row
+            .filter(|&(x, y)| sheet.get_pixel(x, y) == Some(CAPTION_COLOR))
+            .count();
+        assert!(yellow > 10, "{yellow}");
     }
 
     #[test]

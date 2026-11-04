@@ -80,13 +80,13 @@ chasing enemies, coins), `starter_shooter.rs` (bullets, waves, explosions).
 
 1. **Write** a little.
 2. **Run headless**, with inputs if the game needs them:
-   `cargo run --no-default-features --example catch -- --headless --inputs out/start.json --sheet --out out/catch`.
+   `cargo run --no-default-features --example catch -- --headless --inputs out/start.json --sheet-events --out out/catch`.
    An input script is `{"events": [{"frame": 10, "press": "Right"}, {"frame": 70, "release": "Right"}]}`.
 3. **Read the summary** it prints (also in `summary.txt`; `--quiet` prints
    only problems). `log.json` has every `ctx.report` change and sound.
    Name things in `draw` with `canvas.label("star", rect)`, and add
    `--describe` to get the last frame in words.
-4. **Look at** `out/catch/sheet.png` (16 frames on one page). Add
+4. **Look at** `out/catch/sheet.png` (the frames where reports changed). Add
    `--debug` to see hitboxes you marked with `ctx.debug_rect(rect)`.
 5. **Pin it down with a play test** in the same file (and list the
    example in `Cargo.toml` with `test = true`):

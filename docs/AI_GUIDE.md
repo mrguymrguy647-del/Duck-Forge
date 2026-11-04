@@ -377,7 +377,13 @@ Open, in this order:
    frame numbers and seconds. Look for: a screen that never changes (stuck
    game), things in the wrong place, text you can't read, objects drawn
    over the score, missing feedback (did anything show that the player was
-   hit?).
+   hit?). Evenly spread frames can skip the moment that matters, so for a
+   playthrough use **`--sheet-events`** instead of `--sheet`: the frames
+   where a reported value changed (text values like `state` first, then
+   numbers like `lives` or `score`), plus the first and last, filled up
+   evenly to 16, each with what changed under it (`LIVES 2`,
+   `STATE LOST, LIVES 0`). A value that changes more than 20 times (a
+   position, a timer) isn't an event and is ignored. `verify` uses it.
 2. **`last.png`**: how it ended.
 3. **A close-up**, when you need to see exact pixels: is the ball touching
    the paddle, or one pixel above? `--crop X,Y,W,H --zoom 4` saves

@@ -51,6 +51,7 @@ pub mod report;
 pub mod rng;
 pub mod scene;
 pub mod script;
+mod sheet;
 pub mod simulation;
 pub mod sound;
 #[cfg(all(feature = "audio", feature = "window"))]

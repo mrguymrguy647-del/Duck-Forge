@@ -276,6 +276,7 @@ after `--` goes to the game, not to Cargo):
 | `--inputs FILE` | Replay an input script, in a window or with `--headless` |
 | `--snapshot-every N` | Save frames N, 2N, 3N... as `frame-000060.png` and so on |
 | `--sheet` | Save `sheet.png`: 16 frames (or the snapshots) in a grid, labelled with frame numbers |
+| `--sheet-events` | Make `sheet.png` from the frames where reported values changed (state, lives, score...), plus the first and last, each captioned with what changed |
 | `--gif` | Save `run.gif`: the run, shrunk, at about 20 pictures per second |
 | `--crop X,Y,W,H` | Save `closeup.png`: that area of the last frame (and of each snapshot), enlarged |
 | `--zoom N` | How much close-ups are enlarged (default 4) |

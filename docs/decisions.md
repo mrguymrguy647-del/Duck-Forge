@@ -1667,3 +1667,34 @@ duckforge: coverage: state reached Lost, Playing; every run lasted all 1800 fram
 `verify` prints the same lines, as `coverage:`, under its fuzz step. On
 Breakout it shows straight away that random keys never clear more than
 13 bricks or win, so the late game is only covered by `breakout-win.json`.
+
+## Fix 4: A contact sheet of what happened
+
+A 70-second run spread over 16 frames is a frame every 4.5 seconds; the
+Pollen Run sheet skipped most of the moment the bee lost three lives.
+`--sheet-events` picks the frames by what happened instead
+(`src/sheet.rs`):
+
+- the first and the last frame;
+- frames where a text or yes/no report changed (`state`), then frames
+  where a number changed (`lives`, `score`, `delivered`), spread out if
+  there are more than fit;
+- evenly spread frames to fill the rest, up to 16, chosen to fill the
+  biggest gaps.
+
+Under each frame's number is what changed, like `LIVES 1` or
+`STATE LOST, LIVES 0` (or `START` and `END`). A value that changes more
+than 20 times in a run (a position, a timer, `carried` in Pollen Run)
+isn't an event, so it stops counting once it passes 20, and frames kept
+only for it are dropped.
+
+**Keeping the pictures.** Which frames matter is only known at the end
+(a value is only "churn" once it has changed 21 times), and runs can't be
+rewound, so while the game runs a copy is kept of each frame that might
+be chosen: at most 20 per value, plus the 16 spread frames. For a
+320 x 240 game that's about 300 KB each, a few megabytes in practice.
+Running the game a second time instead would double the time of every
+run, and needs a game that can be built twice.
+
+`verify` now uses `--sheet-events` for every playthrough. Plain `--sheet`
+is unchanged (evenly spread, or the snapshots with `--snapshot-every`).
