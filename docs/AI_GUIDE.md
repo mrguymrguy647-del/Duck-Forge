@@ -560,7 +560,11 @@ per second), with exactly one action. The full format is in
   `RightShift`, `LeftCtrl`, `RightCtrl`, `LeftAlt`, `RightAlt`, `F1` to
   `F12`. Upper or lower case both work.
 - Optional top-level fields: `"seed"` (use this seed), `"frames"` (how
-  long to run when `--frames` isn't given).
+  long to run when `--frames` isn't given). Without `"frames"`, a replay
+  runs until two seconds after the last event, so a hand-written script
+  is never cut short. If a run stops before some events anyway (a short
+  `--frames` or `"frames"`), the summary warns, naming the file and how
+  many events were skipped, and `verify` fails.
 - A mistake stops the run with a message naming the event and the fix:
   `event 3 ({"frame":30,"press":"Spcae"}): unknown key "Spcae"...`.
 
@@ -632,7 +636,8 @@ Run them with `cargo test --no-default-features --example mygame`.
 - `.inputs("playthroughs/x.json")` replays a file (paths start from the
   project folder), and `.script(json)` replays a string.
 - `.frames(n)` and `.seed(n)` change the run. Without `.frames`, a script
-  with `"frames"` runs that long; otherwise 600.
+  with `"frames"` runs that long, one without runs until two seconds after
+  its last event, and with no script it's 600.
 - `.save_to("out/test-x")` also saves `last.png`, `sheet.png` and
   `log.json`, to look at when the test fails.
 - `.run()` returns the finished `Simulation`:

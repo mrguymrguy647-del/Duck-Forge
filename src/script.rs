@@ -185,6 +185,24 @@ impl InputScript {
             .map_err(|err| format!("could not save {}: {err}", path.display()))
     }
 
+    /// How many frames a replay of this script runs when nobody says
+    /// otherwise: its `"frames"`, or else until its last event plus two
+    /// seconds, so every event is replayed and you see what it did. `None`
+    /// for a script with neither.
+    pub fn run_length(&self, updates_per_second: f64) -> Option<u64> {
+        let after_last = |_| self.last_event_frame() + (2.0 * updates_per_second).round() as u64;
+        self.frames.or_else(|| self.events.last().map(after_last))
+    }
+
+    /// How many events come after `frame`: in a run that stops there,
+    /// they're never replayed.
+    pub fn events_after(&self, frame: u64) -> usize {
+        self.events
+            .iter()
+            .filter(|event| event.frame > frame)
+            .count()
+    }
+
     /// The last frame that has an event, or 0 if there are none.
     pub fn last_event_frame(&self) -> u64 {
         self.events.last().map_or(0, |event| event.frame)
@@ -353,6 +371,18 @@ fn point(value: &Value) -> Result<Vec2, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn without_frames_a_replay_lasts_until_two_seconds_after_the_last_event() {
+        let script =
+            InputScript::parse(r#"{"events": [{"frame": 898, "press": "Left"}]}"#).unwrap();
+        assert_eq!(script.run_length(60.0), Some(898 + 120));
+        assert_eq!(script.events_after(600), 1);
+        assert_eq!(script.events_after(898), 0);
+        let given = InputScript::parse(r#"{"frames": 300, "events": []}"#).unwrap();
+        assert_eq!(given.run_length(60.0), Some(300), "an explicit length wins");
+        assert_eq!(InputScript::default().run_length(60.0), None);
+    }
 
     const EXAMPLE: &str = r#"{
       "duckforge_inputs": 1,

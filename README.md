@@ -270,7 +270,7 @@ after `--` goes to the game, not to Cargo):
 | Option | What it does |
 |--------|--------------|
 | `--headless` | Run with no window, as fast as possible, drawing with the CPU, and save the last frame as `last.png` |
-| `--frames N` | Stop after N updates (default 600 with `--headless`, which is 10 seconds of game time) |
+| `--frames N` | Stop after N updates (default: a script's `"frames"`, or two seconds after its last event; else 600, which is 10 seconds of game time) |
 | `--out DIR` | Where `--headless` saves its files (default `duckforge-out`) |
 | `--seed N` | The random seed. Headless runs use seed 1 unless told otherwise, so they're repeatable |
 | `--inputs FILE` | Replay an input script, in a window or with `--headless` |

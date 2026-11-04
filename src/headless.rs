@@ -90,6 +90,8 @@ pub struct HeadlessOptions {
     /// After the run, write every name the game passed to `ctx.tune`, with
     /// its value, to the tune file (`--write-tune`).
     pub write_tune: bool,
+    /// The file `inputs` came from, if any, to name it in warnings.
+    pub inputs_file: Option<PathBuf>,
 }
 
 impl Default for HeadlessOptions {
@@ -110,6 +112,7 @@ impl Default for HeadlessOptions {
             tune_file: None,
             tune: Vec::new(),
             write_tune: false,
+            inputs_file: None,
         }
     }
 }
@@ -345,6 +348,7 @@ fn run_and_save<G: Game>(
         scenes.push(sim.scene().clone());
     }
     let mut warnings: Vec<String> = timestep_warning.into_iter().collect();
+    warnings.extend(skipped_events_warning(options));
     warnings.extend(scene::warnings(&scenes, width as f32, height as f32));
     if let Some((crop, zoom)) = close_up {
         save_png(
@@ -390,6 +394,31 @@ fn run_and_save<G: Game>(
     summary.files = saved;
     save_text(&summary.to_text(), &folder.join("summary.txt"))?;
     Ok((sim, summary))
+}
+
+/// A warning if the run stops before some of the script's events: they're
+/// silently never replayed, so the run isn't the playthrough it claims to be.
+fn skipped_events_warning(options: &HeadlessOptions) -> Option<String> {
+    let script = options.inputs.as_ref()?;
+    let skipped = script.events_after(options.frames);
+    if skipped == 0 {
+        return None;
+    }
+    let name = options
+        .inputs_file
+        .as_ref()
+        .map_or(String::from("the input script"), |f| {
+            f.display().to_string()
+        });
+    Some(format!(
+        "{name}: {skipped} of its {} input events {} after frame {}, where the run stopped, \
+         so they were never replayed; leave out --frames, or make the script's \"frames\" \
+         at least {}",
+        script.events.len(),
+        if skipped == 1 { "comes" } else { "come" },
+        options.frames,
+        script.last_event_frame()
+    ))
 }
 
 /// The picture as it's saved: with `--grid`'s grid on it, if asked for
@@ -647,10 +676,14 @@ pub(crate) fn run_from_command_line<G: Game>(
         Some(path) => Some(InputScript::load(path)?),
         None => None,
     };
-    // How long to run: as asked, or as long as the recording, or 10 seconds.
+    // How long to run: as asked, or as long as the recording (its
+    // "frames", or its last event plus two seconds), or 10 seconds.
+    let updates_per_second = 1.0 / f64::from(config.step_time());
     let frames = options
         .frames
-        .or(inputs.as_ref().and_then(|script| script.frames))
+        .or(inputs
+            .as_ref()
+            .and_then(|script| script.run_length(updates_per_second)))
         .unwrap_or(HeadlessOptions::default().frames);
     let headless = HeadlessOptions {
         frames,
@@ -676,6 +709,7 @@ pub(crate) fn run_from_command_line<G: Game>(
         tune_file: options.tune.clone(),
         tune: options.set.clone(),
         write_tune: options.write_tune,
+        inputs_file: options.inputs.clone(),
     };
     if let Some(corner) = options.debug_corner {
         config.debug_corner = corner;
@@ -1482,6 +1516,42 @@ mod tests {
         };
         let err = run_headless(config(), game(), &options).err().unwrap();
         assert!(err.contains("could not create the folder"), "{err}");
+    }
+
+    #[test]
+    fn events_after_the_last_frame_run_are_a_warning() {
+        let folder = test_folder("skipped-events");
+        let script = InputScript::parse(
+            r#"{"events": [{"frame": 5, "press": "Space"}, {"frame": 898, "release": "Space"},
+                           {"frame": 899, "press": "Left"}]}"#,
+        )
+        .unwrap();
+        let options = HeadlessOptions {
+            frames: 600,
+            out: Some(folder.clone()),
+            inputs: Some(script.clone()),
+            inputs_file: Some(PathBuf::from("playthroughs/hand.json")),
+            ..HeadlessOptions::default()
+        };
+        let mover = || Mover { x: 0.0, quit_at: 0 };
+        let (_, summary) = run_and_save(config(), mover(), &options).unwrap();
+        assert_eq!(summary.warnings.len(), 1, "{:?}", summary.warnings);
+        assert!(
+            summary.warnings[0].starts_with(
+                "playthroughs/hand.json: 2 of its 3 input events come after frame 600"
+            ),
+            "{}",
+            summary.warnings[0]
+        );
+        assert!(summary.warnings[0].contains("at least 899"));
+        // Run long enough, and all is well.
+        let options = HeadlessOptions {
+            frames: script.run_length(60.0).unwrap(),
+            ..options
+        };
+        let (_, summary) = run_and_save(config(), mover(), &options).unwrap();
+        assert!(summary.warnings.is_empty(), "{:?}", summary.warnings);
+        let _ = fs::remove_dir_all(folder);
     }
 
     #[test]

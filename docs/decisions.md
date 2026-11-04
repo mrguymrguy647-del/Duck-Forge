@@ -1577,3 +1577,27 @@ and passes verify with 200 fuzz runs and `--release --fuzz 200`.
 What was not slow: a one-line change rebuilds in under half a second,
 and `verify` takes 2 to 3 seconds including 200 fuzz runs, so the loop
 itself never got in the way.
+
+# Phase 2.5: rough edges found by reviews
+
+## Fix 1: Playthroughs cut short silently
+
+A hand-written playthrough with presses up to frame 898 and no
+`"frames"` ran for 600 frames (the default for any headless run), so 39
+of its 118 events were never replayed, and `verify` still said ok.
+
+Now a script without `"frames"` runs until two seconds after its last
+event (`InputScript::run_length`), on the command line and in play
+tests, so you see what the last press did. `"frames"` and `--frames`
+still win when given. Two seconds rather than "exactly the last event":
+a script whose last event is a release would otherwise stop on the frame
+that shows nothing new.
+
+And if a run stops before some events anyway (a `--frames` or `"frames"`
+that's too short), the summary warns, naming the file, how many events
+were skipped and the frame they need: `playthroughs/hand.json: 39 of its
+118 input events come after frame 600, ...`. It's an ordinary warning,
+so it's in `log.json` and `--quiet`, and `verify` fails that playthrough
+with the message. A game that quits early isn't warned about: the events
+after a quit can't matter. (`HeadlessOptions` gained `inputs_file`, so the
+warning can name the file.)

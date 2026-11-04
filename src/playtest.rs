@@ -163,7 +163,11 @@ impl<G: Game> PlayTest<G> {
             Some(Err(err)) => panic!("play test: {err}"),
             None => None,
         };
-        let script_frames = options.inputs.as_ref().and_then(|script| script.frames);
+        let updates_per_second = 1.0 / f64::from(config.step_time());
+        let script_frames = options
+            .inputs
+            .as_ref()
+            .and_then(|script| script.run_length(updates_per_second));
         options.frames = frames.or(script_frames).unwrap_or(options.frames);
         let sim = match run_headless(config, game, &options) {
             Ok(sim) => sim,

@@ -41,7 +41,7 @@ Only `"events"` is required.
 | `"duckforge_inputs"` | The format version. Always `1` for now. |
 | `"seed"` | The random seed the game ran with. A replay uses it, so random things (like Breakout's serve angle) happen the same way. `--seed` on the command line overrides it. |
 | `"updates_per_second"` | The game's timestep when this was recorded. If the game now runs at a different rate, duckforge warns that the replay won't match. |
-| `"frames"` | How long the recording lasted. `--headless` runs this many frames unless `--frames` says otherwise (without either, it runs 600). |
+| `"frames"` | How long the recording lasted. `--headless` runs this many frames unless `--frames` says otherwise. Without either, it runs until two seconds after the last event (600 frames if there are no events). If the run stops before some events, the summary warns how many were skipped. |
 | `"events"` | The list of events, described below. |
 
 ## Events
