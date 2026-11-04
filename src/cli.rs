@@ -30,7 +30,7 @@ const OPTIONS: &[OptionInfo] = &[
     OptionInfo {
         name: "--out",
         value: Some("DIR"),
-        help: "the folder --headless saves its files in (default: duckforge-out)",
+        help: "the folder --headless saves its files in (default: duckforge-out); audio.wav is saved there if the game played sounds",
     },
     OptionInfo {
         name: "--snapshot-every",

@@ -608,3 +608,98 @@ a helper trait). Now it calls `self.camera.shake(3.2, 0.4)` on a bite,
 `self.camera.update(ctx)` once per update, and draws the pond between
 `push_camera` and `pop_camera`. The HUD and menus are drawn after the
 pop, so they stay still while the pond shakes, as before.
+
+## Step 4: Sound
+
+**A synthesizer first, files second.** The AI that built a game with
+duckforge had no way to make a sound file, and a beginner rarely has
+good ones. A `Sound` is a handful of numbers (wave, pitch, slide,
+length, volume, fade in, fade out), so a sound can be written in code,
+read in a diff and tuned by changing a number. Four presets (`coin`,
+`jump`, `hit`, `explosion`) cover most games; `ctx.beep(freq, ms)` is the
+one-liner. `.wav` files are there for recorded sounds, through
+`Wav::load` and `ctx.play_wav`.
+
+**Sounds are played from `update`, through `ctx`.** That's where the game
+decides things happen, and it puts every sound on a known frame. `draw`
+has no `ctx`, so a sound can't be played from it by mistake (once per
+drawn frame would depend on the computer's speed).
+
+**One record, two outputs.** Each update, the engine collects the sounds
+the game played, renders them to samples, and notes the frame. A window
+sends those samples to the speakers. A headless run mixes them all into
+`audio.wav` and lists them in `log.json`. Both use the same samples, so
+what a test checks is what a player hears.
+
+**Exact timing.** A sound played during update N starts at the first
+sample of that update: `(N - 1) * 44100 / updates_per_second`, computed
+with whole numbers so it can't drift (at 60 updates per second, 735
+samples per update). Tested at 60, 50 and 144 updates per second, on
+frames 1, 7 and 100.
+
+**Byte-identical `audio.wav`.** Rendering uses only plain arithmetic:
+the sine wave is Bhaskara's 7th-century formula rather than the system's
+`sin` (whose last bits can differ between computers and compilers),
+noise comes from a small xorshift generator with a fixed seed, and
+mixing adds samples in the order they were played, then rounds to
+16 bits. Tested: the same seed and inputs give the same bytes, and a
+different seed gives different bytes. (The sounds a game plays can still
+depend on `ctx.rng`, and that's repeatable too.)
+
+**The names are what tests use.** Each sound has a name: a preset's name,
+`"beep"`, your `Sound`'s `name` field (or `"sound"`), or a `.wav` file's
+name without `.wav`. `log.json` shows the name first, then the settings,
+so a line like `{"frame": 450, "sound": "hit", ...}` reads at a glance.
+`Simulation::sound_frames(name)` and
+`Simulation::assert_sound(name, frame, within)` check them in play tests;
+a failed check says which frames the sound *did* play on, or lists the
+sounds that played instead.
+
+**`audio.wav` only when there's something in it.** A silent game would
+otherwise get a megabyte of silence per 10 seconds. `log.json` always
+has `"sounds"` (empty if none), so an AI can tell "no sounds" from
+"didn't look". The track lasts as long as the run, or longer if the last
+sound rings on, so nothing is cut off.
+
+**GIFs keep time with the sound.** GIF frame delays are whole
+hundredths of a second. A GIF that shows every 4th frame at 60 updates
+per second would need 6.67 hundredths, rounded to 7: 5% slow, and out of
+step with `audio.wav` by the end. The GIF now picks a step that lasts a
+whole number of hundredths (a multiple of 3 frames at 60), unless that
+would more than double the step. When there's a GIF and an `audio.wav`,
+the run prints the `ffmpeg` command that joins them (tested: a 1.5 s
+run gives video and audio streams of exactly 1.5 s).
+
+**Playback: `tinyaudio` on Windows and macOS, ALSA loaded at run time on
+Linux.** `tinyaudio` is the lightest crate that plays sound on every
+desktop (on Windows it uses DirectSound through `winapi`, nothing else).
+But on Linux it links to ALSA when it's *built*, which needs the ALSA
+development package and `pkg-config`; without them, a plain `cargo
+build` fails. duckforge never needed system packages to build before, on
+any computer, and an AI's cloud machine usually doesn't have them (this
+one didn't, and couldn't install them). So on Linux, the engine opens
+`libasound.so.2` when the game starts (with `dlopen`, through the tiny
+`libc` crate) and looks up the six functions it needs. If the library
+or a sound card is missing, the game prints one line ("no sound: ...")
+and carries on silently. That's about 150 lines with a few `unsafe`
+blocks, each with a comment saying why it's sound. A test plays a beep
+into ALSA's "null" device, which needs no sound card, to check the
+function signatures for real. The Windows code was checked to compile
+with `cargo check --target x86_64-pc-windows-gnu`.
+
+**Mixing in the window.** The speaker keeps a list of playing sounds
+behind a `Mutex`. The sound card's thread asks for 1024 samples at a time
+(about 23 ms, so sounds feel instant) and gets every playing sound added
+together, clipped to the loudest possible value. At most 32 sounds play at
+once; a 33rd replaces the oldest. In a window, the engine forgets sounds
+once they're sent, so a long game doesn't fill memory.
+
+**`audio` is a feature, on by default.** `--no-default-features` turns
+it off along with the window and GPU. It only matters in a window:
+without it, the window is silent, and headless runs save `audio.wav`
+either way.
+
+**What's left out:** looping, stopping a sound, changing its volume while
+it plays, stereo, and music. Each would need a handle to a playing sound,
+which is a bigger API than "play this". They're in the AI guide's list
+of things the engine can't do yet.

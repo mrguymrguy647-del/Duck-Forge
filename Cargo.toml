@@ -6,7 +6,7 @@ rust-version = "1.87"
 description = "A small game engine (2D, 3D and physics), written for learning Rust"
 
 [features]
-default = ["window", "gpu"]
+default = ["window", "gpu", "audio"]
 # Open a window to play in (with minifb). Without it, the engine builds on
 # a machine with no screen and no window libraries, and games run with
 # `--headless`. `--no-default-features` turns off both features.
@@ -14,6 +14,11 @@ window = ["dep:minifb"]
 # Draw 3D on the graphics card with wgpu. Without it, the engine is smaller,
 # compiles faster and draws everything on the CPU.
 gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
+# Play sounds out loud in the window. Without it (or without a window),
+# sounds are still recorded: headless runs save them in audio.wav.
+# Windows and macOS use tinyaudio; Linux loads the system's ALSA library
+# when the game starts, so building needs no extra packages.
+audio = ["dep:tinyaudio", "dep:libc"]
 
 [dependencies]
 minifb = { version = "0.28", optional = true }
@@ -23,6 +28,12 @@ serde_json = "1"
 wgpu = { version = "30", optional = true }
 pollster = { version = "1", optional = true }
 bytemuck = { version = "1", features = ["derive"], optional = true }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+tinyaudio = { version = "2", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { version = "0.2", optional = true }
 
 # Also run the tests inside these examples with `cargo test`.
 [[example]]

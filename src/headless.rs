@@ -19,6 +19,7 @@ use crate::pictures::{self, Crop, GifWriter};
 use crate::report;
 use crate::script::{self, InputScript};
 use crate::simulation::Simulation;
+use crate::sound;
 
 /// What a headless run should do. Make one with `HeadlessOptions::default()`
 /// and change what you need:
@@ -180,9 +181,12 @@ fn run_and_save<G: Game>(
     let mut sheet = Vec::new();
 
     // The GIF: one picture every `gif_every` frames.
-    let gif_every = ((updates_per_second / GIF_PICTURES_PER_SECOND).round() as u64)
-        .max(options.frames.div_ceil(GIF_MAX_PICTURES))
-        .max(1);
+    let gif_every = exact_gif_step(
+        ((updates_per_second / GIF_PICTURES_PER_SECOND).round() as u64)
+            .max(options.frames.div_ceil(GIF_MAX_PICTURES))
+            .max(1),
+        updates_per_second,
+    );
     let mut gif = if options.gif {
         let factor = pictures::shrink_factor(width, GIF_MAX_WIDTH);
         // GIF timing is in hundredths of a second, and most viewers treat
@@ -250,11 +254,39 @@ fn run_and_save<G: Game>(
         save_png(&picture, &folder.join("sheet.png"))?;
         saved.push(String::from("sheet.png"));
     }
+    if !sim.sounds().is_empty() {
+        // Every sound, mixed at the sample where its frame starts. The
+        // track lasts as long as the run (or longer, if a sound rings on).
+        let length = sim.sample_at(last + 1);
+        let path = folder.join("audio.wav");
+        fs::write(&path, sound::mix_to_wav(sim.sounds(), length))
+            .map_err(|err| format!("could not save {}: {err}", path.display()))?;
+        saved.push(String::from("audio.wav"));
+    }
     saved.push(String::from("log.json"));
     let log = log_json(&title, &sim, updates_per_second, options, &saved);
     let path = folder.join("log.json");
     fs::write(&path, log).map_err(|err| format!("could not save {}: {err}", path.display()))?;
     Ok((sim, saved))
+}
+
+/// GIF timing is in hundredths of a second. Picks the smallest step of at
+/// least `every` frames that lasts a whole number of hundredths, so the
+/// GIF plays at exactly the game's speed and stays in step with
+/// `audio.wav` (at 60 updates per second: a multiple of 3 frames, 5/100 s).
+/// If that would make the GIF too jerky, `every` is kept as it is.
+fn exact_gif_step(every: u64, updates_per_second: f64) -> u64 {
+    let ups = updates_per_second.round() as u64;
+    if ups == 0 || (ups as f64 - updates_per_second).abs() > 1e-9 {
+        return every;
+    }
+    let (mut a, mut b) = (ups, 100);
+    while b != 0 {
+        (a, b) = (b, a % b); // a ends as the greatest common divisor
+    }
+    let unit = ups / a; // frames that last a whole number of hundredths
+    let exact = every.div_ceil(unit) * unit;
+    if exact <= every * 2 { exact } else { every }
 }
 
 fn save_png(picture: &Canvas, path: &Path) -> Result<(), String> {
@@ -286,7 +318,7 @@ fn is_our_file(name: &str) -> bool {
     };
     matches!(
         name,
-        "last.png" | "closeup.png" | "sheet.png" | "run.gif" | "log.json"
+        "last.png" | "closeup.png" | "sheet.png" | "run.gif" | "audio.wav" | "log.json"
     ) || numbered("frame-")
         || numbered("closeup-")
 }
@@ -341,6 +373,16 @@ fn log_json<G: Game>(
         .map(|(name, value)| format!("{}: {}", json(Value::from(name)), value.to_json()))
         .collect();
     text += &format!("  \"final\": {{{}}},\n", last.join(", "));
+    text += "  \"sounds\": [";
+    let sounds = sim.sounds();
+    for (index, played) in sounds.iter().enumerate() {
+        let comma = if index + 1 < sounds.len() { "," } else { "" };
+        text += &format!("\n    {}{comma}", played.to_json());
+    }
+    if !sounds.is_empty() {
+        text += "\n  ";
+    }
+    text += "],\n";
     text += "  \"changes\": [";
     let changes = sim.report_log();
     for (index, change) in changes.iter().enumerate() {
@@ -440,6 +482,22 @@ pub(crate) fn run_from_command_line<G: Game>(
             folder.display(),
             listed.join(", ")
         );
+        let sounds = sim.sounds().len();
+        if sounds > 0 {
+            println!(
+                "duckforge: the game played {sounds} sound{}; audio.wav has them all, and log.json lists each one with its frame",
+                if sounds == 1 { "" } else { "s" }
+            );
+            if saved.iter().any(|name| name == "run.gif") {
+                println!(
+                    "duckforge: to watch with sound, join them with ffmpeg:\n  \
+                     ffmpeg -i {gif} -i {wav} -c:v libx264 -pix_fmt yuv420p -vf \"scale=trunc(iw/2)*2:trunc(ih/2)*2\" -c:a aac -shortest {mp4}",
+                    gif = folder.join("run.gif").display(),
+                    wav = folder.join("audio.wav").display(),
+                    mp4 = folder.join("run.mp4").display(),
+                );
+            }
+        }
     }
     let mut reported: Vec<String> = sim
         .reports()
@@ -458,6 +516,7 @@ mod tests {
     use crate::canvas::Canvas;
     use crate::color::Color;
     use crate::engine::Context;
+    use crate::input::Key;
     use crate::math::Rect;
 
     /// A square that moves right one pixel per update, and quits at frame `quit_at`.
@@ -496,6 +555,153 @@ mod tests {
         let _ = fs::remove_dir_all(&folder);
         let _ = fs::remove_file(&folder);
         folder
+    }
+
+    /// Plays a coin sound whenever Space is pressed, and random beeps.
+    struct Noisy;
+
+    impl Game for Noisy {
+        fn update(&mut self, ctx: &mut Context) {
+            if ctx.input.was_pressed(Key::Space) {
+                ctx.play(crate::sound::Sound::coin());
+            }
+            if ctx.rng.chance(0.05) {
+                let pitch = ctx.rng.range(200.0, 900.0);
+                ctx.beep(pitch, 30.0);
+            }
+        }
+
+        fn draw(&self, canvas: &mut Canvas) {
+            canvas.clear(Color::BLACK);
+        }
+    }
+
+    fn noisy_run(name: &str, seed: u32) -> (Vec<u8>, String, Simulation<Noisy>) {
+        let folder = test_folder(name);
+        let script = InputScript::parse(
+            r#"{"events": [{"frame": 10, "press": "Space"}, {"frame": 11, "release": "Space"},
+                           {"frame": 90, "press": "Space"}]}"#,
+        )
+        .unwrap();
+        let options = HeadlessOptions {
+            frames: 120,
+            out: Some(folder.clone()),
+            inputs: Some(script),
+            seed: Some(seed),
+            ..HeadlessOptions::default()
+        };
+        let sim = run_headless(config(), Noisy, &options).unwrap();
+        let wav = fs::read(folder.join("audio.wav")).unwrap();
+        let log = fs::read_to_string(folder.join("log.json")).unwrap();
+        (wav, log, sim)
+    }
+
+    #[test]
+    fn the_same_seed_and_inputs_give_the_same_audio() {
+        let (first, log, sim) = noisy_run("audio-a", 4);
+        let (again, _, _) = noisy_run("audio-b", 4);
+        let (other, _, _) = noisy_run("audio-c", 5);
+        assert_eq!(first, again, "byte for byte the same");
+        assert_ne!(first, other, "another seed beeps differently");
+        // Two seconds at 44100 samples a second, 2 bytes each, plus the header.
+        assert_eq!(first.len(), 44 + 120 * 735 * 2);
+        assert_eq!(sim.sound_frames("coin"), [10, 90]);
+        sim.assert_sound("coin", 88, 2);
+        assert!(
+            log.contains(r#"{"frame": 10, "sound": "coin", "wave": "square", "freq": 1050, "slide_to": 1600, "ms": 120, "volume": 0.3"#),
+            "{log}"
+        );
+        assert!(log.contains("\"audio.wav\""), "listed with the files");
+    }
+
+    #[test]
+    fn a_sound_starts_at_the_first_sample_of_its_frame() {
+        struct OneBeep(u64);
+        impl Game for OneBeep {
+            fn update(&mut self, ctx: &mut Context) {
+                if ctx.frame() == self.0 {
+                    ctx.play(crate::sound::Sound {
+                        attack: 0.0,
+                        ..Default::default()
+                    });
+                }
+            }
+            fn draw(&self, _: &mut Canvas) {}
+        }
+        for (frame, ups) in [(1, 60), (7, 60), (100, 60), (7, 50), (7, 144)] {
+            let folder = test_folder(&format!("audio-start-{frame}-{ups}"));
+            let options = HeadlessOptions {
+                frames: frame + 10,
+                out: Some(folder.clone()),
+                ..HeadlessOptions::default()
+            };
+            let config = Config {
+                timestep: Timestep::Fixed {
+                    updates_per_second: ups,
+                },
+                ..config()
+            };
+            run_headless(config, OneBeep(frame), &options).unwrap();
+            let wav = fs::read(folder.join("audio.wav")).unwrap();
+            let samples: Vec<i16> = wav[44..]
+                .chunks_exact(2)
+                .map(|b| i16::from_le_bytes([b[0], b[1]]))
+                .collect();
+            let first_sound = samples.iter().position(|&s| s != 0).unwrap() as u64;
+            let expected = (frame - 1) * 44100 / ups as u64;
+            assert_eq!(
+                first_sound, expected,
+                "frame {frame} at {ups} updates a second"
+            );
+        }
+    }
+
+    #[test]
+    fn a_missing_sound_fails_with_what_was_played() {
+        let (_, _, sim) = noisy_run("audio-missing", 4);
+        let wrong_frame = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            sim.assert_sound("coin", 50, 3)
+        }));
+        let message = *wrong_frame.unwrap_err().downcast::<String>().unwrap();
+        assert!(message.contains("played on frames [10, 90]"), "{message}");
+        let never = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            sim.assert_sound("explosion", 50, 3)
+        }));
+        let message = *never.unwrap_err().downcast::<String>().unwrap();
+        assert!(
+            message.contains("never played") && message.contains("coin at 10"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn a_silent_game_saves_no_audio() {
+        let folder = test_folder("audio-none");
+        let options = HeadlessOptions {
+            frames: 5,
+            out: Some(folder.clone()),
+            ..HeadlessOptions::default()
+        };
+        run_headless(config(), Mover { x: 0.0, quit_at: 0 }, &options).unwrap();
+        assert!(!folder.join("audio.wav").exists());
+        let log = fs::read_to_string(folder.join("log.json")).unwrap();
+        assert!(log.contains("\"sounds\": []"), "{log}");
+    }
+
+    #[test]
+    fn gif_steps_last_whole_hundredths() {
+        assert_eq!(exact_gif_step(3, 60.0), 3);
+        assert_eq!(
+            exact_gif_step(4, 60.0),
+            6,
+            "4/60 s isn't whole hundredths; 6/60 is"
+        );
+        assert_eq!(exact_gif_step(2, 50.0), 2, "every step is exact at 50");
+        assert_eq!(
+            exact_gif_step(7, 144.0),
+            7,
+            "rather than jump to 36, keep it"
+        );
     }
 
     #[test]

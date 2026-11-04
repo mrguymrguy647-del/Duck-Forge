@@ -41,14 +41,15 @@ Contents:
 ## 2. Set up on Linux
 
 You need Rust 1.87 or newer, and nothing else. No X11, no graphics drivers,
-no system packages. (If `cargo` is missing:
+no sound card, no system packages. (If `cargo` is missing:
 `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y`
 then `. "$HOME/.cargo/env"`.)
 
-Build and run **without the window and GPU code**, with
+Build and run **without the window, GPU and sound playback code**, with
 `--no-default-features`. Without it, Cargo also builds the window library
-(minifb) and the GPU library (wgpu): minutes longer, possibly needing
-system libraries, and a window can't open on a server anyway:
+(minifb), the GPU library (wgpu) and the speaker code: minutes longer,
+and a window can't open on a server anyway. Sounds still work: headless
+runs save them in `audio.wav`.
 
 ```sh
 cargo build --no-default-features --examples
@@ -316,6 +317,26 @@ Read it critically:
 - **Numbers that don't add up.** Score 2100 means every brick was broken?
   Check `bricks_left` too.
 
+### Step 5b: Check the sounds
+
+If the game played anything, `log.json` has a `"sounds"` list, one line
+per sound with its frame and name (`ctx.beep` is `"beep"`, presets are
+`"coin"`, `"jump"`, `"hit"`, `"explosion"`, your own `Sound` uses its
+`name`, a `.wav` its file name):
+
+```json
+"sounds": [
+  {"frame": 450, "sound": "hit", "wave": "square", "freq": 330, "slide_to": 70, "ms": 150, "volume": 0.4, "attack": 1, "decay": 120}
+]
+```
+
+Line them up with `changes`: every hit should have a `"hit"` on the same
+frame; a sound every frame (a `play` inside an `if is_down` instead of
+`was_pressed`) shows up as hundreds of lines. `audio.wav` has them all
+mixed, starting at sample `(frame - 1) * 735` at 60 updates per second.
+With `--gif`, the run prints the `ffmpeg` command that joins `run.gif`
+and `audio.wav` into a video for a person.
+
 ### Step 6: Write play tests
 
 When something works, pin it down with a play test
@@ -537,6 +558,17 @@ camera; the engine resets the camera stack every frame.
 **Reports**: `ctx.report("name", value)` with a number (any integer or
 float type), a `bool`, a `&str` or a `String`. Enums: report
 `format!("{:?}", self.state)`.
+
+**Sound**: `ctx.beep(freq_hz, ms)`, `ctx.play(Sound::coin())` (also
+`jump()`, `hit()`, `explosion()`), or your own:
+`ctx.play(Sound { name: "laser", wave: Wave::Square, freq: 1200.0, slide_to: 200.0, ms: 150.0, volume: 0.3, ..Default::default() })`.
+`Wave::Square` / `Sine` / `Triangle` / `Noise`; `attack` and `decay` are
+fade in/out in ms; `slide_to: 0.0` means no slide. Files:
+`let w = Wav::load("assets/x.wav")?;` (8/16/24/32-bit or float, any rate,
+mono or stereo) then `ctx.play_wav(&w)`. Play sounds in `update` only
+(`draw` has no `ctx`). Checking: `sim.sounds()` (each has `frame` and
+`name`), `sim.sound_frames("coin")`, and in play tests
+`played.assert_sound("coin", frame, within_frames)`.
 
 **Physics** (`use duckforge::physics::{Body, BodyId, PhysicsWorld, Shape};`):
 `PhysicsWorld::new(vec2(0.0, 400.0))` (gravity, y down),
@@ -770,7 +802,9 @@ They can also send *you* a game: F10 in the window records it to
 Plan around these. Don't spend time looking for them:
 
 - Sprites can't rotate (only flip and scale).
-- No sound.
+- Sounds can't loop, be stopped, or change once started; there's no
+  music player (a long `.wav` works for background music, once).
+- No stereo panning: every sound is mono.
 - Physics boxes don't rotate (balls and axis-aligned boxes only).
 - No running in a web browser.
 - One built-in pixel font, capitals only.

@@ -77,6 +77,11 @@ cargo run --no-default-features --example breakout -- --headless --frames 600 --
 - **A 2D camera:** worlds bigger than the screen, zoom, smooth following,
   screen shake that replays exactly, and mouse-to-world conversion. Draw
   the world between `push_camera` and `pop_camera`, the score after.
+- **Sound, with no files needed:** `ctx.beep(440.0, 100.0)`, ready-made
+  `Sound::coin()`, `jump()`, `hit()` and `explosion()`, your own synth
+  sounds (square, sine, triangle or noise, with a pitch slide), and `.wav`
+  files. Headless runs mix every sound into `audio.wav` at its exact frame
+  and list it in `log.json`, so tests can check sounds too.
 - **3D rendering:** a camera with ready-made fly controls, meshes (cube,
   pyramid, sphere, checkerboard, or build your own), transforms, sunlight
   shading, a depth buffer, and near-plane clipping.
@@ -103,8 +108,9 @@ cargo run --no-default-features --example breakout -- --headless --frames 600 --
   an animated GIF, enlarged close-ups, and `ctx.report("score", 12)` so a
   game can describe itself in `log.json`.
 - **Play tests:** `PlayTest` plays a game inside a normal `cargo test`,
-  usually by replaying an input script, and checks what it reported. The engine builds without any window
-  or graphics libraries (`--no-default-features`), for servers.
+  usually by replaying an input script, and checks what it reported (and
+  which sounds played, and when). The engine builds without any window,
+  graphics or sound libraries (`--no-default-features`), for servers.
 
 ## Writing a game
 
@@ -244,8 +250,9 @@ cargo run --example world3d -- --headless --frames 120 --out shots
 ```
 
 `cargo build --no-default-features` builds the engine without the window
-(and without the GPU renderer), so it needs no X11, Wayland or graphics
-libraries at all; then games can only run with `--headless`. From code,
+(and without the GPU renderer and sound playback), so it needs no X11,
+Wayland, graphics or sound libraries at all; then games can only run with
+`--headless`. Sounds still work headless: they're saved in `audio.wav`. From code,
 `duckforge::run_headless(config, game, &options)` does the same and hands
 back the finished `Simulation`. A game with command-line options of its own
 should read them from `duckforge::game_args()`, which leaves out the
@@ -302,6 +309,23 @@ one changed:
 example input scripts: a perfect game, and one that loses all three lives.
 A small bot in Breakout's tests made them.
 
+### Hearing what happened
+
+If the game played sounds, a headless run also saves `audio.wav`, with
+every sound mixed in at the exact frame it was played, and `log.json`
+lists them:
+
+```json
+"sounds": [
+  {"frame": 31, "sound": "coin", "wave": "square", "freq": 1050, "slide_to": 1600, "ms": 120, ...},
+  {"frame": 95, "sound": "explosion", "wave": "noise", "freq": 1500, ...}
+]
+```
+
+The same seed and inputs always give a byte-for-byte identical
+`audio.wav`. With `--gif`, the engine prints an `ffmpeg` command that
+joins `run.gif` and `audio.wav` into `run.mp4`, to watch with sound.
+
 ### Play tests
 
 `PlayTest` plays a game inside a normal `cargo test` and checks what it
@@ -347,7 +371,13 @@ DUCKFORGE_RENDERER=cpu cargo run --release --example world3d
 ```
 
 To build without wgpu (faster to compile, CPU only), use
-`cargo build --no-default-features --features window`.
+`cargo build --no-default-features --features window,audio`.
+
+The three features, all on by default: `window` (play in a window, with
+minifb), `gpu` (draw 3D on the graphics card, with wgpu) and `audio` (play
+sounds out loud: tinyaudio on Windows and macOS; on Linux the engine loads
+the system's ALSA library when the game starts, so no extra packages are
+needed to build, and a computer with no sound card just plays silently).
 
 ### Benchmark: CPU vs GPU on your computer
 

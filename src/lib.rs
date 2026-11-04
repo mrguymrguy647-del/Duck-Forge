@@ -47,6 +47,9 @@ pub mod report;
 pub mod rng;
 pub mod script;
 pub mod simulation;
+pub mod sound;
+#[cfg(all(feature = "audio", feature = "window"))]
+mod speaker;
 pub mod sprite;
 #[cfg(feature = "window")]
 mod window;
@@ -77,5 +80,6 @@ pub mod prelude {
     pub use crate::report::ReportValue;
     pub use crate::rng::Rng;
     pub use crate::simulation::Simulation;
+    pub use crate::sound::{Sound, Wav, Wave};
     pub use crate::sprite::{Animation, Blit, Sprite};
 }

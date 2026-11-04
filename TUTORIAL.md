@@ -55,11 +55,12 @@ Keep the source files open next to this guide. When you see a file like
   - [28. See-through colors](#28-see-through-colors)
   - [29. Sprites](#29-sprites)
   - [30. A 2D camera](#30-a-2d-camera)
+  - [31. Sound](#31-sound)
 - **Part 5: Your turn**
-  - [31. Exercises](#31-exercises)
-  - [32. Common compiler errors](#32-common-compiler-errors)
-  - [33. What a code review found](#33-what-a-code-review-found)
-  - [34. Where to go next](#34-where-to-go-next)
+  - [32. Exercises](#32-exercises)
+  - [33. Common compiler errors](#33-common-compiler-errors)
+  - [34. What a code review found](#34-what-a-code-review-found)
+  - [35. Where to go next](#35-where-to-go-next)
 
 ---
 
@@ -524,7 +525,7 @@ added, and the slot's generation goes up by one. So an old id still points
 at the right slot, but its generation doesn't match any more, and looking
 it up finds nothing instead of the wrong body. This trick is called a
 *generational index*, and most game engines use it to name their objects.
-(Chapter 33 tells the story of the bug that led to it.)
+(Chapter 34 tells the story of the bug that led to it.)
 
 ## 5. Enums and pattern matching
 
@@ -1730,7 +1731,7 @@ a lot on 1960s hardware.
 Before stepping, the line is *clipped*: cut down to the part that's on the
 canvas (see `clip_line`). Without that, a line to a point far off-screen
 would step through millions of invisible pixels, and could even crash (see
-[chapter 33](#33-what-a-code-review-found)).
+[chapter 34](#34-what-a-code-review-found)).
 
 ### Triangles
 
@@ -2783,7 +2784,7 @@ and shifting right pulls the high bits back down. After a few rounds,
 changing one bit of the seed changes about half the bits of the result.
 Notice `wrapping_mul`: the multiplication overflows on purpose, and in a
 debug build a plain `*` would panic when it overflows
-([chapter 33](#33-what-a-code-review-found)). `wrapping_mul` says "wrap
+([chapter 34](#34-what-a-code-review-found)). `wrapping_mul` says "wrap
 around, that's what I want".
 
 A new test in `src/rng.rs` checks that the first numbers from seeds 1 to
@@ -4171,9 +4172,172 @@ counter.
 (`1 - e^(-dt / smoothing)` per step), so the camera feels the same at 30
 or 144 updates per second.
 
+## 31. Sound
+
+duckforge has a tiny **synthesizer** built in, so a game can make sounds
+without any sound files. The quickest one:
+
+```rust
+ctx.beep(440.0, 100.0); // 440 Hz (the note A) for 100 milliseconds
+```
+
+Four ready-made sounds cover most games: `Sound::coin()`, `Sound::jump()`,
+`Sound::hit()` and `Sound::explosion()`. Play one with `ctx.play`:
+
+```rust
+ctx.play(Sound::coin());
+```
+
+And you can make your own by changing the settings of a `Sound`:
+
+```rust
+ctx.play(Sound {
+    name: "laser",          // shown in log.json, and used by play tests
+    wave: Wave::Square,     // Square (buzzy), Sine (pure), Triangle (soft) or Noise (hiss)
+    freq: 1200.0,           // starting pitch, in Hz
+    slide_to: 200.0,        // ...sliding down to this pitch
+    ms: 150.0,              // how long, in milliseconds
+    volume: 0.3,            // 0.0 to 1.0
+    ..Default::default()    // attack and decay: the fade in and out
+});
+```
+
+For recorded sounds, load a `.wav` file once (in `new`) and play it as
+often as you like:
+
+```rust
+let quack = Wav::load("assets/quack.wav")?;  // when the game starts
+ctx.play_wav(&self.quack);                   // in update
+```
+
+### A tiny keyboard
+
+```rust
+use duckforge::prelude::*;
+
+/// Keys on the computer keyboard, and the notes they play (in Hz).
+const NOTES: [(Key, f32); 8] = [
+    (Key::A, 262.0), // C
+    (Key::S, 294.0), // D
+    (Key::D, 330.0), // E
+    (Key::F, 349.0), // F
+    (Key::G, 392.0), // G
+    (Key::H, 440.0), // A
+    (Key::J, 494.0), // B
+    (Key::K, 523.0), // C, an octave up
+];
+
+struct Piano {
+    wave: Wave,
+    last: Option<usize>,
+}
+
+impl Game for Piano {
+    fn update(&mut self, ctx: &mut Context) {
+        for (i, &(key, freq)) in NOTES.iter().enumerate() {
+            if ctx.input.was_pressed(key) {
+                ctx.play(Sound { wave: self.wave, freq, ms: 300.0, decay: 250.0, ..Default::default() });
+                self.last = Some(i);
+            }
+        }
+        if ctx.input.was_pressed(Key::Space) {
+            ctx.play(Sound::explosion());
+        }
+        if ctx.input.was_pressed(Key::Tab) {
+            // Cycle through the four waves to hear the difference.
+            self.wave = match self.wave {
+                Wave::Square => Wave::Sine,
+                Wave::Sine => Wave::Triangle,
+                Wave::Triangle => Wave::Noise,
+                Wave::Noise => Wave::Square,
+            };
+        }
+    }
+
+    fn draw(&self, canvas: &mut Canvas) {
+        canvas.clear(Color::from_hex(0x202030));
+        for i in 0..NOTES.len() {
+            let color = if self.last == Some(i) { Color::YELLOW } else { Color::WHITE };
+            canvas.fill_rect(Rect::new(20.0 + i as f32 * 36.0, 80.0, 32.0, 100.0), color);
+        }
+        canvas.draw_text("A S D F G H J K PLAY. TAB CHANGES THE WAVE", vec2(20.0, 20.0), 1, Color::WHITE);
+        canvas.draw_text(&format!("{:?}", self.wave), vec2(20.0, 40.0), 2, Color::YELLOW);
+    }
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    duckforge::run(Config::default(), Piano { wave: Wave::Square, last: None })
+}
+```
+
+Save it as `examples/piano.rs` and run `cargo run --example piano`.
+
+### Hearing a game without speakers
+
+A headless run can't play sounds out loud, so it **records** them
+instead. Every sound is mixed into `audio.wav` in the `--out` folder, at
+the exact moment its frame happened, and listed in `log.json`:
+
+```json
+"sounds": [
+  {"frame": 31, "sound": "coin", "wave": "square", "freq": 1050, ...},
+  {"frame": 95, "sound": "explosion", "wave": "noise", "freq": 1500, ...}
+]
+```
+
+So you (or an AI) can check that the right sound happened at the right
+time without listening. Play tests can check it too:
+
+```rust
+let played = PlayTest::new(config(), Game::new()).inputs("playthroughs/level-1.json").run();
+played.assert_sound("coin", 31, 2); // a "coin" on frame 31, give or take 2 frames
+```
+
+If you saved a GIF too, `ffmpeg` (a free video tool) can join the
+pictures and the sound into one video. The engine prints the exact
+command when there's something to join.
+
+### Rust idea: `&'static str`
+
+`Sound`'s `name` field has the type `&'static str`. You know `&str` (a
+borrowed piece of text) from chapter 6. The `'static` is a **lifetime**:
+it says the text lives for the whole program. Text written in quotes in
+your code, like `"laser"`, is stored inside the program itself, so it
+always lives that long. That's why `name: "laser"` just works, and why
+`Sound` can be `Copy`: it holds a pointer to text that never goes away,
+not a `String` that would have to be freed.
+
+### How it works
+
+A sound is a long list of numbers between -1.0 and 1.0, called
+**samples**: 44,100 of them for every second. A speaker moves in and out
+following them. `Sound::render` (in `src/sound.rs`) makes them:
+
+- A **square** wave is +1 for half of each vibration, then -1. A
+  **triangle** goes smoothly up and down. A **sine** is the smoothest
+  curve. **Noise** jumps to a new random value `freq` times a second.
+- `phase` says how far through the current vibration we are, from 0 to
+  1. Each sample it moves on by `freq / 44100`. Sliding the pitch is just
+  changing `freq` a little at every sample.
+- The volume is multiplied by a fade in (`attack`) and a fade out
+  (`decay`), so sounds don't start or stop with a click.
+
+Everything is plain arithmetic, even the sine: it uses a formula from
+the 7th century (Bhaskara's) instead of the computer's `sin`, whose last
+digits can differ between computers. So the same game, seed and inputs
+give a byte-for-byte identical `audio.wav`, which is what lets a test
+compare them.
+
+In a window, `src/speaker.rs` sends the samples to the sound card. The
+sound card asks for more on its own thread about 40 times a second, and
+the speaker adds up all the sounds that are playing into each block.
+That's the one place in the engine where two threads share data, so the
+list of playing sounds sits behind a `Mutex`, a lock that lets only one
+thread at a time touch it.
+
 # Part 5: Your turn
 
-## 31. Exercises
+## 32. Exercises
 
 Do them in order. After each change, run the game and see what happened.
 When the compiler complains, **read the whole error message**: Rust's error
@@ -4294,7 +4458,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     to a ball body) across floating platforms, with the camera following
     it. Or 3D Breakout, with a `PhysicsWorld<Vec3>`.
 
-## 32. Common compiler errors
+## 33. Common compiler errors
 
 | Error    | Message (short)                                   | Usually means                                                 |
 |----------|---------------------------------------------------|---------------------------------------------------------------|
@@ -4309,7 +4473,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 For a long explanation of any error, run `rustc --explain E0502`.
 
-## 33. What a code review found
+## 34. What a code review found
 
 After the engine was built, it got a careful review: every file read line
 by line, looking for bugs, crashes and confusing code. It found about 20
@@ -4460,7 +4624,7 @@ Together, the renderer was back to its old speed, 79 to 81 FPS.
 
 **Lesson:** after fixing something, run the benchmark again.
 
-## 34. Where to go next
+## 35. Where to go next
 
 - **The Rust Programming Language** ("the Book"), free at
   <https://doc.rust-lang.org/book/>. The best way to learn Rust properly.

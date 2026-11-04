@@ -12,6 +12,7 @@ use crate::input::{Input, Key};
 use crate::render3d::Renderer;
 use crate::report::ReportValue;
 use crate::rng::Rng;
+use crate::sound::{Sound, SoundRequest, Wav};
 
 /// What every game must provide. The engine calls both methods once per frame.
 pub trait Game {
@@ -159,6 +160,8 @@ pub struct Context {
     quit_requested: bool,
     /// What the game reported during this update.
     reports: Vec<(String, ReportValue)>,
+    /// The sounds the game played during this update.
+    sounds: Vec<SoundRequest>,
 }
 
 impl Context {
@@ -176,6 +179,7 @@ impl Context {
             height,
             quit_requested: false,
             reports: Vec::new(),
+            sounds: Vec::new(),
         }
     }
 
@@ -190,6 +194,11 @@ impl Context {
     /// Seconds of game time since the game started.
     pub fn time(&self) -> f32 {
         self.time as f32
+    }
+
+    /// [`time`](Context::time) at full precision.
+    pub(crate) fn precise_time(&self) -> f64 {
+        self.time
     }
 
     /// Which update this is, counting from 1: it is 1 during the first
@@ -249,6 +258,46 @@ impl Context {
     /// ```
     pub fn report(&mut self, name: &str, value: impl Into<ReportValue>) {
         self.reports.push((name.to_string(), value.into()));
+    }
+
+    /// Plays a sound from the built-in synthesizer: a ready-made one like
+    /// `Sound::coin()`, or your own:
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// # fn example(ctx: &mut Context) {
+    /// ctx.play(Sound::coin());
+    /// ctx.play(Sound { name: "zap", wave: Wave::Triangle, freq: 900.0, slide_to: 300.0, ..Default::default() });
+    /// # }
+    /// ```
+    ///
+    /// In a window it comes out of the speakers. Without a window it's
+    /// mixed into `audio.wav` at this frame and listed in `log.json`.
+    pub fn play(&mut self, sound: Sound) {
+        self.sounds.push(SoundRequest::synth(sound));
+    }
+
+    /// Plays a plain square-wave beep: `freq` in Hz (440 is the note A),
+    /// lasting `ms` milliseconds. Its name in logs is `"beep"`.
+    pub fn beep(&mut self, freq: f32, ms: f32) {
+        self.play(Sound {
+            name: "beep",
+            freq,
+            ms,
+            ..Sound::default()
+        });
+    }
+
+    /// Plays a sound loaded from a `.wav` file with
+    /// [`Wav::load`](crate::sound::Wav::load). Its name in logs is the
+    /// file name without `.wav`.
+    pub fn play_wav(&mut self, wav: &Wav) {
+        self.sounds.push(SoundRequest::wav(wav));
+    }
+
+    /// Hands over this update's sounds and starts a fresh list.
+    pub(crate) fn take_sounds(&mut self) -> Vec<SoundRequest> {
+        std::mem::take(&mut self.sounds)
     }
 
     /// Hands over this update's reports and starts a fresh list.

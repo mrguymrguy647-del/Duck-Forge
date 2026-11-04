@@ -158,6 +158,14 @@ pub(crate) fn run<G: Game>(
     let renderer = renderer_from_env().unwrap_or(config.renderer);
     let mut sim = Simulation::start(&config, game, renderer);
     sim.forget_report_log();
+    #[cfg(feature = "audio")]
+    let speaker = match crate::speaker::Speaker::open() {
+        Ok(speaker) => Some(speaker),
+        Err(problem) => {
+            println!("duckforge: no sound: {problem}; the game carries on silently");
+            None
+        }
+    };
     if let Some(script) = script {
         sim.follow(script);
     }
@@ -202,6 +210,17 @@ pub(crate) fn run<G: Game>(
                 break;
             }
         }
+
+        // Sounds played during those updates go to the speakers.
+        let sounds = sim.take_new_sounds();
+        #[cfg(feature = "audio")]
+        if let Some(speaker) = &speaker {
+            for sound in sounds {
+                speaker.play(sound.samples);
+            }
+        }
+        #[cfg(not(feature = "audio"))]
+        drop(sounds); // built without the "audio" feature: silent
 
         // 4. The game's turn to draw.
         let fps = sim.context().fps();

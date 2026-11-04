@@ -12,6 +12,7 @@ use crate::math::Vec2;
 use crate::render3d::Renderer;
 use crate::report::{FrameReport, ReportLog, ReportValue};
 use crate::script::{InputAction, InputEvent, InputScript};
+use crate::sound::{PlayedSound, SAMPLE_RATE};
 
 /// Keys the engine itself uses in a window (FPS counter, recording,
 /// screenshots). They still reach the game, but aren't recorded, so a replay
@@ -83,6 +84,13 @@ pub struct Simulation<G> {
     script: Option<(InputScript, usize)>,
     /// What the game has reported with `ctx.report`.
     reports: ReportLog,
+    /// Every sound the game played (in a window, only those not yet sent
+    /// to the speakers).
+    sounds: Vec<PlayedSound>,
+    /// False in a window: sounds are forgotten once they've been played.
+    keep_sounds: bool,
+    /// How many of `sounds` have been handed to the speakers.
+    sounds_sent: usize,
 }
 
 impl<G: Game> Simulation<G> {
@@ -128,6 +136,9 @@ impl<G: Game> Simulation<G> {
                 keep_changes: true,
                 ..ReportLog::default()
             },
+            sounds: Vec::new(),
+            keep_sounds: true,
+            sounds_sent: 0,
         }
     }
 
@@ -161,6 +172,35 @@ impl<G: Game> Simulation<G> {
         self.game.update(&mut self.ctx);
         let reported = self.ctx.take_reports();
         self.reports.record(self.ctx.frame(), reported);
+        let start = self.sample_at(self.ctx.frame());
+        for request in self.ctx.take_sounds() {
+            self.sounds.push(PlayedSound {
+                frame: self.ctx.frame(),
+                name: request.name,
+                source: request.source,
+                samples: request.samples,
+                start,
+            });
+        }
+    }
+
+    /// The sample in `audio.wav` where update `frame` begins. Update 1
+    /// begins at sample 0; with 60 updates per second each update is 735
+    /// samples (44100 / 60) after the one before.
+    pub(crate) fn sample_at(&self, frame: u64) -> u64 {
+        let before = frame.saturating_sub(1);
+        match self.updates_per_second {
+            // Whole-number math, so it never drifts, even after hours.
+            Some(ups) => before * SAMPLE_RATE as u64 / ups.max(1) as u64,
+            None => {
+                let seconds = if frame == self.ctx.frame() {
+                    self.ctx.precise_time() - self.ctx.dt() as f64
+                } else {
+                    before as f64 * self.dt as f64
+                };
+                (seconds.max(0.0) * SAMPLE_RATE as f64).round() as u64
+            }
+        }
     }
 
     // ---- Input. Each change is seen by the game at the next step. ----
@@ -469,8 +509,82 @@ impl<G: Game> Simulation<G> {
     /// Stops keeping the log of changes (a window running for hours doesn't need it).
     #[cfg_attr(not(feature = "window"), allow(dead_code))] // only the window uses it
     pub(crate) fn forget_report_log(&mut self) {
+        self.keep_sounds = false;
+        self.sounds.clear();
+        self.sounds_sent = 0;
         self.reports.keep_changes = false;
         self.reports.changes.clear();
+    }
+
+    /// Every sound the game played, oldest first, each with its `frame`
+    /// and `name`.
+    pub fn sounds(&self) -> &[PlayedSound] {
+        &self.sounds
+    }
+
+    /// The frames on which a sound called `name` was played, like
+    /// `[12, 80]`. Names are [`Sound::name`](crate::sound::Sound::name)
+    /// (`"coin"`, `"jump"`...), `"beep"`, or a `.wav` file's name.
+    pub fn sound_frames(&self, name: &str) -> Vec<u64> {
+        self.sounds
+            .iter()
+            .filter(|sound| sound.name == name)
+            .map(|sound| sound.frame)
+            .collect()
+    }
+
+    /// Checks that a sound called `name` was played on `frame`, or at most
+    /// `within` frames before or after it, and panics with a clear message
+    /// (naming what *was* played) if not. For play tests:
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// # struct G;
+    /// # impl Game for G {
+    /// #     fn update(&mut self, ctx: &mut Context) { if ctx.frame() == 31 { ctx.play(Sound::coin()); } }
+    /// #     fn draw(&self, _: &mut Canvas) {}
+    /// # }
+    /// let played = PlayTest::new(Config::default(), G).frames(60).run();
+    /// played.assert_sound("coin", 30, 2); // a coin sound on frames 28 to 32
+    /// ```
+    #[track_caller]
+    pub fn assert_sound(&self, name: &str, frame: u64, within: u64) {
+        let frames = self.sound_frames(name);
+        if frames.iter().any(|&f| f.abs_diff(frame) <= within) {
+            return;
+        }
+        let window = format!("frame {frame} (give or take {within})");
+        if frames.is_empty() {
+            let played: Vec<String> = self
+                .sounds
+                .iter()
+                .take(20)
+                .map(|s| format!("{} at {}", s.name, s.frame))
+                .collect();
+            let played = if played.is_empty() {
+                String::from("no sounds at all")
+            } else {
+                played.join(", ")
+            };
+            panic!(
+                "expected the sound {name:?} at {window}, but it was never played; the game played {played}"
+            );
+        }
+        panic!("expected the sound {name:?} at {window}, but it was played on frames {frames:?}");
+    }
+
+    /// The sounds played since the last call, for the speakers. In a
+    /// window they're then forgotten, so a long game doesn't fill memory.
+    #[cfg_attr(not(feature = "window"), allow(dead_code))] // only the window uses it
+    pub(crate) fn take_new_sounds(&mut self) -> Vec<PlayedSound> {
+        let new = self.sounds[self.sounds_sent..].to_vec();
+        if self.keep_sounds {
+            self.sounds_sent = self.sounds.len();
+        } else {
+            self.sounds.clear();
+            self.sounds_sent = 0;
+        }
+        new
     }
 
     /// Has the game called [`Context::quit`]?
