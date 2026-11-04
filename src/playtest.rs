@@ -56,6 +56,7 @@ pub struct PlayTest<G> {
     options: HeadlessOptions,
     inputs: Inputs,
     frames: Option<u64>,
+    ignore_checks: bool,
 }
 
 /// Where the inputs come from.
@@ -75,6 +76,7 @@ impl<G: Game> PlayTest<G> {
             options: HeadlessOptions::default(),
             inputs: Inputs::None,
             frames: None,
+            ignore_checks: false,
         }
     }
 
@@ -119,6 +121,14 @@ impl<G: Game> PlayTest<G> {
         self
     }
 
+    /// Doesn't fail when a `ctx.check` rule fails. (By default a play test
+    /// fails if any did, naming the rule and the frame.) Check
+    /// [`Simulation::failed_checks`] yourself if a failure is expected.
+    pub fn ignore_checks(mut self) -> Self {
+        self.ignore_checks = true;
+        self
+    }
+
     /// Also saves pictures of the run in `folder`: `last.png`, `sheet.png`
     /// and `log.json`, to look at when a test fails.
     pub fn save_to(mut self, folder: impl Into<PathBuf>) -> Self {
@@ -141,6 +151,7 @@ impl<G: Game> PlayTest<G> {
             mut options,
             inputs,
             frames,
+            ignore_checks,
         } = self;
         let script = match inputs {
             Inputs::None => None,
@@ -154,10 +165,26 @@ impl<G: Game> PlayTest<G> {
         };
         let script_frames = options.inputs.as_ref().and_then(|script| script.frames);
         options.frames = frames.or(script_frames).unwrap_or(options.frames);
-        match run_headless(config, game, &options) {
+        let sim = match run_headless(config, game, &options) {
             Ok(sim) => sim,
             Err(err) => panic!("play test: {err}"),
+        };
+        if let Some(failed) = sim.failed_checks().first().filter(|_| !ignore_checks) {
+            let more = sim.failed_checks().len() - 1;
+            let others = if more > 0 {
+                format!(" (and {more} more)")
+            } else {
+                String::new()
+            };
+            panic!(
+                "play test: the check {:?} failed on frame {}{others}; replay to just before it with \
+                 --frames {}, or call .ignore_checks() if the failure is expected",
+                failed.name,
+                failed.frame,
+                failed.frame.saturating_sub(1).max(1)
+            );
         }
+        sim
     }
 }
 

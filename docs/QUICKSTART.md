@@ -104,8 +104,9 @@ mod tests {
 }
 ```
 
-6. **Fix** one thing and go round again. Same command, same seed, same
-   result, so any difference is your change.
+6. **Fix** one thing and go round again (same command, same result).
+   Add rules with `ctx.check("on screen", ok)`, then `--fuzz 200` plays
+   200 random games and reports crashes, broken rules and freezes.
 
 ## Five common mistakes
 

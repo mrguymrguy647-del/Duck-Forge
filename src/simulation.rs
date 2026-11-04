@@ -613,6 +613,12 @@ impl<G: Game> Simulation<G> {
         self.game.resize(&mut self.ctx, width as f32, height as f32);
     }
 
+    /// Every rule from [`Context::check`] that failed, with the first frame
+    /// it failed on. Empty if every check held.
+    pub fn failed_checks(&self) -> &[crate::engine::FailedCheck] {
+        self.ctx.failed_checks()
+    }
+
     /// Every sound the game played, oldest first, each with its `frame`
     /// and `name`.
     pub fn sounds(&self) -> &[PlayedSound] {

@@ -206,6 +206,18 @@ impl Game for Template {
         }
         self.camera.update(ctx);
 
+        // Rules that must always hold. If one ever breaks, the run's summary,
+        // the play tests and --fuzz say so, with the frame.
+        let level = Rect::new(0.0, -HEIGHT, WORLD_WIDTH, HEIGHT * 2.0);
+        ctx.check(
+            "player inside the level",
+            level.contains(self.hitbox().center()),
+        );
+        ctx.check(
+            "coins never go negative",
+            self.collected as usize + self.coins.len() == 8,
+        );
+
         // For the debug overlay (F1) and for tests and AI agents (log.json).
         ctx.debug_rect(self.hitbox());
         ctx.report("state", format!("{:?}", self.state));

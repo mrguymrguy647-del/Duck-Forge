@@ -94,6 +94,21 @@ const OPTIONS: &[OptionInfo] = &[
         help: "compare two headless runs' pictures, scenes and reports (the game isn't run)",
     },
     OptionInfo {
+        name: "--fuzz",
+        value: Some("N"),
+        help: "play N headless runs (seeds 1 to N) with random keys; report crashes, failed checks and freezes",
+    },
+    OptionInfo {
+        name: "--fuzz-keys",
+        value: Some("KEYS"),
+        help: "the keys --fuzz presses, like Left,Right,Up,Space (default: arrows, Space, Z, X)",
+    },
+    OptionInfo {
+        name: "--freeze-seconds",
+        value: Some("S"),
+        help: "--fuzz calls it a freeze when no reported value changes for S seconds while keys are pressed (default 10)",
+    },
+    OptionInfo {
         name: "--describe",
         value: None,
         help: "after a headless run, describe the last frame in words: every canvas.label, and the text drawn",
@@ -146,6 +161,9 @@ pub(crate) struct Options {
     pub describe: bool,
     pub grid: Option<usize>,
     pub diff: Option<(PathBuf, PathBuf)>,
+    pub fuzz: Option<u32>,
+    pub fuzz_keys: Option<Vec<crate::input::Key>>,
+    pub freeze_seconds: Option<f32>,
 }
 
 impl Options {
@@ -182,6 +200,29 @@ impl Options {
                 "--set" => options.set.push(crate::tune::parse_set(value)?),
                 "--write-tune" => options.write_tune = true,
                 "--describe" => options.describe = true,
+                "--fuzz" => {
+                    let runs = value
+                        .parse()
+                        .ok()
+                        .filter(|runs| *runs >= 1)
+                        .ok_or_else(|| {
+                            format!("--fuzz needs a number of runs, at least 1, not {value:?}")
+                        })?;
+                    options.fuzz = Some(runs);
+                }
+                "--fuzz-keys" => options.fuzz_keys = Some(crate::fuzz::parse_keys(value)?),
+                "--freeze-seconds" => {
+                    let seconds = value
+                        .parse()
+                        .ok()
+                        .filter(|s: &f32| s.is_finite() && *s > 0.0)
+                        .ok_or_else(|| {
+                            format!(
+                                "--freeze-seconds needs a number of seconds above 0, not {value:?}"
+                            )
+                        })?;
+                    options.freeze_seconds = Some(seconds);
+                }
                 "--grid" => {
                     let every = value
                         .parse()
@@ -237,10 +278,21 @@ impl Options {
             ("--grid", options.grid.is_some()),
         ];
         if let Some((name, _)) = saves_files.iter().find(|(_, used)| *used) {
-            if !options.headless {
+            // --fuzz runs headless by itself, and --out is where its scripts go.
+            let fuzz_out = *name == "--out" && options.fuzz.is_some();
+            if !options.headless && !fuzz_out {
                 return Err(format!(
                     "{name} only works with --headless (a window doesn't save files)"
                 ));
+            }
+        }
+        let fuzz_only = [
+            ("--fuzz-keys", options.fuzz_keys.is_some()),
+            ("--freeze-seconds", options.freeze_seconds.is_some()),
+        ];
+        if let Some((name, _)) = fuzz_only.iter().find(|(_, used)| *used) {
+            if options.fuzz.is_none() {
+                return Err(format!("{name} only works with --fuzz N"));
             }
         }
         if options.record.is_some() && options.headless {
@@ -471,6 +523,7 @@ mod tests {
             "--tune" => "game.tune.json",
             "--set" => "speed=2",
             "--diff" => "old new",
+            "--fuzz-keys" => "Left,Space",
             _ => "2",
         };
         for option in OPTIONS {
@@ -481,6 +534,9 @@ mod tests {
             // Most options are for --headless; --record only works in a window.
             if option.name != "--record" {
                 words.push(String::from("--headless"));
+            }
+            if option.name == "--fuzz-keys" || option.name == "--freeze-seconds" {
+                words.extend([String::from("--fuzz"), String::from("3")]);
             }
             let parsed = Options::parse(words.clone());
             assert!(parsed.is_ok(), "{words:?}: {parsed:?}");

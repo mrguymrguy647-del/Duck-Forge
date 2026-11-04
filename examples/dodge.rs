@@ -208,6 +208,13 @@ impl Game for Dodge {
         }
         self.camera.update(ctx);
 
+        // Rules that must always hold (the run summary, play tests and --fuzz check them).
+        ctx.check(
+            "duck on screen",
+            self.player.left() >= 0.0 && self.player.right() <= WIDTH,
+        );
+        ctx.check("lives never above the start", self.lives <= START_LIVES);
+
         // For tests and log.json: things that matter, that change now and then.
         ctx.report("state", format!("{:?}", self.state));
         ctx.report("lives", self.lives);

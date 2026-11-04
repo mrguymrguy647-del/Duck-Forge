@@ -389,6 +389,35 @@ When something works, pin it down with a play test
 things. When something's broken, write the test first, watch it fail,
 then fix it.
 
+### Step 6a: Fuzz it
+
+Write down the rules your game must never break, with `ctx.check`, then
+let the engine play it a few hundred times with random keys:
+
+```sh
+cargo run --release --no-default-features --example mygame -- --fuzz 200
+```
+
+```text
+duckforge: seed 14: PANIC on frame 192: index out of bounds: the len is 0 but the index is 3 (examples/mygame.rs:20:22) -- replay: --inputs fuzz/seed-14.json (3 key presses, 193 frames); also seeds 30, 43, 49
+duckforge: seed 2: CHECK "player on screen" failed on frame 336 -- replay: --inputs fuzz/seed-2.json (1 key press, 337 frames)
+duckforge: fuzzed 200 runs of 30 s (seeds 1 to 200, keys Left,Right,Up,Down,Space,Z,X) on 4 cores in 2.1 s: 2 different problems in 41 of the runs; scripts saved in fuzz
+```
+
+Each run uses the next seed and random taps and holds of the fuzz keys
+(arrows, Space, Z and X unless `--fuzz-keys` says otherwise; include the
+game's start key). It reports, once per different problem, the first
+seed and frame of: a **panic** (with the message and line), a **failed
+check**, or a **freeze**: no reported value changed for 10 seconds
+(`--freeze-seconds`) while keys were pressed. A freeze can be a stuck
+game, or a menu waiting for a key the fuzzer didn't press: the replay
+tells you which. Every failing run's inputs are saved in `fuzz/` (or
+`--out`), and one per problem is shrunk to the fewest key presses that
+still cause it, so `--inputs fuzz/seed-14.json --sheet --debug` shows the
+bug in a short replay. Runs go in parallel on every core; `--frames` sets
+their length (1800, 30 seconds, by default). Fix, then fuzz again with
+the same command: same seeds, same inputs.
+
 ### Step 6b: Tune without rebuilding
 
 Speeds, gravity and timers that you'll adjust go through `ctx.tune`.
@@ -669,6 +698,15 @@ only known once the code reading it runs. `log.json` has
 tests: `PlayTest::new(..).tune("jump_speed", 400.0)` or
 `.tune_file("x.json")`. A window re-reads the file when it changes.
 
+**Checks** (rules that must always hold): in `update`,
+`ctx.check("player inside level", level.contains(player.center()))`.
+The first frame a rule fails is recorded, once per name; it never stops
+the game. `sim.failed_checks()` lists them (each `name`, `frame`); the
+summary prints `CHECK FAILED`, `log.json` has
+`"checks": {"rules": 2, "failed": [{"name": ..., "frame": ...}]}`, the
+debug overlay shows them in red, and a `PlayTest` **fails** if any check
+failed (add `.ignore_checks()` when a failure is expected).
+
 **Reports**: `ctx.report("name", value)` with a number (any integer or
 float type), a `bool`, a `&str` or a `String`. Enums: report
 `format!("{:?}", self.state)`.
@@ -715,7 +753,8 @@ pictures), `--describe`, `--debug`, `--debug-corner top-right` (where
 the overlay's box goes; bottom-right by default), `--tune FILE`,
 `--set NAME=N` (repeatable), `--write-tune`, `--record FILE` (window
 only), `--diff OLD_DIR NEW_DIR` (compare two runs; any example runs it,
-the game isn't started), `--help`.
+the game isn't started), `--fuzz N` (with `--fuzz-keys Left,Right,Space`
+and `--freeze-seconds S`; see section 4), `--help`.
 They go after `--` with `cargo run`: `cargo run --example x -- --headless`.
 
 **Labels and scenes**: in `draw`, `canvas.label("name", rect)` (draws

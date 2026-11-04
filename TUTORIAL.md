@@ -4704,6 +4704,50 @@ things moved, and which reported values ended differently.
 in bright magenta. (`--grid 32` on a run draws numbered gridlines on its
 pictures, to read positions off them.)
 
+### Rules the game must keep
+
+Some things should never happen: the player outside the level, a
+negative score, two enemies in the same spot. Say so in `update`:
+
+```rust
+ctx.check("player inside the level", level.contains(self.hitbox().center()));
+```
+
+If the rule is ever broken, the engine notes the frame (once), the debug
+overlay shows it in red, and the play tests fail. Now let the engine try
+to break your game for you:
+
+```sh
+cargo run --release --example template -- --fuzz 200
+```
+
+It plays 200 games with random key presses (a different seed each time,
+several at once, on every core of your computer), and reports any crash,
+broken rule or "freeze" (nothing changing for 10 seconds while keys are
+pressed), with a script that replays it:
+`cargo run --example template -- --inputs fuzz/seed-14.json`.
+
+### Rust idea: `std::thread::scope`
+
+`--fuzz` runs several games at once (`src/fuzz.rs`). Each runs as a
+separate copy of your program (`std::process::Command`), started from a
+few *threads* of the fuzzer:
+
+```rust
+std::thread::scope(|scope| {
+    for _ in 0..cores {
+        scope.spawn(|| { /* take the next seed, play it, store the result */ });
+    }
+});
+```
+
+`scope` waits for every thread it started before it returns, so the
+threads can borrow local variables (`next`, `results`), which a thread
+that might outlive them couldn't. Shared data that several threads change
+sits behind a `Mutex` (as in the speaker, chapter 31) or is an atomic
+number (`AtomicU32`), whose `fetch_add` hands each thread a different
+seed.
+
 ### Tweak numbers while it runs
 
 The template reads its speeds through `ctx.tune`:

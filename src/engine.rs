@@ -2,6 +2,7 @@
 //! and [`run`], which starts a game in a window or, with `--headless`,
 //! without one.
 
+use std::collections::HashSet;
 use std::error::Error;
 use std::fmt;
 
@@ -231,6 +232,19 @@ pub struct Context {
     debug_shapes: Vec<DebugShape>,
     /// Tuned numbers: from `--set`, the tune file, or the game's defaults.
     tunes: Tunes,
+    /// The names of every rule checked with `ctx.check`.
+    checked: HashSet<String>,
+    /// The rules that failed, each with the first frame it failed on.
+    failed_checks: Vec<FailedCheck>,
+}
+
+/// A rule from [`Context::check`] that didn't hold.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FailedCheck {
+    /// The rule's name, as given to `ctx.check`.
+    pub name: String,
+    /// The first frame it failed on.
+    pub frame: u64,
 }
 
 impl Context {
@@ -251,6 +265,8 @@ impl Context {
             sounds: Vec::new(),
             debug_shapes: Vec::new(),
             tunes: Tunes::default(),
+            checked: HashSet::new(),
+            failed_checks: Vec::new(),
         }
     }
 
@@ -355,6 +371,46 @@ impl Context {
     /// `--write-tune` writes all the names the game asked for to the file.
     pub fn tune(&self, name: &str, default: f32) -> f32 {
         self.tunes.get(name, default)
+    }
+
+    /// States a rule that must always hold, like "the player is inside the
+    /// level". Call it in `update`, every frame:
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// # fn example(ctx: &mut Context, player: Rect) {
+    /// let level = Rect::new(0.0, 0.0, 960.0, 240.0);
+    /// ctx.check("player inside level", level.contains(player.center()));
+    /// ctx.check("lives never negative", true);
+    /// # }
+    /// ```
+    ///
+    /// Nothing happens while it holds. The first frame it doesn't, the
+    /// engine records the name and frame (once per name): the run's
+    /// summary and `log.json` list it, the debug overlay shows it, a
+    /// window prints it, a [`PlayTest`](crate::PlayTest) fails, and
+    /// `--fuzz` reports the seed and inputs that broke it. It never stops
+    /// the game.
+    pub fn check(&mut self, name: &str, condition: bool) {
+        if !self.checked.contains(name) {
+            self.checked.insert(name.to_string());
+        }
+        if !condition && !self.failed_checks.iter().any(|f| f.name == name) {
+            self.failed_checks.push(FailedCheck {
+                name: name.to_string(),
+                frame: self.frame,
+            });
+        }
+    }
+
+    /// Every rule that failed so far, in the order they first failed.
+    pub fn failed_checks(&self) -> &[FailedCheck] {
+        &self.failed_checks
+    }
+
+    /// How many different rules the game has checked.
+    pub(crate) fn checks_seen(&self) -> usize {
+        self.checked.len()
     }
 
     pub(crate) fn tunes(&self) -> &Tunes {
@@ -500,6 +556,11 @@ pub fn run<G: Game>(config: Config, game: G) -> Result<(), Box<dyn Error>> {
     let options = Options::from_command_line().map_err(EngineError)?;
     if options.help {
         print!("{}", cli::help());
+        return Ok(());
+    }
+    if options.fuzz.is_some() {
+        // Fuzzing runs the game headless, many times, in separate runs.
+        crate::fuzz::run(&config, &options).map_err(EngineError)?;
         return Ok(());
     }
     if let Some((old, new)) = &options.diff {

@@ -274,6 +274,9 @@ after `--` goes to the game, not to Cargo):
 | `--debug-corner C` | Where the overlay's box goes: `top-left`, `top-right`, `bottom-left` or `bottom-right` (the default) |
 | `--grid N` | Draw a faint grid every N pixels, numbered along the edges, on `last.png`, snapshots and close-ups |
 | `--diff OLD NEW` | Compare two headless runs' folders: pictures (pixels changed, with highlighted copies in `NEW/diff/`), labels that moved, final reports. The game isn't run |
+| `--fuzz N` | Play N headless runs (seeds 1 to N) with random but realistic key presses, and report crashes, failed `ctx.check` rules and freezes, with each failing run's inputs saved (and one per problem shrunk) as a replayable script |
+| `--fuzz-keys K` | The keys `--fuzz` presses, like `Left,Right,Up,Space` (default: arrows, Space, Z, X) |
+| `--freeze-seconds S` | How long nothing may change while keys are pressed before `--fuzz` calls it a freeze (default 10) |
 | `--describe` | After a headless run, describe the last frame in words: every `canvas.label`, and the text drawn |
 | `--tune FILE` | Read `ctx.tune` values from FILE (default: `examples/<game>.tune.json`, if it exists) |
 | `--set NAME=N` | Set one `ctx.tune` value, over the file (repeat it for more) |
@@ -419,6 +422,30 @@ saves copies of the changed pictures with the changed pixels in magenta.
 "Did my fix change only what I meant to change?" in one command. Add
 `--grid 32` to a run to put numbered gridlines on its pictures, so
 positions can be read off them.
+
+### Rules and fuzzing: finding bugs without watching
+
+State the rules your game must never break, in `update`:
+
+```rust
+ctx.check("player inside the level", level.contains(player.center()));
+```
+
+A check that fails is recorded (the first frame, once per rule) without
+stopping the game: the run summary and `log.json` list it, the debug
+overlay shows it in red, and a `PlayTest` fails. Then let the engine play
+the game a few hundred times with random keys:
+
+```sh
+cargo run --release --no-default-features --example template -- --fuzz 200
+```
+
+It reports every crash (with its message, line and frame), failed check
+and freeze (nothing reported changes for 10 s while keys are pressed),
+with the seed, and saves each failing run's inputs as a script, the
+first of each kind shrunk to the fewest key presses that still cause it:
+`--inputs fuzz/seed-14.json` replays it exactly. Runs go in parallel on
+every core: 200 runs of 30 seconds of a small game take a few seconds.
 
 ### The debug overlay
 

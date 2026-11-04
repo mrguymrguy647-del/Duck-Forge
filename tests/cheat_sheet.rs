@@ -62,6 +62,12 @@ impl Game for Everything {
         // Context
         let _ = (ctx.dt(), ctx.time(), ctx.frame(), ctx.width(), ctx.height());
         ctx.report("jump", ctx.tune("jump_speed", 330.0));
+        let level = Rect::new(0.0, 0.0, 320.0, 240.0);
+        ctx.check(
+            "player inside level",
+            level.contains(vec2(self.x + 160.0, 120.0)),
+        );
+        ctx.check("frame 50 never comes", ctx.frame() != 50);
         ctx.report("frame", ctx.frame());
         ctx.report("state", format!("{:?}", Timestep::RealTime));
         // Input
@@ -251,6 +257,15 @@ fn headless_and_play_tests() {
     let sim = run_headless(config(), Everything::new(), &options).unwrap();
     assert_eq!(sim.number("frame"), 10.0);
     assert!(folder.join("audio.wav").exists());
+    let failed = PlayTest::new(config(), Everything::new())
+        .frames(60)
+        .ignore_checks()
+        .run();
+    let check = &failed.failed_checks()[0];
+    assert_eq!(
+        (check.name.as_str(), check.frame),
+        ("frame 50 never comes", 50)
+    );
     let played = PlayTest::new(config(), Everything::new())
         .script(r#"{"events": [{"frame": 2, "press": "Right"}]}"#)
         .frames(30)

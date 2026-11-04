@@ -37,6 +37,7 @@ mod debug;
 mod diff;
 pub mod engine;
 pub mod error;
+mod fuzz;
 #[cfg(feature = "gpu")]
 mod gpu;
 pub mod headless;
@@ -78,7 +79,7 @@ pub mod prelude {
     pub use crate::camera::Camera2D;
     pub use crate::canvas::Canvas;
     pub use crate::color::Color;
-    pub use crate::engine::{Config, Context, Corner, Game, Timestep};
+    pub use crate::engine::{Config, Context, Corner, FailedCheck, Game, Timestep};
     pub use crate::input::{Input, Key, MouseButton};
     pub use crate::math::{
         Hit, Rect, Vec2, Vec3, approach, circle_vs_circle, circle_vs_rect, remap, swept_aabb, vec2,

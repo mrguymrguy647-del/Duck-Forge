@@ -1185,3 +1185,70 @@ its head either way.)
 took one value per option. An option's value description can now be
 several words (`"OLD_DIR NEW_DIR"`), and the parser takes that many;
 `--diff=a` gets a clear error instead.
+
+## Step 6: Checks and fuzzing
+
+**`ctx.check(name, condition)` states a rule.** Most bugs an agent can't
+see are a rule quietly broken: the player outside the level, a count
+gone wrong. A check costs one line, never stops the game, and records
+only the first frame each rule fails (once per name, so a rule broken
+every frame doesn't flood anything). It shows up where an agent already
+looks: the summary (`CHECK FAILED`), `log.json` (`"checks"`, with how
+many rules there are, so "no failures" can be told from "no checks"),
+the debug overlay (in red, so a person playing sees it too), and a line
+in the console in a window.
+
+**Play tests fail on a failed check by default.** A check is a test that
+runs in every play test for free; making it opt-out (`.ignore_checks()`)
+means nobody has to remember to look. The message names the rule and the
+frame, and says which `--frames` replays to just before it.
+
+**`--fuzz N` plays the game N times with random, realistic inputs.**
+Each run uses seed 1, 2, ... N and a script of taps (2 to 8 frames) and
+holds (a quarter of a second to two seconds) of the fuzz keys, with
+pauses between, never a key pressed while it's still held. Random keys
+every frame would mostly test pressing and releasing; real play holds
+directions and taps buttons.
+
+**Each run is a separate process of the game's own program.** `run`
+receives one game value, and making more would need games to be
+`Clone`, a new requirement that would break existing games. Running the
+program again (`--headless --inputs script`) gives every run a fresh
+game, catches crashes naturally (the run exits with an error, and the
+engine's panic hook prints the frame it happened on), and lets runs go
+in parallel on every core with no shared state. The cost, a few
+milliseconds to start each run, is small: 100 runs of 30 seconds of the
+template took 0.3 s on 4 cores.
+
+**Three kinds of problem.** A panic (message, source line, frame), a
+failed check (rule, frame), and a freeze: no reported value changed for
+`--freeze-seconds` (10 by default) although keys were being pressed. A
+freeze needs a game that reports something; a game that reports nothing
+can't be judged, so it's never called frozen. A menu that waits for a key
+the fuzzer doesn't press counts as a freeze too (Dodge's title screen did,
+in 1 run of 100, when Space wasn't pressed for 10 seconds): the shrunk
+replay shows which it is, and `--fuzz-keys` can include the start key.
+
+**A run reports all its problems**, every failed check and a freeze, not
+just the first, so one problem can't hide another in the same run. (A
+panic ends a run, so nothing after it can be seen.)
+
+**Grouped, saved and shrunk.** Problems are grouped by kind and rule (or
+panic message): one line per different problem, naming the first seed and
+how many other seeds hit it. Every failing run's inputs are saved as
+`seed-N.json`, a normal input script with the seed, so `--inputs` replays
+it exactly. The first run of each problem is shrunk: cut after the
+problem's frame, then key presses removed in chunks, then one by one,
+keeping each removal after which the same problem still happens (at most
+150 runs). Shrinking every failing run would cost that many runs each;
+one per problem gives the short replay that matters. On a test game with
+three planted bugs, the crash shrank to exactly the three Z presses that
+caused it, the broken rule to holding Right, and the freeze to the one X
+press.
+
+**Not tested end to end by `cargo test`.** Fuzzing needs a built game
+program to run, which a unit test doesn't have. The pieces are tested
+(the input generator is repeatable and realistic, freeze detection, reading
+panics, keeping presses and releases together while shrinking, the
+options), and the whole was tried on a planted-bug game, the template
+(100 runs, no problems) and Dodge (100 runs, the title-screen freeze).

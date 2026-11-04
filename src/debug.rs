@@ -13,6 +13,7 @@
 //! - outlines of every shape the game registered during the update with
 //!   [`Context::debug_rect`] and [`Context::debug_circle`]: hitboxes,
 //!   trigger zones, anything you want to see,
+//! - in red, every rule from [`Context::check`] that failed, and when,
 //! - green outlines, with their names, of everything the game labelled with
 //!   [`Canvas::label`](crate::canvas::Canvas::label).
 
@@ -70,7 +71,19 @@ pub(crate) fn draw_overlay(
         }
     }
 
-    let text = info_text(ctx, camera);
+    let info = info_text(ctx, camera);
+    // Failed checks get a red line each, under the info.
+    let failed: Vec<String> = ctx
+        .failed_checks()
+        .iter()
+        .take(4)
+        .map(|f| format!("CHECK FAILED F{}: {}", f.frame, f.name))
+        .collect();
+    let text = if failed.is_empty() {
+        info.clone()
+    } else {
+        format!("{info}\n{}", failed.join("\n"))
+    };
     let lines = text.lines().count();
     let size = vec2(
         Canvas::text_width(&text, 1) + 4.0,
@@ -87,7 +100,16 @@ pub(crate) fn draw_overlay(
     };
     // See-through, so the game shows through the box.
     canvas.fill_rect(Rect::new(x, y, size.x, size.y), Color::rgba(0, 0, 0, 120));
-    canvas.draw_text(&text, vec2(x + 2.0, y + 2.0), 1, Color::YELLOW);
+    canvas.draw_text(&info, vec2(x + 2.0, y + 2.0), 1, Color::YELLOW);
+    if !failed.is_empty() {
+        let below = y + 2.0 + Canvas::line_height(1) * info.lines().count() as f32;
+        canvas.draw_text(
+            &failed.join("\n"),
+            vec2(x + 2.0, below),
+            1,
+            Color::rgb(255, 80, 80),
+        );
+    }
 }
 
 /// The overlay's two short lines, like

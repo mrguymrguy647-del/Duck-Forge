@@ -8,6 +8,7 @@
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use serde_json::Value;
@@ -143,6 +144,22 @@ struct Outcome {
     warnings: Vec<String>,
 }
 
+/// The frame a headless run is on, for the message when a game panics.
+static RUNNING_FRAME: AtomicU64 = AtomicU64::new(0);
+
+/// After Rust's usual panic message, also says which frame it happened on,
+/// so a crash can be replayed to just before it (`--frames N`).
+fn report_panic_frames() {
+    let usual = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        usual(info);
+        let frame = RUNNING_FRAME.load(Ordering::Relaxed);
+        if frame > 0 {
+            eprintln!("duckforge: the game panicked on frame {frame}");
+        }
+    }));
+}
+
 /// How many frames, spread over the run, are checked for scene warnings.
 const CHECK_FRAMES: usize = 16;
 
@@ -250,6 +267,7 @@ fn run_and_save<G: Game>(
         if sim.quit_requested() {
             break;
         }
+        RUNNING_FRAME.store(sim.context().frame() + 1, Ordering::Relaxed);
         sim.step();
         let frame = sim.context().frame();
         let snapshot = options
@@ -479,6 +497,22 @@ fn log_json<G: Game>(
         .collect();
     text += &format!("  \"final\": {{{}}},\n", last.join(", "));
     text += &format!("  \"tune\": {},\n", sim.tunes().to_json());
+    let failed: Vec<String> = sim
+        .failed_checks()
+        .iter()
+        .map(|f| {
+            format!(
+                "{{\"name\": {}, \"frame\": {}}}",
+                json(Value::from(f.name.as_str())),
+                f.frame
+            )
+        })
+        .collect();
+    text += &format!(
+        "  \"checks\": {{\"rules\": {}, \"failed\": [{}]}},\n",
+        sim.context().checks_seen(),
+        failed.join(", ")
+    );
     let warnings: Vec<Value> = warnings.iter().map(|w| Value::from(w.as_str())).collect();
     text += &format!("  \"warnings\": {},\n", json(Value::from(warnings)));
     text += "  \"sounds\": [";
@@ -554,6 +588,7 @@ pub(crate) fn run_from_command_line<G: Game>(
     }
     let title = config.title.clone();
     let started = Instant::now();
+    report_panic_frames();
     let (mut sim, outcome) = run_and_save(config, game, &headless)?;
     let saved = &outcome.files;
     let seconds = started.elapsed().as_secs_f32();
@@ -651,6 +686,12 @@ pub(crate) fn run_from_command_line<G: Game>(
     if !reported.is_empty() {
         reported.truncate(12);
         println!("duckforge: the game reported {}", reported.join(", "));
+    }
+    for failed in sim.failed_checks() {
+        println!(
+            "duckforge: CHECK FAILED: {:?} first failed on frame {}",
+            failed.name, failed.frame
+        );
     }
     for warning in &outcome.warnings {
         println!("duckforge: warning: {warning}");
@@ -1128,6 +1169,77 @@ mod tests {
         assert!(
             log.contains(r#""drawn_on_pictures": {"grid": 16, "debug": false}"#),
             "{log}"
+        );
+    }
+
+    /// Breaks the rule "x below 20" from frame 21 on, and keeps a second
+    /// rule that always holds.
+    struct Breaker {
+        x: u32,
+    }
+
+    impl Game for Breaker {
+        fn update(&mut self, ctx: &mut Context) {
+            self.x += 1;
+            ctx.check("x below 20", self.x < 21);
+            ctx.check("always true", true);
+            ctx.report("x", self.x);
+        }
+
+        fn draw(&self, canvas: &mut Canvas) {
+            canvas.clear(Color::BLACK);
+        }
+    }
+
+    #[test]
+    fn a_failed_check_is_recorded_once_with_its_first_frame() {
+        let folder = test_folder("checks");
+        let options = HeadlessOptions {
+            frames: 40,
+            out: Some(folder.clone()),
+            ..HeadlessOptions::default()
+        };
+        let sim = run_headless(config(), Breaker { x: 0 }, &options).unwrap();
+        assert_eq!(
+            sim.failed_checks(),
+            [crate::engine::FailedCheck {
+                name: String::from("x below 20"),
+                frame: 21
+            }]
+        );
+        let log = fs::read_to_string(folder.join("log.json")).unwrap();
+        assert!(
+            log.contains(
+                r#""checks": {"rules": 2, "failed": [{"name": "x below 20", "frame": 21}]}"#
+            ),
+            "{log}"
+        );
+    }
+
+    #[test]
+    fn play_tests_fail_on_a_failed_check_unless_told_not_to() {
+        let failing = std::panic::catch_unwind(|| {
+            crate::PlayTest::new(config(), Breaker { x: 0 })
+                .frames(40)
+                .run();
+        });
+        let message = *failing.unwrap_err().downcast::<String>().unwrap();
+        assert!(
+            message.contains(r#"the check "x below 20" failed on frame 21"#)
+                && message.contains("--frames 20"),
+            "{message}"
+        );
+        let allowed = crate::PlayTest::new(config(), Breaker { x: 0 })
+            .frames(40)
+            .ignore_checks()
+            .run();
+        assert_eq!(allowed.failed_checks().len(), 1);
+        let fine = crate::PlayTest::new(config(), Breaker { x: 0 })
+            .frames(20)
+            .run();
+        assert!(
+            fine.failed_checks().is_empty(),
+            "holds for the first 20 frames"
         );
     }
 

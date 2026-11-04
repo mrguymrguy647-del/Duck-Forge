@@ -189,6 +189,7 @@ pub(crate) fn run<G: Game>(
     let mut keys_last_frame = Vec::new();
     let mut last_frame = Instant::now();
     let mut last_tune_check = Instant::now();
+    let mut checks_reported = 0;
 
     let frames = options.frames.unwrap_or(u64::MAX);
 
@@ -231,6 +232,15 @@ pub(crate) fn run<G: Game>(
                 break;
             }
         }
+
+        // A check that just failed for the first time gets a line in the console.
+        for failed in &sim.failed_checks()[checks_reported..] {
+            println!(
+                "duckforge: CHECK FAILED on frame {}: {}",
+                failed.frame, failed.name
+            );
+        }
+        checks_reported = sim.failed_checks().len();
 
         // Sounds played during those updates go to the speakers.
         let sounds = sim.take_new_sounds();
