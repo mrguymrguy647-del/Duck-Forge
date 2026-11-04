@@ -406,6 +406,67 @@ mod tests {
         assert!(differ > 0);
     }
 
+    // ---- Play tests: play a whole game, then check what it reported ----
+
+    #[test]
+    fn the_winning_playthrough_clears_every_brick() {
+        let played = PlayTest::new(config(), Breakout::new())
+            .inputs("playthroughs/breakout-win.json")
+            .run();
+        assert_eq!(played.text("state"), "Won");
+        assert_eq!(played.number("bricks_left"), 0.0);
+        assert_eq!(played.number("score"), 2100.0); // every brick: 10 x (60 + 50 + ... + 10)
+        assert_eq!(played.number("lives"), 3.0); // a perfect game
+    }
+
+    #[test]
+    fn the_losing_playthrough_loses_a_life_three_times() {
+        let played = PlayTest::new(config(), Breakout::new())
+            .inputs("playthroughs/breakout-lose.json")
+            .run();
+        assert_eq!(played.text("state"), "GameOver");
+        assert_eq!(played.number("lives"), 0.0);
+        assert!(
+            played.number("score") >= 10.0,
+            "it broke at least one brick"
+        );
+        // One life at a time, with a new serve after each.
+        let lives_at = |frame| {
+            played
+                .reported_at(frame, "lives")
+                .and_then(|v| v.as_number())
+        };
+        assert_eq!(lives_at(100), Some(3.0));
+        assert_eq!(lives_at(200), Some(2.0));
+        assert_eq!(lives_at(400), Some(1.0));
+    }
+
+    #[test]
+    fn the_ball_waits_on_the_paddle_until_space() {
+        let played = PlayTest::new(config(), Breakout::new()).frames(600).run();
+        assert_eq!(played.text("state"), "Serving");
+        assert_eq!(played.number("lives"), 3.0);
+        assert_eq!(played.number("score"), 0.0);
+    }
+
+    #[test]
+    fn p_pauses_and_unpauses() {
+        let script = r#"{"events": [
+            {"frame": 10, "press": "Space"}, {"frame": 11, "release": "Space"},
+            {"frame": 40, "press": "P"}, {"frame": 41, "release": "P"}
+        ]}"#;
+        let play_for = |frames| {
+            PlayTest::new(config(), Breakout::new())
+                .script(script)
+                .frames(frames)
+                .run()
+        };
+        let paused = play_for(200);
+        assert_eq!(paused.text("state"), "Paused");
+        // Nothing moved while paused: the ball is where it was on frame 40.
+        assert_eq!(paused.game().ball, play_for(40).game().ball);
+    }
+
     // ---- A bot that plays by itself, to make the example playthroughs ----
 
     /// Plays a whole game of Breakout by looking at the ball and steering

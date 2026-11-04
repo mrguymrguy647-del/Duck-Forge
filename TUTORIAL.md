@@ -47,11 +47,12 @@ Keep the source files open next to this guide. When you see a file like
   - [23. Running without a screen](#23-running-without-a-screen)
   - [24. Recording and replaying](#24-recording-and-replaying)
   - [25. Seeing a whole game](#25-seeing-a-whole-game)
+  - [26. Play tests](#26-play-tests)
 - **Part 4: Your turn**
-  - [26. Exercises](#26-exercises)
-  - [27. Common compiler errors](#27-common-compiler-errors)
-  - [28. What a code review found](#28-what-a-code-review-found)
-  - [29. Where to go next](#29-where-to-go-next)
+  - [27. Exercises](#27-exercises)
+  - [28. Common compiler errors](#28-common-compiler-errors)
+  - [29. What a code review found](#29-what-a-code-review-found)
+  - [30. Where to go next](#30-where-to-go-next)
 
 ---
 
@@ -115,6 +116,7 @@ src/
   script.rs         input scripts: recording and replaying what a player does
   report.rs         values a game reports about itself (ctx.report)
   pictures.rs       contact sheets, GIFs, close-ups
+  playtest.rs       PlayTest: play a game inside `cargo test` and check its reports
   canvas.rs         the pixel buffer: 2D drawing, triangles, the depth buffer
   font.rs           a tiny 3x5 pixel font
   input.rs          keyboard and mouse
@@ -514,7 +516,7 @@ added, and the slot's generation goes up by one. So an old id still points
 at the right slot, but its generation doesn't match any more, and looking
 it up finds nothing instead of the wrong body. This trick is called a
 *generational index*, and most game engines use it to name their objects.
-(Chapter 28 tells the story of the bug that led to it.)
+(Chapter 29 tells the story of the bug that led to it.)
 
 ## 5. Enums and pattern matching
 
@@ -1488,6 +1490,7 @@ you fix a bug, try writing a test that would have caught it.
 |  script.rs    input scripts: recordings you can replay         |
 |  report.rs    ctx.report: values a game shares about itself    |
 |  pictures.rs  contact sheets, GIFs and close-ups               |
+|  playtest.rs  PlayTest: play a game in a test, check reports   |
 |                                                                |
 |  canvas.rs    pixels, 2D drawing, triangles, depth buffer      |
 |  font.rs      the pixel font that canvas.rs draws text with    |
@@ -1719,7 +1722,7 @@ a lot on 1960s hardware.
 Before stepping, the line is *clipped*: cut down to the part that's on the
 canvas (see `clip_line`). Without that, a line to a point far off-screen
 would step through millions of invisible pixels, and could even crash (see
-[chapter 28](#28-what-a-code-review-found)).
+[chapter 29](#29-what-a-code-review-found)).
 
 ### Triangles
 
@@ -2772,7 +2775,7 @@ and shifting right pulls the high bits back down. After a few rounds,
 changing one bit of the seed changes about half the bits of the result.
 Notice `wrapping_mul`: the multiplication overflows on purpose, and in a
 debug build a plain `*` would panic when it overflows
-([chapter 28](#28-what-a-code-review-found)). `wrapping_mul` says "wrap
+([chapter 29](#29-what-a-code-review-found)). `wrapping_mul` says "wrap
 around, that's what I want".
 
 A new test in `src/rng.rs` checks that the first numbers from seeds 1 to
@@ -3513,9 +3516,142 @@ The bot won a perfect game in 58 seconds of game time. Run
 `cargo test --example breakout -- --ignored make_playthroughs` to watch it
 make new ones (`#[ignore]` keeps a test out of normal `cargo test` runs).
 
+## 26. Play tests
+
+Everything from the last four chapters comes together here: a normal
+`cargo test` that plays a whole game and checks how it went.
+
+```rust
+#[test]
+fn the_winning_playthrough_clears_every_brick() {
+    let played = PlayTest::new(config(), Breakout::new())
+        .inputs("playthroughs/breakout-win.json")
+        .run();
+    assert_eq!(played.text("state"), "Won");
+    assert_eq!(played.number("bricks_left"), 0.0);
+    assert_eq!(played.number("score"), 2100.0);
+    assert_eq!(played.number("lives"), 3.0); // a perfect game
+}
+```
+
+It replays a minute of Breakout in a few milliseconds, then checks what
+the game reported with `ctx.report` ([chapter 25](#25-seeing-a-whole-game)).
+Run them all with `cargo test`, or one game's with
+`cargo test --example breakout`.
+
+### A builder that consumes itself
+
+`PlayTest` is a *builder*, like `Body` in [chapter 4](#4-structs-and-methods):
+each method takes `self` by value, changes one thing, and returns it, so
+calls chain:
+
+```rust
+pub fn frames(mut self, frames: u64) -> Self {
+    self.frames = Some(frames);
+    self
+}
+```
+
+`run(self)` takes it by value too, and takes it apart with a
+*destructuring* `let`:
+
+```rust
+let PlayTest {
+    config,
+    game,
+    mut options,
+    inputs,
+    frames,
+} = self;
+```
+
+That moves each field into its own variable, in one line. It also means
+`run` can only be called once: afterwards the `PlayTest` is gone, which is
+right, because the game inside it has been played.
+
+Where the inputs come from is an enum, so a `PlayTest` can't accidentally
+have both a file and a script:
+
+```rust
+enum Inputs {
+    None,
+    File(PathBuf),
+    Text(String),
+}
+```
+
+### Failing well
+
+Tests fail, and a good failure message saves minutes. `played.number`
+returns a plain `f64`, so tests can use ordinary `assert!`s, and it
+panics, with a useful message, if something's off:
+
+```text
+the game never reported "lifes"; it reported: bricks_left, lives, score, state
+```
+
+The method is marked `#[track_caller]`:
+
+```rust
+#[track_caller]
+pub fn number(&self, name: &str) -> f64 {
+```
+
+Without it, a panic's message says where the `panic!` is: somewhere in
+the engine, which tells you nothing. With it, the message points at the
+line that *called* `number`, which is the line in your test. `run` does
+the same, so a missing script file fails at the test that asked for it.
+
+### Why check reports, not pixels?
+
+A test could compare `last.png` with a saved picture. But change the font,
+a color or where the score is drawn, and every such test breaks, though
+the game works fine. "The score is 2100" only breaks if the *game*
+breaks. So: pictures are for looking at, reports are for checking.
+
+### Testing the physics sandbox
+
+The sandbox reports how many things were dropped, how many are still
+moving, and how many escaped the box:
+
+```rust
+let dropped = || self.dropped.iter().filter_map(|&id| self.world.get(id));
+let moving = dropped()
+    .filter(|body| body.velocity.length() > MOVING_SPEED)
+    .count();
+```
+
+`dropped` is a closure that makes a fresh iterator each time it's called,
+because an iterator is used up once you've walked it. Each body id is
+looked up with `world.get`, and `filter_map` skips any that aren't there.
+
+Its first play test replays a script written by hand,
+`playthroughs/physics-three-drops.json`, which clicks two balls and a box
+across the top of the board, and checks that after ten seconds all three
+are inside the box, resting, below the pegs. Another builds its script in
+the test with a loop (twenty showers of balls), to check that the oldest
+balls are removed once there are too many. A script is just text, so any
+program can write one.
+
+### A test that has never failed
+
+How do you know a test can catch a bug? Break the game on purpose and
+watch it fail. With the sandbox's floor removed, all three physics tests
+failed:
+
+```text
+thread 'tests::dropped_things_fall_through_the_pegs_and_come_to_rest' panicked at examples/physics.rs:227:9:
+assertion `left == right` failed: something left the box
+  left: 3.0
+ right: 0.0
+```
+
+With bricks worth no points, both Breakout playthrough tests failed. Put
+the game back, and they pass. Try it yourself with any test you write.
+
 # Part 4: Your turn
 
-## 26. Exercises
+## 27. Exercises
 
 Do them in order. After each change, run the game and see what happened.
 When the compiler complains, **read the whole error message**: Rust's error
@@ -3636,7 +3772,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     to a ball body) across floating platforms, with the camera following
     it. Or 3D Breakout, with a `PhysicsWorld<Vec3>`.
 
-## 27. Common compiler errors
+## 28. Common compiler errors
 
 | Error    | Message (short)                                   | Usually means                                                 |
 |----------|---------------------------------------------------|---------------------------------------------------------------|
@@ -3651,7 +3787,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 For a long explanation of any error, run `rustc --explain E0502`.
 
-## 28. What a code review found
+## 29. What a code review found
 
 After the engine was built, it got a careful review: every file read line
 by line, looking for bugs, crashes and confusing code. It found about 20
@@ -3802,7 +3938,7 @@ Together, the renderer was back to its old speed, 79 to 81 FPS.
 
 **Lesson:** after fixing something, run the benchmark again.
 
-## 29. Where to go next
+## 30. Where to go next
 
 - **The Rust Programming Language** ("the Book"), free at
   <https://doc.rust-lang.org/book/>. The best way to learn Rust properly.

@@ -1,0 +1,15 @@
+{
+  "duckforge_inputs": 1,
+  "frames": 600,
+  "events": [
+    {"frame": 10, "mouse": [60, 30]},
+    {"frame": 11, "mouse_press": "Left"},
+    {"frame": 12, "mouse_release": "Left"},
+    {"frame": 40, "mouse": [160, 30]},
+    {"frame": 41, "mouse_press": "Right"},
+    {"frame": 42, "mouse_release": "Right"},
+    {"frame": 70, "mouse": [260, 30]},
+    {"frame": 71, "mouse_press": "Left"},
+    {"frame": 72, "mouse_release": "Left"}
+  ]
+}

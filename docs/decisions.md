@@ -288,3 +288,67 @@ the lowest brick left (or, to lose, it moves away from the ball). It won a
 perfect game in 58 seconds. Run
 `cargo test --example breakout -- --ignored make_playthroughs` to make new
 ones if Breakout changes.
+
+## Step 5: Automatic play tests
+
+The goal: a plain `cargo test` can play a game (usually by replaying an
+input script) and check how it went, using the values the game reports.
+
+**A small builder, `PlayTest`.** A test reads like a sentence:
+
+```rust
+let played = PlayTest::new(config(), Breakout::new())
+    .inputs("playthroughs/breakout-win.json")
+    .run();
+assert_eq!(played.text("state"), "Won");
+assert!(played.number("score") >= 10.0);
+```
+
+`.inputs(file)` or `.script(json)` choose the inputs, `.frames(n)` and
+`.seed(n)` override the script's, and `.save_to(folder)` also saves
+pictures, for when a test fails and you want to look. Underneath it's just
+`run_headless`, so a play test behaves exactly like
+`--headless --inputs`.
+
+**`run()` returns the finished `Simulation`.** Everything from the earlier
+steps works on it: the reported values, `reported_at(frame, name)` for
+the middle of the game, the game itself (`played.game()`), and its last
+picture. We didn't add a new "result" type, because one would have
+repeated all of that.
+
+**Panicking getters, with helpful messages.** `played.number("score")`
+returns a plain `f64`, so tests can use ordinary `assert!`s. If the game
+never reported `"score"`, the test fails with a list of what it did report
+(`the game never reported "lives"; it reported: any, name, presses`), and
+if `"score"` was text, it says that. In a test, a panic is simply how a
+test fails, and the most common mistake (a misspelled name) is fixed in
+seconds. `#[track_caller]` makes the failure point at the test's line,
+not at the engine.
+
+**Play tests check reports, not pixels.** "The score is 2100" survives a
+new font, a new color or a moved scoreboard; "pixel (40, 4) is white"
+doesn't. Pictures are for people (and AIs) to look at; reports are for
+tests to check.
+
+**Play tests live next to the game.** Breakout's and the physics
+sandbox's play tests are at the bottom of their example files, so
+`cargo test` runs them (examples with tests are listed in `Cargo.toml`
+with `test = true`). Relative paths like `playthroughs/...` work because
+`cargo test` runs tests in the project folder.
+
+**Scripts both recorded and written.** Breakout's tests replay the bot's
+long playthroughs from files. The physics tests use a short file written
+by hand (`playthroughs/physics-three-drops.json`) and scripts built in the
+test itself, including one generated with a loop (20 showers of balls), to
+show that a script is just text that any program can write.
+
+**We broke the games on purpose to check the tests.** With the physics
+floor removed, all three physics tests failed ("escaped" was 3, not 0);
+with bricks worth no points, both Breakout playthrough tests failed. A
+test that has never failed hasn't proved anything yet.
+
+**What the physics sandbox reports.** `bodies` (how many things were
+dropped), `moving` (how many are still faster than 5 pixels a second) and
+`escaped` (how many left the box). Together they answer "did everything
+fall, land and stay inside?" without any knowledge of how the physics
+engine works inside.

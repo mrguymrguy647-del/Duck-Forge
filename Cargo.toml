@@ -30,6 +30,10 @@ name = "breakout"
 test = true
 
 [[example]]
+name = "physics"
+test = true
+
+[[example]]
 name = "stress3d"
 test = true
 

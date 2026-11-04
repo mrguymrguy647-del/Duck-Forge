@@ -367,6 +367,60 @@ impl<G: Game> Simulation<G> {
         self.reports.latest.get(name)
     }
 
+    /// The latest number the game reported as `name`, for checking in a test:
+    /// `assert!(sim.number("score") >= 10.0)`.
+    ///
+    /// # Panics
+    ///
+    /// If the game never reported `name`, or it isn't a number. The message
+    /// lists what the game did report.
+    #[track_caller]
+    pub fn number(&self, name: &str) -> f64 {
+        let value = self.expect_reported(name);
+        value
+            .as_number()
+            .unwrap_or_else(|| panic!("{name:?} is {value}, not a number"))
+    }
+
+    /// The latest yes/no the game reported as `name`. Panics like
+    /// [`number`](Simulation::number).
+    #[track_caller]
+    pub fn flag(&self, name: &str) -> bool {
+        let value = self.expect_reported(name);
+        value
+            .as_bool()
+            .unwrap_or_else(|| panic!("{name:?} is {value}, not true or false"))
+    }
+
+    /// The latest text the game reported as `name`. Panics like
+    /// [`number`](Simulation::number).
+    #[track_caller]
+    pub fn text(&self, name: &str) -> String {
+        let value = self.expect_reported(name);
+        match value.as_text() {
+            Some(text) => text.to_string(),
+            None => panic!("{name:?} is {value}, not text"),
+        }
+    }
+
+    #[track_caller]
+    fn expect_reported(&self, name: &str) -> &ReportValue {
+        self.reported(name).unwrap_or_else(|| {
+            let names: Vec<&str> = self.reports().map(|(name, _)| name).collect();
+            if names.is_empty() {
+                panic!(
+                    "the game never reported {name:?}, or anything else \
+                     (add ctx.report({name:?}, ...) to its update)"
+                )
+            } else {
+                panic!(
+                    "the game never reported {name:?}; it reported: {}",
+                    names.join(", ")
+                )
+            }
+        })
+    }
+
     /// The value `name` had at the end of `frame`.
     pub fn reported_at(&self, frame: u64, name: &str) -> Option<&ReportValue> {
         self.reports.value_at(frame, name)

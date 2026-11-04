@@ -27,6 +27,8 @@ const GRAVITY: f32 = 400.0;
 const WALL_THICKNESS: f32 = 8.0;
 /// Oldest bodies are removed once there are more than this many, to keep it fast.
 const MAX_DROPPED: usize = 200;
+/// Bodies slower than this (pixels per second) count as resting.
+const MOVING_SPEED: f32 = 5.0;
 /// How long (in seconds) a peg glows after something touches it.
 const GLOW_TIME: f32 = 0.3;
 
@@ -149,6 +151,19 @@ impl Game for Sandbox {
                 }
             }
         }
+
+        // Tell tests and headless runs what's going on (see log.json).
+        let dropped = || self.dropped.iter().filter_map(|&id| self.world.get(id));
+        let moving = dropped()
+            .filter(|body| body.velocity.length() > MOVING_SPEED)
+            .count();
+        let arena = Rect::new(0.0, 0.0, WIDTH, HEIGHT);
+        let escaped = dropped()
+            .filter(|body| !arena.contains(body.position))
+            .count();
+        ctx.report("bodies", self.dropped.len());
+        ctx.report("moving", moving);
+        ctx.report("escaped", escaped);
     }
 
     fn draw(&self, canvas: &mut Canvas) {
@@ -187,10 +202,85 @@ impl Game for Sandbox {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = Config {
+fn config() -> Config {
+    Config {
         title: String::from("Physics sandbox - duckforge"),
         ..Config::default()
-    };
-    duckforge::run(config, Sandbox::new())
+    }
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    duckforge::run(config(), Sandbox::new())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dropped_things_fall_through_the_pegs_and_come_to_rest() {
+        // Two balls and a box, clicked across the top (a script written by hand).
+        let played = PlayTest::new(config(), Sandbox::new())
+            .inputs("playthroughs/physics-three-drops.json")
+            .run();
+        assert_eq!(played.number("bodies"), 3.0);
+        assert_eq!(played.number("escaped"), 0.0, "something left the box");
+        assert_eq!(played.number("moving"), 0.0, "something never settled");
+        // ...and they ended up on the floor, below the pegs.
+        for (_, body) in played.game().world.bodies() {
+            if !body.is_fixed() {
+                assert!(body.position.y > 170.0, "stuck at {:?}", body.position);
+            }
+        }
+    }
+
+    #[test]
+    fn a_shower_drops_fifteen_balls_and_c_clears_them() {
+        let script = r#"{"events": [
+            {"frame": 10, "press": "Space"}, {"frame": 11, "release": "Space"},
+            {"frame": 300, "press": "C"}, {"frame": 301, "release": "C"}
+        ]}"#;
+        let played = PlayTest::new(config(), Sandbox::new())
+            .script(script)
+            .frames(320)
+            .run();
+        assert_eq!(
+            played
+                .reported_at(299, "bodies")
+                .and_then(|v| v.as_number()),
+            Some(15.0)
+        );
+        assert_eq!(
+            played
+                .reported_at(299, "escaped")
+                .and_then(|v| v.as_number()),
+            Some(0.0)
+        );
+        assert_eq!(played.number("bodies"), 0.0);
+    }
+
+    #[test]
+    fn the_oldest_bodies_go_once_there_are_too_many() {
+        // 20 showers of 15 balls: 300 balls, but at most MAX_DROPPED stay.
+        let events: Vec<String> = (0..20)
+            .flat_map(|i| {
+                let frame = 10 + i * 20;
+                [
+                    format!(r#"{{"frame": {frame}, "press": "Space"}}"#),
+                    format!(r#"{{"frame": {}, "release": "Space"}}"#, frame + 1),
+                ]
+            })
+            .collect();
+        let script = format!(r#"{{"events": [{}]}}"#, events.join(", "));
+        let played = PlayTest::new(config(), Sandbox::new())
+            .script(&script)
+            .frames(600)
+            .run();
+        assert_eq!(played.number("bodies"), MAX_DROPPED as f64);
+        assert_eq!(
+            played.number("escaped"),
+            0.0,
+            "a crowd pushed something out"
+        );
+    }
 }

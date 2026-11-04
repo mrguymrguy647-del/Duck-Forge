@@ -2,8 +2,8 @@
 
 A small game engine written in Rust, covering **2D graphics, 3D graphics
 (on the graphics card, or on the CPU) and physics**, plus six example
-programs. It was written to be read: about 8,800 lines of commented engine
-code, and 137 tests. [minifb](https://crates.io/crates/minifb) opens the
+programs. It was written to be read: about 9,100 lines of commented engine
+code, and 151 tests. [minifb](https://crates.io/crates/minifb) opens the
 window, [wgpu](https://wgpu.rs) talks to the graphics card and
 [png](https://crates.io/crates/png) saves pictures; everything else is
 written from scratch: drawing, text, both 3D renderers, the physics
@@ -82,7 +82,9 @@ cargo run --no-default-features --example breakout -- --headless --frames 600 --
   without one.
 - **Seeing a run:** numbered snapshots, a contact sheet of the whole run,
   an animated GIF, enlarged close-ups, and `ctx.report("score", 12)` so a
-  game can describe itself in `log.json`. The engine builds without any window
+  game can describe itself in `log.json`.
+- **Play tests:** `PlayTest` plays a game inside a normal `cargo test`,
+  usually by replaying an input script, and checks what it reported. The engine builds without any window
   or graphics libraries (`--no-default-features`), for servers.
 
 ## Writing a game
@@ -281,6 +283,32 @@ one changed:
 example input scripts: a perfect game, and one that loses all three lives.
 A small bot in Breakout's tests made them.
 
+### Play tests
+
+`PlayTest` plays a game inside a normal `cargo test` and checks what it
+reported:
+
+```rust
+#[test]
+fn the_winning_playthrough_clears_every_brick() {
+    let played = PlayTest::new(config(), Breakout::new())
+        .inputs("playthroughs/breakout-win.json")
+        .run();
+    assert_eq!(played.text("state"), "Won");
+    assert!(played.number("score") >= 10.0);
+    assert_eq!(played.number("lives"), 3.0);
+}
+```
+
+`.script(json)` takes a script written in the test instead of a file,
+`.frames(n)` and `.seed(n)` change how it runs, and `.save_to(folder)`
+also saves pictures to look at when a test fails. `played` is the
+finished `Simulation`, so `played.game()`, `played.reported_at(frame,
+name)` and `played.picture()` work too. If the game never reported a
+name, the failure message lists what it did report. Breakout and the
+physics sandbox have play tests at the bottom of their files: run them
+with `cargo test --example breakout` and `cargo test --example physics`.
+
 ## Choosing a renderer, and benchmarking
 
 By default 3D uses the graphics card when there's a usable one, and the CPU
@@ -358,7 +386,8 @@ higher.
 | `src/script.rs`   | `InputScript`: recording and replaying inputs as JSON              |
 | `src/report.rs`   | `ctx.report`: values a game shares about itself                    |
 | `src/pictures.rs` | Contact sheets, GIFs and close-ups                                 |
-| `playthroughs/`   | Example input scripts: winning and losing a game of Breakout       |
+| `src/playtest.rs` | `PlayTest`: play a game inside `cargo test` and check its reports  |
+| `playthroughs/`   | Example input scripts for Breakout (win, lose) and the physics sandbox |
 | `src/canvas.rs`   | Software renderer: pixels, 2D shapes, text, triangles, depth buffer, screenshots |
 | `src/render3d.rs` | 3D: `Camera3D`, `Mesh`, `Transform`, `Renderer`, and the CPU renderer |
 | `src/gpu.rs`      | The GPU renderer: wgpu setup, mesh cache, instancing, reading the picture back |
