@@ -65,6 +65,10 @@ name = "stress3d"
 test = true
 
 [[example]]
+name = "quickstart"
+test = true
+
+[[example]]
 name = "template"
 test = true
 

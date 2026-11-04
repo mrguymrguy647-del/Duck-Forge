@@ -14,6 +14,9 @@ can run, change and break.
   a camera, sound, text and collision helpers, each with a tiny game.
 - **Part 5** has exercises, from "change a number" to "write a new game".
 
+In a hurry to make something? [docs/QUICKSTART.md](docs/QUICKSTART.md)
+is one page with a complete small game. Come back here to understand it.
+
 Keep the source files open next to this guide. When you see a file like
 `src/canvas.rs`, open it and look at the real code.
 

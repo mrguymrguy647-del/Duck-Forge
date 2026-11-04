@@ -364,6 +364,13 @@ mod tests {
             ("docs/AI_GUIDE.md", include_str!("../docs/AI_GUIDE.md")),
             ("README.md", include_str!("../README.md")),
         ];
+        // The quick start mentions only a few flags, but they must exist.
+        for flag in flags_in(include_str!("../docs/QUICKSTART.md")) {
+            assert!(
+                OPTIONS.iter().any(|o| o.name == flag) || NOT_ENGINE_FLAGS.contains(&flag.as_str()),
+                "docs/QUICKSTART.md mentions {flag}, but the engine has no such option"
+            );
+        }
         let engine: Vec<&str> = OPTIONS.iter().map(|option| option.name).collect();
         let help = help();
         for (name, text) in docs {

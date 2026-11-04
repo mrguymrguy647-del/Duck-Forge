@@ -15,6 +15,10 @@ numbers.
 Games also run **without a screen**: on a cloud server, in a test, or for
 an AI that writes games and needs to see what they draw.
 
+**Quickest start: [docs/QUICKSTART.md](docs/QUICKSTART.md)**, one page:
+build, a complete 40-line game, the loop of running and checking it
+headless, and the five most common mistakes.
+
 **Starting a new game? Copy [examples/template.rs](examples/template.rs)**:
 a small, commented platformer with a sprite drawn in code, a camera that
 follows the player, jump and coin sounds, a see-through pause screen and

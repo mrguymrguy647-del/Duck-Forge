@@ -1,5 +1,8 @@
 # duckforge for AI assistants: building and testing games without a screen
 
+**New here? Read [QUICKSTART.md](QUICKSTART.md) first** (one page). This
+guide is the full reference: come back to it for details.
+
 This guide is for an AI assistant (or anyone) building games with duckforge
 on a machine with no screen, like a cloud Linux container. You can't watch
 the game, so the engine lets you **run it headless, look at pictures of

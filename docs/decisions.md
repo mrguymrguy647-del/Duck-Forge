@@ -996,3 +996,33 @@ bottom-left. The corner is a `Config` setting rather than a
 `HeadlessOptions` one because it depends on the game's layout, which is
 the same in a window and headless; one place to set it. Tests check each
 corner, that the box stays small, and that the game shows through it.
+
+## Step 2: A one-page quick start
+
+**One page, read first.** The AI guide is about 900 lines: right as a
+reference, too long to read before writing a first line of game.
+`docs/QUICKSTART.md` (about 120 lines) has only what's needed to make
+and check a game: what duckforge is, the two commands to build and run
+headless, the `Game` trait, a complete small game, the loop (write, run
+headless, read the summary and `log.json`, look at the sheet, write a
+play test, fix), the five mistakes that cost the most time, and where
+the details are. The README and the AI guide point to it in their first
+lines; the tutorial points to it too.
+
+**The game on the page can't rot.** It's `examples/quickstart.rs`, which
+Cargo compiles and whose play test runs with every `cargo test`. A test
+(`tests/quickstart.rs`) checks that the two code blocks on the page are
+exactly that file, and that the page stays about one page long. The
+flags test checks that every flag the page mentions exists.
+
+**Which five mistakes.** The ones that cost the most time in practice,
+not the most interesting: the missing `--` before game options, `is_down`
+where `was_pressed` was meant (now also a sound every frame), speeds
+without `ctx.dt()`, randomness or time from outside `ctx` (repeatability
+is what every other tool depends on), and drawing the HUD inside the
+camera. The rest are in the guide.
+
+**The game is ~40 lines, not 30.** `cargo fmt` puts each field and
+statement on its own line; squeezing it to 30 would mean either fewer
+features (no sound, no score) or unformatted code, and both teach the
+wrong thing.
