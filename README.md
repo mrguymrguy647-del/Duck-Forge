@@ -2,8 +2,8 @@
 
 A small game engine written in Rust, covering **2D graphics, 3D graphics
 (on the graphics card, or on the CPU) and physics**, plus six example
-programs. It was written to be read: about 7,500 lines of commented engine
-code, and 121 tests. [minifb](https://crates.io/crates/minifb) opens the
+programs. It was written to be read: about 8,800 lines of commented engine
+code, and 137 tests. [minifb](https://crates.io/crates/minifb) opens the
 window, [wgpu](https://wgpu.rs) talks to the graphics card and
 [png](https://crates.io/crates/png) saves pictures; everything else is
 written from scratch: drawing, text, both 3D renderers, the physics
@@ -79,7 +79,10 @@ cargo run --no-default-features --example breakout -- --headless --frames 600 --
   and `--seed` on the command line.
 - **Recording and replaying:** F10 records everything you do to a JSON
   input script, and `--inputs FILE` replays one exactly, in a window or
-  without one. The engine builds without any window
+  without one.
+- **Seeing a run:** numbered snapshots, a contact sheet of the whole run,
+  an animated GIF, enlarged close-ups, and `ctx.report("score", 12)` so a
+  game can describe itself in `log.json`. The engine builds without any window
   or graphics libraries (`--no-default-features`), for servers.
 
 ## Writing a game
@@ -207,6 +210,11 @@ after `--` goes to the game, not to Cargo):
 | `--out DIR` | Where `--headless` saves its files (default `duckforge-out`) |
 | `--seed N` | The random seed. Headless runs use seed 1 unless told otherwise, so they're repeatable |
 | `--inputs FILE` | Replay an input script, in a window or with `--headless` |
+| `--snapshot-every N` | Save frames N, 2N, 3N... as `frame-000060.png` and so on |
+| `--sheet` | Save `sheet.png`: 16 frames (or the snapshots) in a grid, labelled with frame numbers |
+| `--gif` | Save `run.gif`: the run, shrunk, at about 20 pictures per second |
+| `--crop X,Y,W,H` | Save `closeup.png`: that area of the last frame (and of each snapshot), enlarged |
+| `--zoom N` | How much close-ups are enlarged (default 4) |
 | `--record FILE` | In a window, record everything you do to FILE (F10 records too) |
 | `--help` | List the options |
 
@@ -237,6 +245,41 @@ plus the seed the game ran with, so people and programs can also write
 scripts by hand. [docs/input-format.md](docs/input-format.md) describes the
 format. In code, `InputScript::load`, `Simulation::follow` and
 `HeadlessOptions::inputs` do the same.
+
+### Seeing what happened
+
+A headless run always saves `last.png` and `log.json`. Add `--sheet` for
+the whole run on one page, and `--gif` to watch it:
+
+```sh
+cargo run --example breakout -- --headless --inputs playthroughs/breakout-win.json --sheet --gif --out win
+```
+
+<img src="docs/breakout-win-sheet.png" width="70%" alt="A contact sheet: sixteen frames of a winning game of Breakout, from the first serve to YOU WIN">
+
+Games can also describe themselves, which is much quicker to check than
+pixels. Breakout reports its score, lives, bricks left and state:
+
+```rust
+ctx.report("score", self.score);   // numbers, true/false, or text
+```
+
+`log.json` then has the final values, and a line for every frame on which
+one changed:
+
+```json
+"final": {"bricks_left": 0, "lives": 3, "score": 2100, "state": "Won"},
+"changes": [
+  {"frame": 1, "bricks_left": 60, "lives": 3, "score": 0, "state": "Serving"},
+  {"frame": 30, "state": "Playing"},
+  {"frame": 85, "bricks_left": 59, "score": 10},
+  {"frame": 188, "bricks_left": 58, "score": 20},
+  ...
+```
+
+`playthroughs/breakout-win.json` and `playthroughs/breakout-lose.json` are
+example input scripts: a perfect game, and one that loses all three lives.
+A small bot in Breakout's tests made them.
 
 ## Choosing a renderer, and benchmarking
 
@@ -313,6 +356,9 @@ higher.
 | `src/headless.rs` | `run_headless`: runs a game without a window and saves PNG pictures |
 | `src/cli.rs`      | The command-line options every game understands                    |
 | `src/script.rs`   | `InputScript`: recording and replaying inputs as JSON              |
+| `src/report.rs`   | `ctx.report`: values a game shares about itself                    |
+| `src/pictures.rs` | Contact sheets, GIFs and close-ups                                 |
+| `playthroughs/`   | Example input scripts: winning and losing a game of Breakout       |
 | `src/canvas.rs`   | Software renderer: pixels, 2D shapes, text, triangles, depth buffer, screenshots |
 | `src/render3d.rs` | 3D: `Camera3D`, `Mesh`, `Transform`, `Renderer`, and the CPU renderer |
 | `src/gpu.rs`      | The GPU renderer: wgpu setup, mesh cache, instancing, reading the picture back |

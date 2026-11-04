@@ -157,6 +157,7 @@ pub(crate) fn run<G: Game>(
 
     let renderer = renderer_from_env().unwrap_or(config.renderer);
     let mut sim = Simulation::start(&config, game, renderer);
+    sim.forget_report_log();
     if let Some(script) = script {
         sim.follow(script);
     }

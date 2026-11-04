@@ -17,6 +17,7 @@ gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 
 [dependencies]
 minifb = { version = "0.28", optional = true }
+gif = "0.14"
 png = "0.18"
 serde_json = "1"
 wgpu = { version = "30", optional = true }

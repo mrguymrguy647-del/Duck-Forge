@@ -5,12 +5,18 @@
 //! seconds of game time usually takes a fraction of a second. Pictures are
 //! drawn on the CPU, so no graphics card is needed, and saved as PNG files.
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use serde_json::Value;
+
+use crate::canvas::Canvas;
 use crate::cli::{self, Options};
-use crate::engine::{Config, Game};
+use crate::engine::{Config, Game, Timestep};
+use crate::pictures::{self, Crop, GifWriter};
+use crate::report;
 use crate::script::{self, InputScript};
 use crate::simulation::Simulation;
 
@@ -23,6 +29,7 @@ use crate::simulation::Simulation;
 /// let options = HeadlessOptions {
 ///     frames: 120,
 ///     out: Some("shots".into()),
+///     sheet: true,
 ///     ..HeadlessOptions::default()
 /// };
 /// ```
@@ -32,8 +39,10 @@ pub struct HeadlessOptions {
     /// default timestep). The run stops sooner if the game calls
     /// `ctx.quit()`.
     pub frames: u64,
-    /// The folder to save files in: `last.png`, the last frame. It's
-    /// created if it doesn't exist. `None` saves nothing.
+    /// The folder to save files in. It's created if it doesn't exist.
+    /// `None` saves nothing. Otherwise it always gets `last.png` (the last
+    /// frame) and `log.json` (what happened, and what the game reported),
+    /// plus whatever the options below ask for.
     pub out: Option<PathBuf>,
     /// The random seed. `None` uses the script's seed, or `Config::seed`,
     /// or if those are `None` too,
@@ -43,6 +52,22 @@ pub struct HeadlessOptions {
     /// Inputs to replay: a recorded playthrough, or one written by hand or
     /// by a program. `None` runs the game with nobody touching anything.
     pub inputs: Option<InputScript>,
+    /// Save frame N, 2N, 3N... as `frame-000060.png` and so on.
+    pub snapshot_every: Option<u64>,
+    /// Save `sheet.png`: many frames in a grid, each labelled with its frame
+    /// number. It shows the `snapshot_every` frames if that's set, or else
+    /// 16 frames spread evenly over the run.
+    pub sheet: bool,
+    /// Save `run.gif`: the whole run as an animated GIF, smaller and at
+    /// about 20 pictures per second, to watch anywhere, even on a phone.
+    pub gif: bool,
+    /// Also save an enlarged close-up of this part of the picture, for the
+    /// last frame (`closeup.png`) and each snapshot (`closeup-000060.png`).
+    pub crop: Option<Crop>,
+    /// How many times bigger a close-up is (each pixel becomes a
+    /// `zoom` x `zoom` square). With `zoom` above 1 and no `crop`, the
+    /// close-up is of the whole picture.
+    pub zoom: usize,
 }
 
 impl Default for HeadlessOptions {
@@ -52,44 +77,281 @@ impl Default for HeadlessOptions {
             out: None,
             seed: None,
             inputs: None,
+            snapshot_every: None,
+            sheet: false,
+            gif: false,
+            crop: None,
+            zoom: 1,
         }
     }
 }
 
+/// How many frames a sheet shows when there are no snapshots to show.
+const SHEET_FRAMES: usize = 16;
+/// The GIF aims for this many pictures per second of game time.
+const GIF_PICTURES_PER_SECOND: f64 = 20.0;
+/// ...but never more pictures than this, so long runs stay a sensible size.
+const GIF_MAX_PICTURES: u64 = 600;
+/// GIF pictures are shrunk to at most this wide.
+const GIF_MAX_WIDTH: usize = 200;
+
 /// Runs `game` for `options.frames` updates without a window, saves the
 /// files `options` asks for, and hands back the finished [`Simulation`], so
-/// you can look at the game, its last picture and more.
+/// you can look at the game, its last picture and what it reported.
 ///
 /// Every game can do this from the command line too, without any code:
 /// `cargo run --example breakout -- --headless --frames 600 --out shots`.
 ///
-/// Returns an error if the config is impossible or a file can't be saved.
+/// Returns an error if the config or options are impossible, or a file
+/// can't be saved.
 pub fn run_headless<G: Game>(
-    mut config: Config,
+    config: Config,
     game: G,
     options: &HeadlessOptions,
 ) -> Result<Simulation<G>, String> {
+    run_and_save(config, game, options).map(|(sim, _)| sim)
+}
+
+/// [`run_headless`], also returning the names of the files it saved.
+fn run_and_save<G: Game>(
+    mut config: Config,
+    game: G,
+    options: &HeadlessOptions,
+) -> Result<(Simulation<G>, Vec<String>), String> {
     config.check()?;
+    let close_up = match (options.crop, options.zoom) {
+        (Some(crop), zoom) => Some((crop, zoom.max(1))),
+        (None, zoom) if zoom > 1 => Some((
+            Crop {
+                x: 0,
+                y: 0,
+                width: config.width,
+                height: config.height,
+            },
+            zoom,
+        )),
+        (None, _) => None,
+    };
+    if let Some((crop, _)) = close_up {
+        crop.check(config.width, config.height)?;
+    }
+    if options.snapshot_every == Some(0) {
+        return Err(String::from("snapshot_every must be at least 1"));
+    }
     let script_seed = options.inputs.as_ref().and_then(|script| script.seed);
     config.seed = options.seed.or(script_seed).or(config.seed);
+    let updates_per_second = match config.timestep {
+        Timestep::Fixed { updates_per_second } => f64::from(updates_per_second.max(1)),
+        Timestep::RealTime => 1.0 / f64::from(config.step_time()),
+    };
+    let title = config.title.clone();
+    let (width, height) = (config.width, config.height);
+
     let mut sim = Simulation::new(config, game);
     if let Some(script) = &options.inputs {
         sim.follow(script.clone());
     }
-    sim.run(options.frames);
 
-    if let Some(folder) = &options.out {
-        fs::create_dir_all(folder)
-            .map_err(|err| format!("could not create the folder {}: {err}", folder.display()))?;
-        save_png(&mut sim, &folder.join("last.png"))?;
+    // Without a folder, there's nothing to save: just run.
+    let Some(folder) = &options.out else {
+        sim.run(options.frames);
+        return Ok((sim, Vec::new()));
+    };
+    fs::create_dir_all(folder)
+        .map_err(|err| format!("could not create the folder {}: {err}", folder.display()))?;
+    remove_old_files(folder);
+    let mut saved = Vec::new();
+
+    // Which frames go on the sheet.
+    let sheet_frames: BTreeSet<u64> = if !options.sheet {
+        BTreeSet::new()
+    } else if let Some(every) = options.snapshot_every {
+        let snapshots = options.frames / every;
+        let keep_every = snapshots.div_ceil(pictures::SHEET_MAX_FRAMES as u64).max(1);
+        (1..=snapshots)
+            .filter(|n| n % keep_every == 0)
+            .map(|n| n * every)
+            .collect()
+    } else {
+        pictures::spread_frames(options.frames, SHEET_FRAMES)
+            .into_iter()
+            .collect()
+    };
+    let mut sheet = Vec::new();
+
+    // The GIF: one picture every `gif_every` frames.
+    let gif_every = ((updates_per_second / GIF_PICTURES_PER_SECOND).round() as u64)
+        .max(options.frames.div_ceil(GIF_MAX_PICTURES))
+        .max(1);
+    let mut gif = if options.gif {
+        let factor = pictures::shrink_factor(width, GIF_MAX_WIDTH);
+        // GIF timing is in hundredths of a second, and most viewers treat
+        // anything under 2 as "as fast as possible".
+        let delay = ((gif_every as f64 * 100.0 / updates_per_second).round() as u16).max(2);
+        let path = folder.join("run.gif");
+        let writer = GifWriter::create(&path, width, height, factor, delay)
+            .map_err(|err| format!("could not save {}: {err}", path.display()))?;
+        saved.push(String::from("run.gif"));
+        Some(writer)
+    } else {
+        None
+    };
+
+    for _ in 0..options.frames {
+        if sim.quit_requested() {
+            break;
+        }
+        sim.step();
+        let frame = sim.context().frame();
+        if options
+            .snapshot_every
+            .is_some_and(|every| frame.is_multiple_of(every))
+        {
+            let name = format!("frame-{frame:06}.png");
+            save_png(sim.picture(), &folder.join(&name))?;
+            saved.push(name);
+            if let Some((crop, zoom)) = close_up {
+                let name = format!("closeup-{frame:06}.png");
+                save_png(
+                    &pictures::close_up(sim.picture(), crop, zoom),
+                    &folder.join(&name),
+                )?;
+                saved.push(name);
+            }
+        }
+        if sheet_frames.contains(&frame) {
+            sheet.push((frame, sim.picture().copy_picture()));
+        }
+        if let Some(gif) = &mut gif {
+            if (frame - 1).is_multiple_of(gif_every) {
+                gif.add(sim.picture())
+                    .map_err(|err| format!("could not add to run.gif: {err}"))?;
+            }
+        }
     }
-    Ok(sim)
+    drop(gif); // finishes the GIF file
+
+    let last = sim.context().frame();
+    save_png(sim.picture(), &folder.join("last.png"))?;
+    saved.push(String::from("last.png"));
+    if let Some((crop, zoom)) = close_up {
+        save_png(
+            &pictures::close_up(sim.picture(), crop, zoom),
+            &folder.join("closeup.png"),
+        )?;
+        saved.push(String::from("closeup.png"));
+    }
+    if options.sheet {
+        // Always end the sheet on the last frame, even if the game quit early.
+        if sheet.last().is_none_or(|(frame, _)| *frame != last) && last > 0 {
+            sheet.push((last, sim.picture().copy_picture()));
+        }
+        let picture = pictures::contact_sheet(&sheet, updates_per_second as f32);
+        save_png(&picture, &folder.join("sheet.png"))?;
+        saved.push(String::from("sheet.png"));
+    }
+    saved.push(String::from("log.json"));
+    let log = log_json(&title, &sim, updates_per_second, options, &saved);
+    let path = folder.join("log.json");
+    fs::write(&path, log).map_err(|err| format!("could not save {}: {err}", path.display()))?;
+    Ok((sim, saved))
 }
 
-fn save_png<G: Game>(sim: &mut Simulation<G>, path: &Path) -> Result<(), String> {
-    sim.picture()
+fn save_png(picture: &Canvas, path: &Path) -> Result<(), String> {
+    picture
         .save_png(path)
         .map_err(|err| format!("could not save {}: {err}", path.display()))
+}
+
+/// Deletes the files an earlier run left in `folder`, so old snapshots
+/// can't be mistaken for new ones. Only names this module writes are
+/// touched; anything else in the folder is left alone.
+fn remove_old_files(folder: &Path) {
+    let Ok(entries) = fs::read_dir(folder) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if is_our_file(&name) {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+}
+
+fn is_our_file(name: &str) -> bool {
+    let numbered = |prefix: &str| {
+        name.strip_prefix(prefix)
+            .and_then(|rest| rest.strip_suffix(".png"))
+            .is_some_and(|digits| digits.len() == 6 && digits.bytes().all(|b| b.is_ascii_digit()))
+    };
+    matches!(
+        name,
+        "last.png" | "closeup.png" | "sheet.png" | "run.gif" | "log.json"
+    ) || numbered("frame-")
+        || numbered("closeup-")
+}
+
+/// `log.json`: what was run, which files were saved, the game's reported
+/// values at the end, and every change to them, one line per frame.
+fn log_json<G: Game>(
+    title: &str,
+    sim: &Simulation<G>,
+    updates_per_second: f64,
+    options: &HeadlessOptions,
+    files: &[String],
+) -> String {
+    let ctx = sim.context();
+    let json = |value: Value| value.to_string();
+    let mut text = String::from("{\n");
+    text += &format!("  \"game\": {},\n", json(Value::from(title)));
+    text += &format!("  \"seed\": {},\n", sim.seed());
+    text += &format!(
+        "  \"updates_per_second\": {},\n",
+        report::ReportValue::from(updates_per_second)
+    );
+    text += &format!("  \"frames\": {},\n", ctx.frame());
+    text += &format!(
+        "  \"seconds\": {},\n",
+        json(Value::from(
+            (ctx.frame() as f64 / updates_per_second * 100.0).round() / 100.0
+        ))
+    );
+    text += &format!("  \"game_quit\": {},\n", sim.quit_requested());
+    if let Some(script) = &options.inputs {
+        let replayed = script
+            .events
+            .iter()
+            .filter(|event| event.frame <= ctx.frame())
+            .count();
+        text += &format!(
+            "  \"inputs\": {{\"events\": {}, \"replayed\": {replayed}}},\n",
+            script.events.len()
+        );
+    }
+    let files: Vec<Value> = files
+        .iter()
+        .map(|name| Value::from(name.as_str()))
+        .collect();
+    text += &format!(
+        "  \"files\": {},\n",
+        json(Value::from(files)).replace(',', ", ")
+    );
+    let last: Vec<String> = sim
+        .reports()
+        .map(|(name, value)| format!("{}: {}", json(Value::from(name)), value.to_json()))
+        .collect();
+    text += &format!("  \"final\": {{{}}},\n", last.join(", "));
+    text += "  \"changes\": [";
+    let changes = sim.report_log();
+    for (index, change) in changes.iter().enumerate() {
+        let comma = if index + 1 < changes.len() { "," } else { "" };
+        text += &format!("\n    {}{comma}", report::frame_json(change));
+    }
+    if !changes.is_empty() {
+        text += "\n  ";
+    }
+    text += "]\n}\n";
+    text
 }
 
 /// What `run` does with `--headless`: runs the game, then says what happened.
@@ -123,10 +385,18 @@ pub(crate) fn run_from_command_line<G: Game>(
         ),
         seed: options.seed,
         inputs,
+        snapshot_every: options.snapshot_every,
+        sheet: options.sheet,
+        gif: options.gif,
+        crop: options.crop,
+        // A crop is for looking closely, so it's enlarged unless asked otherwise.
+        zoom: options
+            .zoom
+            .unwrap_or(if options.crop.is_some() { 4 } else { 1 }),
     };
     let title = config.title.clone();
     let started = Instant::now();
-    let sim = run_headless(config, game, &headless)?;
+    let (sim, saved) = run_and_save(config, game, &headless)?;
     let seconds = started.elapsed().as_secs_f32();
 
     let ctx = sim.context();
@@ -153,7 +423,31 @@ pub(crate) fn run_from_command_line<G: Game>(
         );
     }
     if let Some(folder) = &headless.out {
-        println!("duckforge: saved {}", folder.join("last.png").display());
+        let snapshots = saved
+            .iter()
+            .filter(|name| name.starts_with("frame-"))
+            .count();
+        let mut listed: Vec<String> = saved
+            .iter()
+            .filter(|name| !name.starts_with("frame-") && !name.starts_with("closeup-0"))
+            .cloned()
+            .collect();
+        if snapshots > 0 {
+            listed.push(format!("{snapshots} snapshots (frame-NNNNNN.png)"));
+        }
+        println!(
+            "duckforge: saved in {}: {}",
+            folder.display(),
+            listed.join(", ")
+        );
+    }
+    let mut reported: Vec<String> = sim
+        .reports()
+        .map(|(name, value)| format!("{name} = {value}"))
+        .collect();
+    if !reported.is_empty() {
+        reported.truncate(12);
+        println!("duckforge: the game reported {}", reported.join(", "));
     }
     Ok(())
 }
@@ -308,5 +602,118 @@ mod tests {
         assert_eq!(sim.seed(), 9);
         let mut rng = crate::rng::Rng::new(9);
         assert_eq!(sim.game().first_number, Some(rng.next_f32()));
+    }
+
+    /// Like `Mover`, but reports where it is.
+    struct ReportingMover {
+        x: f32,
+    }
+
+    impl Game for ReportingMover {
+        fn update(&mut self, ctx: &mut Context) {
+            self.x += 1.0;
+            ctx.report("x", self.x);
+            ctx.report("far", self.x >= 10.0);
+        }
+
+        fn draw(&self, canvas: &mut Canvas) {
+            canvas.clear(Color::BLACK);
+            canvas.fill_rect(Rect::new(self.x, 0.0, 1.0, 1.0), Color::WHITE);
+        }
+    }
+
+    #[test]
+    fn every_kind_of_picture_and_the_log_are_saved() {
+        let folder = test_folder("headless-everything");
+        fs::create_dir_all(&folder).unwrap();
+        // Leftovers from an earlier run, and a file that isn't ours.
+        fs::write(folder.join("frame-000999.png"), "old").unwrap();
+        fs::write(folder.join("notes.txt"), "mine").unwrap();
+
+        let options = HeadlessOptions {
+            frames: 30,
+            out: Some(folder.clone()),
+            snapshot_every: Some(10),
+            sheet: true,
+            gif: true,
+            crop: Some(Crop {
+                x: 5,
+                y: 0,
+                width: 10,
+                height: 4,
+            }),
+            zoom: 3,
+            ..HeadlessOptions::default()
+        };
+        let sim = run_headless(config(), ReportingMover { x: 0.0 }, &options).unwrap();
+        assert_eq!(sim.reported("x").and_then(|x| x.as_number()), Some(30.0));
+
+        let mut names: Vec<String> = fs::read_dir(&folder)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(
+            names,
+            [
+                "closeup-000010.png",
+                "closeup-000020.png",
+                "closeup-000030.png",
+                "closeup.png",
+                "frame-000010.png",
+                "frame-000020.png",
+                "frame-000030.png",
+                "last.png",
+                "log.json",
+                "notes.txt",
+                "run.gif",
+                "sheet.png",
+            ]
+        );
+
+        // The close-up of frame 10: the square at x = 10 is pixel 5 of the
+        // crop, which becomes pixels 15..18 when enlarged 3 times.
+        let close_up = Canvas::load_png_for_tests(&folder.join("closeup-000010.png"));
+        assert_eq!((close_up.width(), close_up.height()), (30, 12));
+        assert_eq!(close_up.get_pixel(15, 0), Some(Color::WHITE));
+        assert_eq!(close_up.get_pixel(14, 0), Some(Color::BLACK));
+
+        let log: Value =
+            serde_json::from_str(&fs::read_to_string(folder.join("log.json")).unwrap()).unwrap();
+        assert_eq!(log["frames"], 30);
+        assert_eq!(log["updates_per_second"], 60);
+        assert_eq!(log["final"]["x"], 30);
+        assert_eq!(log["final"]["far"], true);
+        // "far" changes once, on frame 10; "x" every frame.
+        let changes = log["changes"].as_array().unwrap();
+        assert_eq!(changes.len(), 30);
+        assert_eq!(changes[9]["far"], true);
+        assert!(changes[10].get("far").is_none());
+        assert_eq!(log["files"].as_array().unwrap().len(), 11); // all but notes.txt
+    }
+
+    #[test]
+    fn our_files_are_recognised_by_name() {
+        assert!(is_our_file("frame-000060.png"));
+        assert!(is_our_file("closeup-123456.png"));
+        assert!(is_our_file("log.json"));
+        assert!(!is_our_file("frame-60.png"));
+        assert!(!is_our_file("frame-00006x.png"));
+        assert!(!is_our_file("holiday.png"));
+    }
+
+    #[test]
+    fn a_crop_outside_the_canvas_is_an_error_before_running() {
+        let options = HeadlessOptions {
+            crop: Some(Crop {
+                x: 60,
+                y: 0,
+                width: 10,
+                height: 1,
+            }),
+            ..HeadlessOptions::default()
+        };
+        let err = run_headless(config(), ReportingMover { x: 0.0 }, &options).err();
+        assert!(err.unwrap().contains("doesn't fit"));
     }
 }

@@ -46,11 +46,12 @@ Keep the source files open next to this guide. When you see a file like
   - [22. Same inputs, same game](#22-same-inputs-same-game)
   - [23. Running without a screen](#23-running-without-a-screen)
   - [24. Recording and replaying](#24-recording-and-replaying)
+  - [25. Seeing a whole game](#25-seeing-a-whole-game)
 - **Part 4: Your turn**
-  - [25. Exercises](#25-exercises)
-  - [26. Common compiler errors](#26-common-compiler-errors)
-  - [27. What a code review found](#27-what-a-code-review-found)
-  - [28. Where to go next](#28-where-to-go-next)
+  - [26. Exercises](#26-exercises)
+  - [27. Common compiler errors](#27-common-compiler-errors)
+  - [28. What a code review found](#28-what-a-code-review-found)
+  - [29. Where to go next](#29-where-to-go-next)
 
 ---
 
@@ -112,6 +113,8 @@ src/
   headless.rs       running a game without a window, saving pictures
   cli.rs            the command-line options every game understands
   script.rs         input scripts: recording and replaying what a player does
+  report.rs         values a game reports about itself (ctx.report)
+  pictures.rs       contact sheets, GIFs, close-ups
   canvas.rs         the pixel buffer: 2D drawing, triangles, the depth buffer
   font.rs           a tiny 3x5 pixel font
   input.rs          keyboard and mouse
@@ -511,7 +514,7 @@ added, and the slot's generation goes up by one. So an old id still points
 at the right slot, but its generation doesn't match any more, and looking
 it up finds nothing instead of the wrong body. This trick is called a
 *generational index*, and most game engines use it to name their objects.
-(Chapter 27 tells the story of the bug that led to it.)
+(Chapter 28 tells the story of the bug that led to it.)
 
 ## 5. Enums and pattern matching
 
@@ -1483,6 +1486,8 @@ you fix a bug, try writing a test that would have caught it.
 |               <- the ONLY file that knows minifb exists        |
 |  headless.rs  runs a game with no window, saves PNG pictures   |
 |  script.rs    input scripts: recordings you can replay         |
+|  report.rs    ctx.report: values a game shares about itself    |
+|  pictures.rs  contact sheets, GIFs and close-ups               |
 |                                                                |
 |  canvas.rs    pixels, 2D drawing, triangles, depth buffer      |
 |  font.rs      the pixel font that canvas.rs draws text with    |
@@ -1714,7 +1719,7 @@ a lot on 1960s hardware.
 Before stepping, the line is *clipped*: cut down to the part that's on the
 canvas (see `clip_line`). Without that, a line to a point far off-screen
 would step through millions of invisible pixels, and could even crash (see
-[chapter 27](#27-what-a-code-review-found)).
+[chapter 28](#28-what-a-code-review-found)).
 
 ### Triangles
 
@@ -2767,7 +2772,7 @@ and shifting right pulls the high bits back down. After a few rounds,
 changing one bit of the seed changes about half the bits of the result.
 Notice `wrapping_mul`: the multiplication overflows on purpose, and in a
 debug build a plain `*` would panic when it overflows
-([chapter 27](#27-what-a-code-review-found)). `wrapping_mul` says "wrap
+([chapter 28](#28-what-a-code-review-found)). `wrapping_mul` says "wrap
 around, that's what I want".
 
 A new test in `src/rng.rs` checks that the first numbers from seeds 1 to
@@ -3314,9 +3319,203 @@ frame of the replay and the screenshot were compared pixel by pixel:
 **0 differences**. Then the same recording was watched in a window:
 0 differences again.
 
+## 25. Seeing a whole game
+
+A headless run finishes in a fraction of a second, and then what? You
+need to see what happened, without watching the whole game. This chapter
+adds two ways: pictures (snapshots, a contact sheet, a GIF and close-ups)
+and words (values the game reports about itself).
+
+Try it with the winning playthrough that comes with the engine:
+
+```sh
+cargo run --example breakout -- --headless --inputs playthroughs/breakout-win.json --sheet --gif --out win
+```
+
+```text
+duckforge: ran "Breakout - duckforge" without a window for 3499 frames (58.3 s of game time) in 0.42 s, seed 7
+duckforge: replayed 901 of the 901 input events in playthroughs/breakout-win.json
+duckforge: saved in win: run.gif, last.png, sheet.png, log.json
+duckforge: the game reported bricks_left = 0, lives = 3, score = 2100, state = "Won"
+```
+
+`win/sheet.png` is the whole game on one page:
+
+![A contact sheet of a winning game of Breakout](docs/breakout-win-sheet.png)
+
+### Reports: the game describes itself
+
+Pixels are a slow way to find out the score. So a game can just say it:
+
+```rust
+ctx.report("score", self.score);
+ctx.report("lives", self.lives);
+ctx.report("bricks_left", self.bricks.len());
+ctx.report("state", format!("{:?}", self.state));
+```
+
+`report` takes the value as `impl Into<ReportValue>`, so it accepts a
+`u32`, a `usize`, an `f32`, a `bool`, a `&str` or a `String`. `ReportValue`
+is an enum:
+
+```rust
+pub enum ReportValue {
+    Number(f64),
+    Bool(bool),
+    Text(String),
+}
+```
+
+Each accepted type has a `From` implementation that says how to turn it
+into a `ReportValue`. That's ten nearly identical `impl` blocks for the
+whole-number types alone, so `src/report.rs` writes them with a **macro**:
+
+```rust
+macro_rules! from_whole_number {
+    ($($t:ty),*) => {
+        $(impl From<$t> for ReportValue {
+            fn from(n: $t) -> Self {
+                ReportValue::Number(n as f64)
+            }
+        })*
+    };
+}
+
+from_whole_number!(i8, i16, i32, i64, u8, u16, u32, u64, usize, isize);
+```
+
+`macro_rules!` matches the code you give it against a pattern and writes
+code in its place. `$t:ty` means "a type, called `$t`", `$(...),*` means
+"repeated, separated by commas", and the `$(...)*` in the output repeats
+the `impl` once per type. Macros are for exactly this kind of repetition,
+where a function can't help because the thing that varies is a type.
+
+### Logging only what changed
+
+Games report every frame, but writing every value every frame would bury
+the interesting parts. `ReportLog::record` keeps the latest value of each
+name in a `BTreeMap`, and logs a value only when it differs:
+
+```rust
+for (name, value) in reported {
+    if self.latest.get(&name) != Some(&value) {
+        self.latest.insert(name.clone(), value.clone());
+        changes.insert(name, value);
+    }
+}
+```
+
+A `BTreeMap` is like a `HashMap`, but keeps its keys sorted, so `log.json`
+always lists names alphabetically. Same input, same file, every time
+([chapter 22](#22-same-inputs-same-game) again). The losing playthrough's
+log reads like a story:
+
+```json
+"changes": [
+  {"frame": 1, "bricks_left": 60, "lives": 3, "score": 0, "state": "Serving"},
+  {"frame": 30, "state": "Playing"},
+  {"frame": 85, "bricks_left": 59, "score": 10},
+  {"frame": 149, "lives": 2, "state": "Serving"},
+  ...
+  {"frame": 436, "lives": 0, "state": "GameOver"}
+]
+```
+
+### Pictures from pixels
+
+All the picture code is in `src/pictures.rs`, and it's all loops over
+pixels, like chapter 14.
+
+**Shrinking** (for the GIF and big sheets) averages each block of pixels:
+for a factor of 2, each new pixel is the average of a 2 x 2 block. Simply
+keeping every other pixel would be faster, but a 1-pixel line would then
+vanish half the time.
+
+**Zooming** (for close-ups) goes the other way, and copies each pixel into
+a square: the new pixel at `(x, y)` is the old one at
+`(x / zoom, y / zoom)`. Integer division rounds down, so `zoom` neighbours
+in a row all read the same old pixel. No smoothing, on purpose: in a
+close-up you want to count pixels.
+
+**The contact sheet** is a canvas big enough for a grid of frames. Each
+frame is copied in with `blit` (a copy of one block of pixels into
+another, row by row, with `copy_from_slice`), and labelled with
+`draw_text`, the same function games use. Which frames? `spread_frames`
+picks 16 spread evenly over the run, always including the first and the
+last.
+
+**The GIF** uses the `gif` crate. One limit shapes it: each GIF picture
+can only have 256 colors. Breakout has fewer, so the crate uses them
+exactly. A 3D scene with smooth shading has thousands, so the crate picks
+the 256 that represent it best (with an algorithm called NeuQuant). To keep
+the file small, the GIF is shrunk to at most 200 pixels wide and keeps
+about 20 pictures per second.
+
+### Checking a crop without overflowing
+
+`--crop 100,50,40,30` must fit inside the canvas. The obvious check,
+`x + width <= canvas_width`, can itself overflow if someone types a huge
+number, and panic in a debug build. `checked_add` returns `None` instead
+of overflowing:
+
+```rust
+let fits = self.x.checked_add(self.width).is_some_and(|right| right <= width)
+    && self.y.checked_add(self.height).is_some_and(|bottom| bottom <= height);
+```
+
+`is_some_and` asks "is there a value, and does it pass this test?". A test
+tries a crop of width `18446744073709551615` (the biggest `usize`) to make
+sure it's refused politely.
+
+### A bot that plays Breakout
+
+The two playthroughs in `playthroughs/` were made by a small bot in
+Breakout's tests, which plays through a `Simulation`. Each frame it looks
+at the ball, works out where it will come down (following it along its
+path and bouncing it off the walls), moves the paddle there, and hits the
+ball a little off-center to aim at the lowest brick. Then
+`sim.recording()` saves what it did.
+
+The first version didn't compile:
+
+```rust
+let game = sim.game();      // borrows `sim`...
+match game.state {
+    State::Serving => sim.press(Key::Space), // ...but this changes it
+    // ...
+}
+```
+
+```text
+error[E0502]: cannot borrow `sim` as mutable because it is also borrowed as immutable
+```
+
+That's chapter 6's rule: `game` is a `&` borrow *into* `sim`, so while it's
+in use, nothing may change `sim`. Pressing a key could, in principle,
+change the game that `game` is looking at. The fix is to finish looking
+before starting to act: copy out what's needed first (the state, the
+paddle's position, where to go), then press keys.
+
+```rust
+// First look (this borrows `sim`), then act (which changes it).
+let game = sim.game();
+let state = game.state;
+let paddle = game.paddle.center().x;
+let target = /* worked out from `game` */;
+
+match state {
+    State::Serving => { /* sim.press(...) is fine now */ }
+    // ...
+}
+```
+
+The bot won a perfect game in 58 seconds of game time. Run
+`cargo test --example breakout -- --ignored make_playthroughs` to watch it
+make new ones (`#[ignore]` keeps a test out of normal `cargo test` runs).
+
 # Part 4: Your turn
 
-## 25. Exercises
+## 26. Exercises
 
 Do them in order. After each change, run the game and see what happened.
 When the compiler complains, **read the whole error message**: Rust's error
@@ -3437,7 +3636,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     to a ball body) across floating platforms, with the camera following
     it. Or 3D Breakout, with a `PhysicsWorld<Vec3>`.
 
-## 26. Common compiler errors
+## 27. Common compiler errors
 
 | Error    | Message (short)                                   | Usually means                                                 |
 |----------|---------------------------------------------------|---------------------------------------------------------------|
@@ -3452,7 +3651,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 For a long explanation of any error, run `rustc --explain E0502`.
 
-## 27. What a code review found
+## 28. What a code review found
 
 After the engine was built, it got a careful review: every file read line
 by line, looking for bugs, crashes and confusing code. It found about 20
@@ -3603,7 +3802,7 @@ Together, the renderer was back to its old speed, 79 to 81 FPS.
 
 **Lesson:** after fixing something, run the benchmark again.
 
-## 28. Where to go next
+## 29. Where to go next
 
 - **The Rust Programming Language** ("the Book"), free at
   <https://doc.rust-lang.org/book/>. The best way to learn Rust properly.

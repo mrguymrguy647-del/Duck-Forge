@@ -10,6 +10,7 @@ use crate::cli::{self, Options};
 use crate::headless;
 use crate::input::{Input, Key};
 use crate::render3d::Renderer;
+use crate::report::ReportValue;
 use crate::rng::Rng;
 
 /// What every game must provide. The engine calls both methods once per frame.
@@ -156,6 +157,8 @@ pub struct Context {
     width: usize,
     height: usize,
     quit_requested: bool,
+    /// What the game reported during this update.
+    reports: Vec<(String, ReportValue)>,
 }
 
 impl Context {
@@ -172,6 +175,7 @@ impl Context {
             width,
             height,
             quit_requested: false,
+            reports: Vec::new(),
         }
     }
 
@@ -225,6 +229,31 @@ impl Context {
     /// Ask the engine to close the window at the end of this frame.
     pub fn quit(&mut self) {
         self.quit_requested = true;
+    }
+
+    /// Shares a value about the game, like `ctx.report("score", self.score)`.
+    ///
+    /// Tests and headless runs can then check what happened without looking
+    /// at pixels: a headless run saves every change in `log.json`, and
+    /// [`Simulation::reported`](crate::Simulation::reported) gives the latest
+    /// value. In a window, reports are thrown away, so it's fine to report
+    /// every frame. Values can be numbers, `true`/`false` or text:
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// # fn example(ctx: &mut Context) {
+    /// ctx.report("score", 120);
+    /// ctx.report("game_over", false);
+    /// ctx.report("state", "Playing");
+    /// # }
+    /// ```
+    pub fn report(&mut self, name: &str, value: impl Into<ReportValue>) {
+        self.reports.push((name.to_string(), value.into()));
+    }
+
+    /// Hands over this update's reports and starts a fresh list.
+    pub(crate) fn take_reports(&mut self) -> Vec<(String, ReportValue)> {
+        std::mem::take(&mut self.reports)
     }
 
     pub(crate) fn quit_requested(&self) -> bool {

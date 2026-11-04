@@ -6,6 +6,8 @@
 
 use std::path::PathBuf;
 
+use crate::pictures::Crop;
+
 /// One option: its name, the name of its value (`None` for an on/off
 /// switch), and what it does.
 struct OptionInfo {
@@ -29,6 +31,31 @@ const OPTIONS: &[OptionInfo] = &[
         name: "--out",
         value: Some("DIR"),
         help: "the folder --headless saves its files in (default: duckforge-out)",
+    },
+    OptionInfo {
+        name: "--snapshot-every",
+        value: Some("N"),
+        help: "with --headless, save every Nth frame as frame-000060.png and so on",
+    },
+    OptionInfo {
+        name: "--sheet",
+        value: None,
+        help: "with --headless, save sheet.png: many frames in a grid, with frame numbers",
+    },
+    OptionInfo {
+        name: "--gif",
+        value: None,
+        help: "with --headless, save run.gif: the whole run as a small animated GIF",
+    },
+    OptionInfo {
+        name: "--crop",
+        value: Some("X,Y,W,H"),
+        help: "with --headless, also save an enlarged close-up of this area (closeup.png)",
+    },
+    OptionInfo {
+        name: "--zoom",
+        value: Some("N"),
+        help: "how many times bigger close-ups are (default 4 with --crop)",
     },
     OptionInfo {
         name: "--inputs",
@@ -65,6 +92,11 @@ pub(crate) struct Options {
     pub seed: Option<u32>,
     pub inputs: Option<PathBuf>,
     pub record: Option<PathBuf>,
+    pub snapshot_every: Option<u64>,
+    pub sheet: bool,
+    pub gif: bool,
+    pub crop: Option<Crop>,
+    pub zoom: Option<usize>,
 }
 
 impl Options {
@@ -93,6 +125,28 @@ impl Options {
                 }
                 "--out" => options.out = Some(PathBuf::from(value)),
                 "--inputs" => options.inputs = Some(PathBuf::from(value)),
+                "--sheet" => options.sheet = true,
+                "--gif" => options.gif = true,
+                "--crop" => options.crop = Some(Crop::parse(value)?),
+                "--snapshot-every" => {
+                    let every = value.parse().map_err(|_| {
+                        format!("--snapshot-every needs a whole number, not {value:?}")
+                    })?;
+                    if every == 0 {
+                        return Err(String::from("--snapshot-every must be at least 1"));
+                    }
+                    options.snapshot_every = Some(every);
+                }
+                "--zoom" => {
+                    let zoom = value
+                        .parse()
+                        .ok()
+                        .filter(|zoom| (1..=32).contains(zoom))
+                        .ok_or_else(|| {
+                            format!("--zoom needs a whole number from 1 to 32, not {value:?}")
+                        })?;
+                    options.zoom = Some(zoom);
+                }
                 "--record" => options.record = Some(PathBuf::from(value)),
                 "--seed" => {
                     let seed = value.parse().map_err(|_| {
@@ -103,10 +157,20 @@ impl Options {
                 _ => unreachable!("try_split only returns known options"),
             }
         }
-        if options.out.is_some() && !options.headless {
-            return Err(String::from(
-                "--out only works with --headless (a window doesn't save files)",
-            ));
+        let saves_files = [
+            ("--out", options.out.is_some()),
+            ("--snapshot-every", options.snapshot_every.is_some()),
+            ("--sheet", options.sheet),
+            ("--gif", options.gif),
+            ("--crop", options.crop.is_some()),
+            ("--zoom", options.zoom.is_some()),
+        ];
+        if let Some((name, _)) = saves_files.iter().find(|(_, used)| *used) {
+            if !options.headless {
+                return Err(format!(
+                    "{name} only works with --headless (a window doesn't save files)"
+                ));
+            }
         }
         if options.record.is_some() && options.headless {
             return Err(String::from(
@@ -261,6 +325,33 @@ mod tests {
         );
         let error = parse("--headless --record r.json").unwrap_err();
         assert!(error.contains("only works in a window"));
+        assert!(
+            parse("--sheet")
+                .unwrap_err()
+                .contains("only works with --headless")
+        );
+        assert!(
+            parse("--headless --crop 1,2,3")
+                .unwrap_err()
+                .contains("x,y,w,h")
+        );
+        assert!(
+            parse("--headless --zoom 0")
+                .unwrap_err()
+                .contains("1 to 32")
+        );
+        assert!(
+            parse("--headless --snapshot-every 0")
+                .unwrap_err()
+                .contains("at least 1")
+        );
+        let pictures =
+            parse("--headless --snapshot-every 60 --sheet --gif --crop 1,2,3,4 --zoom 8");
+        let pictures = pictures.unwrap();
+        assert_eq!(pictures.snapshot_every, Some(60));
+        assert!(pictures.sheet && pictures.gif);
+        assert_eq!(pictures.crop.map(|crop| crop.width), Some(3));
+        assert_eq!(pictures.zoom, Some(8));
         let replay = parse("--inputs win.json --record again.json").unwrap();
         assert_eq!(replay.inputs, Some(PathBuf::from("win.json")));
         assert_eq!(replay.record, Some(PathBuf::from("again.json")));

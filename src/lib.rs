@@ -39,7 +39,9 @@ pub mod headless;
 pub mod input;
 pub mod math;
 pub mod physics;
+pub mod pictures;
 pub mod render3d;
+pub mod report;
 pub mod rng;
 pub mod script;
 pub mod simulation;
@@ -52,6 +54,8 @@ mod font;
 pub use cli::game_args;
 pub use engine::run;
 pub use headless::{HeadlessOptions, run_headless};
+pub use pictures::Crop;
+pub use report::ReportValue;
 pub use script::{InputAction, InputEvent, InputScript};
 pub use simulation::Simulation;
 

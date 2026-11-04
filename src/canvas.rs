@@ -368,6 +368,35 @@ impl Canvas {
         (longest * font::ADVANCE - 1) as f32 * scale as f32
     }
 
+    /// A new canvas holding the same picture. (The copy draws 3D on the CPU.)
+    pub(crate) fn copy_picture(&self) -> Canvas {
+        Canvas::from_pixels(self.width, self.height, self.pixels.clone())
+    }
+
+    /// A canvas made from `pixels`, row by row.
+    ///
+    /// # Panics
+    ///
+    /// If there aren't exactly `width * height` pixels.
+    pub(crate) fn from_pixels(width: usize, height: usize, pixels: Vec<u32>) -> Canvas {
+        assert_eq!(pixels.len(), width * height, "wrong number of pixels");
+        let mut canvas = Canvas::new(width, height);
+        canvas.pixels = pixels;
+        canvas
+    }
+
+    /// Copies `other` onto this canvas with its top-left corner at
+    /// (`left`, `top`). Whatever doesn't fit is cut off.
+    pub(crate) fn blit(&mut self, other: &Canvas, left: usize, top: usize) {
+        self.flush_3d();
+        let width = other.width.min(self.width.saturating_sub(left));
+        for y in 0..other.height.min(self.height.saturating_sub(top)) {
+            let from = y * other.width;
+            let to = (top + y) * self.width + left;
+            self.pixels[to..to + width].copy_from_slice(&other.pixels[from..from + width]);
+        }
+    }
+
     /// Saves the canvas as a `.png` image. PNG files are much smaller than
     /// BMP (they're compressed, without losing anything), and every phone,
     /// browser and image viewer can show them.
@@ -723,5 +752,20 @@ mod tests {
         let mut bytes = Vec::new();
         let err = Canvas::new(0, 4).write_png(&mut bytes).unwrap_err();
         assert!(err.to_string().contains("at least 1 x 1"));
+    }
+
+    #[test]
+    fn blit_copies_and_clips() {
+        let mut small = Canvas::new(3, 2);
+        small.clear(Color::RED);
+        let mut big = Canvas::new(5, 4);
+        big.blit(&small, 3, 3); // only 2 x 1 of it fits
+        assert_eq!(big.get_pixel(3, 3), Some(Color::RED));
+        assert_eq!(big.get_pixel(4, 3), Some(Color::RED));
+        assert_eq!(big.get_pixel(2, 3), Some(Color::BLACK));
+        assert_eq!(big.get_pixel(3, 2), Some(Color::BLACK));
+        let copy = big.copy_picture();
+        assert_eq!(copy.pixels(), big.pixels());
+        big.blit(&small, 10, 10); // entirely outside: nothing happens
     }
 }

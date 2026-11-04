@@ -1,0 +1,18 @@
+{
+  "duckforge_inputs": 1,
+  "seed": 7,
+  "updates_per_second": 60,
+  "frames": 526,
+  "events": [
+    {"frame": 30, "press": "Space"},
+    {"frame": 31, "press": "Left"},
+    {"frame": 150, "release": "Space"},
+    {"frame": 150, "release": "Left"},
+    {"frame": 180, "press": "Space"},
+    {"frame": 181, "press": "Right"},
+    {"frame": 287, "release": "Space"},
+    {"frame": 287, "release": "Right"},
+    {"frame": 317, "press": "Space"},
+    {"frame": 318, "press": "Left"}
+  ]
+}

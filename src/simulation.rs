@@ -10,6 +10,7 @@ use crate::engine::{Config, Context, Game, Timestep};
 use crate::input::{Key, MouseButton};
 use crate::math::Vec2;
 use crate::render3d::Renderer;
+use crate::report::{FrameReport, ReportLog, ReportValue};
 use crate::script::{InputAction, InputEvent, InputScript};
 
 /// Keys the engine itself uses in a window (FPS counter, recording,
@@ -80,6 +81,8 @@ pub struct Simulation<G> {
     history: Vec<InputEvent>,
     /// A script being replayed, and how many of its events are done.
     script: Option<(InputScript, usize)>,
+    /// What the game has reported with `ctx.report`.
+    reports: ReportLog,
 }
 
 impl<G: Game> Simulation<G> {
@@ -121,6 +124,10 @@ impl<G: Game> Simulation<G> {
             },
             history: Vec::new(),
             script: None,
+            reports: ReportLog {
+                keep_changes: true,
+                ..ReportLog::default()
+            },
         }
     }
 
@@ -152,6 +159,8 @@ impl<G: Game> Simulation<G> {
             .update_mouse(self.mouse_position, buttons, self.scroll);
         self.scroll = 0.0;
         self.game.update(&mut self.ctx);
+        let reported = self.ctx.take_reports();
+        self.reports.record(self.ctx.frame(), reported);
     }
 
     // ---- Input. Each change is seen by the game at the next step. ----
@@ -350,6 +359,38 @@ impl<G: Game> Simulation<G> {
     /// The seed the random numbers came from.
     pub fn seed(&self) -> u32 {
         self.seed
+    }
+
+    /// The latest value the game reported under `name` with
+    /// [`Context::report`], or `None` if it never did.
+    pub fn reported(&self, name: &str) -> Option<&ReportValue> {
+        self.reports.latest.get(name)
+    }
+
+    /// The value `name` had at the end of `frame`.
+    pub fn reported_at(&self, frame: u64, name: &str) -> Option<&ReportValue> {
+        self.reports.value_at(frame, name)
+    }
+
+    /// Every reported value: the name and its latest value, in alphabetical order.
+    pub fn reports(&self) -> impl Iterator<Item = (&str, &ReportValue)> {
+        self.reports
+            .latest
+            .iter()
+            .map(|(name, value)| (name.as_str(), value))
+    }
+
+    /// When each reported value changed: one entry per frame where
+    /// something changed, oldest first.
+    pub fn report_log(&self) -> &[FrameReport] {
+        &self.reports.changes
+    }
+
+    /// Stops keeping the log of changes (a window running for hours doesn't need it).
+    #[cfg_attr(not(feature = "window"), allow(dead_code))] // only the window uses it
+    pub(crate) fn forget_report_log(&mut self) {
+        self.reports.keep_changes = false;
+        self.reports.changes.clear();
     }
 
     /// Has the game called [`Context::quit`]?
@@ -649,6 +690,41 @@ mod tests {
         assert_eq!((sim.game().presses, sim.game().held_frames), (1, 1));
         sim.run(5);
         assert_eq!(sim.game().held_frames, 1);
+    }
+
+    #[test]
+    fn reports_are_remembered() {
+        struct Scorer {
+            score: u32,
+        }
+        impl Game for Scorer {
+            fn update(&mut self, ctx: &mut Context) {
+                if ctx.frame().is_multiple_of(10) {
+                    self.score += 1;
+                }
+                ctx.report("score", self.score);
+                ctx.report("frame_is_even", ctx.frame().is_multiple_of(2));
+            }
+            fn draw(&self, _: &mut Canvas) {}
+        }
+        let mut sim = Simulation::new(config(), Scorer { score: 0 });
+        assert_eq!(sim.reported("score"), None);
+        sim.run(25);
+        assert_eq!(sim.reported("score"), Some(&ReportValue::Number(2.0)));
+        assert_eq!(
+            sim.reported_at(15, "score"),
+            Some(&ReportValue::Number(1.0))
+        );
+        let names: Vec<&str> = sim.reports().map(|(name, _)| name).collect();
+        assert_eq!(names, ["frame_is_even", "score"]);
+        // `frame_is_even` changes every frame, `score` only three times.
+        assert_eq!(sim.report_log().len(), 25);
+        let score_changes = sim
+            .report_log()
+            .iter()
+            .filter(|report| report.changes.contains_key("score"))
+            .count();
+        assert_eq!(score_changes, 3);
     }
 
     #[test]

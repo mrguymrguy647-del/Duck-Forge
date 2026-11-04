@@ -311,6 +311,12 @@ impl Game for Breakout {
         if self.state != State::Paused {
             self.update_particles(ctx.dt());
         }
+
+        // Tell tests and headless runs how the game is going (see log.json).
+        ctx.report("score", self.score);
+        ctx.report("lives", self.lives);
+        ctx.report("bricks_left", self.bricks.len());
+        ctx.report("state", format!("{:?}", self.state));
     }
 
     fn draw(&self, canvas: &mut Canvas) {
@@ -398,5 +404,117 @@ mod tests {
         // The serve angle is random, so another seed sends the ball elsewhere.
         let differ = pixels_that_differ(play(7).picture(), play(8).picture());
         assert!(differ > 0);
+    }
+
+    // ---- A bot that plays by itself, to make the example playthroughs ----
+
+    /// Plays a whole game of Breakout by looking at the ball and steering
+    /// the paddle, the way a careful player would. With `to_win`, it tries
+    /// to catch every ball and aim at the bricks that are left; otherwise
+    /// it moves away from the ball, to lose. Returns the finished simulation:
+    /// `sim.recording()` is the playthrough as an input script.
+    fn bot_play(seed: u32, to_win: bool) -> Simulation<Breakout> {
+        let config = Config {
+            seed: Some(seed),
+            ..config()
+        };
+        let mut sim = Simulation::new(config, Breakout::new());
+        let mut serve_wait = 0;
+        while sim.context().frame() < 60 * 60 * 10 {
+            // First look (this borrows `sim`), then act (which changes it).
+            let game = sim.game();
+            let state = game.state;
+            let paddle = game.paddle.center().x;
+            let target = match state {
+                State::Playing | State::Paused if to_win => Some(winning_spot(game)),
+                State::Playing | State::Paused => {
+                    // Stay away from the ball.
+                    let ball = game.ball.center().x;
+                    Some(if ball < WIDTH / 2.0 { WIDTH } else { 0.0 })
+                }
+                _ => None,
+            };
+
+            match state {
+                State::GameOver | State::Won => break,
+                State::Serving => {
+                    // Wait half a second, then tap Space.
+                    serve_wait += 1;
+                    if serve_wait == 30 {
+                        sim.press(Key::Space);
+                    } else if serve_wait > 30 {
+                        sim.release(Key::Space);
+                        serve_wait = 0;
+                    }
+                }
+                _ => {}
+            }
+            let (left, right) = match target {
+                Some(x) if x < paddle - 2.0 => (true, false),
+                Some(x) if x > paddle + 2.0 => (false, true),
+                _ => (false, false),
+            };
+            for (key, held) in [(Key::Left, left), (Key::Right, right)] {
+                if held {
+                    sim.press(key);
+                } else {
+                    sim.release(key);
+                }
+            }
+            sim.step();
+        }
+        sim.run(90); // a moment to see how it ended
+        sim
+    }
+
+    /// Where the paddle's center should go: under the spot where the ball
+    /// will come down, a little to one side, so the ball bounces off towards
+    /// the bricks that are left.
+    fn winning_spot(game: &Breakout) -> f32 {
+        let ball = game.ball.center();
+        let velocity = game.ball_velocity;
+        if velocity.y <= 0.0 {
+            return ball.x; // going up: just follow it
+        }
+        // Follow the ball down to the paddle, bouncing off the side walls.
+        let time = (game.paddle.top() - BALL_SIZE / 2.0 - ball.y) / velocity.y;
+        let (low, high) = (BALL_SIZE / 2.0, WIDTH - BALL_SIZE / 2.0);
+        let span = high - low;
+        let mut x = (ball.x + velocity.x * time - low).rem_euclid(2.0 * span);
+        if x > span {
+            x = 2.0 * span - x;
+        }
+        let landing = low + x;
+        // Hitting the ball with the paddle's right side sends it left, and
+        // the other way round. Aim at the lowest brick, which is the
+        // easiest to reach.
+        let aim = game
+            .bricks
+            .iter()
+            .max_by(|a, b| a.rect.y.total_cmp(&b.rect.y))
+            .map_or(WIDTH / 2.0, |brick| brick.rect.center().x);
+        landing + ((landing - aim) * 0.15).clamp(-PADDLE_WIDTH * 0.4, PADDLE_WIDTH * 0.4)
+    }
+
+    /// Writes the bot's games to `playthroughs/`. Run it again if Breakout changes:
+    /// `cargo test --example breakout -- --ignored make_playthroughs`
+    #[test]
+    #[ignore]
+    fn make_playthroughs() {
+        let win = bot_play(7, true);
+        assert_eq!(win.game().state, State::Won, "the bot didn't win");
+        win.recording()
+            .save("playthroughs/breakout-win.json")
+            .unwrap();
+        let lose = bot_play(7, false);
+        assert_eq!(lose.game().state, State::GameOver);
+        lose.recording()
+            .save("playthroughs/breakout-lose.json")
+            .unwrap();
+        println!(
+            "won in {} frames, lost in {} frames",
+            win.context().frame(),
+            lose.context().frame()
+        );
     }
 }

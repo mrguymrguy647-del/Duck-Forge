@@ -218,3 +218,73 @@ playthrough because you closed the window would be painful.
 display), took a screenshot, then replayed the recording without a window:
 the last frame was identical, pixel for pixel. Watching the same recording
 in a window gave the same picture again.
+
+## Step 4: Seeing the game
+
+The goal: after a headless run, a person or an AI can quickly see what
+happened, from pictures or from numbers, without watching the whole game.
+
+**Five kinds of pictures, each for a different question.**
+`last.png` answers "how did it end?". `--snapshot-every N` gives numbered
+frames for "what happened around frame 300?". `--sheet` puts many frames
+in one grid for "what happened over the whole run?", which is the quickest
+way to spot a game that froze, a ball that flew off, or a level that never
+changed. `--gif` is for "does it *move* right?", and plays on a phone.
+`--crop` with `--zoom` answers "exactly which pixels are lit here?".
+
+**The sheet shows 16 frames spread evenly, or the snapshots.** Sixteen
+frames in a 4 x 4 grid fit comfortably on one screen. With
+`--snapshot-every`, the sheet shows those frames instead, so the sheet and
+the files match. It always ends on the last frame, even when the game
+quit early. Above 64 frames, the sheet skips some, because cells would get
+too small to read.
+
+**Labels say the frame and the time.** "FRAME 600  10.0S", drawn with the
+engine's own pixel font. The frame number is what scripts and logs use;
+the time is what people think in.
+
+**The GIF is shrunk and slowed to about 20 pictures a second.** A full-size
+60-frames-a-second GIF of 10 seconds of Breakout would be several
+megabytes. Shrinking to at most 200 pixels wide and keeping every third
+frame gives about 400 KB that still shows the motion. Shrinking averages
+each block of pixels, so thin lines fade rather than vanish. Long runs keep
+their real speed but get choppier: at most 600 pictures.
+
+**Close-ups enlarge by copying pixels, with no smoothing.** Each pixel
+becomes a sharp `zoom` x `zoom` square, so you can count pixels: is the
+ball touching the paddle, or one pixel above it? `--crop` without
+`--zoom` enlarges 4 times; `--zoom` without `--crop` enlarges the whole
+picture.
+
+**`ctx.report("score", 12)`: games say what's going on, in words.**
+Pixels are a slow way to learn the score. A game can report numbers,
+yes/no values or text, and a headless run saves them in `log.json`.
+In a window, reports are thrown away, so games can simply report every
+frame.
+
+**The log keeps only changes.** If a game reports its score every frame,
+600 frames would mean 600 copies of the same number. `log.json` lists a
+value only on the frames where it changed, so a whole game of Breakout
+reads like a story in ten lines: launched on frame 30, brick on frame 85,
+life lost on frame 149... It also has `final`, the last value of
+everything, which is usually what a test wants.
+
+**`log.json` also says what was run.** Game, seed, frames, whether the
+game quit, how many inputs were replayed, and which files were saved, so
+the folder explains itself.
+
+**Old files are removed, but only ours.** If a run with
+`--snapshot-every 10` is followed by one with `--snapshot-every 60`, the
+old `frame-000010.png` would still be there, and look like part of the new
+run. So each run deletes the files it would make (`frame-NNNNNN.png`,
+`sheet.png` and so on) before starting. Any other file in the folder is
+left alone.
+
+**The example playthroughs were made by a bot.** `playthroughs/breakout-win.json`
+and `breakout-lose.json` were recorded by a small program in Breakout's
+tests that plays through `Simulation`: it predicts where the ball will
+come down, moves the paddle there, and hits the ball off-center to aim at
+the lowest brick left (or, to lose, it moves away from the ball). It won a
+perfect game in 58 seconds. Run
+`cargo test --example breakout -- --ignored make_playthroughs` to make new
+ones if Breakout changes.
