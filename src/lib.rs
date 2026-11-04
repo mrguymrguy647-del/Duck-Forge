@@ -74,7 +74,10 @@ pub mod prelude {
     pub use crate::color::Color;
     pub use crate::engine::{Config, Context, Game, Timestep};
     pub use crate::input::{Input, Key, MouseButton};
-    pub use crate::math::{Rect, Vec2, Vec3, vec2, vec3};
+    pub use crate::math::{
+        Hit, Rect, Vec2, Vec3, approach, circle_vs_circle, circle_vs_rect, remap, swept_aabb, vec2,
+        vec3,
+    };
     pub use crate::playtest::PlayTest;
     pub use crate::render3d::{Camera3D, Mesh, Renderer, Transform};
     pub use crate::report::ReportValue;

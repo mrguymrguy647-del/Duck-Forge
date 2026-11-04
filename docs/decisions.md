@@ -744,3 +744,65 @@ to the next.
 line at `'\n'` (and ignored the `'\r'` of Windows line endings), and
 `text_width` already measured the widest line. Now the docs say so, and
 `draw_text` uses `line_height` itself, so the two can't disagree.
+
+## Step 6: Small helpers and hooks
+
+**Optional hooks are default methods.** `Game::init` and `Game::resize`
+have empty bodies in the trait, so every existing game compiles
+unchanged and only games that want them write them. A test game that
+writes neither still runs (tested).
+
+**`init` runs inside the first step, just before the first `update`.**
+Not in `Simulation::new`, because then a test couldn't set things up
+(press a key, follow a script) before the game starts. `ctx.frame()` is
+0 during `init`, and anything it reports or plays is recorded as frame 1,
+so logs and play tests never see a "frame 0".
+
+**`resize` needed a canvas that can change size.** Until now the window
+stretched a fixed-size canvas, so there was nothing to resize. A new
+`Config::resizable` (off by default, so old games look the same) makes
+the canvas follow the window, `scale` window pixels per canvas pixel, and
+tells the game. A minimized window (size 0) is ignored rather than
+shrinking the canvas to 1 x 1. Headless runs never resize by themselves;
+`Simulation::resize(w, h)` does it in tests. The mouse is mapped to the
+current canvas size, not the starting one. Replays don't record window
+resizes: a replay runs at the configured size. Adding a field to
+`Config` would break code that lists every field without
+`..Config::default()`, but every example, test and doc uses
+`..Config::default()`, so in practice nothing broke.
+
+**Collision helpers follow `overlaps`: touching doesn't count.** So
+`circle_vs_circle` of two circles exactly touching, `circle_vs_rect` of a
+circle resting on a box, and `intersection` of two boxes sharing an edge
+are all "no". One rule for every check.
+
+**`swept_aabb(rect, movement, other)` takes this frame's movement, not a
+speed.** Then the result's `time` is simply "how far through the move",
+0 to 1, and `rect.x + movement.x * hit.time` is where to stop. It uses
+the "slab" method: for each axis, find the fractions of the move at which
+the boxes start and stop overlapping on that axis; they collide where
+both axes overlap at once. The normal is the axis that lined up last.
+Two corner cases are decided on purpose: boxes that start already
+overlapping hit at time 0 with the normal pointing the shortest way out
+(so a game can push them apart), and a box sliding along another's edge
+doesn't hit (so a player can walk along the top of a platform). Pressing
+*into* an edge it's touching is a hit at time 0. A test shows the reason
+it exists: a bullet moving 1000 pixels a frame past a 1-pixel wall,
+where checking the end position finds nothing.
+
+**`approach` and `remap` are the two numbers helpers games kept
+rewriting.** `approach` never overshoots and treats a negative step as
+positive, so acceleration and countdowns can't oscillate. `remap` isn't
+clamped (clamping is one `.clamp()` away, and un-clamping isn't), and an
+empty source range returns the start of the target instead of dividing
+by zero. `remap` takes ranges as tuples, `(0.0, 100.0)`, rather than
+`0.0..100.0`, because a Rust range means "end excluded" and remapping
+includes both ends.
+
+**Each helper has a doc comment with an example that runs as a test,**
+so the examples can't go stale.
+
+**Units are now written down.** 2D is in pixels with y down (gravity
+about 500 to 1000 px/s² on a 320 x 240 canvas); 3D is in metres with y up
+(gravity 9.8, a person 1.8 tall). It's in the physics module's docs, the
+README, the AI guide's quick facts and the tutorial.

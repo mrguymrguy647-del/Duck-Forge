@@ -91,6 +91,10 @@ pub struct Simulation<G> {
     keep_sounds: bool,
     /// How many of `sounds` have been handed to the speakers.
     sounds_sent: usize,
+    /// Whether the game's `init` has run.
+    initialized: bool,
+    /// What draws 3D, for a new canvas after a resize.
+    renderer: Renderer,
 }
 
 impl<G: Game> Simulation<G> {
@@ -139,6 +143,8 @@ impl<G: Game> Simulation<G> {
             sounds: Vec::new(),
             keep_sounds: true,
             sounds_sent: 0,
+            initialized: false,
+            renderer,
         }
     }
 
@@ -162,6 +168,10 @@ impl<G: Game> Simulation<G> {
 
     /// One update that moves the game forward by `dt` seconds.
     pub(crate) fn step_by(&mut self, dt: f32) {
+        if !self.initialized {
+            self.initialized = true;
+            self.game.init(&mut self.ctx);
+        }
         self.apply_script_events();
         self.ctx.begin_frame(dt, self.keys_down.iter().copied());
         let buttons = self.mouse_buttons_down.iter().copied();
@@ -516,6 +526,24 @@ impl<G: Game> Simulation<G> {
         self.reports.changes.clear();
     }
 
+    /// Changes the canvas to `width` x `height` pixels and calls the game's
+    /// [`Game::resize`], as if the player had resized a
+    /// [`resizable`](Config::resizable) window. For testing how a game
+    /// handles a new size. Sizes below 1 become 1; the same size as now
+    /// does nothing.
+    pub fn resize(&mut self, width: usize, height: usize) {
+        let (width, height) = (width.max(1), height.max(1));
+        if (width, height) == (self.canvas.width(), self.canvas.height()) {
+            return;
+        }
+        let mut canvas = Canvas::new(width, height);
+        canvas.set_renderer(self.renderer);
+        self.canvas = canvas;
+        self.drawn_frame = None;
+        self.ctx.set_size(width, height);
+        self.game.resize(&mut self.ctx, width as f32, height as f32);
+    }
+
     /// Every sound the game played, oldest first, each with its `frame`
     /// and `name`.
     pub fn sounds(&self) -> &[PlayedSound] {
@@ -635,6 +663,88 @@ mod tests {
     use crate::color::Color;
     use crate::engine::Timestep;
     use crate::math::vec2;
+
+    /// A game that writes down when its hooks run.
+    #[derive(Default)]
+    struct Hooks {
+        log: Vec<String>,
+    }
+
+    impl Game for Hooks {
+        fn init(&mut self, ctx: &mut Context) {
+            self.log.push(format!(
+                "init {} {}x{}",
+                ctx.frame(),
+                ctx.width(),
+                ctx.height()
+            ));
+            ctx.report("started", true);
+        }
+
+        fn resize(&mut self, ctx: &mut Context, width: f32, height: f32) {
+            self.log
+                .push(format!("resize {width}x{height} {}", ctx.width()));
+        }
+
+        fn update(&mut self, ctx: &mut Context) {
+            self.log.push(format!("update {}", ctx.frame()));
+        }
+
+        fn draw(&self, canvas: &mut Canvas) {
+            canvas.clear(Color::BLUE);
+        }
+    }
+
+    #[test]
+    fn init_runs_once_before_the_first_update() {
+        let mut sim = Simulation::new(Config::default(), Hooks::default());
+        assert!(
+            sim.game().log.is_empty(),
+            "nothing runs until the first step"
+        );
+        sim.run(2);
+        assert_eq!(sim.game().log, ["init 0 320x240", "update 1", "update 2"]);
+        assert_eq!(
+            sim.reported_at(1, "started").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn resizing_changes_the_canvas_and_tells_the_game() {
+        let mut sim = Simulation::new(Config::default(), Hooks::default());
+        sim.step();
+        sim.resize(200, 100);
+        sim.resize(200, 100); // the same size again: nothing happens
+        sim.step();
+        assert_eq!(
+            sim.game().log,
+            [
+                "init 0 320x240",
+                "update 1",
+                "resize 200x100 200",
+                "update 2"
+            ]
+        );
+        assert_eq!(
+            (sim.context().width(), sim.context().height()),
+            (200.0, 100.0)
+        );
+        let picture = sim.picture();
+        assert_eq!((picture.width(), picture.height()), (200, 100));
+        assert_eq!(picture.get_pixel(199, 99), Some(Color::BLUE));
+        sim.resize(0, 0);
+        assert_eq!(sim.context().width(), 1.0, "never smaller than 1 x 1");
+    }
+
+    #[test]
+    fn games_without_hooks_still_compile_and_run() {
+        // Recorder (below) writes neither init nor resize: the defaults do nothing.
+        let mut sim = Simulation::new(Config::default(), Recorder::default());
+        sim.resize(10, 10);
+        sim.step();
+        assert_eq!(sim.context().frame(), 1);
+    }
 
     /// A test game that remembers what it saw on each update.
     #[derive(Default)]

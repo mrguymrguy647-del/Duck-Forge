@@ -30,6 +30,7 @@ Contents:
 | Canvas | 320 x 240 pixels by default (`Config::width`, `height`). The window shows it 3x bigger. |
 | Coordinates | Pixels, `(0, 0)` is the **top-left**, **y grows downward**. `Rect::new(x, y, w, h)`: `x, y` is the top-left corner. |
 | Time | `update` runs **60 times per second of game time**, always with `ctx.dt() == 1.0 / 60.0` (the default; `Config::timestep` changes it). Speeds are in pixels **per second**: multiply by `ctx.dt()`. |
+| Units | 2D: **pixels**, y down (gravity about `vec2(0.0, 500.0)` to `1000.0` px/s²). 3D: **metres**, y up (gravity `vec3(0.0, -9.8, 0.0)`, a person is 1.8 tall). |
 | Frames | Counted from **1**: `ctx.frame()` is 1 during the first `update`. Frame 600 = 10 seconds. Scripts and logs use the same numbers. |
 | Randomness | Use `ctx.rng` only (`range`, `range_i32`, `chance`). Headless runs use seed 1 unless told otherwise, so **the same command gives the same result**. |
 | Drawing | `draw(&self, canvas)` can't change the game. Start it with `canvas.clear(...)`. Later draws go on top. |
@@ -495,12 +496,17 @@ Everything below comes with `use duckforge::prelude::*;`, except
 has the rest.
 
 **`Game`**: `fn update(&mut self, ctx: &mut Context)` and
-`fn draw(&self, canvas: &mut Canvas)`.
+`fn draw(&self, canvas: &mut Canvas)`. Optional:
+`fn init(&mut self, ctx: &mut Context)` (once, before the first update;
+reports and sounds from it count as frame 1) and
+`fn resize(&mut self, ctx: &mut Context, width: f32, height: f32)` (the
+canvas changed size: only with `Config { resizable: true, .. }` in a
+window, or `sim.resize(w, h)` in a test).
 
 **`Config`** (use `..Config::default()` for the rest): `title`, `width`,
 `height`, `scale` (window size multiplier, 3), `target_fps` (60),
 `show_fps`, `renderer`, `timestep` (`Timestep::Fixed { updates_per_second: 60 }`),
-`seed` (`None`).
+`seed` (`None`), `resizable` (`false`: the canvas keeps its size).
 
 **`Context`** (`ctx`): `ctx.dt()` (seconds per update), `ctx.time()`,
 `ctx.frame()`, `ctx.width()` / `ctx.height()` (as `f32`), `ctx.quit()`,
@@ -555,7 +561,19 @@ camera; the engine resets the camera stack every frame.
 `distance(other)`, `dot(other)`, `Vec2::ZERO`).
 `Rect::new(x, y, w, h)`, `Rect::from_center(center, w, h)`, `left()`,
 `right()`, `top()`, `bottom()`, `center()`, `overlaps(&other)`,
-`contains(point)`. `vec3(x, y, z)` / `Vec3` for 3D (y is up).
+`contains(point)`, `inset(by)`, `expand(by)`, `intersection(&other)`
+(`Option<Rect>`). `vec3(x, y, z)` / `Vec3` for 3D (y is up).
+
+**Collisions and helpers** (all in the prelude):
+`circle_vs_rect(center, radius, rect)`, `circle_vs_circle(a, ra, b, rb)`
+(touching doesn't count, like `overlaps`),
+`swept_aabb(rect, movement_this_frame, other)` gives `Option<Hit>` with
+`hit.time` (0 to 1 through the move) and `hit.normal` (which way the
+surface faces). Use it for anything moving more than its own size per
+frame (bullets), or it passes through thin walls.
+`approach(current, target, step)` (never overshoots; use
+`step = rate * ctx.dt()`), `remap(value, (from_a, from_b), (to_a, to_b))`
+(not clamped).
 
 **Reports**: `ctx.report("name", value)` with a number (any integer or
 float type), a `bool`, a `&str` or a `String`. Enums: report
@@ -593,7 +611,8 @@ draw 3D on the CPU, so there's no graphics card to worry about.
 **Headless from code**: `duckforge::run_headless(config, game, &HeadlessOptions { frames, out, inputs, sheet, gif, ..Default::default() })`,
 and `Simulation::new(config, game)` with `press`, `release`,
 `move_mouse`, `press_mouse`, `release_mouse`, `scroll`, `step`,
-`run(frames)`, `game()`, `picture()`, `recording()`, `follow(script)`.
+`run(frames)`, `game()`, `picture()`, `recording()`, `follow(script)`,
+`resize(w, h)`.
 
 **Command line**: `--headless`, `--frames N`, `--out DIR`, `--seed N`,
 `--inputs FILE`, `--snapshot-every N`, `--sheet`, `--gif`,

@@ -14,8 +14,31 @@ use crate::report::ReportValue;
 use crate::rng::Rng;
 use crate::sound::{Sound, SoundRequest, Wav};
 
-/// What every game must provide. The engine calls both methods once per frame.
+/// What every game must provide. The engine calls `update` and `draw` once
+/// per frame.
+///
+/// `init` and `resize` are optional: they have empty bodies here (*default
+/// methods*), so a game only writes them if it needs them.
 pub trait Game {
+    /// Runs once, just before the first `update`. Use it for setup that
+    /// needs the context, like reading `ctx.width()`, picking random
+    /// starting positions with `ctx.rng`, or playing a start-up sound.
+    /// Anything it reports or plays shows up as frame 1.
+    fn init(&mut self, ctx: &mut Context) {
+        let _ = ctx; // nothing to do unless the game says otherwise
+    }
+
+    /// Runs when the canvas changes size, with its new `width` and
+    /// `height` in pixels (also in `ctx.width()` and `ctx.height()`).
+    ///
+    /// That only happens with [`Config::resizable`] set, when the player
+    /// resizes the window, or in a test with
+    /// [`Simulation::resize`](crate::Simulation::resize). Use it to move
+    /// things that are placed relative to the edges, like the score.
+    fn resize(&mut self, ctx: &mut Context, width: f32, height: f32) {
+        let _ = (ctx, width, height);
+    }
+
     /// Advance the game by one step: read input, move things, check collisions.
     fn update(&mut self, ctx: &mut Context);
 
@@ -80,6 +103,12 @@ pub struct Config {
     /// same game. With `None` (the default), each run in a window gets a new
     /// seed from the clock.
     pub seed: Option<u32>,
+    /// With `true`, the canvas grows and shrinks with the window (each
+    /// canvas pixel stays `scale` window pixels big), and the game's
+    /// [`Game::resize`] is told the new size. With `false` (the default),
+    /// the canvas always stays `width` x `height`, and a bigger window
+    /// just shows it bigger. Headless runs never resize by themselves.
+    pub resizable: bool,
 }
 
 impl Config {
@@ -134,6 +163,7 @@ impl Default for Config {
             renderer: Renderer::Auto,
             timestep: Timestep::default(),
             seed: None,
+            resizable: false,
         }
     }
 }
@@ -194,6 +224,12 @@ impl Context {
     /// Seconds of game time since the game started.
     pub fn time(&self) -> f32 {
         self.time as f32
+    }
+
+    /// The canvas changed size.
+    pub(crate) fn set_size(&mut self, width: usize, height: usize) {
+        self.width = width;
+        self.height = height;
     }
 
     /// [`time`](Context::time) at full precision.

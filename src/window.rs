@@ -190,6 +190,13 @@ pub(crate) fn run<G: Game>(
         sim.measure_frame(frame_time as f32);
         let (updates, dt) = pacer.updates_due(frame_time);
 
+        // A resizable canvas follows the window's size (but not down to
+        // nothing while the window is minimized).
+        let (window_w, window_h) = window.get_size();
+        if config.resizable && window_w > 0 && window_h > 0 {
+            sim.resize(window_w / config.scale, window_h / config.scale);
+        }
+
         // 2. Input: translate the window library's keys and buttons into our
         // own types. During a replay, the script plays instead of the player.
         let keys: Vec<Key> = window
@@ -199,7 +206,11 @@ pub(crate) fn run<G: Game>(
             .collect();
         if !sim.is_replaying() {
             sim.hold_keys(&keys);
-            read_mouse(&window, (config.width, config.height), &mut sim);
+            let canvas_size = (
+                sim.context().width() as usize,
+                sim.context().height() as usize,
+            );
+            read_mouse(&window, canvas_size, &mut sim);
         }
 
         // 3. The game's turn to update, as many times as are due. On a

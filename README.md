@@ -90,6 +90,10 @@ cargo run --no-default-features --example breakout -- --headless --frames 600 --
     (instancing). Works with DirectX 12, Metal, Vulkan and OpenGL.
   - **On the CPU**, as an automatic fallback when there's no usable GPU,
     and as a version of the pipeline you can read line by line.
+- **Collision helpers:** `circle_vs_rect`, `circle_vs_circle`, `Rect`'s
+  `intersection`, `inset` and `expand`, and `swept_aabb` for fast bullets
+  that would otherwise pass through thin walls. Plus `approach` and
+  `remap`, and optional `init` and `resize` hooks on `Game`.
 - **Physics in 2D *and* 3D, from the same code:** balls and boxes with
   gravity, bouncing, friction, mass and stacking, plus fixed walls and
   contact reports. (Boxes don't rotate.)
@@ -195,6 +199,15 @@ let ball = world.add(Body::ball(vec2(160.0, 20.0), 8.0).with_bounce(0.6));
 world.step(ctx.dt());
 // In `draw`: draw the ball at `world.get(ball).unwrap().position`.
 ```
+
+**Units: 2D is in pixels, 3D is in metres.** In 2D, one unit is one
+canvas pixel and y points down: a 16-pixel player, a speed of 200 px/s,
+and gravity of about `vec2(0.0, 500.0)` to `vec2(0.0, 1000.0)` px/s²
+feel right on a 320 x 240 canvas (real gravity at 32 pixels per metre
+would be 9.8 x 32 = 314, which feels floaty in games). In 3D, one unit is
+one metre and y points up: a person is about 1.8 tall, a crate 1.0, and
+gravity is `vec3(0.0, -9.8, 0.0)`. The physics code itself doesn't care;
+these are just the scales the examples, cameras and defaults are tuned for.
 
 ### Testing a game without a window
 

@@ -32,6 +32,21 @@
 //! 5. pushes apart bodies that still overlap.
 //!
 //! To keep the math simple, boxes are *axis-aligned*: they never rotate.
+//!
+//! # Units
+//!
+//! In 2D, one unit is one canvas **pixel**, and y points down. A 16-pixel
+//! player, speeds of a few hundred pixels per second, and gravity of about
+//! `vec2(0.0, 500.0)` to `vec2(0.0, 1000.0)` feel right on a 320 x 240
+//! canvas. (Real gravity at 32 pixels per metre would be 9.8 x 32 = 314
+//! px/s², which feels floaty in a game.)
+//!
+//! In 3D, one unit is one **metre**, and y points up. A person is about
+//! 1.8 tall, a crate 1.0, and gravity is `vec3(0.0, -9.8, 0.0)`. The 3D
+//! camera's controls and the meshes' default sizes assume this scale.
+//!
+//! The physics code works the same in any units; these are the scales the
+//! examples and defaults are tuned for.
 
 use std::collections::HashSet;
 use std::f32::consts::PI;

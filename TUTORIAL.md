@@ -57,11 +57,12 @@ Keep the source files open next to this guide. When you see a file like
   - [30. A 2D camera](#30-a-2d-camera)
   - [31. Sound](#31-sound)
   - [32. Text](#32-text)
+  - [33. Collisions and small helpers](#33-collisions-and-small-helpers)
 - **Part 5: Your turn**
-  - [33. Exercises](#33-exercises)
-  - [34. Common compiler errors](#34-common-compiler-errors)
-  - [35. What a code review found](#35-what-a-code-review-found)
-  - [36. Where to go next](#36-where-to-go-next)
+  - [34. Exercises](#34-exercises)
+  - [35. Common compiler errors](#35-common-compiler-errors)
+  - [36. What a code review found](#36-what-a-code-review-found)
+  - [37. Where to go next](#37-where-to-go-next)
 
 ---
 
@@ -526,7 +527,7 @@ added, and the slot's generation goes up by one. So an old id still points
 at the right slot, but its generation doesn't match any more, and looking
 it up finds nothing instead of the wrong body. This trick is called a
 *generational index*, and most game engines use it to name their objects.
-(Chapter 35 tells the story of the bug that led to it.)
+(Chapter 36 tells the story of the bug that led to it.)
 
 ## 5. Enums and pattern matching
 
@@ -1732,7 +1733,7 @@ a lot on 1960s hardware.
 Before stepping, the line is *clipped*: cut down to the part that's on the
 canvas (see `clip_line`). Without that, a line to a point far off-screen
 would step through millions of invisible pixels, and could even crash (see
-[chapter 35](#35-what-a-code-review-found)).
+[chapter 36](#36-what-a-code-review-found)).
 
 ### Triangles
 
@@ -2052,9 +2053,12 @@ own. Use it for floors, walls and pegs. The world doesn't draw anything:
 your game draws each body wherever the physics says it is. That's what
 `draw` in `examples/physics.rs` does.
 
-**The units are up to you.** The 2D sandbox works in pixels (gravity 400
-px/s², y down), and the 3D playground works in meters (gravity 9.8 m/s², y up).
-The physics code doesn't care.
+**The units are up to you, but the engine has favourites.** In 2D, one
+unit is one pixel and y points down: the sandbox uses gravity of 400
+px/s², and 500 to 1000 feels right for most platformers on a 320 x 240
+canvas. In 3D, one unit is one metre and y points up: gravity is 9.8 m/s²,
+a person is 1.8 tall and a crate 1.0, which is what the 3D camera's
+speeds and the meshes' sizes assume. The physics code itself doesn't care.
 
 ### One step at a time
 
@@ -2786,7 +2790,7 @@ and shifting right pulls the high bits back down. After a few rounds,
 changing one bit of the seed changes about half the bits of the result.
 Notice `wrapping_mul`: the multiplication overflows on purpose, and in a
 debug build a plain `*` would panic when it overflows
-([chapter 35](#35-what-a-code-review-found)). `wrapping_mul` says "wrap
+([chapter 36](#36-what-a-code-review-found)). `wrapping_mul` says "wrap
 around, that's what I want".
 
 A new test in `src/rng.rs` checks that the first numbers from seeds 1 to
@@ -4427,9 +4431,145 @@ A test checks every character from space to `~` has a real glyph, that no
 two characters look the same, and that only `g j p q y` hang below the
 line.
 
+## 33. Collisions and small helpers
+
+A few functions that nearly every game ends up writing for itself, now
+built in (all in `src/math.rs`, all in the prelude):
+
+| Function | What it answers |
+|----------|-----------------|
+| `rect.overlaps(&other)` | Do two rectangles overlap? (This one was always there.) |
+| `rect.intersection(&other)` | *Where* do they overlap? `Some(rect)` or `None` |
+| `rect.inset(4.0)` / `rect.expand(4.0)` | The rectangle 4 pixels smaller / bigger on every side |
+| `circle_vs_rect(center, radius, rect)` | Does a ball touch a paddle? |
+| `circle_vs_circle(a, ra, b, rb)` | Do two balls touch? |
+| `swept_aabb(rect, movement, other)` | Will a *moving* box hit another this frame? When, and on which side? |
+| `approach(current, target, step)` | Move a number towards a target, never past it |
+| `remap(value, (a, b), (c, d))` | Turn a value between a and b into one between c and d |
+
+`swept_aabb` is the one to know about. A bullet moving 900 pixels a
+second moves 15 pixels per frame. If a wall is 4 pixels thin, the bullet
+can be before the wall in one frame and past it in the next, and
+`overlaps` never sees them touch. `swept_aabb` looks at the whole move
+and says how far through it the hit happens (`time`, from 0 to 1) and
+which way the wall faces (`normal`).
+
+### Shooting through a thin wall
+
+```rust
+use duckforge::prelude::*;
+
+struct Range {
+    gun: Vec2,
+    bullets: Vec<Vec2>,
+    wall: Rect,
+    holes: Vec<Vec2>,
+    speed: f32,
+}
+
+impl Game for Range {
+    fn init(&mut self, ctx: &mut Context) {
+        // Put the wall near the right edge, wherever that is.
+        self.wall = Rect::new(ctx.width() - 40.0, 40.0, 3.0, ctx.height() - 80.0);
+    }
+
+    fn update(&mut self, ctx: &mut Context) {
+        // Speed up smoothly while Up is held, slow down when it isn't.
+        let target = if ctx.input.is_down(Key::Up) { 300.0 } else { 0.0 };
+        self.speed = approach(self.speed, target, 600.0 * ctx.dt());
+        self.gun.y = (self.gun.y + ctx.input.axis(Key::Up, Key::Down) * self.speed * ctx.dt())
+            .clamp(10.0, ctx.height() - 10.0);
+
+        if ctx.input.was_pressed(Key::Space) {
+            self.bullets.push(self.gun);
+            ctx.play(Sound { name: "shot", wave: Wave::Noise, freq: 3000.0, ms: 60.0, ..Default::default() });
+        }
+
+        let movement = vec2(1200.0, 0.0) * ctx.dt(); // 20 pixels a frame: faster than the wall is thick
+        let wall = self.wall;
+        let mut holes = Vec::new();
+        self.bullets.retain_mut(|bullet| {
+            let body = Rect::from_center(*bullet, 4.0, 2.0);
+            if let Some(hit) = swept_aabb(body, movement, wall) {
+                holes.push(*bullet + movement * hit.time);
+                return false; // stopped by the wall: remove the bullet
+            }
+            *bullet += movement;
+            bullet.x < 400.0 // keep it until it's off the screen
+        });
+        self.holes.extend(holes);
+    }
+
+    fn draw(&self, canvas: &mut Canvas) {
+        canvas.clear(Color::from_hex(0x1d2b33));
+        canvas.fill_rect(self.wall, Color::GRAY);
+        for &hole in &self.holes {
+            canvas.fill_circle(hole + vec2(2.0, 0.0), 2.0, Color::BLACK);
+        }
+        for &bullet in &self.bullets {
+            canvas.fill_rect(Rect::from_center(bullet, 4.0, 2.0), Color::YELLOW);
+        }
+        canvas.fill_circle(self.gun, 6.0, Color::GREEN);
+        // A speed bar: 0 to 300 pixels per second becomes 0 to 60 pixels wide.
+        let bar = remap(self.speed, (0.0, 300.0), (0.0, 60.0));
+        canvas.fill_rect(Rect::new(4.0, 4.0, bar, 4.0), Color::ORANGE);
+    }
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let range = Range { gun: vec2(30.0, 120.0), bullets: Vec::new(), wall: Rect::default(), holes: Vec::new(), speed: 0.0 };
+    duckforge::run(Config::default(), range)
+}
+```
+
+Save it as `examples/range.rs` and run `cargo run --example range`.
+Space fires, Up and Down move the gun. Every bullet stops at the wall,
+even though it moves 20 pixels a frame and the wall is 3 thick. Try
+replacing the `swept_aabb` check with `body.overlaps(&wall)`: most
+bullets fly straight through.
+
+### Rust idea: default methods
+
+`Range` has an `init` method, but the games in earlier chapters didn't,
+and they still compile. That's because the `Game` trait gives `init` a
+**default body** that does nothing:
+
+```rust
+pub trait Game {
+    fn init(&mut self, ctx: &mut Context) {
+        let _ = ctx; // nothing to do unless the game says otherwise
+    }
+    fn update(&mut self, ctx: &mut Context); // no body: every game must write it
+    // ...
+}
+```
+
+A game that writes its own `init` replaces the default. That's how the
+engine can add new optional hooks without breaking a single old game. The
+other optional one is `resize(&mut self, ctx, width, height)`, called
+when the canvas changes size (with `resizable: true` in `Config`, when
+the player resizes the window).
+
+### Rust idea: `retain_mut`
+
+`self.bullets.retain_mut(|bullet| ...)` goes through the list, lets the
+closure change each bullet (it gets a `&mut Vec2`), and keeps only the
+ones for which it returns `true`. It's the tidy way to move things and
+remove the dead ones in one pass. The closure can't also push to
+`self.holes`, because `self.bullets` is already borrowed mutably, so the
+holes go in a separate `Vec` first and join `self.holes` after. (That's
+the borrowing rule from chapter 6 at work.)
+
+### Units: pixels in 2D, metres in 3D
+
+Everything in 2D is in **pixels**, with y pointing down: positions,
+sizes, speeds (pixels per second) and the physics engine's gravity (try
+500 to 1000 pixels per second squared). In 3D, everything is in
+**metres**, with y pointing up: gravity is 9.8, a person is 1.8 tall.
+
 # Part 5: Your turn
 
-## 33. Exercises
+## 34. Exercises
 
 Do them in order. After each change, run the game and see what happened.
 When the compiler complains, **read the whole error message**: Rust's error
@@ -4550,7 +4690,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     to a ball body) across floating platforms, with the camera following
     it. Or 3D Breakout, with a `PhysicsWorld<Vec3>`.
 
-## 34. Common compiler errors
+## 35. Common compiler errors
 
 | Error    | Message (short)                                   | Usually means                                                 |
 |----------|---------------------------------------------------|---------------------------------------------------------------|
@@ -4565,7 +4705,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 For a long explanation of any error, run `rustc --explain E0502`.
 
-## 35. What a code review found
+## 36. What a code review found
 
 After the engine was built, it got a careful review: every file read line
 by line, looking for bugs, crashes and confusing code. It found about 20
@@ -4716,7 +4856,7 @@ Together, the renderer was back to its old speed, 79 to 81 FPS.
 
 **Lesson:** after fixing something, run the benchmark again.
 
-## 36. Where to go next
+## 37. Where to go next
 
 - **The Rust Programming Language** ("the Book"), free at
   <https://doc.rust-lang.org/book/>. The best way to learn Rust properly.
