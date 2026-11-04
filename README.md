@@ -74,6 +74,9 @@ cargo run --no-default-features --example breakout -- --headless --frames 600 --
 - **Sprites:** load a `.png`, or draw one with letters in your code
   (`Sprite::from_ascii`); cut frames from a sprite sheet, animate them, and
   draw them flipped, scaled (pixels stay sharp), tinted or see-through.
+- **A 2D camera:** worlds bigger than the screen, zoom, smooth following,
+  screen shake that replays exactly, and mouse-to-world conversion. Draw
+  the world between `push_camera` and `pop_camera`, the score after.
 - **3D rendering:** a camera with ready-made fly controls, meshes (cube,
   pyramid, sphere, checkerboard, or build your own), transforms, sunlight
   shading, a depth buffer, and near-plane clipping.

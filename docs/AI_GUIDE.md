@@ -515,6 +515,19 @@ or `Blit::default()`; scaling is nearest-neighbour. Animations:
 `Animation::new(frames, fps)`, `anim.frame_at(seconds)` (loops),
 `index_at(seconds)`, `duration()`.
 
+**Camera** (`Camera2D`): `Camera2D::new(screen_w, screen_h)` starts with
+world = screen. Fields `position` (world point at screen center), `zoom`
+(1.0), `screen_size`. `camera.follow(target, smoothing_seconds, ctx.dt())`
+(0.0 snaps, 0.2 smooth), `camera.shake(pixels, seconds)` then
+`camera.update(ctx)` every update (uses `ctx.rng`, so replays match),
+`is_shaking()`, `screen_to_world(p)` (the mouse: pass
+`ctx.input.mouse_position()`), `world_to_screen(p)`, `visible_area()`.
+In `draw`: `canvas.push_camera(&self.camera)`, draw the world,
+`canvas.pop_camera()`, then draw the HUD in screen pixels.
+`canvas.push_offset(v)` / `pop_offset()` shift a group of drawings.
+Lines stay 1 px at any zoom; `clear`, `get_pixel` and 3D ignore the
+camera; the engine resets the camera stack every frame.
+
 **Math**: `vec2(x, y)` / `Vec2` (`+ - * f32`, `length()`, `normalized()`,
 `distance(other)`, `dot(other)`, `Vec2::ZERO`).
 `Rect::new(x, y, w, h)`, `Rect::from_center(center, w, h)`, `left()`,

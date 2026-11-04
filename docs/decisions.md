@@ -544,3 +544,67 @@ looked for (made absolute, because "relative to what?" is the usual
 confusion); a file that isn't a PNG says so and suggests re-exporting it.
 Both are `io::Error`s, so `?` in `main` works and prints just the
 sentence.
+
+## Step 3: A 2D camera
+
+**`position` is the middle of the screen.** That's what a game means by
+"look at the player": `camera.follow(player, ..)` needs no "minus half
+the screen". So the camera needs the screen size, given once to
+`Camera2D::new(width, height)`. A new camera looks at the middle of the
+screen with zoom 1, which makes it change nothing at all: a game can add
+a camera just for screen shake without moving anything (that's what
+Duckling Parade does).
+
+**Two layers, one stack.** `push_camera` / `pop_camera` and
+`push_offset` / `pop_offset` push onto the same stack of *views* (a
+scale and an offset), so they nest in any order: an offset inside a
+camera is in world units. A pop with nothing pushed does nothing, rather
+than panic. The engine clears the stack before and after `draw`, so a
+forgotten pop spoils at most one frame of the game's own drawing, never
+the FPS counter.
+
+**Applied at the edges of every drawing function.** Each function turns
+its positions and sizes into screen pixels first, then runs its
+unchanged code (clipping, blending, the fast paths). With no camera the
+view is "scale 1, offset 0", and every example still draws byte-identical
+pictures (checked again with all 50 snapshots). A test draws one scene
+of every shape in screen space, and the same scene moved by 50 pixels
+through a camera that moves it back, and compares every pixel.
+
+**What zoom does to each shape.** Rectangles, circles, triangles, text
+and sprites grow with the zoom. Lines stay 1 pixel thin (only their ends
+move), because a thin line is usually meant as a thin line. `set_pixel`
+moves but stays one pixel. `clear`, `get_pixel` and 3D meshes are always
+in screen pixels: `get_pixel` reads what's *on the screen*, and 3D has its
+own camera. `draw_text_centered` still centers on the screen, which is
+almost always what it's used for.
+
+**A broken zoom acts like 1.** Zero, negative or NaN zoom would make the
+world vanish or flip, with no clue why. It's treated as 1.0.
+
+**Shake uses `ctx.rng`, so it needs `camera.update(ctx)`.** The wobble
+must be random to look right, and must come from the game's seeded
+generator so replays and play tests stay exact. `draw` can't change
+anything (it takes `&self`), so the random offset is chosen in `update`.
+The offset is rounded to whole pixels, so a shaking pixel-art scene stays
+crisp. A shake fades out linearly, and a new shake only replaces a
+weaker one, so a small bump can't cut a big explosion short.
+
+Using `ctx.rng` has a side effect worth knowing: shaking takes random
+numbers, so everything random *after* a shake comes out differently
+than without the shake. Same seed and inputs still give the same game,
+which is what matters. Duckling Parade's play tests (a bot plays whole
+games) still pass after the switch.
+
+**`follow` is frame-rate independent.** It closes `1 - e^(-dt/smoothing)`
+of the gap each update, so after `smoothing` seconds about 63% of the gap
+is gone however many updates that took (tested: one 1-second step lands
+where sixty 1/60-second steps do).
+
+**Duckling Parade switched from hand-made offsets.** It used to compute a
+shake offset with `sin` and add `+ o` to every position in every drawing
+function (about 30 places, plus an extra parameter on four functions and
+a helper trait). Now it calls `self.camera.shake(3.2, 0.4)` on a bite,
+`self.camera.update(ctx)` once per update, and draws the pond between
+`push_camera` and `pop_camera`. The HUD and menus are drawn after the
+pop, so they stay still while the pond shakes, as before.

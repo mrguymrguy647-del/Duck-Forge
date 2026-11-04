@@ -54,11 +54,12 @@ Keep the source files open next to this guide. When you see a file like
 - **Part 4: More to play with**
   - [28. See-through colors](#28-see-through-colors)
   - [29. Sprites](#29-sprites)
+  - [30. A 2D camera](#30-a-2d-camera)
 - **Part 5: Your turn**
-  - [30. Exercises](#30-exercises)
-  - [31. Common compiler errors](#31-common-compiler-errors)
-  - [32. What a code review found](#32-what-a-code-review-found)
-  - [33. Where to go next](#33-where-to-go-next)
+  - [31. Exercises](#31-exercises)
+  - [32. Common compiler errors](#32-common-compiler-errors)
+  - [33. What a code review found](#33-what-a-code-review-found)
+  - [34. Where to go next](#34-where-to-go-next)
 
 ---
 
@@ -523,7 +524,7 @@ added, and the slot's generation goes up by one. So an old id still points
 at the right slot, but its generation doesn't match any more, and looking
 it up finds nothing instead of the wrong body. This trick is called a
 *generational index*, and most game engines use it to name their objects.
-(Chapter 32 tells the story of the bug that led to it.)
+(Chapter 33 tells the story of the bug that led to it.)
 
 ## 5. Enums and pattern matching
 
@@ -1729,7 +1730,7 @@ a lot on 1960s hardware.
 Before stepping, the line is *clipped*: cut down to the part that's on the
 canvas (see `clip_line`). Without that, a line to a point far off-screen
 would step through millions of invisible pixels, and could even crash (see
-[chapter 32](#32-what-a-code-review-found)).
+[chapter 33](#33-what-a-code-review-found)).
 
 ### Triangles
 
@@ -2782,7 +2783,7 @@ and shifting right pulls the high bits back down. After a few rounds,
 changing one bit of the seed changes about half the bits of the result.
 Notice `wrapping_mul`: the multiplication overflows on purpose, and in a
 debug build a plain `*` would panic when it overflows
-([chapter 32](#32-what-a-code-review-found)). `wrapping_mul` says "wrap
+([chapter 33](#33-what-a-code-review-found)). `wrapping_mul` says "wrap
 around, that's what I want".
 
 A new test in `src/rng.rs` checks that the first numbers from seeds 1 to
@@ -4022,9 +4023,157 @@ or a letter missing from the palette, stop the game with a message naming
 the row and the letter, pointing at *your* line of code (that's what
 `#[track_caller]` does in the engine's source).
 
+## 30. A 2D camera
+
+So far the screen *was* the world: a game 320 pixels wide had a world 320
+pixels wide. A **camera** lets the world be any size, and shows the part
+of it around the player.
+
+```rust
+let mut camera = Camera2D::new(320.0, 240.0); // the screen size
+camera.position = vec2(1000.0, 500.0);        // the world point in the middle of the screen
+camera.zoom = 2.0;                            // everything twice as big
+```
+
+Drawing has two layers. The **world** is drawn between `push_camera` and
+`pop_camera`, using world positions. The **screen** (score, lives,
+menus) is drawn after the pop, using screen pixels, so it stays put while
+the world moves:
+
+```rust
+canvas.push_camera(&self.camera);
+// ... the world: ground, player, enemies ...
+canvas.pop_camera();
+// ... the score, in screen pixels ...
+```
+
+Three more camera tricks:
+
+- `camera.follow(target, 0.2, ctx.dt())` glides towards a point; `0.2` is
+  roughly how many seconds it lags behind (0 sticks exactly).
+- `camera.shake(4.0, 0.3)` shakes the screen by up to 4 pixels, fading
+  out over 0.3 seconds. Call `camera.update(ctx)` once per update to make
+  it happen.
+- `camera.screen_to_world(ctx.input.mouse_position())` tells you which
+  world point the mouse is over (and `world_to_screen` goes the other way).
+
+There's also `canvas.push_offset(vec2(x, y))` / `pop_offset()`, which just
+shifts everything drawn in between, handy for drawing a group of shapes
+around one point.
+
+### A big field to explore
+
+```rust
+use duckforge::prelude::*;
+
+const W: f32 = 320.0;
+const H: f32 = 240.0;
+const FIELD: f32 = 1200.0; // the world is 1200 x 1200 pixels
+
+struct Explore {
+    player: Vec2,
+    flowers: Vec<Vec2>,
+    camera: Camera2D,
+}
+
+impl Explore {
+    fn new() -> Explore {
+        // Flowers at random places. A fixed seed puts them in the same
+        // places every time.
+        let mut rng = duckforge::rng::Rng::new(42);
+        let flowers = (0..200)
+            .map(|_| vec2(rng.range(0.0, FIELD), rng.range(0.0, FIELD)))
+            .collect();
+        let player = vec2(FIELD / 2.0, FIELD / 2.0);
+        let mut camera = Camera2D::new(W, H);
+        camera.position = player;
+        Explore { player, flowers, camera }
+    }
+}
+
+impl Game for Explore {
+    fn update(&mut self, ctx: &mut Context) {
+        let input = vec2(
+            ctx.input.axis(Key::Left, Key::Right),
+            ctx.input.axis(Key::Up, Key::Down),
+        );
+        self.player += input * 120.0 * ctx.dt();
+        if ctx.input.was_pressed(Key::Space) {
+            self.camera.shake(5.0, 0.4);
+        }
+        self.camera.follow(self.player, 0.25, ctx.dt());
+        self.camera.update(ctx);
+    }
+
+    fn draw(&self, canvas: &mut Canvas) {
+        canvas.clear(Color::from_hex(0x2d6a2d));
+
+        canvas.push_camera(&self.camera);
+        canvas.draw_rect(Rect::new(0.0, 0.0, FIELD, FIELD), Color::WHITE); // the field's edge
+        for &flower in &self.flowers {
+            canvas.fill_circle(flower, 3.0, Color::YELLOW);
+        }
+        canvas.fill_circle(self.player, 6.0, Color::RED);
+        canvas.pop_camera();
+
+        let text = format!("X {:.0} Y {:.0}", self.player.x, self.player.y);
+        canvas.draw_text(&text, vec2(4.0, 4.0), 1, Color::WHITE);
+    }
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let config = Config { width: W as usize, height: H as usize, ..Config::default() };
+    duckforge::run(config, Explore::new())
+}
+```
+
+Save it as `examples/explore.rs` and run `cargo run --example explore`.
+Walk with the arrow keys and the camera glides after you; the position in
+the corner doesn't move, because it's drawn after `pop_camera`. Space
+shakes the screen.
+
+### Rust idea: passing `ctx` on
+
+`update` gets `ctx: &mut Context`, a mutable borrow of the engine's
+context. `self.camera.update(ctx)` passes it on to a function that also
+wants a `&mut Context`. You don't write `&mut ctx`: `ctx` already *is* a
+`&mut Context`. Rust lends it to `camera.update` for the length of that
+call, then you can use it again on the next line. (This is called a
+*reborrow*.)
+
+The camera takes `ctx` so it can use `ctx.rng` for its wobble. That's
+why a shake is the same in a replay: the random numbers come from the
+game's seeded generator, not from the clock.
+
+### How it works
+
+The canvas keeps a **view**: a scale and an offset, so that every
+position it's given becomes `position * scale + offset` on the screen
+(`src/camera.rs`, `View`). With no camera, the scale is 1 and the offset
+is 0, and drawing works exactly as before. `push_camera` saves the
+current view on a list (a *stack*) and combines it with the camera's:
+
+```text
+screen = (world - camera.position) * zoom + screen_size / 2 + shake
+```
+
+`pop_camera` takes the saved view back off the stack. Every drawing
+function applies the view to its positions and sizes first, then draws as
+usual, so clipping and blending need no changes. Text is drawn with
+`fill_rect`, so it follows the camera for free. Lines stay 1 pixel thin
+when zoomed in, because only their ends are moved.
+
+The engine empties the stack before and after each `draw`, so a
+forgotten `pop_camera` can't leak into the next frame or into the FPS
+counter.
+
+`follow` closes the same *fraction* of the gap every second
+(`1 - e^(-dt / smoothing)` per step), so the camera feels the same at 30
+or 144 updates per second.
+
 # Part 5: Your turn
 
-## 30. Exercises
+## 31. Exercises
 
 Do them in order. After each change, run the game and see what happened.
 When the compiler complains, **read the whole error message**: Rust's error
@@ -4145,7 +4294,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     to a ball body) across floating platforms, with the camera following
     it. Or 3D Breakout, with a `PhysicsWorld<Vec3>`.
 
-## 31. Common compiler errors
+## 32. Common compiler errors
 
 | Error    | Message (short)                                   | Usually means                                                 |
 |----------|---------------------------------------------------|---------------------------------------------------------------|
@@ -4160,7 +4309,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 For a long explanation of any error, run `rustc --explain E0502`.
 
-## 32. What a code review found
+## 33. What a code review found
 
 After the engine was built, it got a careful review: every file read line
 by line, looking for bugs, crashes and confusing code. It found about 20
@@ -4311,7 +4460,7 @@ Together, the renderer was back to its old speed, 79 to 81 FPS.
 
 **Lesson:** after fixing something, run the benchmark again.
 
-## 33. Where to go next
+## 34. Where to go next
 
 - **The Rust Programming Language** ("the Book"), free at
   <https://doc.rust-lang.org/book/>. The best way to learn Rust properly.

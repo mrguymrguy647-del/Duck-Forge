@@ -507,7 +507,9 @@ impl<G: Game> Simulation<G> {
     }
 
     fn draw(&mut self) {
+        self.canvas.reset_view(); // every frame starts with no camera
         self.game.draw(&mut self.canvas);
+        self.canvas.reset_view(); // so the engine's own drawing is in screen pixels
         self.canvas.flush_3d(); // make sure any 3D from the graphics card is in the pixels
         self.ctx.set_renderer_name(self.canvas.renderer_name());
     }

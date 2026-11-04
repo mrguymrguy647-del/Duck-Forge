@@ -10,6 +10,7 @@ use std::fs::File;
 use std::io::{self, BufWriter, Write};
 use std::path::Path;
 
+use crate::camera::{Camera2D, View};
 use crate::color::{self, Color};
 use crate::font;
 #[cfg(feature = "gpu")]
@@ -36,6 +37,11 @@ pub struct Canvas {
     /// when the engine is built with the `gpu` feature.
     #[cfg(feature = "gpu")]
     gpu: GpuSlot,
+    /// How positions given to the drawing functions become pixels: changed
+    /// by `push_camera` and `push_offset`.
+    view: View,
+    /// The views to go back to, one per `push_camera` or `push_offset`.
+    saved_views: Vec<View>,
 }
 
 /// The state of a canvas's connection to the graphics card.
@@ -62,7 +68,67 @@ impl Canvas {
             depth: vec![0.0; width * height],
             #[cfg(feature = "gpu")]
             gpu: GpuSlot::Off,
+            view: View::SCREEN,
+            saved_views: Vec::new(),
         }
+    }
+
+    /// Draws everything from now on through `camera`, until
+    /// [`Canvas::pop_camera`]: positions and sizes are in the *world*, and
+    /// the camera decides where on the screen they end up.
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// # let mut canvas = Canvas::new(320, 240);
+    /// # let camera = Camera2D::new(320.0, 240.0);
+    /// canvas.push_camera(&camera);
+    /// // ... draw the world ...
+    /// canvas.pop_camera();
+    /// // ... draw the score, menus and other screen things ...
+    /// ```
+    ///
+    /// Everything follows the camera: shapes, lines, text, sprites and
+    /// `set_pixel`. Lines stay 1 pixel thin at any zoom. `clear`,
+    /// `get_pixel` and 3D meshes always work in screen pixels. The engine
+    /// starts every frame with no camera, so a forgotten pop only affects
+    /// the rest of that frame.
+    pub fn push_camera(&mut self, camera: &Camera2D) {
+        self.saved_views.push(self.view);
+        self.view = self.view.then(camera.view());
+    }
+
+    /// Goes back to how drawing worked before the last
+    /// [`push_camera`](Canvas::push_camera) (usually: screen pixels).
+    pub fn pop_camera(&mut self) {
+        self.view = self.saved_views.pop().unwrap_or(View::SCREEN);
+    }
+
+    /// Moves everything drawn from now on by `offset`, until
+    /// [`Canvas::pop_offset`]. Handy for drawing a group of things (a
+    /// character made of shapes, a panel) relative to one point.
+    /// Inside a camera, the offset is in world units.
+    pub fn push_offset(&mut self, offset: Vec2) {
+        self.saved_views.push(self.view);
+        self.view = self.view.then(View { scale: 1.0, offset });
+    }
+
+    /// Undoes the last [`push_offset`](Canvas::push_offset).
+    pub fn pop_offset(&mut self) {
+        self.pop_camera(); // the same stack: undo the last push, whatever it was
+    }
+
+    /// Where a position given to the drawing functions ends up on the
+    /// screen, with the current camera and offsets.
+    #[cfg(test)]
+    pub(crate) fn world_to_screen(&self, p: Vec2) -> Vec2 {
+        self.view.apply(p)
+    }
+
+    /// Forgets every camera and offset. The engine calls this around each
+    /// frame's `draw`.
+    pub(crate) fn reset_view(&mut self) {
+        self.view = View::SCREEN;
+        self.saved_views.clear();
     }
 
     /// Chooses what draws 3D meshes: the graphics card or the CPU.
@@ -177,6 +243,12 @@ impl Canvas {
     /// Pixels outside the canvas are silently ignored.
     pub fn set_pixel(&mut self, x: i32, y: i32, color: Color) {
         self.flush_3d(); // 3D drawn earlier must end up *under* this pixel
+        let (x, y) = if self.view.is_screen() {
+            (x, y)
+        } else {
+            let p = self.view.apply(vec2(x as f32, y as f32));
+            (p.x.floor() as i32, p.y.floor() as i32)
+        };
         self.put_pixel(x, y, color.to_u32(), color.a);
     }
 
@@ -199,6 +271,7 @@ impl Canvas {
             return; // invisible
         }
         self.flush_3d();
+        let rect = self.view.apply_rect(rect);
         // Round to whole pixels, then clamp to the canvas so we never index out of bounds.
         let clamp_x = |v: f32| (v.round() as i32).clamp(0, self.width as i32) as usize;
         let clamp_y = |v: f32| (v.round() as i32).clamp(0, self.height as i32) as usize;
@@ -248,6 +321,7 @@ impl Canvas {
             return;
         }
         self.flush_3d();
+        let (center, radius) = (self.view.apply(center), radius * self.view.scale);
         let c = color.to_u32();
         // Only visit the pixels in the circle's bounding box that are on the canvas.
         let x0 = ((center.x - radius).floor() as i32).max(0);
@@ -275,6 +349,7 @@ impl Canvas {
             return;
         }
         self.flush_3d();
+        let (from, to) = (self.view.apply(from), self.view.apply(to));
         // First cut the line down to the part that's on the canvas. Otherwise
         // a line to a far-away point would step through millions of invisible
         // pixels, and the integer math below could overflow.
@@ -315,6 +390,7 @@ impl Canvas {
             return;
         }
         self.flush_3d();
+        let [a, b, c] = [a, b, c].map(|p| self.view.apply(p));
         let c32 = color.to_u32();
         let pixels = &mut self.pixels;
         for_each_pixel_in_triangle(self.width, self.height, [a, b, c], |i, _| {
@@ -363,7 +439,9 @@ impl Canvas {
     /// Scaling keeps pixels as sharp squares (each screen pixel takes the
     /// color of the nearest sprite pixel), and whatever falls outside the
     /// canvas is cut off.
-    pub fn blit_sprite(&mut self, sprite: &Sprite, pos: Vec2, blit: Blit) {
+    pub fn blit_sprite(&mut self, sprite: &Sprite, pos: Vec2, mut blit: Blit) {
+        let pos = self.view.apply(pos);
+        blit.scale *= self.view.scale;
         let (sprite_w, sprite_h) = (sprite.width(), sprite.height());
         let opacity = if blit.opacity.is_nan() {
             0.0
@@ -481,10 +559,20 @@ impl Canvas {
 
     /// Draws text centered horizontally on the canvas, with its top at `y`.
     /// Each line of multi-line text is centered on its own.
+    ///
+    /// It's centered on the *screen* even inside a camera (then `y` and the
+    /// size are in world units, as for `draw_text`).
     pub fn draw_text_centered(&mut self, text: &str, y: f32, scale: u32, color: Color) {
         let line_height = font::LINE_HEIGHT as f32 * scale as f32;
         for (i, line) in text.lines().enumerate() {
-            let x = (self.width as f32 - Canvas::text_width(line, scale)) / 2.0;
+            let x = if self.view.is_screen() {
+                (self.width as f32 - Canvas::text_width(line, scale)) / 2.0
+            } else {
+                // Where the text must start, in screen pixels, then back to world units.
+                let on_screen = Canvas::text_width(line, scale) * self.view.scale;
+                let left = (self.width as f32 - on_screen) / 2.0;
+                self.view.unapply(vec2(left, 0.0)).x
+            };
             self.draw_text(line, vec2(x, y + i as f32 * line_height), scale, color);
         }
     }

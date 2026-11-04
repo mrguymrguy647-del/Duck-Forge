@@ -221,8 +221,8 @@ struct Parade {
     wake_timer: f32,
     /// Seconds left of the "LEVEL N" banner. No pike strike while it shows.
     banner: f32,
-    /// Seconds of screen shake left.
-    shake: f32,
+    /// Looks at the pond, and shakes the screen when a pike bites.
+    camera: Camera2D,
 
     lily_pads: Vec<(Vec2, f32, f32)>,
     sparkles: Vec<Vec2>,
@@ -283,7 +283,7 @@ impl Parade {
             lost_timer: 0.0,
             wake_timer: 0.0,
             banner: 0.0,
-            shake: 0.0,
+            camera: Camera2D::new(WIDTH, HEIGHT),
             lily_pads,
             sparkles,
         }
@@ -686,7 +686,7 @@ impl Parade {
                     color: WARNING,
                 });
                 self.pikes[p].phase = PikePhase::Diving(0.4);
-                self.shake = 0.25;
+                self.camera.shake(2.0, 0.25);
                 continue;
             }
 
@@ -699,7 +699,7 @@ impl Parade {
                 self.scatter(0, at, rng);
                 feathers(&mut self.particles, at, DUCK_WHITE, 18, rng);
                 self.pikes[p].phase = PikePhase::Diving(0.4);
-                self.shake = 0.4;
+                self.camera.shake(3.2, 0.4);
                 if self.lives == 0 {
                     self.state = State::GameOver;
                     self.best = self.best.max(self.score);
@@ -756,7 +756,6 @@ impl Parade {
             // The nest's ducklings go off to bed once the new level begins.
             self.in_nest = 0;
         }
-        self.shake = (self.shake - dt).max(0.0);
     }
 
     /// On the title screen, the duck leads a little parade around the pond by itself.
@@ -774,17 +773,6 @@ impl Parade {
         let vel = (target - self.duck.pos) * 3.0;
         self.steer_duck(vel, dt);
         self.follow(dt);
-    }
-
-    fn shake_offset(&self) -> Vec2 {
-        if self.shake <= 0.0 {
-            return Vec2::ZERO;
-        }
-        let amount = self.shake * 8.0;
-        vec2(
-            ((self.time * 91.0).sin() * amount).round(),
-            ((self.time * 73.0).cos() * amount).round(),
-        )
     }
 }
 
@@ -835,47 +823,51 @@ impl Game for Parade {
             }
         }
         self.update_effects(dt);
+        self.camera.update(ctx);
     }
 
     fn draw(&self, canvas: &mut Canvas) {
-        let o = self.shake_offset();
-        self.draw_pond(canvas, o);
-        self.draw_nest(canvas, o);
+        // The world is drawn through the camera, so it shakes; the score
+        // and menus are drawn after the pop, so they stay still.
+        canvas.push_camera(&self.camera);
+        self.draw_pond(canvas);
+        self.draw_nest(canvas);
 
         for r in &self.ripples {
             let color = WATER_MID.lerp(r.color, r.life / r.max_life * 0.8);
-            ring(canvas, r.pos + o, r.radius, color);
+            ring(canvas, r.pos, r.radius, color);
         }
         for pike in &self.pikes {
-            draw_pike(canvas, pike, o, self.time);
+            draw_pike(canvas, pike, self.time);
         }
         for lost in &self.lost {
             // Panicking ducklings flash, so you know you can't grab them yet.
             let bob = (self.time * 5.0 + lost.pos.x).sin() * 0.4;
             if lost.panic <= 0.0 || (self.time * 12.0).sin() > 0.0 {
-                draw_bird(canvas, lost.pos + o, lost.angle, 0.55 + bob * 0.05, true);
+                draw_bird(canvas, lost.pos, lost.angle, 0.55 + bob * 0.05, true);
             }
         }
         for follower in &self.line {
-            draw_bird(canvas, follower.pos + o, follower.angle, 0.55, true);
+            draw_bird(canvas, follower.pos, follower.angle, 0.55, true);
         }
         for hop in &self.hops {
             let k = (hop.t / HOP_TIME).clamp(0.0, 1.0);
             let pos = hop.from.lerp_to(NEST, k) - vec2(0.0, (k * PI).sin() * 12.0);
-            draw_bird(canvas, pos + o, -PI / 2.0, 0.55, true);
+            draw_bird(canvas, pos, -PI / 2.0, 0.55, true);
         }
         let blink = self.duck.hurt > 0.0 && (self.time * 20.0).sin() < 0.0;
         if !blink {
-            draw_bird(canvas, self.duck.pos + o, self.duck.angle, 1.0, false);
+            draw_bird(canvas, self.duck.pos, self.duck.angle, 1.0, false);
         }
         for p in &self.particles {
             let color = WATER_MID.lerp(p.color, (p.life / p.max_life).sqrt());
-            canvas.fill_rect(Rect::from_center(p.pos + o, p.size, p.size), color);
+            canvas.fill_rect(Rect::from_center(p.pos, p.size, p.size), color);
         }
         for popup in &self.popups {
             let color = WATER_MID.lerp(popup.color, (popup.life * 2.0).min(1.0));
-            shadow_text(canvas, &popup.text, popup.pos + o, 1, color);
+            shadow_text(canvas, &popup.text, popup.pos, 1, color);
         }
+        canvas.pop_camera();
 
         match self.state {
             State::Title => self.draw_title(canvas),
@@ -905,19 +897,19 @@ impl Game for Parade {
 // ---- Drawing the scene ----
 
 impl Parade {
-    fn draw_pond(&self, canvas: &mut Canvas, o: Vec2) {
+    fn draw_pond(&self, canvas: &mut Canvas) {
         canvas.clear(GRASS);
         // Tufts of darker grass, always in the same places.
         let mut tufts = Rng::new(7);
         for _ in 0..90 {
             let p = vec2(tufts.range(0.0, WIDTH), tufts.range(0.0, HEIGHT));
-            canvas.draw_line(p + o, p + o + vec2(1.0, -3.0), GRASS_DARK);
-            canvas.draw_line(p + o + vec2(2.0, 0.0), p + o + vec2(2.0, -2.0), GRASS_DARK);
+            canvas.draw_line(p, p + vec2(1.0, -3.0), GRASS_DARK);
+            canvas.draw_line(p + vec2(2.0, 0.0), p + vec2(2.0, -2.0), GRASS_DARK);
         }
 
         // A muddy bank, then the water, darker toward the bottom.
-        rounded_rect(canvas, grow(POND, 3.0), 14.0, o, |_| MUD);
-        rounded_rect(canvas, POND, 12.0, o, |y| {
+        rounded_rect(canvas, grow(POND, 3.0), 14.0, |_| MUD);
+        rounded_rect(canvas, POND, 12.0, |y| {
             WATER_TOP.lerp(WATER_BOTTOM, (y - POND.y) / POND.h)
         });
 
@@ -925,12 +917,12 @@ impl Parade {
             let shimmer = (self.time * 1.7 + i as f32 * 2.3).sin();
             if shimmer > 0.55 {
                 let len = if shimmer > 0.85 { 4.0 } else { 2.0 };
-                canvas.draw_line(p + o, p + o + vec2(len, 0.0), SPARKLE);
+                canvas.draw_line(p, p + vec2(len, 0.0), SPARKLE);
             }
         }
 
         for &(pos, radius, notch) in &self.lily_pads {
-            let p = pos + o;
+            let p = pos;
             canvas.fill_circle(p, radius + 1.0, Color::from_hex(0x2f6a2c));
             canvas.fill_circle(p, radius, Color::from_hex(0x4f9a3f));
             let water = WATER_TOP.lerp(WATER_BOTTOM, (pos.y - POND.y) / POND.h);
@@ -948,12 +940,12 @@ impl Parade {
             for k in 0..5 {
                 let a = k as f32 * TAU / 5.0;
                 canvas.fill_circle(
-                    pos + o + vec2(a.cos(), a.sin()) * 2.5,
+                    pos + vec2(a.cos(), a.sin()) * 2.5,
                     2.0,
                     Color::from_hex(0xf3a6c8),
                 );
             }
-            canvas.fill_circle(pos + o, 1.5, Color::YELLOW);
+            canvas.fill_circle(pos, 1.5, Color::YELLOW);
         }
 
         // Reeds on the side banks.
@@ -962,17 +954,17 @@ impl Parade {
             for k in 0..3 {
                 let y = base + k as f32 * 9.0;
                 let sway = ((self.time * 1.3 + y).sin() * 1.5).round();
-                canvas.draw_line(vec2(x, y + 10.0) + o, vec2(x + sway, y) + o, GRASS_DARK);
+                canvas.draw_line(vec2(x, y + 10.0), vec2(x + sway, y), GRASS_DARK);
                 canvas.fill_rect(
-                    Rect::new(x + sway - 1.0, y - 3.0, 2.0, 4.0).moved(o),
+                    Rect::new(x + sway - 1.0, y - 3.0, 2.0, 4.0),
                     Color::from_hex(0x7a4e2a),
                 );
             }
         }
     }
 
-    fn draw_nest(&self, canvas: &mut Canvas, o: Vec2) {
-        let c = NEST + o;
+    fn draw_nest(&self, canvas: &mut Canvas) {
+        let c = NEST;
         // When you have a line to bring home, the nest calls you with a glow.
         if !self.line.is_empty() && self.state == State::Playing {
             let pulse = (self.time * 5.0).sin() * 0.5 + 0.5;
@@ -1154,14 +1146,14 @@ fn draw_bird(canvas: &mut Canvas, pos: Vec2, angle: f32, scale: f32, chick: bool
     }
 }
 
-fn draw_pike(canvas: &mut Canvas, pike: &Pike, o: Vec2, time: f32) {
+fn draw_pike(canvas: &mut Canvas, pike: &Pike, time: f32) {
     let dir = pike.dir();
     let side = vec2(-dir.y, dir.x);
     match pike.phase {
         PikePhase::Warning(left) => {
             // A dark shape rising, and an arrow showing where it will go.
             let k = 1.0 - left / PIKE_WARNING;
-            let middle = pike.head - dir * (PIKE_LENGTH / 2.0) + o;
+            let middle = pike.head - dir * (PIKE_LENGTH / 2.0);
             let shade = WATER_MID.lerp(PIKE_SHADOW, 0.4 + 0.6 * k);
             for i in 0..5 {
                 let t = i as f32 / 4.0 - 0.5;
@@ -1172,7 +1164,7 @@ fn draw_pike(canvas: &mut Canvas, pike: &Pike, o: Vec2, time: f32) {
                 );
             }
             let reach = 22.0 + 30.0 * k;
-            let start = pike.head + o + dir * 4.0;
+            let start = pike.head + dir * 4.0;
             let end = start + dir * reach;
             let blink = (time * 14.0).sin() > -0.2;
             if blink {
@@ -1198,7 +1190,7 @@ fn draw_pike(canvas: &mut Canvas, pike: &Pike, o: Vec2, time: f32) {
                 .map(|i| {
                     let along = i as f32 * PIKE_LENGTH / (radii.len() as f32 + 0.5);
                     let wiggle = (time * 14.0 - i as f32 * 0.9).sin() * (i as f32 * 0.35);
-                    pike.head - dir * along + side * wiggle + o
+                    pike.head - dir * along + side * wiggle
                 })
                 .collect();
             let tail = *points.last().unwrap_or(&pike.head);
@@ -1283,13 +1275,7 @@ fn grow(rect: Rect, by: f32) -> Rect {
 }
 
 /// A rectangle with round corners, filled one row at a time with `color(y)`.
-fn rounded_rect(
-    canvas: &mut Canvas,
-    rect: Rect,
-    radius: f32,
-    o: Vec2,
-    color: impl Fn(f32) -> Color,
-) {
+fn rounded_rect(canvas: &mut Canvas, rect: Rect, radius: f32, color: impl Fn(f32) -> Color) {
     let mut y = rect.y;
     while y < rect.bottom() {
         // How far in from each side the corner curve is on this row.
@@ -1305,7 +1291,7 @@ fn rounded_rect(
             0.0
         };
         let row = Rect::new(rect.x + inset, y, rect.w - 2.0 * inset, 1.0);
-        canvas.fill_rect(row.moved(o), color(y));
+        canvas.fill_rect(row, color(y));
         y += 1.0;
     }
 }
@@ -1380,16 +1366,6 @@ fn feathers(particles: &mut Vec<Particle>, at: Vec2, color: Color, count: usize,
             color,
             size: if rng.chance(0.3) { 2.0 } else { 1.0 },
         });
-    }
-}
-
-trait Moved {
-    fn moved(self, by: Vec2) -> Self;
-}
-
-impl Moved for Rect {
-    fn moved(self, by: Vec2) -> Self {
-        Rect::new(self.x + by.x, self.y + by.y, self.w, self.h)
     }
 }
 

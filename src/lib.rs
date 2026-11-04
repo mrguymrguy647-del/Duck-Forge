@@ -29,6 +29,7 @@
 //! }
 //! ```
 
+pub mod camera;
 pub mod canvas;
 mod cli;
 pub mod color;
@@ -65,6 +66,7 @@ pub use simulation::Simulation;
 /// Everything a game usually needs, importable in one line:
 /// `use duckforge::prelude::*;`
 pub mod prelude {
+    pub use crate::camera::Camera2D;
     pub use crate::canvas::Canvas;
     pub use crate::color::Color;
     pub use crate::engine::{Config, Context, Game, Timestep};
