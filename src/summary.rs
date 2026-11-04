@@ -55,6 +55,8 @@ pub(crate) struct Summary {
     pub checks: usize,
     pub failed: Vec<FailedCheck>,
     pub warnings: Vec<String>,
+    /// How the replay's ending differs from the playthrough's `"expect"`.
+    pub changed: Vec<String>,
     /// Other things worth a line, like "wrote 3 tune values to FILE".
     pub notes: Vec<String>,
     pub folder: Option<PathBuf>,
@@ -117,22 +119,34 @@ impl Summary {
         summary
     }
 
-    /// True if nothing went wrong: no failed checks and no warnings.
+    /// True if nothing went wrong: no failed checks, no warnings, and the
+    /// playthrough ended as expected.
     pub(crate) fn ok(&self) -> bool {
-        self.failed.is_empty() && self.warnings.is_empty()
+        self.failed.is_empty() && self.warnings.is_empty() && self.changed.is_empty()
+    }
+
+    /// The "playthrough changed" line, if it did.
+    pub(crate) fn changed_line(&self) -> Option<String> {
+        (!self.changed.is_empty()).then(|| {
+            format!(
+                "playthrough changed: {}; if that's right, accept it with --accept (or re-record it)",
+                self.changed.join(", ")
+            )
+        })
     }
 
     /// Just the problems, one line each: what `--quiet` prints.
     pub(crate) fn problems(&self) -> Vec<String> {
+        // The playthrough's ending first: it's one line whatever else is wrong.
         let mut lines: Vec<String> = self
-            .failed
-            .iter()
-            .map(|check| {
+            .changed_line()
+            .into_iter()
+            .chain(self.failed.iter().map(|check| {
                 format!(
                     "CHECK FAILED: {:?} first failed on frame {}",
                     check.name, check.frame
                 )
-            })
+            }))
             .chain(self.warnings.iter().map(|w| format!("warning: {w}")))
             .collect();
         if lines.len() > MAX_PROBLEMS {
@@ -288,6 +302,7 @@ impl Summary {
             "tuned": tuned,
             "checks": {"rules": self.checks, "failed": failed},
             "warnings": self.warnings,
+            "playthrough_changed": self.changed,
             "notes": self.notes,
             "folder": self.folder.as_ref().map(|f| f.display().to_string()),
             "files": self.files,
@@ -388,6 +403,7 @@ mod tests {
                 .collect(),
             warnings: many("something is off", 9),
             notes: vec![String::from("wrote 3 tune values to x.tune.json")],
+            changed: vec![String::from("score 10 to 12")],
             folder: Some(PathBuf::from("shots")),
             files: vec![
                 String::from("run.gif"),
@@ -407,7 +423,8 @@ mod tests {
         let lines = text.lines().count();
         assert!(lines <= 15, "{lines} lines:\n{text}");
         assert!(text.contains("CHECK FAILED: \"rule 0\" first failed on frame 0"));
-        assert!(text.contains("and 15 more problems (all in log.json)"));
+        assert!(text.contains("and 16 more problems (all in log.json)"));
+        assert!(text.contains("playthrough changed: score 10 to 12"));
         assert!(text.contains("and 20 more (see log.json)"));
         assert!(text.contains("(20 changes, all in log.json)"));
         assert!(text.contains("also changed: state1, state2, state3, state4"));
@@ -427,10 +444,12 @@ mod tests {
         assert_eq!(summary.problems().len(), 4);
         summary.failed.truncate(1);
         summary.warnings.truncate(1);
-        assert_eq!(summary.problems().len(), 2);
+        assert_eq!(summary.problems().len(), 3, "the changed line, a check, a warning");
         assert!(!summary.ok());
         summary.failed.clear();
         summary.warnings.clear();
+        assert!(!summary.ok(), "a changed playthrough isn't ok");
+        summary.changed.clear();
         assert!(summary.problems().is_empty());
         assert!(summary.ok());
     }

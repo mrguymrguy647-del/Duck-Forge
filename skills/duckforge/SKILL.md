@@ -113,11 +113,11 @@ isn't a freeze. `--fuzz-keys Left,Right,Space` picks the keys.
 
 A playthrough is an input script in `playthroughs/mygame.json`:
 `{"events": [{"frame": 10, "press": "Right"}, {"frame": 70, "release": "Right"}]}`
-(frames start at 1). Write one by hand, record one in a window with F10,
-or let a bot in an ignored test play and save `sim.recording()` (the
-starters' `record_playthrough`): run it with
-`cargo test --no-default-features --example mygame -- --ignored`.
-Re-record after changing anything that uses `ctx.rng`.
+(frames start at 1). Write one, press F10 in a window, or let a bot in
+an ignored test save `sim.recording()` (`record_playthrough`; run with
+`cargo test --no-default-features --example mygame -- --ignored`).
+Recordings store their ending (`"expect"`). When `verify` says `changed`,
+add `--accept` to the replay to keep the new ending, or re-record.
 
 ## 8. Common mistakes
 

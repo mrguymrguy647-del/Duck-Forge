@@ -363,14 +363,20 @@ impl<G: Game> Simulation<G> {
     }
 
     /// Everything done to the game so far, as a script that replays it:
-    /// every input change since the first frame, with the seed and the
-    /// number of frames.
+    /// every input change since the first frame, with the seed, the
+    /// number of frames, and what the game reports now as its `expect`
+    /// block (so a replay that ends differently is noticed).
     pub fn recording(&self) -> InputScript {
+        let reported: std::collections::BTreeMap<String, ReportValue> = self
+            .reports()
+            .map(|(name, value)| (name.to_string(), value.clone()))
+            .collect();
         InputScript {
             seed: Some(self.seed),
             updates_per_second: self.updates_per_second,
             frames: Some(self.ctx.frame()),
             events: self.history.clone(),
+            expect: (!reported.is_empty()).then_some(reported),
         }
     }
 
@@ -1110,6 +1116,10 @@ mod tests {
         let played = play_a_little(42);
         let recording = played.recording();
         assert_eq!(recording.seed, Some(42));
+        // It also says how the game ended: every reported value (this
+        // game reports nothing, so there's no "expect" block).
+        assert_eq!(recording.expect.is_some(), played.reports().count() > 0);
+        assert!(recording.changes_from_expected(played.reports()).is_empty());
         assert_eq!(recording.frames, Some(10));
         assert_eq!(recording.updates_per_second, Some(60));
         // Space down (seen on frame 2); then before frame 5: Space up, the

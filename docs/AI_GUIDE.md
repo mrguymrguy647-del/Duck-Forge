@@ -328,6 +328,17 @@ cargo run --no-default-features --example mygame -- --headless \
 interesting part: in the first run of `dodge`, half the sheet was the same
 GAME OVER screen, because the run was twice as long as the game.
 
+**Playthroughs say how they end.** A recording (F10, `--record`, or a
+bot's `sim.recording()`) saves an `"expect"` block with the game's final
+reported values: `"expect": {"delivered": 15, "lives": 0, "state": "Lost"}`.
+A replay that ends differently (you changed a tune value, or code that
+uses `ctx.rng`) prints `playthrough changed: delivered 15 to 9, state
+"Lost" to "Won"`, and `verify` shows it as a warning with the command to
+take the new ending: add `--accept` to the replay
+(`--headless --inputs playthroughs/x.json --accept`) and it rewrites the
+file's `"expect"`. Re-record instead if the inputs no longer make sense.
+Only a replay of the script's own length is compared.
+
 ### Step 3b: Read the scene before looking at pictures
 
 If the game labels its objects (`canvas.label("rock", rect)` in `draw`),
@@ -830,7 +841,8 @@ and `Simulation::new(config, game)` with `press`, `release`,
 pictures), `--grid-world N` (the same in world units, through the
 camera), `--describe`, `--debug`, `--debug-corner top-right` (where
 the overlay's box goes; bottom-right by default), `--tune FILE`,
-`--set NAME=N` (repeatable), `--write-tune`, `--record FILE` (window
+`--set NAME=N` (repeatable), `--write-tune`, `--accept` (with
+`--inputs FILE`: store this ending as the file's `"expect"`), `--record FILE` (window
 only), `--diff OLD_DIR NEW_DIR` (compare two runs; any example runs it,
 the game isn't started), `--fuzz N` (with `--fuzz-keys Left,Right,Space`
 and `--freeze-seconds S`; see section 4), `--help`.

@@ -3,6 +3,7 @@
   "seed": 1,
   "updates_per_second": 60,
   "frames": 2017,
+  "expect": {"chasing": 1, "coins": 9, "lives": 0, "state": "Lost", "x": 84, "y": 235},
   "events": [
     {"frame": 2, "press": "Right"},
     {"frame": 93, "press": "Down"},

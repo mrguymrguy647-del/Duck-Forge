@@ -3,6 +3,7 @@
   "seed": 1,
   "updates_per_second": 60,
   "frames": 1844,
+  "expect": {"dodged": 60, "hits": 3, "lives": 0, "seconds": 29, "state": "GameOver"},
   "events": [
     {"frame": 1, "press": "Space"},
     {"frame": 2, "release": "Space"},

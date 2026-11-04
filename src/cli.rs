@@ -64,6 +64,11 @@ const OPTIONS: &[OptionInfo] = &[
         help: "replay an input script (a recording) in a window or with --headless",
     },
     OptionInfo {
+        name: "--accept",
+        value: None,
+        help: "with --headless --inputs FILE: write this run's final reported values into FILE's \"expect\" block",
+    },
+    OptionInfo {
         name: "--record",
         value: Some("FILE"),
         help: "record everything you do in the window to FILE (F10 also records)",
@@ -175,6 +180,7 @@ pub(crate) struct Options {
     pub write_tune: bool,
     pub describe: bool,
     pub quiet: bool,
+    pub accept: bool,
     pub json: bool,
     pub grid: Option<usize>,
     pub grid_world: bool,
@@ -219,6 +225,7 @@ impl Options {
                 "--write-tune" => options.write_tune = true,
                 "--describe" => options.describe = true,
                 "--quiet" => options.quiet = true,
+                "--accept" => options.accept = true,
                 "--json" => options.json = true,
                 "--fuzz" => {
                     let runs = value
@@ -300,6 +307,7 @@ impl Options {
             ("--zoom", options.zoom.is_some()),
             ("--describe", options.describe),
             ("--quiet", options.quiet),
+            ("--accept", options.accept),
             ("--json", options.json),
             ("--grid", options.grid.is_some() && !options.grid_world),
             ("--grid-world", options.grid_world),
@@ -321,6 +329,11 @@ impl Options {
             if options.fuzz.is_none() {
                 return Err(format!("{name} only works with --fuzz N"));
             }
+        }
+        if options.accept && options.inputs.is_none() {
+            return Err(String::from(
+                "--accept needs --inputs FILE: it writes the run's ending into that playthrough",
+            ));
         }
         if options.quiet && options.json {
             return Err(String::from(
@@ -613,6 +626,9 @@ mod tests {
             // Most options are for --headless; --record only works in a window.
             if option.name != "--record" {
                 words.push(String::from("--headless"));
+            }
+            if option.name == "--accept" {
+                words.extend([String::from("--inputs"), String::from("p.json")]);
             }
             if option.name == "--fuzz-keys" || option.name == "--freeze-seconds" {
                 words.extend([String::from("--fuzz"), String::from("3")]);

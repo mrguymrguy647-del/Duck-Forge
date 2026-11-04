@@ -1601,3 +1601,43 @@ so it's in `log.json` and `--quiet`, and `verify` fails that playthrough
 with the message. A game that quits early isn't warned about: the events
 after a quit can't matter. (`HeadlessOptions` gained `inputs_file`, so the
 warning can name the file.)
+
+## Fix 2: Playthroughs that go stale
+
+After a change to a tune value, or to anything that uses `ctx.rng`, an
+old playthrough replays the same keys into a different game. It still
+ran without errors, so `verify` said ok while the playthrough no longer
+showed what it was recorded to show.
+
+**A playthrough now says how it ends.** An input script can have an
+`"expect"` block: the game's reported values at the end, like
+`{"delivered": 15, "lives": 0, "state": "Lost"}`. `sim.recording()`
+writes it, so every way of recording gets it for free: F10 and
+`--record` in a window, and the starters' `record_playthrough` bots.
+A replay of the script's own length compares its final values with it.
+A difference isn't an error; the summary says `playthrough changed:
+delivered 15 to 9, state "Lost" to "Won"; if that's right, accept it
+with --accept (or re-record it)`, and so do `log.json`
+(`"playthrough_changed"`) and `--json`.
+
+**`verify` calls it a warning, not a failure:** the line reads `changed`,
+followed by the exact command to accept the new ending, and the run ends
+`VERIFY OK with 1 warning(s)` with exit code 0. A changed ending is often
+what you wanted (you made the wasps slower on purpose); a failure would
+push an agent to accept without looking. The warning makes it visible
+and the decision explicit.
+
+**`--accept`** (with `--headless --inputs FILE`) writes the run's final
+values into the file's `"expect"`. The existing playthroughs were given
+their blocks this way; each file gained one line, since the format is
+the same one `to_json` already wrote.
+
+Only final values are compared, not the whole history: they're what a
+person would call "how it ended", they're short enough to read in the
+file, and any change along the way that matters usually changes them.
+Positions are included when the game reports them, so a different route
+to the same score is still noticed.
+
+`InputScript` gained a public `expect` field. Code that builds an
+`InputScript` with every field written out needs `expect: None` (one
+test here did); code using `..InputScript::default()` is unaffected.

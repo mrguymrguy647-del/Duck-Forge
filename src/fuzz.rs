@@ -465,6 +465,7 @@ fn random_script(seed: u32, fuzz: &Fuzz) -> InputScript {
         updates_per_second: Some(fuzz.updates_per_second.round() as u32),
         frames: Some(fuzz.frames),
         events,
+        expect: None,
     }
 }
 

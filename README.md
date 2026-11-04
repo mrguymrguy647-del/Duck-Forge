@@ -279,6 +279,7 @@ after `--` goes to the game, not to Cargo):
 | `--gif` | Save `run.gif`: the run, shrunk, at about 20 pictures per second |
 | `--crop X,Y,W,H` | Save `closeup.png`: that area of the last frame (and of each snapshot), enlarged |
 | `--zoom N` | How much close-ups are enlarged (default 4) |
+| `--accept` | With `--headless --inputs FILE`: write this run's final reported values into FILE's `"expect"` block, the ending the playthrough should show |
 | `--record FILE` | In a window, record everything you do to FILE (F10 records too) |
 | `--debug` | Show the debug overlay (F1 in a window); with `--headless` it's in every saved picture |
 | `--debug-corner C` | Where the overlay's box goes: `top-left`, `top-right`, `bottom-left` or `bottom-right` (the default) |

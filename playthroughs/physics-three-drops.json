@@ -1,6 +1,7 @@
 {
   "duckforge_inputs": 1,
   "frames": 600,
+  "expect": {"bodies": 3, "escaped": 0, "moving": 0},
   "events": [
     {"frame": 10, "mouse": [60, 30]},
     {"frame": 11, "mouse_press": "Left"},

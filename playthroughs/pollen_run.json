@@ -3,6 +3,7 @@
   "seed": 1,
   "updates_per_second": 60,
   "frames": 4216,
+  "expect": {"carried": 0, "chasing": 2, "delivered": 15, "lives": 0, "state": "Lost", "x": 20, "y": 240},
   "events": [
     {"frame": 2, "press": "Right"},
     {"frame": 26, "press": "Left"},

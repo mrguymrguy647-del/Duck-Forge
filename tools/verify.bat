@@ -24,6 +24,7 @@ mkdir "%out%"
 rem Short failure messages: the one-line panic, not a backtrace.
 set "RUST_BACKTRACE=0"
 set /a problems=0
+set /a warnings=0
 
 echo verify %game%
 
@@ -82,8 +83,25 @@ for %%S in ("playthroughs\%game%.json" "playthroughs\%game%-*.json") do (
         set "folder=%out%\%%~nS"
         cargo run -q --no-default-features --example %game% -- --headless --inputs "%%~S" --sheet --debug --quiet --out "!folder!" > "!folder!.txt" 2>&1
         set "failed=!errorlevel!"
-        for %%A in ("!folder!.txt") do if %%~zA GTR 0 set "failed=1"
-        if "!failed!"=="0" (
+        set "changed=0"
+        for %%A in ("!folder!.txt") do if %%~zA GTR 0 (
+            set "failed=1"
+            rem Only "playthrough changed" lines: a warning, not a failure.
+            findstr /v /b /c:"duckforge: playthrough changed: " "!folder!.txt" > nul
+            if errorlevel 1 set "changed=1"
+        )
+        if "!changed!"=="1" (
+            set "changes="
+            for /f "usebackq delims=" %%L in ("!folder!.txt") do (
+                set "line=%%L"
+                set "changes=!line:duckforge: playthrough changed: =!"
+            )
+            set "label=!name!.json                            "
+            echo   !label:~0,28! changed: !changes!
+            echo       if the new ending is right: cargo run --no-default-features --example %game% -- --headless --inputs %%~S --accept
+            echo       ^(or record it again: F10 in the game, or its record_playthrough test^)
+            set /a warnings+=1
+        ) else if "!failed!"=="0" (
             set "final=nothing reported"
             for /f "tokens=1,* delims= " %%a in ('findstr /b /c:"final: " "!folder!\summary.txt"') do set "final=%%b"
             set "frames=?"
@@ -127,7 +145,11 @@ if "!code!!errorlevel!"=="00" (
 )
 
 if !problems!==0 (
-    echo VERIFY OK: %game% ^(pictures and summaries in %out%^)
+    if !warnings! gtr 0 (
+        echo VERIFY OK with !warnings! warning^(s^) above: %game% ^(pictures and summaries in %out%^)
+    ) else (
+        echo VERIFY OK: %game% ^(pictures and summaries in %out%^)
+    )
     exit /b 0
 )
 echo VERIFY FAILED: !problems! of the steps above for %game% ^(everything in %out%^)

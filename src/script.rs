@@ -9,6 +9,7 @@
 //!   "duckforge_inputs": 1,
 //!   "seed": 7,
 //!   "frames": 300,
+//!   "expect": {"score": 20, "state": "Playing"},
 //!   "events": [
 //!     {"frame": 1, "press": "Space"},
 //!     {"frame": 2, "release": "Space"},
@@ -20,6 +21,7 @@
 //! }
 //! ```
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
@@ -28,6 +30,7 @@ use serde_json::{Map, Value};
 use crate::engine::{Config, Timestep};
 use crate::input::{Key, MouseButton};
 use crate::math::{Vec2, vec2};
+use crate::report::ReportValue;
 
 /// The format version written in `"duckforge_inputs"`.
 const VERSION: u64 = 1;
@@ -72,6 +75,11 @@ pub struct InputScript {
     pub frames: Option<u64>,
     /// The events, in frame order.
     pub events: Vec<InputEvent>,
+    /// What the playthrough is expected to show: the game's reported
+    /// values at the end, as they were when it was recorded (or accepted
+    /// with `--accept`). A replay that ends differently is reported as
+    /// "playthrough changed".
+    pub expect: Option<BTreeMap<String, ReportValue>>,
 }
 
 impl InputScript {
@@ -100,6 +108,7 @@ impl InputScript {
                 "seed",
                 "updates_per_second",
                 "frames",
+                "expect",
                 "events",
             ],
             "the script",
@@ -125,6 +134,34 @@ impl InputScript {
             Some(value) => Some(whole_number(value, "\"frames\"", u64::MAX)?),
         };
 
+        let expect = match top.get("expect") {
+            None | Some(Value::Null) => None,
+            Some(Value::Object(values)) => Some(
+                values
+                    .iter()
+                    .map(|(name, value)| {
+                        let value = match value {
+                            Value::Bool(b) => ReportValue::Bool(*b),
+                            Value::String(text) => ReportValue::Text(text.clone()),
+                            Value::Number(n) => ReportValue::Number(n.as_f64().unwrap_or(0.0)),
+                            other => {
+                                return Err(format!(
+                                    "\"expect\": {name:?} is {other}, but reported values are \
+                                     numbers, true/false or text"
+                                ));
+                            }
+                        };
+                        Ok((name.clone(), value))
+                    })
+                    .collect::<Result<_, _>>()?,
+            ),
+            Some(_) => {
+                return Err(String::from(
+                    "\"expect\" must be an object like {\"score\": 20, \"state\": \"Won\"}",
+                ));
+            }
+        };
+
         let Some(list) = top.get("events") else {
             return Err(String::from("the script has no \"events\" list"));
         };
@@ -146,6 +183,7 @@ impl InputScript {
             updates_per_second,
             frames,
             events,
+            expect,
         })
     }
 
@@ -161,6 +199,13 @@ impl InputScript {
         }
         if let Some(frames) = self.frames {
             text += &format!("  \"frames\": {frames},\n");
+        }
+        if let Some(expect) = &self.expect {
+            let values: Vec<String> = expect
+                .iter()
+                .map(|(name, value)| format!("{}: {}", Value::from(name.as_str()), value.to_json()))
+                .collect();
+            text += &format!("  \"expect\": {{{}}},\n", values.join(", "));
         }
         text += "  \"events\": [";
         for (index, event) in self.events.iter().enumerate() {
@@ -201,6 +246,34 @@ impl InputScript {
             .iter()
             .filter(|event| event.frame > frame)
             .count()
+    }
+
+    /// How a replay's final reported values differ from `expect`, one
+    /// entry per difference, like `delivered 15 to 9` or
+    /// `state "Lost" to "Won"`. Empty if they match, or if there's no
+    /// `expect`.
+    pub fn changes_from_expected<'a>(
+        &self,
+        reported: impl IntoIterator<Item = (&'a str, &'a ReportValue)>,
+    ) -> Vec<String> {
+        let Some(expect) = &self.expect else {
+            return Vec::new();
+        };
+        let reported: BTreeMap<&str, &ReportValue> = reported.into_iter().collect();
+        let mut changes = Vec::new();
+        for (name, old) in expect {
+            match reported.get(name.as_str()) {
+                Some(new) if *new == old => {}
+                Some(new) => changes.push(format!("{name} {old} to {new}")),
+                None => changes.push(format!("{name} {old} to nothing")),
+            }
+        }
+        for (name, new) in &reported {
+            if !expect.contains_key(*name) {
+                changes.push(format!("{name} new: {new}"));
+            }
+        }
+        changes
     }
 
     /// The last frame that has an event, or 0 if there are none.
@@ -373,6 +446,51 @@ mod tests {
     use super::*;
 
     #[test]
+    fn expect_is_read_written_and_compared() {
+        let script = InputScript::parse(
+            r#"{"frames": 10, "expect": {"delivered": 15, "state": "Lost", "won": false},
+                "events": []}"#,
+        )
+        .unwrap();
+        let again = InputScript::parse(&script.to_json()).unwrap();
+        assert_eq!(again, script, "survives saving");
+        assert!(
+            script
+                .to_json()
+                .contains(r#""expect": {"delivered": 15, "state": "Lost", "won": false},"#)
+        );
+        let same = [
+            ("delivered", ReportValue::from(15)),
+            ("state", ReportValue::from("Lost")),
+            ("won", ReportValue::from(false)),
+        ];
+        assert!(
+            script
+                .changes_from_expected(same.iter().map(|(n, v)| (*n, v)))
+                .is_empty()
+        );
+        let different = [
+            ("delivered", ReportValue::from(9)),
+            ("state", ReportValue::from("Won")),
+            ("bonus", ReportValue::from(1)),
+        ];
+        assert_eq!(
+            script.changes_from_expected(different.iter().map(|(n, v)| (*n, v))),
+            [
+                "delivered 15 to 9",
+                r#"state "Lost" to "Won""#,
+                "won false to nothing",
+                "bonus new: 1"
+            ]
+        );
+        assert!(
+            InputScript::parse(r#"{"expect": {"x": [1]}, "events": []}"#)
+                .unwrap_err()
+                .contains("numbers, true/false or text")
+        );
+    }
+
+    #[test]
     fn without_frames_a_replay_lasts_until_two_seconds_after_the_last_event() {
         let script =
             InputScript::parse(r#"{"events": [{"frame": 898, "press": "Left"}]}"#).unwrap();
@@ -423,6 +541,7 @@ mod tests {
     #[test]
     fn writing_and_reading_back_gives_the_same_script() {
         let script = InputScript {
+            expect: None,
             seed: Some(123_456),
             updates_per_second: Some(60),
             frames: Some(90),

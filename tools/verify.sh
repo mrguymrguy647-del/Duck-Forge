@@ -24,6 +24,7 @@ mkdir -p "$out"
 # Short failure messages: the one-line panic, not a backtrace.
 export RUST_BACKTRACE=0
 problems=0
+warnings=0
 started=$SECONDS
 
 # Prints a step's result line, and on failure up to 6 lines of detail.
@@ -70,12 +71,22 @@ for script in "playthroughs/$game.json" playthroughs/"$game"-*.json; do
     found=1
     name=$(basename "$script" .json)
     folder="$out/$name"
-    if cargo run -q --no-default-features --example "$game" -- \
+    cargo run -q --no-default-features --example "$game" -- \
         --headless --inputs "$script" --sheet --debug --quiet --out "$folder" \
-        >"$folder.txt" 2>&1 && [ ! -s "$folder.txt" ]; then
+        >"$folder.txt" 2>&1
+    code=$?
+    if [ $code -eq 0 ] && [ ! -s "$folder.txt" ]; then
         final=$(grep -E '^final: ' "$folder/summary.txt" | cut -c 8-)
         frames=$(head -n 1 "$folder/summary.txt" | sed -E 's/.* for ([0-9]+) frames.*/\1/')
         report "$name.json" ok "$frames frames; ${final:-nothing reported}"
+    elif [ $code -eq 0 ] && ! grep -q -v '^duckforge: playthrough changed: ' "$folder.txt"; then
+        # Nothing broke, but it no longer ends the way it was recorded: a
+        # warning, with the commands to accept the new ending.
+        changes=$(sed -E 's/^duckforge: playthrough changed: //; s/; if that.s right.*//' "$folder.txt")
+        printf '  %-28s %s: %s\n' "$name.json" changed "$changes"
+        echo "      if the new ending is right: cargo run --no-default-features --example $game -- --headless --inputs $script --accept"
+        echo "      (or record it again: F10 in the game, or its record_playthrough test)"
+        warnings=$((warnings + 1))
     else
         report "$name.json" FAILED "see $folder/summary.txt" "$folder.txt"
     fi
@@ -98,7 +109,9 @@ else
 fi
 
 seconds=$((SECONDS - started))
-if [ $problems -eq 0 ]; then
+if [ $problems -eq 0 ] && [ $warnings -gt 0 ]; then
+    echo "VERIFY OK with $warnings warning(s) above: $game in ${seconds} s (pictures and summaries in $out)"
+elif [ $problems -eq 0 ]; then
     echo "VERIFY OK: $game in ${seconds} s (pictures and summaries in $out)"
 else
     echo "VERIFY FAILED: $problems of the steps above for $game (everything in $out)"

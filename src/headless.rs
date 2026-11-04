@@ -376,14 +376,31 @@ fn run_and_save<G: Game>(
         saved.push(String::from("audio.wav"));
     }
     warnings.extend(unused_set_warnings(&sim));
+    // Did the playthrough end the way it's expected to? (Only when it ran
+    // its own length: a different --frames ends somewhere else.)
+    let changed = match &options.inputs {
+        Some(script) if script.frames.is_none_or(|f| f == options.frames) => {
+            script.changes_from_expected(sim.reports())
+        }
+        _ => Vec::new(),
+    };
     saved.push(String::from("log.json"));
     saved.push(String::from("summary.txt"));
-    let log = log_json(&title, &sim, updates_per_second, options, &saved, &warnings);
+    let log = log_json(
+        &title,
+        &sim,
+        updates_per_second,
+        options,
+        &saved,
+        &warnings,
+        &changed,
+    );
     let path = folder.join("log.json");
     fs::write(&path, log).map_err(|err| format!("could not save {}: {err}", path.display()))?;
     let note = write_tune_if_asked(&mut sim, options)?;
 
     let mut summary = Summary::of(&sim, &title, started.elapsed().as_secs_f32());
+    summary.changed = changed;
     if let Some(script) = &options.inputs {
         let replayed = script.events.iter().filter(|e| e.frame <= last).count();
         summary.inputs = Some((replayed, script.events.len()));
@@ -563,6 +580,7 @@ fn log_json<G: Game>(
     options: &HeadlessOptions,
     files: &[String],
     warnings: &[String],
+    changed: &[String],
 ) -> String {
     let ctx = sim.context();
     let json = |value: Value| value.to_string();
@@ -643,6 +661,11 @@ fn log_json<G: Game>(
     );
     let warnings: Vec<Value> = warnings.iter().map(|w| Value::from(w.as_str())).collect();
     text += &format!("  \"warnings\": {},\n", json(Value::from(warnings)));
+    let changed: Vec<Value> = changed.iter().map(|c| Value::from(c.as_str())).collect();
+    text += &format!(
+        "  \"playthrough_changed\": {},\n",
+        json(Value::from(changed))
+    );
     text += "  \"sounds\": [";
     let sounds = sim.sounds();
     for (index, played) in sounds.iter().enumerate() {
@@ -715,7 +738,30 @@ pub(crate) fn run_from_command_line<G: Game>(
         config.debug_corner = corner;
     }
     report_panic_frames();
-    let (mut sim, summary) = run_and_save(config, game, &headless)?;
+    let (mut sim, mut summary) = run_and_save(config, game, &headless)?;
+    if let (true, Some(path), Some(mut script)) = (options.accept, &options.inputs, headless.inputs)
+    {
+        // --accept: this ending becomes the expected one.
+        script.expect = Some(
+            sim.reports()
+                .map(|(name, value)| (name.to_string(), value.clone()))
+                .collect(),
+        );
+        script.save(path)?;
+        let was = if summary.changed.is_empty() {
+            String::new()
+        } else {
+            format!(" (it had changed: {})", summary.changed.join(", "))
+        };
+        summary.changed.clear();
+        summary.notes.push(format!(
+            "accepted: wrote this ending to {}'s \"expect\"{was}",
+            path.display()
+        ));
+        if let Some(folder) = &headless.out {
+            save_text(&summary.to_text(), &folder.join("summary.txt"))?;
+        }
+    }
     if options.json {
         let mut value = summary.to_json();
         if options.describe {
@@ -1516,6 +1562,47 @@ mod tests {
         };
         let err = run_headless(config(), game(), &options).err().unwrap();
         assert!(err.contains("could not create the folder"), "{err}");
+    }
+
+    #[test]
+    fn a_replay_that_ends_differently_is_a_changed_playthrough() {
+        let folder = test_folder("expect");
+        // ReportingMover reports "x", one more each frame: 30 after 30 frames.
+        let script = |x: u32| {
+            InputScript::parse(&format!(
+                r#"{{"frames": 30, "expect": {{"x": {x}, "far": true}}, "events": []}}"#
+            ))
+            .unwrap()
+        };
+        let options = |script| HeadlessOptions {
+            frames: 30,
+            out: Some(folder.clone()),
+            inputs: Some(script),
+            ..HeadlessOptions::default()
+        };
+        let run = |x| {
+            run_and_save(config(), ReportingMover { x: 0.0 }, &options(script(x)))
+                .unwrap()
+                .1
+        };
+        assert!(run(30).changed.is_empty(), "it ends as expected");
+        let summary = run(25);
+        assert_eq!(summary.changed, ["x 25 to 30"]);
+        assert!(!summary.ok());
+        assert!(summary.problems().last().unwrap().starts_with(
+            "playthrough changed: x 25 to 30; if that's right, accept it with --accept"
+        ));
+        let log = fs::read_to_string(folder.join("log.json")).unwrap();
+        assert!(
+            log.contains(r#""playthrough_changed": ["x 25 to 30"]"#),
+            "{log}"
+        );
+        // A different length ends somewhere else: no comparison.
+        let mut shorter = options(script(25));
+        shorter.frames = 20;
+        let (_, summary) = run_and_save(config(), ReportingMover { x: 0.0 }, &shorter).unwrap();
+        assert!(summary.changed.is_empty());
+        let _ = fs::remove_dir_all(folder);
     }
 
     #[test]

@@ -3,6 +3,7 @@
   "seed": 1,
   "updates_per_second": 60,
   "frames": 5101,
+  "expect": {"enemies": 11, "lives": 0, "score": 3020, "state": "GameOver", "wave": 7, "x": 56, "y": 290},
   "events": [
     {"frame": 1, "press": "Space"},
     {"frame": 2, "release": "Space"},

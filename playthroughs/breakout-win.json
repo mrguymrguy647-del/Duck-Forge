@@ -3,6 +3,7 @@
   "seed": 7,
   "updates_per_second": 60,
   "frames": 3499,
+  "expect": {"bricks_left": 0, "lives": 3, "score": 2100, "state": "Won"},
   "events": [
     {"frame": 30, "press": "Space"},
     {"frame": 33, "press": "Right"},

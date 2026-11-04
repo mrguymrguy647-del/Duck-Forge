@@ -3,6 +3,7 @@
   "seed": 7,
   "updates_per_second": 60,
   "frames": 526,
+  "expect": {"bricks_left": 57, "lives": 0, "score": 30, "state": "GameOver"},
   "events": [
     {"frame": 30, "press": "Space"},
     {"frame": 31, "press": "Left"},
