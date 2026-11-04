@@ -71,6 +71,9 @@ cargo run --no-default-features --example breakout -- --headless --frames 600 --
 - **2D drawing:** rectangles, circles, lines, triangles, text in a built-in
   pixel font, see-through colors (`Color::rgba`, `with_alpha`), and `.png`
   or `.bmp` screenshots.
+- **Sprites:** load a `.png`, or draw one with letters in your code
+  (`Sprite::from_ascii`); cut frames from a sprite sheet, animate them, and
+  draw them flipped, scaled (pixels stay sharp), tinted or see-through.
 - **3D rendering:** a camera with ready-made fly controls, meshes (cube,
   pyramid, sphere, checkerboard, or build your own), transforms, sunlight
   shading, a depth buffer, and near-plane clipping.

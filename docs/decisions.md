@@ -480,3 +480,67 @@ once.
 **What ignores alpha:** `clear` (a cleared canvas is always solid; cover
 it with a see-through `fill_rect` to fade it instead), 3D meshes, and
 saved pictures (the canvas itself is always solid).
+
+## Step 1: Sprites
+
+**Three ways to make a sprite, one way to draw it.** `from_pixels` for
+code that computes pixels, `load_png` for artists' files, and
+`from_ascii` for everyone else. `from_ascii` is the one an AI agent (or a
+beginner) will use most: the art lives in the code, needs no files, shows
+up in diffs, and a typo is a compile-time-visible string rather than a
+corrupted binary. All three give the same `Sprite`, drawn with
+`canvas.blit_sprite(&sprite, pos, Blit { .. })`.
+
+**`'.'` means see-through, and nothing else does.** A space would have
+been tempting, but editors strip trailing spaces and some fonts make them
+invisible, so rows would silently change length. A row of the wrong
+length or a letter missing from the palette panics with a sentence naming
+the row, column and character, and `#[track_caller]` makes the panic point
+at the game's line, not the engine's.
+
+**Options in a struct with `Default`.** `Blit { flip_x: true,
+..Default::default() }` names only what changes, so there's one drawing
+function instead of `blit`, `blit_flipped`, `blit_scaled` and so on, and
+new options can be added later without breaking anyone (a field with a
+default). It's the same pattern as `Config` and `HeadlessOptions`.
+
+**Shared pixels.** A sprite is a window (`left`, `top`, `width`,
+`height`) onto pixels held in an `Arc`. `sub` and `frames` only make new
+windows, so cutting a sheet into frames copies nothing, and cloning a
+sprite is cheap. `Arc` rather than `Rc` keeps sprites `Send`, so a game
+holding them can still be moved to another thread (as tests sometimes do).
+
+**Stored the way the canvas wants it.** Each pixel is kept as the
+canvas's own `0x00RRGGBB` number plus a separate alpha byte, and the
+sheet remembers whether every alpha is 255. Then the commonest case, a
+solid sprite drawn as it is, is one `copy_from_slice` per row. (A test
+checks that this fast path gives exactly the pixels of setting each one
+by hand.) A frame cut from a sheet that has any see-through pixel takes
+the careful path, which is still quick; being exact per frame wasn't
+worth the extra bookkeeping.
+
+**Nearest-neighbour scaling.** Each canvas pixel takes the sprite pixel
+under its center, so pixel art stays sharp at any scale, including
+shrinking. Sizes and positions are rounded to whole pixels, computed in
+`f64` and clamped, so a sprite at `1e30` or `NaN` draws nothing or draws
+at 0 instead of overflowing. The column lookup is computed once per draw,
+not per pixel.
+
+**Tint and opacity use the same whole-number math as see-through
+colors,** so a sprite at `opacity: 0.5` over blue gives exactly the same
+pixel as `Color::rgba(.., 128)`, on every computer.
+
+**No rotation.** Rotating pixel art with nearest-neighbour sampling looks
+ragged and needs a different drawing loop. Flips cover the usual need
+(facing left or right). It's listed under "what the engine can't do yet".
+
+**`Animation` is just a list and a speed.** `frame_at(time)` loops; for a
+one-shot animation, compare the time with `duration()`. The game keeps
+its own clock (often `ctx.time()` minus when the animation started), so
+pausing or slowing an animation needs no new API.
+
+**`load_png` errors are one sentence.** A missing file says which path it
+looked for (made absolute, because "relative to what?" is the usual
+confusion); a file that isn't a PNG says so and suggests re-exporting it.
+Both are `io::Error`s, so `?` in `main` works and prints just the
+sentence.

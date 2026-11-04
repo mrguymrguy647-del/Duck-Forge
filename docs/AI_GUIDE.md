@@ -503,6 +503,18 @@ press), `was_released(key)`, `axis(Key::Left, Key::Right)` (-1, 0 or 1),
 `Canvas::text_width(text, scale)`, `width()`, `height()`. Any color with
 alpha below 255 is drawn see-through (`clear` ignores alpha).
 
+**Sprites**: `Sprite::from_ascii(&["..yy", "yyyo"], &[('y', Color::YELLOW), ('o', Color::ORANGE)])`
+(one character per pixel, `'.'` see-through; draw small art straight in
+code, no files needed), `Sprite::load_png(path)?` (returns `io::Result`),
+`Sprite::from_pixels(w, h, vec_of_colors)`. `sprite.width()`,
+`height()`, `get_pixel(x, y)` (an `Option<Color>`; `.a` is 0 where
+see-through), `sub(x, y, w, h)` and `frames(w, h)` (cut a sheet, no
+copying). Draw with
+`canvas.blit_sprite(&sprite, top_left, Blit { flip_x, flip_y, scale, tint, opacity, ..Default::default() })`
+or `Blit::default()`; scaling is nearest-neighbour. Animations:
+`Animation::new(frames, fps)`, `anim.frame_at(seconds)` (loops),
+`index_at(seconds)`, `duration()`.
+
 **Math**: `vec2(x, y)` / `Vec2` (`+ - * f32`, `length()`, `normalized()`,
 `distance(other)`, `dot(other)`, `Vec2::ZERO`).
 `Rect::new(x, y, w, h)`, `Rect::from_center(center, w, h)`, `left()`,
@@ -744,8 +756,7 @@ They can also send *you* a game: F10 in the window records it to
 
 Plan around these. Don't spend time looking for them:
 
-- No images or sprites: everything is drawn from rectangles, circles,
-  lines, triangles, text and 3D meshes.
+- Sprites can't rotate (only flip and scale).
 - No sound.
 - Physics boxes don't rotate (balls and axis-aligned boxes only).
 - No running in a web browser.

@@ -18,6 +18,7 @@ use crate::math::{Rect, Vec2, vec2};
 use crate::render3d::Renderer;
 #[cfg(feature = "gpu")]
 use crate::render3d::{Camera3D, Mesh, Transform};
+use crate::sprite::{Blit, Sprite};
 
 /// A 2D grid of pixels.
 ///
@@ -346,6 +347,107 @@ impl Canvas {
         });
     }
 
+    /// Draws a sprite with its top-left corner at `pos`.
+    ///
+    /// `blit` says how: mirrored, bigger, tinted or see-through. Use
+    /// `Blit::default()` to draw it as it is, or set only what you need:
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// # let mut canvas = Canvas::new(64, 64);
+    /// let duck = Sprite::from_ascii(&["yy.", "yyo"], &[('y', Color::YELLOW), ('o', Color::ORANGE)]);
+    /// canvas.blit_sprite(&duck, vec2(10.0, 20.0), Blit::default());
+    /// canvas.blit_sprite(&duck, vec2(30.0, 20.0), Blit { flip_x: true, scale: 4.0, ..Default::default() });
+    /// ```
+    ///
+    /// Scaling keeps pixels as sharp squares (each screen pixel takes the
+    /// color of the nearest sprite pixel), and whatever falls outside the
+    /// canvas is cut off.
+    pub fn blit_sprite(&mut self, sprite: &Sprite, pos: Vec2, blit: Blit) {
+        let (sprite_w, sprite_h) = (sprite.width(), sprite.height());
+        let opacity = if blit.opacity.is_nan() {
+            0.0
+        } else {
+            blit.opacity.clamp(0.0, 1.0)
+        };
+        if sprite_w == 0
+            || sprite_h == 0
+            || blit.scale.is_nan()
+            || blit.scale <= 0.0
+            || opacity == 0.0
+            || blit.tint.a == 0
+        {
+            return; // nothing to draw
+        }
+        // The sprite's size and position on the canvas, in whole pixels.
+        // (Computed as f64 and clamped, so huge numbers can't overflow.)
+        let to_pixels = |v: f64| v.round().clamp(-1e9, 1e9) as i64;
+        let dest_w = to_pixels(sprite_w as f64 * blit.scale as f64);
+        let dest_h = to_pixels(sprite_h as f64 * blit.scale as f64);
+        let left = to_pixels(pos.x as f64);
+        let top = to_pixels(pos.y as f64);
+        // Clip: only the part that's on the canvas.
+        let x0 = left.max(0);
+        let x1 = (left + dest_w).min(self.width as i64);
+        let y0 = top.max(0);
+        let y1 = (top + dest_h).min(self.height as i64);
+        if x0 >= x1 || y0 >= y1 {
+            return;
+        }
+        self.flush_3d();
+        let (x0, x1, y0, y1) = (x0 as usize, x1 as usize, y0 as usize, y1 as usize);
+        let (left, top) = (left as isize, top as isize);
+
+        // Fast path: drawn as it is, so each row is one plain copy.
+        let as_is = !blit.flip_x
+            && !blit.flip_y
+            && dest_w == sprite_w as i64
+            && dest_h == sprite_h as i64
+            && blit.tint == Color::WHITE
+            && opacity == 1.0;
+        if as_is && sprite.is_opaque() {
+            for y in y0..y1 {
+                let (rgb, _) = sprite.row((y as isize - top) as usize);
+                let from = (x0 as isize - left) as usize;
+                let to = y * self.width;
+                self.pixels[to + x0..to + x1].copy_from_slice(&rgb[from..from + (x1 - x0)]);
+            }
+            return;
+        }
+
+        // Which sprite column each canvas column shows. Nearest neighbour:
+        // the sprite pixel under the center of the canvas pixel.
+        let pick = |screen: usize, start: isize, dest: i64, size: usize, flip: bool| {
+            let offset = (screen as isize - start) as f64 + 0.5;
+            let i = ((offset * size as f64 / dest as f64) as usize).min(size - 1);
+            if flip { size - 1 - i } else { i }
+        };
+        let columns: Vec<usize> = (x0..x1)
+            .map(|x| pick(x, left, dest_w, sprite_w, blit.flip_x))
+            .collect();
+        let tint = blit.tint;
+        // Tint and opacity, as whole numbers out of 255.
+        let opacity = (opacity * blit.tint.a as f32).round() as u32;
+        let tinted = |rgb: u32| {
+            if tint == Color::WHITE {
+                return rgb;
+            }
+            let channel =
+                |shift: u32, t: u8| ((((rgb >> shift) & 0xff) * t as u32 + 127) / 255) << shift;
+            channel(16, tint.r) | channel(8, tint.g) | channel(0, tint.b)
+        };
+        for y in y0..y1 {
+            let (rgb, alpha) = sprite.row(pick(y, top, dest_h, sprite_h, blit.flip_y));
+            let row = &mut self.pixels[y * self.width + x0..y * self.width + x1];
+            for (pixel, &column) in row.iter_mut().zip(&columns) {
+                let a = (alpha[column] as u32 * opacity + 127) / 255;
+                if a > 0 {
+                    paint(pixel, tinted(rgb[column]), a as u8);
+                }
+            }
+        }
+    }
+
     /// Draws text with the built-in 3x5 pixel font. `pos` is the top-left
     /// corner; `scale` makes each font pixel a `scale` x `scale` square.
     /// A `'\n'` starts a new line.
@@ -648,7 +750,11 @@ mod tests {
         canvas.clear(Color::rgb(0, 0, 255));
         canvas.fill_rect(Rect::new(0.0, 0.0, 2.0, 2.0), Color::rgba(255, 0, 0, 128));
         assert_eq!(canvas.get_pixel(1, 1), Some(Color::rgb(128, 0, 127)));
-        assert_eq!(canvas.get_pixel(2, 2), Some(Color::rgb(0, 0, 255)), "outside the rect");
+        assert_eq!(
+            canvas.get_pixel(2, 2),
+            Some(Color::rgb(0, 0, 255)),
+            "outside the rect"
+        );
 
         // Every other shape blends the same way, and paints each pixel once.
         let half_red = Color::rgba(255, 0, 0, 128);
@@ -676,9 +782,17 @@ mod tests {
         let mut c = fresh();
         c.draw_rect(Rect::new(1.0, 1.0, 5.0, 5.0), half_red);
         for (x, y) in [(1, 1), (5, 1), (1, 5), (5, 5), (3, 1), (1, 3)] {
-            assert_eq!(c.get_pixel(x, y), mixed, "outline pixel ({x}, {y}) painted once");
+            assert_eq!(
+                c.get_pixel(x, y),
+                mixed,
+                "outline pixel ({x}, {y}) painted once"
+            );
         }
-        assert_eq!(c.get_pixel(3, 3), Some(Color::rgb(0, 0, 255)), "inside stays empty");
+        assert_eq!(
+            c.get_pixel(3, 3),
+            Some(Color::rgb(0, 0, 255)),
+            "inside stays empty"
+        );
     }
 
     #[test]
@@ -703,13 +817,275 @@ mod tests {
             c.draw_rect(Rect::new(1.0, 1.0, 30.0, 1.5), color(0, 200, 0));
             c.fill_circle(vec2(20.0, 15.0), 6.3, color(0, 0, 200));
             c.draw_line(vec2(-5.0, 2.0), vec2(45.0, 27.0), color(250, 250, 0));
-            c.fill_triangle(vec2(1.0, 29.0), vec2(15.0, 18.0), vec2(9.0, 29.0), color(9, 9, 9));
+            c.fill_triangle(
+                vec2(1.0, 29.0),
+                vec2(15.0, 18.0),
+                vec2(9.0, 29.0),
+                color(9, 9, 9),
+            );
             c.draw_text("OK!", vec2(25.0, 2.0), 2, color(255, 255, 255));
             c
         };
         let old = scene(Color::rgb);
         let new = scene(|r, g, b| Color::rgba(r, g, b, 255));
         assert_eq!(old.pixels, new.pixels);
+    }
+
+    /// A 3 x 2 sprite with six different colors:
+    /// ```text
+    /// r g b
+    /// w . y      ('.' is see-through)
+    /// ```
+    fn six() -> Sprite {
+        Sprite::from_ascii(
+            &["rgb", "w.y"],
+            &[
+                ('r', Color::rgb(255, 0, 0)),
+                ('g', Color::rgb(0, 255, 0)),
+                ('b', Color::rgb(0, 0, 255)),
+                ('w', Color::rgb(255, 255, 255)),
+                ('y', Color::rgb(255, 255, 0)),
+            ],
+        )
+    }
+
+    /// The canvas as rows of letters, using the same letters as `six()`,
+    /// and `-` for the background (black).
+    fn letters(canvas: &Canvas) -> Vec<String> {
+        let name = |c: Color| match (c.r, c.g, c.b) {
+            (255, 0, 0) => 'r',
+            (0, 255, 0) => 'g',
+            (0, 0, 255) => 'b',
+            (255, 255, 255) => 'w',
+            (255, 255, 0) => 'y',
+            (0, 0, 0) => '-',
+            _ => '?',
+        };
+        (0..canvas.height as i32)
+            .map(|y| {
+                (0..canvas.width as i32)
+                    .map(|x| name(canvas.get_pixel(x, y).unwrap()))
+                    .collect()
+            })
+            .collect()
+    }
+
+    fn blitted(width: usize, height: usize, pos: Vec2, blit: Blit) -> Vec<String> {
+        let mut canvas = Canvas::new(width, height);
+        canvas.blit_sprite(&six(), pos, blit);
+        letters(&canvas)
+    }
+
+    #[test]
+    fn sprites_draw_with_see_through_pixels() {
+        assert_eq!(
+            blitted(5, 3, vec2(1.0, 1.0), Blit::default()),
+            ["-----", "-rgb-", "-w-y-"]
+        );
+    }
+
+    #[test]
+    fn sprites_flip() {
+        let flip_x = Blit {
+            flip_x: true,
+            ..Default::default()
+        };
+        assert_eq!(blitted(3, 2, Vec2::ZERO, flip_x), ["bgr", "y-w"]);
+        let flip_y = Blit {
+            flip_y: true,
+            ..Default::default()
+        };
+        assert_eq!(blitted(3, 2, Vec2::ZERO, flip_y), ["w-y", "rgb"]);
+        let both = Blit {
+            flip_x: true,
+            flip_y: true,
+            ..Default::default()
+        };
+        assert_eq!(blitted(3, 2, Vec2::ZERO, both), ["y-w", "bgr"]);
+    }
+
+    #[test]
+    fn sprites_clip_at_every_edge() {
+        assert_eq!(
+            blitted(3, 2, vec2(-1.0, 0.0), Blit::default()),
+            ["gb-", "-y-"]
+        );
+        assert_eq!(
+            blitted(3, 2, vec2(1.0, 1.0), Blit::default()),
+            ["---", "-rg"]
+        );
+        assert_eq!(
+            blitted(3, 2, vec2(-2.0, -1.0), Blit::default()),
+            ["y--", "---"]
+        );
+        // Entirely off the canvas, or at absurd positions: nothing, no panic.
+        assert_eq!(
+            blitted(3, 2, vec2(-3.0, 0.0), Blit::default()),
+            ["---", "---"]
+        );
+        assert_eq!(
+            blitted(3, 2, vec2(1e30, -1e30), Blit::default()),
+            ["---", "---"]
+        );
+        assert_eq!(
+            blitted(3, 2, vec2(f32::NAN, 0.0), Blit::default()),
+            ["rgb", "w-y"]
+        );
+        // Clipped and flipped together.
+        let flip_x = Blit {
+            flip_x: true,
+            ..Default::default()
+        };
+        assert_eq!(blitted(3, 2, vec2(-1.0, 0.0), flip_x), ["gr-", "-w-"]);
+    }
+
+    #[test]
+    fn sprites_scale_with_sharp_pixels() {
+        let double = Blit {
+            scale: 2.0,
+            ..Default::default()
+        };
+        assert_eq!(
+            blitted(6, 4, Vec2::ZERO, double),
+            ["rrggbb", "rrggbb", "ww--yy", "ww--yy"]
+        );
+        // Scaled, flipped and clipped at once.
+        let both = Blit {
+            scale: 2.0,
+            flip_x: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            blitted(4, 3, vec2(-1.0, 1.0), both),
+            ["----", "bggr", "bggr"]
+        );
+        // Shrunk to half: each canvas pixel shows the sprite pixel nearest its center.
+        let half = Blit {
+            scale: 0.5,
+            ..Default::default()
+        };
+        let mut canvas = Canvas::new(2, 1);
+        let big = Sprite::from_ascii(
+            &["rrbb", "rrbb"],
+            &[('r', Color::rgb(255, 0, 0)), ('b', Color::rgb(0, 0, 255))],
+        );
+        canvas.blit_sprite(&big, Vec2::ZERO, half);
+        assert_eq!(letters(&canvas), ["rb"]);
+        // Zero, negative or NaN scale draws nothing.
+        for scale in [0.0, -1.0, f32::NAN] {
+            assert_eq!(
+                blitted(
+                    3,
+                    2,
+                    Vec2::ZERO,
+                    Blit {
+                        scale,
+                        ..Default::default()
+                    }
+                ),
+                ["---", "---"]
+            );
+        }
+    }
+
+    #[test]
+    fn sprites_tint_and_fade() {
+        let mut canvas = Canvas::new(3, 2);
+        canvas.clear(Color::rgb(0, 0, 255));
+        let red_only = Blit {
+            tint: Color::rgb(255, 0, 0),
+            ..Default::default()
+        };
+        canvas.blit_sprite(&six(), Vec2::ZERO, red_only);
+        assert_eq!(
+            canvas.get_pixel(0, 0),
+            Some(Color::rgb(255, 0, 0)),
+            "red stays red"
+        );
+        assert_eq!(
+            canvas.get_pixel(1, 0),
+            Some(Color::rgb(0, 0, 0)),
+            "green loses all"
+        );
+        assert_eq!(
+            canvas.get_pixel(0, 1),
+            Some(Color::rgb(255, 0, 0)),
+            "white keeps the red"
+        );
+        assert_eq!(
+            canvas.get_pixel(1, 1),
+            Some(Color::rgb(0, 0, 255)),
+            "see-through stays"
+        );
+
+        let mut canvas = Canvas::new(3, 2);
+        canvas.clear(Color::rgb(0, 0, 255));
+        let half = Blit {
+            opacity: 128.0 / 255.0,
+            ..Default::default()
+        };
+        canvas.blit_sprite(&six(), Vec2::ZERO, half);
+        assert_eq!(
+            canvas.get_pixel(0, 0),
+            Some(Color::rgb(128, 0, 127)),
+            "half red over blue"
+        );
+
+        // A see-through pixel in the sprite itself blends too.
+        let glass = Sprite::from_pixels(1, 1, vec![Color::rgba(255, 0, 0, 128)]);
+        let mut canvas = Canvas::new(1, 1);
+        canvas.clear(Color::rgb(0, 0, 255));
+        canvas.blit_sprite(&glass, Vec2::ZERO, Blit::default());
+        assert_eq!(canvas.get_pixel(0, 0), Some(Color::rgb(128, 0, 127)));
+
+        // Opacity 0 and NaN draw nothing.
+        for opacity in [0.0, f32::NAN] {
+            assert_eq!(
+                blitted(
+                    3,
+                    2,
+                    Vec2::ZERO,
+                    Blit {
+                        opacity,
+                        ..Default::default()
+                    }
+                ),
+                ["---", "---"]
+            );
+        }
+    }
+
+    #[test]
+    fn the_fast_copy_matches_the_careful_path() {
+        // A solid sprite drawn as it is takes the fast row copy. It must
+        // give the same pixels as setting each pixel by hand, wherever it
+        // is (cut from a bigger sheet, clipped, at fractional positions).
+        let sheet = Sprite::from_pixels(
+            7,
+            5,
+            (0..35)
+                .map(|i| Color::rgb(i as u8 * 7, 255 - i as u8, i as u8))
+                .collect(),
+        );
+        let frame = sheet.sub(1, 1, 5, 3);
+        for pos in [
+            vec2(0.0, 0.0),
+            vec2(-2.0, 1.0),
+            vec2(4.0, -1.0),
+            vec2(2.4, 2.6),
+        ] {
+            let mut fast = Canvas::new(8, 6);
+            fast.blit_sprite(&frame, pos, Blit::default());
+            let mut slow = Canvas::new(8, 6);
+            let (left, top) = (pos.x.round() as i32, pos.y.round() as i32);
+            for y in 0..frame.height() {
+                for x in 0..frame.width() {
+                    let c = frame.get_pixel(x, y).unwrap();
+                    slow.set_pixel(left + x as i32, top + y as i32, c);
+                }
+            }
+            assert_eq!(fast.pixels, slow.pixels, "at {pos:?}");
+        }
     }
 
     #[test]

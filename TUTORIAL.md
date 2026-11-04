@@ -53,11 +53,12 @@ Keep the source files open next to this guide. When you see a file like
   - [27. Building a game without ever seeing it](#27-building-a-game-without-ever-seeing-it)
 - **Part 4: More to play with**
   - [28. See-through colors](#28-see-through-colors)
+  - [29. Sprites](#29-sprites)
 - **Part 5: Your turn**
-  - [29. Exercises](#29-exercises)
-  - [30. Common compiler errors](#30-common-compiler-errors)
-  - [31. What a code review found](#31-what-a-code-review-found)
-  - [32. Where to go next](#32-where-to-go-next)
+  - [30. Exercises](#30-exercises)
+  - [31. Common compiler errors](#31-common-compiler-errors)
+  - [32. What a code review found](#32-what-a-code-review-found)
+  - [33. Where to go next](#33-where-to-go-next)
 
 ---
 
@@ -522,7 +523,7 @@ added, and the slot's generation goes up by one. So an old id still points
 at the right slot, but its generation doesn't match any more, and looking
 it up finds nothing instead of the wrong body. This trick is called a
 *generational index*, and most game engines use it to name their objects.
-(Chapter 31 tells the story of the bug that led to it.)
+(Chapter 32 tells the story of the bug that led to it.)
 
 ## 5. Enums and pattern matching
 
@@ -1728,7 +1729,7 @@ a lot on 1960s hardware.
 Before stepping, the line is *clipped*: cut down to the part that's on the
 canvas (see `clip_line`). Without that, a line to a point far off-screen
 would step through millions of invisible pixels, and could even crash (see
-[chapter 31](#31-what-a-code-review-found)).
+[chapter 32](#32-what-a-code-review-found)).
 
 ### Triangles
 
@@ -2781,7 +2782,7 @@ and shifting right pulls the high bits back down. After a few rounds,
 changing one bit of the seed changes about half the bits of the result.
 Notice `wrapping_mul`: the multiplication overflows on purpose, and in a
 debug build a plain `*` would panic when it overflows
-([chapter 31](#31-what-a-code-review-found)). `wrapping_mul` says "wrap
+([chapter 32](#32-what-a-code-review-found)). `wrapping_mul` says "wrap
 around, that's what I want".
 
 A new test in `src/rng.rs` checks that the first numbers from seeds 1 to
@@ -3852,9 +3853,178 @@ is what all the examples already did. That's a good reason to build values
 with functions like `rgb` rather than by naming their fields: the
 functions can stay the same when the fields change.
 
+## 29. Sprites
+
+A **sprite** is a small picture: a grid of colored pixels, some of them
+see-through. duckforge's `Sprite` (in `src/sprite.rs`) can be made three
+ways:
+
+```rust
+// 1. Drawn with letters, right in your code. '.' is see-through.
+let duck = Sprite::from_ascii(
+    &[
+        "..yy..",
+        ".yyyyo",
+        "yyyyy.",
+        ".yyy..",
+    ],
+    &[('y', Color::YELLOW), ('o', Color::ORANGE)],
+);
+
+// 2. Loaded from a PNG file (paths are relative to the project folder).
+let tiles = Sprite::load_png("assets/tiles.png")?;
+
+// 3. From a list of colors, row by row.
+let checker = Sprite::from_pixels(2, 2, vec![Color::WHITE, Color::BLACK, Color::BLACK, Color::WHITE]);
+```
+
+Draw one with `blit_sprite` ("blit" is an old word for copying a block of
+pixels):
+
+```rust
+canvas.blit_sprite(&duck, vec2(100.0, 50.0), Blit::default());
+canvas.blit_sprite(&duck, vec2(150.0, 50.0), Blit { flip_x: true, scale: 3.0, ..Default::default() });
+```
+
+`Blit` holds the options: `flip_x` and `flip_y` (mirror it), `scale`
+(make it bigger; pixels stay sharp squares), `tint` (multiply its colors,
+`Color::RED` keeps only the red) and `opacity` (1.0 solid, 0.5 half
+see-through).
+
+### A walking duck
+
+```rust
+use duckforge::prelude::*;
+
+struct Walk {
+    frames: Animation,
+    x: f32,
+    facing_left: bool,
+    time: f32,
+}
+
+impl Walk {
+    fn new() -> Walk {
+        let palette = [('y', Color::YELLOW), ('o', Color::ORANGE), ('k', Color::BLACK)];
+        // Two frames side by side in one "sheet": feet apart, feet together.
+        let sheet = Sprite::from_ascii(
+            &[
+                "..yy....yy..",
+                ".ykyo..ykyo.",
+                "yyyy..yyyy..",
+                "yyyy..yyyy..",
+                "o..o...oo...",
+            ],
+            &palette,
+        );
+        Walk {
+            frames: Animation::new(sheet.frames(6, 5), 6.0), // 6 frames per second
+            x: 100.0,
+            facing_left: false,
+            time: 0.0,
+        }
+    }
+}
+
+impl Game for Walk {
+    fn update(&mut self, ctx: &mut Context) {
+        let direction = ctx.input.axis(Key::Left, Key::Right);
+        self.x += direction * 60.0 * ctx.dt();
+        if direction != 0.0 {
+            self.facing_left = direction < 0.0;
+            self.time += ctx.dt(); // only animate while walking
+        }
+    }
+
+    fn draw(&self, canvas: &mut Canvas) {
+        canvas.clear(Color::from_hex(0x7ec8e3));
+        let frame = self.frames.frame_at(self.time);
+        let blit = Blit { flip_x: self.facing_left, scale: 4.0, ..Default::default() };
+        canvas.blit_sprite(frame, vec2(self.x, 100.0), blit);
+    }
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    duckforge::run(Config::default(), Walk::new())
+}
+```
+
+Save it as `examples/walk.rs` and run `cargo run --example walk`. The duck
+waddles and turns around when you change direction.
+
+### Rust idea: `..Default::default()`
+
+`Blit` has five fields. Writing all five every time would be tiresome, so
+`Blit` implements the `Default` trait, which gives each field a sensible
+value (no flips, scale 1.0, white tint, opacity 1.0). Then
+
+```rust
+Blit { flip_x: true, scale: 4.0, ..Default::default() }
+```
+
+means "flip and scale as I say, and take every other field from
+`Blit::default()`". Rust works out from the braces that `Default::default()`
+must make a `Blit`. You'll see the same pattern with `Config`.
+
+### Rust idea: lending with `&`
+
+`blit_sprite(&duck, ...)` takes `&duck`, a *reference*: it borrows the
+sprite to read it, and gives it back when it's done. Without the `&`,
+the function would take ownership of the duck and you couldn't draw it
+again next frame. Drawing only needs to look, so it borrows. (Chapter 6
+has the full story.)
+
+`from_ascii` takes `&[&str]`, a borrowed *slice* of text: any list of
+strings works, like the `&[ ... ]` array literal above. The palette is a
+slice of `(char, Color)` pairs, a *tuple* of a character and a color.
+
+### Sprite sheets
+
+Artists usually put all the frames of an animation side by side in one
+image, a **sprite sheet**. `sheet.sub(x, y, w, h)` cuts out one
+rectangle, and `sheet.frames(w, h)` cuts the whole sheet into
+`w` x `h` frames, left to right, then top to bottom. Neither copies any
+pixels: every frame points at the same shared pixels (an `Arc`, a pointer
+that counts how many sprites share them), so cutting a sheet into a
+hundred frames costs almost nothing.
+
+`Animation::new(frames, fps)` plays frames in a loop, and
+`frame_at(seconds)` picks the frame to show at that time.
+
+### How drawing a sprite works
+
+`blit_sprite` (in `src/canvas.rs`) works out which canvas pixels the
+sprite covers, cuts that down to the part on the canvas (**clipping**, as
+with rectangles), and for each canvas pixel picks the sprite pixel under
+its center. That's **nearest-neighbour** scaling: no blurring, so pixel
+art stays crisp at any size. Flipping just counts the columns (or rows)
+from the other end.
+
+The common case, a solid sprite drawn as it is, has a fast path: each row
+of the sprite is copied onto the canvas with one `copy_from_slice`, like
+`fill_rect` fills a row with one `fill`. Everything else (see-through
+pixels, flips, scaling, tint) goes pixel by pixel.
+
+### When a file is missing
+
+`Sprite::load_png` returns a `Result`, because files can be missing or
+broken. The error is one sentence saying what went wrong and where it
+looked, like:
+
+```text
+couldn't find the image file assets/duk.png (looked for /home/me/game/assets/duk.png);
+paths are relative to the folder you run cargo from, so check the spelling and that the file is there
+```
+
+With `?` in a `main` that returns `Result`, the game stops and prints
+exactly that. Mistakes in code, like a row of ASCII art that's too short
+or a letter missing from the palette, stop the game with a message naming
+the row and the letter, pointing at *your* line of code (that's what
+`#[track_caller]` does in the engine's source).
+
 # Part 5: Your turn
 
-## 29. Exercises
+## 30. Exercises
 
 Do them in order. After each change, run the game and see what happened.
 When the compiler complains, **read the whole error message**: Rust's error
@@ -3975,7 +4145,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     to a ball body) across floating platforms, with the camera following
     it. Or 3D Breakout, with a `PhysicsWorld<Vec3>`.
 
-## 30. Common compiler errors
+## 31. Common compiler errors
 
 | Error    | Message (short)                                   | Usually means                                                 |
 |----------|---------------------------------------------------|---------------------------------------------------------------|
@@ -3990,7 +4160,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 For a long explanation of any error, run `rustc --explain E0502`.
 
-## 31. What a code review found
+## 32. What a code review found
 
 After the engine was built, it got a careful review: every file read line
 by line, looking for bugs, crashes and confusing code. It found about 20
@@ -4141,7 +4311,7 @@ Together, the renderer was back to its old speed, 79 to 81 FPS.
 
 **Lesson:** after fixing something, run the benchmark again.
 
-## 32. Where to go next
+## 33. Where to go next
 
 - **The Rust Programming Language** ("the Book"), free at
   <https://doc.rust-lang.org/book/>. The best way to learn Rust properly.
