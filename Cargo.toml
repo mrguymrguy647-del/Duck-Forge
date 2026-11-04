@@ -34,6 +34,18 @@ name = "dodge"
 test = true
 
 [[example]]
+name = "door_show_3d"
+test = true
+
+[[example]]
+name = "door_short"
+test = true
+
+[[example]]
+name = "duckling_parade"
+test = true
+
+[[example]]
 name = "physics"
 test = true
 
