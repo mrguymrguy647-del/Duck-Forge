@@ -31,7 +31,8 @@ echo verify %game%
 rem 1. Build. Nothing else can run if this fails.
 cargo build -q --no-default-features --example %game% > "%out%\build.txt" 2>&1
 if errorlevel 1 (
-    findstr /b /c:"error" "%out%\build.txt" > "%out%\build-errors.txt"
+    rem The errors, with their file and line (the "-->" lines).
+    findstr /r /c:"^error" /c:"^ *--> " "%out%\build.txt" > "%out%\build-errors.txt"
     set "msg=see %out%\build.txt"
     set "detail=%out%\build-errors.txt"
     call :report build FAILED
@@ -50,25 +51,16 @@ for /f "delims=" %%L in ('findstr /b /c:"test result" "%out%\tests.txt"') do set
 set "result=!result:test result: ok. =!"
 set "result=!result:test result: FAILED. =!"
 if not "!result!"=="no tests" for /f "tokens=1-3 delims=;" %%a in ("!result!") do set "result=%%a;%%b;%%c"
+if not "!code!"=="0" if "!result!"=="no tests" set "result=did not run"
 if "!code!"=="0" (
     set "msg=!result!"
     set "detail="
     call :report "play tests" ok
 ) else (
     rem Each failing test's place and message (the line after "panicked"),
-    rem and compile errors with their file and line.
-    set "next=0"
-    (for /f "usebackq delims=" %%L in ("%out%\tests.txt") do (
-        set "line=%%L"
-        if "!next!"=="1" echo %%L
-        set "next=0"
-        if not "!line:panicked=!"=="!line!" (
-            echo %%L
-            set "next=1"
-        )
-        if "!line:~0,5!"=="error" echo %%L
-        if not "!line:--> =!"=="!line!" echo %%L
-    )) > "%out%\tests-failed.txt"
+    rem and compile errors with their file and line. PowerShell copies the
+    rem lines exactly: cmd would drop the "!" in messages like assert_eq!.
+    powershell -NoProfile -Command "$l = @(Get-Content -LiteralPath '%out%\tests.txt'); for ($i = 0; $i -lt $l.Count; $i++) { if ($l[$i] -match 'panicked') { $l[$i]; if ($i + 1 -lt $l.Count) { $l[$i + 1] } } elseif ($l[$i] -match '^\s*(left|right): |^error|^\s*--> ') { $l[$i] } }" > "%out%\tests-failed.txt"
     set "msg=!result!; all in %out%\tests.txt"
     set "detail=%out%\tests-failed.txt"
     call :report "play tests" FAILED
@@ -170,11 +162,8 @@ echo   !label:~0,28! %~2: !msg!
 if /i "%~2"=="ok" exit /b 0
 set /a problems+=1
 if "!detail!"=="" exit /b 0
-set /a shown=0
-for /f "usebackq delims=" %%L in ("!detail!") do (
-    if !shown! lss 6 echo       %%L
-    set /a shown+=1
-)
+rem The first 6 lines, exactly as they are (cmd would drop any "!").
+powershell -NoProfile -Command "Get-Content -LiteralPath '!detail!' -TotalCount 6 | ForEach-Object { '      ' + $_ }"
 exit /b 0
 
 :usage

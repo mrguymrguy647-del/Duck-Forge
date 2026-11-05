@@ -69,7 +69,11 @@ if errorlevel 1 (
 )
 if exist "examples\%starter%.tune.json" copy /y "examples\%starter%.tune.json" "examples\%name%.tune.json" > nul
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "tools\new_game.ps1" -Name "%name%" -Kind "%kind%" -Starter "%starter%" -Type "%type%" -Title "%title%"
+rem -Title only when there is one: Windows PowerShell 5 can't take an
+rem empty "" argument with -File.
+set "titlearg="
+if defined title set titlearg=-Title "%title%"
+powershell -NoProfile -ExecutionPolicy Bypass -File "tools\new_game.ps1" -Name "%name%" -Kind "%kind%" -Starter "%starter%" -Type "%type%" %titlearg%
 if errorlevel 1 (
     echo new_game: renaming inside the new game failed ^(see above^)
     exit /b 1

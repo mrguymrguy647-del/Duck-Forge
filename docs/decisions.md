@@ -1795,3 +1795,51 @@ default (`cargo test --test new_game -- --ignored`, about 30 seconds),
 makes all four games and runs `verify` on each in its own target folder;
 all four pass. Both need `bash`, so on Windows they say so and pass.
 There's no CI here, so the slow test is run by hand before a release.
+
+## Fix 8: The Windows scripts, read line by line
+
+`tools/verify.bat`, `tools/new_game.bat` and `tools/new_game.ps1` have
+never been run on Windows (there's none here, and running a downloaded
+PowerShell for Linux to try the helper was, reasonably, not allowed in
+this sandbox). So they were read line by line for the usual traps:
+paths with backslashes and spaces, quoting, `errorlevel`, brackets in
+`if` blocks, and how cargo's output is read. What was found and fixed:
+
+- **`!` disappeared from messages.** The scripts use delayed expansion
+  (`!var!`), so every line echoed from a file lost its `!`, and text
+  between two `!` vanished: `assert_eq!(a, vec![1])` came out mangled in
+  the very messages that say what failed. The failure details (the lines
+  around "panicked", compile errors) and the first lines shown under a
+  failed step are now printed by PowerShell, which copies them exactly.
+- **Compile errors without a place.** A build failure showed `error` lines
+  but not the `--> examples/x.rs:12:5` lines under them; it now shows
+  both, like `verify.sh`.
+- **"no tests" when they didn't compile.** Now "did not run", like `verify.sh`.
+- **An empty `-Title ""`** for the tiny starter (it has no title). Windows
+  PowerShell 5, which comes with Windows, can't take an empty argument with
+  `-File` ("Missing an argument for parameter"); the argument is now only
+  passed when there's a title.
+- Both scripts now also show the `left:` / `right:` lines of a failed
+  `assert_eq!` (so does `verify.sh`).
+
+Checked and fine: `cd /d "%~dp0.."` (any drive, spaces in the path),
+every path quoted, `if errorlevel` used inside blocks (it's read when
+the line runs, unlike `%errorlevel%`), brackets in messages escaped with
+`^`, `findstr` letter ranges avoided (its `[a-z]` also matches capitals,
+so the name check spells the letters out), the `test result:` line read
+from cargo, and `.gitattributes` giving `.bat` files Windows line endings
+(cmd's labels can break without them; a `git clone` gets them, a ZIP
+download may not, which the README says).
+
+**What a test can check without Windows.** `tests/windows_scripts.rs`
+checks that brackets balance outside quotes (an unclosed `(` makes cmd
+read the rest of the file as one block), that every `goto` and
+`call :label` has its label, that `new_game.bat` passes only parameters
+`new_game.ps1` declares, and that `.gitattributes` still asks for CRLF.
+Each was tried with a planted mistake. The flags test already checks the
+two verify scripts use the same engine flags.
+
+**How to test on Windows** is in the README ("Testing the Windows
+scripts"): seven steps, from a normal `verify` run to a changed
+playthrough, a failing test, `new_game` and wrong arguments, each with
+the output to expect.

@@ -60,7 +60,7 @@ else
     # Each failing test's name, where it panicked and the message (the line
     # after "panicked"), and compile errors with their file and line.
     grep -E -A1 'panicked' "$out/tests.txt" | grep -v -E '^--$|^note: ' >"$out/tests-failed.txt"
-    grep -E '^error|^ *--> ' "$out/tests.txt" >>"$out/tests-failed.txt"
+    grep -E '^ *(left|right): |^error|^ *--> ' "$out/tests.txt" >>"$out/tests-failed.txt"
     report "play tests" FAILED "${result:-did not run}; all in $out/tests.txt" "$out/tests-failed.txt"
 fi
 

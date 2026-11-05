@@ -487,6 +487,79 @@ for more), and prints one line per step, ending in `VERIFY OK` or
 `VERIFY FAILED` (exit code 1). Each failed step shows its first lines of
 detail; everything is saved in `out/verify/dodge/`.
 
+### Testing the Windows scripts
+
+`tools\verify.bat`, `tools\new_game.bat` and `tools\new_game.ps1` (which
+`new_game.bat` uses for its text edits) were written and reviewed on
+Linux but have **never been run on Windows**. To try them:
+
+1. Get the code with `git clone` (not GitHub's "Download ZIP"): Git turns
+   the `.bat` files' line endings into Windows ones, which `cmd` needs.
+   You need Rust from [rustup.rs](https://rustup.rs) (the default MSVC
+   setup is fine).
+2. Open **Command Prompt** (`cmd`, not PowerShell) in the project folder.
+3. A normal run. This takes a minute the first time (it builds):
+
+   ```bat
+   tools\verify.bat dodge
+   echo %errorlevel%
+   ```
+
+   Expected: lines for build, play tests, `dodge.json` and `fuzz 50 runs`,
+   each `ok`, two `coverage:` lines, then `VERIFY OK: dodge ...`, and `0`.
+4. A playthrough that changed (a warning, not a failure). Open
+   `examples\pollen_run.tune.json` in Notepad, change `"wasp_speed": 42`
+   to `30`, save, then:
+
+   ```bat
+   tools\verify.bat pollen_run 10
+   echo %errorlevel%
+   git checkout examples\pollen_run.tune.json
+   ```
+
+   Expected: the `pollen_run.json` line says `changed:` with what changed
+   and the `--accept` command under it, the last line is
+   `VERIFY OK with 1 warning(s) above`, and `0`.
+5. A failing play test. In `examples\quickstart.rs`, in the test at the
+   bottom, change `assert_eq!(played.game().paddle.x, 288.0)` to
+   `assert_eq!(played.game().paddle.x, 1.0)`, save, then:
+
+   ```bat
+   tools\verify.bat quickstart 10
+   echo %errorlevel%
+   git checkout examples\quickstart.rs
+   ```
+
+   Expected: `play tests  FAILED: 0 passed; 1 failed; ...`, then the
+   line where it panicked (`examples\quickstart.rs:60`), the message
+   ``assertion `left == right` failed``, `left: 288.0` and `right: 1.0`,
+   then `VERIFY FAILED`, and `1`.
+6. A new game:
+
+   ```bat
+   tools\new_game.bat bee_maze topdown
+   echo %errorlevel%
+   ```
+
+   Expected: `new_game: made examples\bee_maze ... with the type BeeMaze`,
+   `recording playthroughs\bee_maze.json`, then a verify report that ends
+   `VERIFY OK: bee_maze`, and `0`. Check that `examples\bee_maze\main.rs`
+   starts with `//! Bee maze: started from the topdown starter` and says
+   `"Bee maze - duckforge"`, and that the end of `Cargo.toml` has the
+   `bee_maze` entry. Try `tools\new_game.bat mini tiny` too (the starter
+   with no title or tune file). Then clean up:
+
+   ```bat
+   rmdir /s /q examples\bee_maze
+   del examples\bee_maze.tune.json playthroughs\bee_maze.json examples\mini.rs
+   git checkout Cargo.toml
+   ```
+7. Errors: `tools\verify.bat nosuch` and `tools\new_game.bat Bad topdown`
+   should each print a usage line and give `2` from `echo %errorlevel%`.
+
+Please send back everything each step printed (and the `errorlevel`), as
+text or screenshots, especially anything that differs from "Expected".
+
 ### The debug overlay
 
 Press **F1** in any game (or pass `--debug`, which also works headless)
