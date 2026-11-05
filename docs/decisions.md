@@ -1843,3 +1843,12 @@ two verify scripts use the same engine flags.
 scripts"): seven steps, from a normal `verify` run to a changed
 playthrough, a failing test, `new_game` and wrong arguments, each with
 the output to expect.
+
+**Follow-up to Fix 4: the rarest numbers first.** Making the deliverables
+for this phase showed the event sheet of a fresh top-down game skipping
+"lives 2": the starter's `chasing` count changed 19 times (just under the
+limit of 20) and its frames, spread out, crowded out the two rarer
+`lives` frames. Numbers are now taken by how rarely they changed: every
+`lives` change first (3 in the run), then `coins` (9), then `chasing`
+(19), each spread out only if it doesn't all fit. The sheet now shows all
+three lives lost and every coin. (Tested with a run like that one.)

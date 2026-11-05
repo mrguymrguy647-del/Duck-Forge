@@ -144,13 +144,30 @@ impl SheetPicker {
                 .collect()
         };
         let texts = with(true);
-        let numbers: Vec<u64> = with(false)
-            .into_iter()
-            .filter(|f| !texts.contains(f))
-            .collect();
         chosen.extend(spread_pick(&texts, room));
-        let room = count.saturating_sub(chosen.len());
-        chosen.extend(spread_pick(&numbers, room));
+        // Then numbers, the rarest first: losing a life (3 changes in a run)
+        // matters more than a count that changes 19 times.
+        let mut names: Vec<(&String, usize)> = self
+            .changes
+            .iter()
+            .map(|(name, &changes)| (name, changes))
+            .collect();
+        names.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.cmp(b.0)));
+        for (name, _) in names {
+            let room = count.saturating_sub(chosen.len());
+            if room == 0 {
+                break;
+            }
+            let frames: Vec<u64> = self
+                .kept
+                .iter()
+                .filter(|(f, k)| {
+                    !chosen.contains(f) && k.reasons.iter().any(|r| !r.text && r.name == *name)
+                })
+                .map(|(f, _)| *f)
+                .collect();
+            chosen.extend(spread_pick(&frames, room));
+        }
         // Fill up with the evenly spread frames furthest from those chosen.
         while chosen.len() < count {
             let gap = |f: &u64| {
@@ -325,6 +342,30 @@ mod tests {
             chosen.iter().all(|f| !f.caption.contains('x')),
             "{frames:?}"
         );
+    }
+
+    #[test]
+    fn rare_changes_win_over_frequent_ones() {
+        // "chasing" changes 19 times (just under the limit) and "lives"
+        // twice: both lives frames are on the sheet.
+        let mut run: Vec<(u64, Vec<(&str, ReportValue)>)> =
+            vec![(1, vec![("chasing", 0.into()), ("lives", 3.into())])];
+        for i in 1..=19u64 {
+            run.push((i * 100, vec![("chasing", ReportValue::from(i % 3))]));
+        }
+        run.push((1850, vec![("lives", 2.into())]));
+        run.push((1950, vec![("lives", 1.into())]));
+        run.sort_by_key(|(f, _)| *f);
+        let frames: Vec<u64> = picker_for(&run, 2000)
+            .choose(2000, 16)
+            .iter()
+            .map(|f| f.frame)
+            .collect();
+        assert!(
+            frames.contains(&1850) && frames.contains(&1950),
+            "{frames:?}"
+        );
+        assert_eq!(frames.len(), 16);
     }
 
     #[test]
