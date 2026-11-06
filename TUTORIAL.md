@@ -155,7 +155,7 @@ src/
 examples/
   hello.rs          the smallest game
   shapes.rs         a tour of the 2D drawing functions
-  template.rs       a small platformer to copy when you start a game
+  template/         a small platformer to copy when you start a game
   starter_topdown/   a top-down starter: walls, chasing enemies, coins
   starter_shooter/   a shooter starter: fast bullets, waves, explosions
   pollen_run.rs     a bee game made from the top-down starter, with the skill
@@ -4676,28 +4676,32 @@ sizes, speeds (pixels per second) and the physics engine's gravity (try
 
 ### Copy the template
 
-`examples/template.rs` is a small platformer made to be copied. It uses
-almost everything from this part of the tutorial: a duck drawn with
-`Sprite::from_ascii`, a two-frame walk `Animation`, gravity and
-platforms, a `Camera2D` that follows the duck, `Sound::jump()` and
-`Sound::coin()`, a see-through pause screen, `ctx.report` for tests, and
-three play tests at the bottom.
+`examples/template/` is a small platformer made to be copied. It uses
+almost everything from this part of the tutorial: a level written as
+text and read into a `TileMap`, a duck `SpriteSheet` and tiles made with
+Duck Quill (the painting scripts are in `art/`, the pictures in
+`assets/`), sky and hills `Background`s that scroll slower than the world,
+gravity and one-way platforms with `move_and_slide`, a `Camera2D` that
+follows the duck, sounds, a see-through pause screen, `ctx.report` for
+tests, play tests in `tests.rs`, and a bot in `bot.rs` that plays the
+level and records it.
 
 ```sh
 tools/new_game.sh mygame platformer     # Windows: tools\new_game.bat mygame platformer
 cargo run --example mygame
 ```
 
-`new_game` copies `examples/template.rs` to `examples/mygame.rs` (and its
-tune file), renames the `Template` type to `Mygame`, sets the window
-title, adds the game to `Cargo.toml` so its play tests run, and checks it
-with `verify`. (`topdown`, `shooter` and `tiny` start from the other
-starters.)
+`new_game` copies `examples/template/` to `examples/mygame/`, renames
+the `Template` type to `Mygame`, sets the window title, adds the game to
+`Cargo.toml` so its play tests run, lets the bot record
+`playthroughs/mygame.json`, and checks it with `verify`. (`topdown`,
+`shooter` and `tiny` start from the other starters.)
 
 Then change one thing at a time and run it again. Good first changes:
-make `JUMP_SPEED` bigger, redraw the duck in `DUCK` (keep every row the
-same length), add a platform in `Mygame::new`, or change the sky color
-in `draw`.
+make `JUMP_SPEED` bigger, add a plank (`=`) or a coin (`c`) to `LEVEL`
+(keep it a rectangle of letters), or repaint the duck in
+`art/hero.json` and export it again with
+`quill export examples/mygame/art/hero.json --sheet --out examples/mygame/assets`.
 
 Making a different kind of game? Two more starters work the same way:
 
@@ -4722,7 +4726,7 @@ is and where the mouse is in the world. (If your game has its score down
 there, set `debug_corner: Corner::TopRight` in your `Config`.)
 
 ```rust
-ctx.debug_rect(self.hitbox());           // magenta outline
+ctx.debug_rect(self.player);             // magenta outline
 ctx.debug_circle(enemy_position, 40.0);  // cyan circle
 ```
 
@@ -4737,19 +4741,19 @@ A picture is easy for you to read and slow for a program. So the
 template also *names* its objects, right after drawing them:
 
 ```rust
-canvas.label("player", self.hitbox());
+canvas.label("player", self.player);
 ```
 
 A label draws nothing. The engine just remembers it, with where it is in
-the world and on the screen. Run the template headless with `--describe`
+the world and on the screen. (The tile map labels itself `map`.) Run the template headless with `--describe`
 and it tells you what's on screen in words:
 
 ```text
 frame 120, camera 160,120 zoom 1
-ground at 0,220 960x20
-platform x8 at 120,180 220,150 (+6 off screen)
-coin x8 at 140,162 240,132 (+6 off screen)
-player at 40,206 12x14
+map at 0,0 1280x240
+coin x8 at 144,144 96,192 (+6 off screen)
+flag at 1200,192 16x16 (off screen)
+player at 35,194 10x14
 text: "Coins 0/8" at 4,4
 ```
 
@@ -4811,13 +4815,16 @@ template`) runs them all and prints one line each:
 ```text
 verify template
   build                        ok: built without a window
-  play tests                   ok: 3 passed; 0 failed; 0 ignored
-  playthroughs                 ok: none (save one as playthroughs/template.json)
+  play tests                   ok: 8 passed; 0 failed; 1 ignored
+  template.json                ok: 709 frames; coins = 8, on_ground = true, splashes = 0, state = "Won", x = 1191
   fuzz 50 runs                 ok: no problems found
+      coverage: coins 0 to 4, splashes 0 to 1, x 0 to 784
+      coverage: on_ground reached false, true; state reached Playing; never Won (where playthroughs/template.json ends); every run lasted all 1800 frames
 VERIFY OK: template in 2 s (pictures and summaries in out/verify/template)
 ```
 
-Recordings named `playthroughs/template.json` or
+Recordings named `playthroughs/template.json` (the bot's, from
+`cargo test --example template -- --ignored`) or
 `playthroughs/template-*.json` (press F10 in the game to make one) are
 replayed with a contact sheet you can look at in `out/verify/template/`.
 Run it before you put the game away for the day.
@@ -4851,8 +4858,9 @@ The template reads its speeds through `ctx.tune`:
 let jump_speed = ctx.tune("jump_speed", JUMP_SPEED);
 ```
 
-That's `JUMP_SPEED` unless `examples/template.tune.json` says otherwise.
-Run the game, open the tune file in your editor, change `jump_speed` to
+That's `JUMP_SPEED` unless a tune file says otherwise. Make one with
+`cargo run --example template -- --write-tune` (it writes
+`examples/template.tune.json`), run the game, open the tune file in your editor, change `jump_speed` to
 `450` and save: the duck jumps higher straight away, no rebuild. When it
 feels right, copy the number back into the constant if you like. For a
 single run, `cargo run --example template -- --set jump_speed=450` wins

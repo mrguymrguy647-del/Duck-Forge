@@ -16,7 +16,7 @@ const ROOT: &str = env!("CARGO_MANIFEST_DIR");
 
 /// (kind, starter, the starter's type, a folder starter?)
 const STARTERS: [(&str, &str, &str, bool); 4] = [
-    ("platformer", "template", "Template", false),
+    ("platformer", "template", "Template", true),
     ("topdown", "starter_topdown", "TopDown", true),
     ("shooter", "starter_shooter", "Shooter", true),
     ("tiny", "quickstart", "Catch", false),

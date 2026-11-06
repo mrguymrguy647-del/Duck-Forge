@@ -32,7 +32,7 @@ options go after `--`: `cargo run --no-default-features --example dodge -- --hea
 
 | Kind of game | Starter | Made from |
 |---|---|---|
-| Platformer (gravity, platforms, coins) | `platformer` | `examples/template.rs` |
+| Platformer (tile map, one-way platforms, coins) | `platformer` | `examples/template/` |
 | Top-down (walls, chasing enemies, coins) | `topdown` | `examples/starter_topdown/` |
 | Shooter (fast bullets, waves, explosions) | `shooter` | `examples/starter_shooter/` |
 | Something tiny | `tiny` | `examples/quickstart.rs` |

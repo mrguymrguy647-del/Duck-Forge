@@ -1,0 +1,794 @@
+{
+ "title": "The platformer starter's tiles: one 16 x 16 animation per tile",
+ "palette": {
+  "grass": "#5BB043",
+  "grass_dark": "#3E8A34",
+  "dirt": "#8A5A35",
+  "dirt_dark": "#6E4426",
+  "brick": "#B4583C",
+  "brick_light": "#D07A55",
+  "ink": "#2A2018",
+  "wood": "#C68A4C",
+  "wood_dark": "#9C6633",
+  "foam": "#E6F6FF",
+  "water_light": "#7FD0F0",
+  "water": "#3B8FD0",
+  "water_dark": "#2E74B0",
+  "gold": "#F2C230",
+  "gold_light": "#FFF0A0",
+  "flag": "#E04848",
+  "flag_dark": "#B03030"
+ },
+ "commands": [
+  {
+   "cmd": "canvas",
+   "width": 16,
+   "height": 16,
+   "pixel": true
+  },
+  {
+   "cmd": "define",
+   "name": "grass0",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "g": "grass",
+      "G": "grass_dark",
+      "d": "dirt",
+      "D": "dirt_dark",
+      "r": "brick",
+      "R": "brick_light",
+      "k": "ink",
+      "p": "wood",
+      "P": "wood_dark",
+      "w": "foam",
+      "W": "water_light",
+      "b": "water",
+      "B": "water_dark",
+      "c": "gold",
+      "C": "gold_light",
+      "f": "flag",
+      "F": "flag_dark"
+     },
+     "rows": [
+      "gggggggggggggggg",
+      "gGgggGggggGgggGg",
+      "GgGGgGGgGGgGGgGG",
+      "dGddGddGddGddGdd",
+      "dddddddddddddddd",
+      "ddDddddddDdddddd",
+      "dddddddddddddDdd",
+      "dddddDdddddddddd",
+      "dddddddddddddddd",
+      "dDddddddddDddddd",
+      "ddddddDddddddddd",
+      "dddddddddddddDdd",
+      "dddDdddddddddddd",
+      "dddddddddDdddddd",
+      "ddddddddddddddDd",
+      "dddddddddddddddd"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "dirt0",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "g": "grass",
+      "G": "grass_dark",
+      "d": "dirt",
+      "D": "dirt_dark",
+      "r": "brick",
+      "R": "brick_light",
+      "k": "ink",
+      "p": "wood",
+      "P": "wood_dark",
+      "w": "foam",
+      "W": "water_light",
+      "b": "water",
+      "B": "water_dark",
+      "c": "gold",
+      "C": "gold_light",
+      "f": "flag",
+      "F": "flag_dark"
+     },
+     "rows": [
+      "dddddddddddddddd",
+      "ddDddddddDdddddd",
+      "dddddddddddddDdd",
+      "dddddDdddddddddd",
+      "dddddddddddddddd",
+      "dDddddddddDddddd",
+      "ddddddDddddddddd",
+      "dddddddddddddDdd",
+      "dddDdddddddddddd",
+      "dddddddddDdddddd",
+      "ddddddddddddddDd",
+      "dddddddddddddddd",
+      "ddDddddddDdddddd",
+      "dddddddddddddddd",
+      "dddddDdddddDdddd",
+      "dddddddddddddddd"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "brick0",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "g": "grass",
+      "G": "grass_dark",
+      "d": "dirt",
+      "D": "dirt_dark",
+      "r": "brick",
+      "R": "brick_light",
+      "k": "ink",
+      "p": "wood",
+      "P": "wood_dark",
+      "w": "foam",
+      "W": "water_light",
+      "b": "water",
+      "B": "water_dark",
+      "c": "gold",
+      "C": "gold_light",
+      "f": "flag",
+      "F": "flag_dark"
+     },
+     "rows": [
+      "rrrrrrrkrrrrrrrk",
+      "rRRRRRrkrRRRRRrk",
+      "rRrrrrrkrRrrrrrk",
+      "rrrrrrrkrrrrrrrk",
+      "kkkkkkkkkkkkkkkk",
+      "rrrkrrrrrrrkrrrr",
+      "RRrkrRRRRRrkrRRR",
+      "rrrkrRrrrrrkrRrr",
+      "rrrkrrrrrrrkrrrr",
+      "kkkkkkkkkkkkkkkk",
+      "rrrrrrrkrrrrrrrk",
+      "rRRRRRrkrRRRRRrk",
+      "rRrrrrrkrRrrrrrk",
+      "rrrrrrrkrrrrrrrk",
+      "kkkkkkkkkkkkkkkk",
+      "rrrkrrrrrrrkrrrr"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "plank0",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "g": "grass",
+      "G": "grass_dark",
+      "d": "dirt",
+      "D": "dirt_dark",
+      "r": "brick",
+      "R": "brick_light",
+      "k": "ink",
+      "p": "wood",
+      "P": "wood_dark",
+      "w": "foam",
+      "W": "water_light",
+      "b": "water",
+      "B": "water_dark",
+      "c": "gold",
+      "C": "gold_light",
+      "f": "flag",
+      "F": "flag_dark"
+     },
+     "rows": [
+      "pppppppppppppppp",
+      "PpPPPPpPPPPPpPPP",
+      "pppppppppppppppp",
+      "kkkkkkkkkkkkkkkk",
+      "..k.........k...",
+      "..k.........k...",
+      "................",
+      "................",
+      "................",
+      "................",
+      "................",
+      "................",
+      "................",
+      "................",
+      "................",
+      "................"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "water0",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "g": "grass",
+      "G": "grass_dark",
+      "d": "dirt",
+      "D": "dirt_dark",
+      "r": "brick",
+      "R": "brick_light",
+      "k": "ink",
+      "p": "wood",
+      "P": "wood_dark",
+      "w": "foam",
+      "W": "water_light",
+      "b": "water",
+      "B": "water_dark",
+      "c": "gold",
+      "C": "gold_light",
+      "f": "flag",
+      "F": "flag_dark"
+     },
+     "rows": [
+      "wwWWwwwwwwWWwwww",
+      "WWwwWWwwWWwwWWww",
+      "bbbbbbbbbbbbbbbb",
+      "bbbbbbbbbbbbbbbb",
+      "bbbbbBbbbbbbbbbb",
+      "bbbbbbbbbbbbBbbb",
+      "bbbbbbbbbbbbbbbb",
+      "bbBbbbbbbbbbbbbb",
+      "bbbbbbbbbBbbbbbb",
+      "bbbbbbbbbbbbbbbb",
+      "bbbbbbbbbbbbbbBb",
+      "bbbbbBbbbbbbbbbb",
+      "bbbbbbbbbbbbbbbb",
+      "bbbbbbbbbBbbbbbb",
+      "bBbbbbbbbbbbbbbb",
+      "bbbbbbbbbbbbbbbb"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "water1",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "g": "grass",
+      "G": "grass_dark",
+      "d": "dirt",
+      "D": "dirt_dark",
+      "r": "brick",
+      "R": "brick_light",
+      "k": "ink",
+      "p": "wood",
+      "P": "wood_dark",
+      "w": "foam",
+      "W": "water_light",
+      "b": "water",
+      "B": "water_dark",
+      "c": "gold",
+      "C": "gold_light",
+      "f": "flag",
+      "F": "flag_dark"
+     },
+     "rows": [
+      "wwwwWWwwwwwwWWww",
+      "wwWWwwWWwwWWwwWW",
+      "bbbbbbbbbbbbbbbb",
+      "bbbbbbbbbbbbbbbb",
+      "bbbbbBbbbbbbbbbb",
+      "bbbbbbbbbbbbBbbb",
+      "bbbbbbbbbbbbbbbb",
+      "bbBbbbbbbbbbbbbb",
+      "bbbbbbbbbBbbbbbb",
+      "bbbbbbbbbbbbbbbb",
+      "bbbbbbbbbbbbbbBb",
+      "bbbbbBbbbbbbbbbb",
+      "bbbbbbbbbbbbbbbb",
+      "bbbbbbbbbBbbbbbb",
+      "bBbbbbbbbbbbbbbb",
+      "bbbbbbbbbbbbbbbb"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "water_frame",
+   "params": {
+    "f": "water0"
+   },
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "$f"
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "coin0",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "g": "grass",
+      "G": "grass_dark",
+      "d": "dirt",
+      "D": "dirt_dark",
+      "r": "brick",
+      "R": "brick_light",
+      "k": "ink",
+      "p": "wood",
+      "P": "wood_dark",
+      "w": "foam",
+      "W": "water_light",
+      "b": "water",
+      "B": "water_dark",
+      "c": "gold",
+      "C": "gold_light",
+      "f": "flag",
+      "F": "flag_dark"
+     },
+     "rows": [
+      "................",
+      "................",
+      "................",
+      ".......kk.......",
+      ".....kkkkkk.....",
+      "....kkcccckk....",
+      "....kCccccck....",
+      "...kkCccccckk...",
+      "...kkCccccckk...",
+      "....kCccccck....",
+      "....kkcccckk....",
+      ".....kkkkkk.....",
+      ".......kk.......",
+      "................",
+      "................",
+      "................"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "coin1",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "g": "grass",
+      "G": "grass_dark",
+      "d": "dirt",
+      "D": "dirt_dark",
+      "r": "brick",
+      "R": "brick_light",
+      "k": "ink",
+      "p": "wood",
+      "P": "wood_dark",
+      "w": "foam",
+      "W": "water_light",
+      "b": "water",
+      "B": "water_dark",
+      "c": "gold",
+      "C": "gold_light",
+      "f": "flag",
+      "F": "flag_dark"
+     },
+     "rows": [
+      "................",
+      "................",
+      "................",
+      ".......kk.......",
+      "......kkkk......",
+      ".....kCccck.....",
+      ".....kCccck.....",
+      ".....kCccck.....",
+      ".....kCccck.....",
+      ".....kCccck.....",
+      ".....kCccck.....",
+      "......kkkk......",
+      ".......kk.......",
+      "................",
+      "................",
+      "................"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "coin2",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "g": "grass",
+      "G": "grass_dark",
+      "d": "dirt",
+      "D": "dirt_dark",
+      "r": "brick",
+      "R": "brick_light",
+      "k": "ink",
+      "p": "wood",
+      "P": "wood_dark",
+      "w": "foam",
+      "W": "water_light",
+      "b": "water",
+      "B": "water_dark",
+      "c": "gold",
+      "C": "gold_light",
+      "f": "flag",
+      "F": "flag_dark"
+     },
+     "rows": [
+      "................",
+      "................",
+      "................",
+      "................",
+      ".......kk.......",
+      ".......Cc.......",
+      ".......Cc.......",
+      ".......Cc.......",
+      ".......Cc.......",
+      ".......Cc.......",
+      ".......Cc.......",
+      ".......kk.......",
+      "................",
+      "................",
+      "................",
+      "................"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "coin3",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "g": "grass",
+      "G": "grass_dark",
+      "d": "dirt",
+      "D": "dirt_dark",
+      "r": "brick",
+      "R": "brick_light",
+      "k": "ink",
+      "p": "wood",
+      "P": "wood_dark",
+      "w": "foam",
+      "W": "water_light",
+      "b": "water",
+      "B": "water_dark",
+      "c": "gold",
+      "C": "gold_light",
+      "f": "flag",
+      "F": "flag_dark"
+     },
+     "rows": [
+      "................",
+      "................",
+      "................",
+      ".......kk.......",
+      "......kkkk......",
+      ".....kCccck.....",
+      ".....kCccck.....",
+      ".....kCccck.....",
+      ".....kCccck.....",
+      ".....kCccck.....",
+      ".....kCccck.....",
+      "......kkkk......",
+      ".......kk.......",
+      "................",
+      "................",
+      "................"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "coin_frame",
+   "params": {
+    "f": "coin0"
+   },
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "$f"
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "flag0",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "g": "grass",
+      "G": "grass_dark",
+      "d": "dirt",
+      "D": "dirt_dark",
+      "r": "brick",
+      "R": "brick_light",
+      "k": "ink",
+      "p": "wood",
+      "P": "wood_dark",
+      "w": "foam",
+      "W": "water_light",
+      "b": "water",
+      "B": "water_dark",
+      "c": "gold",
+      "C": "gold_light",
+      "f": "flag",
+      "F": "flag_dark"
+     },
+     "rows": [
+      "..kfffffff......",
+      "..kffFfffff.....",
+      "..kfFFFffffff...",
+      "..kffFfffffff...",
+      "..kfffffffff....",
+      "..kffffff.......",
+      "..k.............",
+      "..k.............",
+      "..k.............",
+      "..k.............",
+      "..k.............",
+      "..k.............",
+      "..k.............",
+      "..k.............",
+      ".kkk............",
+      "kkkkk..........."
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "flag1",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "g": "grass",
+      "G": "grass_dark",
+      "d": "dirt",
+      "D": "dirt_dark",
+      "r": "brick",
+      "R": "brick_light",
+      "k": "ink",
+      "p": "wood",
+      "P": "wood_dark",
+      "w": "foam",
+      "W": "water_light",
+      "b": "water",
+      "B": "water_dark",
+      "c": "gold",
+      "C": "gold_light",
+      "f": "flag",
+      "F": "flag_dark"
+     },
+     "rows": [
+      "..kffffff.......",
+      "..kffFffffff....",
+      "..kfFFFfffffff..",
+      "..kffFffffffff..",
+      "..kffffffffff...",
+      "..kffffffff.....",
+      "..k.............",
+      "..k.............",
+      "..k.............",
+      "..k.............",
+      "..k.............",
+      "..k.............",
+      "..k.............",
+      "..k.............",
+      ".kkk............",
+      "kkkkk..........."
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "flag_frame",
+   "params": {
+    "f": "flag0"
+   },
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "$f"
+    }
+   ]
+  }
+ ],
+ "animations": {
+  "grass": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "grass0"
+    }
+   ]
+  },
+  "dirt": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "dirt0"
+    }
+   ]
+  },
+  "brick": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "brick0"
+    }
+   ]
+  },
+  "plank": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "plank0"
+    }
+   ]
+  },
+  "water": {
+   "frames": 2,
+   "fps": 3,
+   "loop": true,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "water_frame",
+     "with": {
+      "f": {
+       "keys": [
+        [
+         0,
+         "water0"
+        ],
+        [
+         1,
+         "water1"
+        ]
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "coin": {
+   "frames": 4,
+   "fps": 8,
+   "loop": true,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "coin_frame",
+     "with": {
+      "f": {
+       "keys": [
+        [
+         0,
+         "coin0"
+        ],
+        [
+         1,
+         "coin1"
+        ],
+        [
+         2,
+         "coin2"
+        ],
+        [
+         3,
+         "coin3"
+        ]
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "flag": {
+   "frames": 2,
+   "fps": 4,
+   "loop": true,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "flag_frame",
+     "with": {
+      "f": {
+       "keys": [
+        [
+         0,
+         "flag0"
+        ],
+        [
+         1,
+         "flag1"
+        ]
+       ]
+      }
+     }
+    }
+   ]
+  }
+ }
+}

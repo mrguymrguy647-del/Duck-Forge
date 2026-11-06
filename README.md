@@ -19,10 +19,12 @@ an AI that writes games and needs to see what they draw.
 build, a complete 40-line game, the loop of running and checking it
 headless, and the five most common mistakes.
 
-**Starting a new game? Copy [examples/template.rs](examples/template.rs)**:
-a small, commented platformer with a sprite drawn in code, a camera that
-follows the player, jump and coin sounds, a see-through pause screen and
-play tests. Run it with `cargo run --example template`. For other kinds of
+**Starting a new game? Copy [examples/template/](examples/template/main.rs)**
+(`tools/new_game.sh mygame platformer`): a small, commented platformer
+with its level written as text (a tile map), Duck Quill art (a duck sprite
+sheet, tiles, a sky and hills that scroll at their own speeds), a camera
+that follows the duck, sounds, a pause screen, play tests and a bot that
+records a playthrough. Run it with `cargo run --example template`. For other kinds of
 game, start from [examples/starter_topdown/](examples/starter_topdown/main.rs)
 (walk a walled map, collect coins, escape chasing enemies; 4 or 8
 directions) or [examples/starter_shooter/](examples/starter_shooter/main.rs)
@@ -404,7 +406,7 @@ Then change them without recompiling: in `examples/<game>.tune.json`
 window the file is read again whenever you save it, so you can tweak a
 running game. `--write-tune` creates the file with every name the game
 asked for, and `log.json` records each value and where it came from.
-`examples/template.rs` and `examples/template.tune.json` show it.
+`examples/starter_topdown/` and its tune file show it.
 
 ### Seeing without pictures: labels
 

@@ -1,0 +1,14 @@
+{
+  "image": "hero.png",
+  "frame": { "width": 16, "height": 16 },
+  "columns": 4,
+  "rows": 4,
+  "scale": 1,
+  "pivot": [8.0,16.0],
+  "animations": {
+    "idle": {"row":0,"frames":[0,1],"fps":3.0,"loop":true},
+    "run": {"row":1,"frames":[4,5,6,7],"fps":10.0,"loop":true},
+    "jump": {"row":2,"frames":[8],"fps":1.0,"loop":false},
+    "fall": {"row":3,"frames":[12],"fps":1.0,"loop":false}
+  }
+}

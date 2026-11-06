@@ -1,0 +1,203 @@
+{
+ "title": "The platformer starter's hills: repeat sideways, see-through above",
+ "palette": {
+  "hill_far": "#8FC79A",
+  "hill_near": "#6DB27C"
+ },
+ "commands": [
+  {
+   "cmd": "canvas",
+   "width": 256,
+   "height": 96,
+   "pixel": true
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    30,
+    60
+   ],
+   "radius": [
+    70,
+    50
+   ],
+   "fill": "hill_far"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    286,
+    60
+   ],
+   "radius": [
+    70,
+    50
+   ],
+   "fill": "hill_far"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    -226,
+    60
+   ],
+   "radius": [
+    70,
+    50
+   ],
+   "fill": "hill_far"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    130,
+    70
+   ],
+   "radius": [
+    80,
+    46
+   ],
+   "fill": "hill_far"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    386,
+    70
+   ],
+   "radius": [
+    80,
+    46
+   ],
+   "fill": "hill_far"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    -126,
+    70
+   ],
+   "radius": [
+    80,
+    46
+   ],
+   "fill": "hill_far"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    215,
+    64
+   ],
+   "radius": [
+    60,
+    52
+   ],
+   "fill": "hill_far"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    471,
+    64
+   ],
+   "radius": [
+    60,
+    52
+   ],
+   "fill": "hill_far"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    -41,
+    64
+   ],
+   "radius": [
+    60,
+    52
+   ],
+   "fill": "hill_far"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    80,
+    95
+   ],
+   "radius": [
+    70,
+    40
+   ],
+   "fill": "hill_near"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    336,
+    95
+   ],
+   "radius": [
+    70,
+    40
+   ],
+   "fill": "hill_near"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    -176,
+    95
+   ],
+   "radius": [
+    70,
+    40
+   ],
+   "fill": "hill_near"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    190,
+    100
+   ],
+   "radius": [
+    75,
+    38
+   ],
+   "fill": "hill_near"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    446,
+    100
+   ],
+   "radius": [
+    75,
+    38
+   ],
+   "fill": "hill_near"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    -66,
+    100
+   ],
+   "radius": [
+    75,
+    38
+   ],
+   "fill": "hill_near"
+  },
+  {
+   "cmd": "rect",
+   "x": 0,
+   "y": 86,
+   "width": 256,
+   "height": 10,
+   "fill": "hill_near"
+  }
+ ]
+}

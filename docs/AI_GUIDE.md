@@ -12,10 +12,13 @@ it, read what it reports, and test it automatically**. Everything here has
 been tried on such a machine: `examples/dodge.rs` was built by following
 this guide, and the stories in it are real.
 
-**Starting a new game? Copy `examples/template.rs`.** It's a small,
-commented platformer that already has a sprite drawn in code, a walk
-animation, a camera, sounds, a pause screen, reports and three play tests,
-all passing: `cargo test --no-default-features --example template`.
+**Starting a new game? Copy `examples/template/`** (`tools/new_game.sh
+mygame platformer`). It's a small, commented platformer: the level is
+text read into a `TileMap`, the duck and tiles are Duck Quill sprite
+sheets, the sky and hills are `Background` layers with parallax, and it
+has a camera, sounds, a pause screen, reports, checks, play tests and a
+bot that records `playthroughs/template.json`, all passing:
+`cargo test --no-default-features --example template`.
 For a top-down game (walls, chasing enemies, coins, 4 or 8 directions)
 copy `examples/starter_topdown/`; for a shooter (fast bullets with
 `swept_aabb`, enemy waves, particle explosions) copy
@@ -814,6 +817,42 @@ animation's frame at that time with its pivot on `feet`, a `Vec2`; with
 `sheet.get("walk")` (an `Option`), `names()`, `pivot()`, `frame_size()`,
 `scale()`, `image()`. Any sprite by a pivot:
 `canvas.draw_at_pivot(&sprite, at, pivot, blit)`.
+
+**Tile maps** (a level as text, one letter per tile; `examples/template/`
+uses one): `let legend = Legend::new().solid('#', "grass").one_way('=', "plank").decoration('~', "water").spawn('p', "player");`
+(`.` and space are empty), then
+`let map = TileMap::parse(LEVEL, 16.0, &legend)?;` (or
+`TileMap::load("levels/1.txt", 16.0, &legend)?`; a wrong letter is an
+error with its row and column). `map.spawn("player")` (the bottom centre
+of its tile; panics naming the spawns there are if missing),
+`map.spawns("coin")` (a `Vec<Vec2>`). Every update:
+`let touched = map.move_and_slide(&mut body_rect, velocity * ctx.dt());`
+then `touched.ground`, `touched.ceiling`, `touched.wall_left`,
+`touched.wall_right` (`Contacts`); it moves in steps of at most half a
+tile, so nothing passes through a wall, and lands on one-way tiles only
+from above. In `draw`, between `push_camera` and `pop_camera`:
+`map.draw(canvas, &tiles, self.time)` (only the tiles on screen;
+`self.time` animates water; it labels the map `"map"`). Also
+`map.bounds()`, `columns()`, `rows()`, `tile_size()`,
+`cell_at(point)` (column and row), `tile_rect(column, row)`,
+`tile_at(column, row)` (`Option<(&str, TileKind)>`), `kind_at(point)`
+(`TileKind::Empty`, `Solid` or `OneWay`), `clear_tile(column, row)`,
+`set_tile(column, row, "brick", TileKind::Solid)`.
+
+**Tilesets**: `Tileset::load("assets/tiles.json")?` (a Duck Quill sprite
+sheet, one animation per tile, named like the legend's tiles),
+`Tileset::from_sheet(&sheet)`, `Tileset::grid(&sprite, 16, 16, &["grass", "", "plank"])`
+(cut left to right, top to bottom; `""` skips one), or `Tileset::new()`
+then `tiles.insert("lava", animation)`. `tiles.get(name)`, `names()`,
+`frame(name, seconds)`.
+
+**Backgrounds**: `let sky = Background::new(sprite).parallax(0.2);`
+(0 stays on the screen, 1 moves with the world; both directions),
+`.parallax_xy(0.5, 0.1)` (its own amount sideways and up and down),
+`.offset(vec2(0.0, 120.0))`, `.repeat_y(true)`, `.repeat_x(false)`. In
+`draw`, first: `canvas.draw_background(&sky, &self.camera)` (in screen
+pixels, no seams, not zoomed). `canvas.visible_area()` is the part of
+the world on screen right now (inside a camera, in world units).
 
 **Camera** (`Camera2D`): `Camera2D::new(screen_w, screen_h)` starts with
 world = screen. Fields `position` (world point at screen center), `zoom`

@@ -1,0 +1,28 @@
+{
+  "duckforge_inputs": 1,
+  "seed": 1,
+  "updates_per_second": 60,
+  "frames": 709,
+  "expect": {"coins": 8, "on_ground": true, "splashes": 0, "state": "Won", "x": 1191},
+  "tune": {"gravity": 900, "jump_speed": 330, "run_speed": 110},
+  "events": [
+    {"frame": 2, "press": "Right"},
+    {"frame": 41, "press": "Space"},
+    {"frame": 42, "release": "Space"},
+    {"frame": 118, "press": "Space"},
+    {"frame": 119, "release": "Space"},
+    {"frame": 179, "press": "Space"},
+    {"frame": 180, "release": "Space"},
+    {"frame": 233, "press": "Space"},
+    {"frame": 234, "release": "Space"},
+    {"frame": 268, "press": "Space"},
+    {"frame": 269, "release": "Space"},
+    {"frame": 345, "press": "Space"},
+    {"frame": 346, "release": "Space"},
+    {"frame": 411, "press": "Space"},
+    {"frame": 412, "release": "Space"},
+    {"frame": 526, "press": "Space"},
+    {"frame": 527, "release": "Space"},
+    {"frame": 650, "release": "Right"}
+  ]
+}

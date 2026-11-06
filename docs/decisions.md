@@ -2132,3 +2132,43 @@ positions with fractions and negative ones, and when the camera climbs
 40 pixels the far wall at 0.25 moves down exactly 10. Backgrounds aren't
 zoomed with the camera (a zoomed parallax layer would need its own
 scale; no test game wanted it), but they do shake with it.
+
+## Step 3.4: The platformer starter, rebuilt
+
+`examples/template.rs` (a level of rectangles in code, a duck drawn with
+letters, its own collision loop) is now `examples/template/`, built on
+Steps 2 and 3, in the same folder layout as the other starters:
+
+- `main.rs`: the level is an 80 x 15 text `LEVEL` (grass, dirt, bricks,
+  one-way planks, water pools, a start, 8 coins and a flag) read into a
+  `TileMap` with a `Legend`; `move_and_slide` replaces the hand-written
+  collision; the duck is a `SpriteSheet` (`idle`, `run`, `jump`, `fall`)
+  drawn by its pivot; the tiles, the coins and the flag come from one
+  Duck Quill sheet (as a `Tileset` and as a `SpriteSheet`); a sky
+  (parallax 0.1) and hills (0.4) are `Background` layers. Falling in the
+  water puts the duck back at the start; the flag ends the level. 372
+  lines, about the same as before.
+- `art/`: the four Duck Quill scripts that made the pictures (written as
+  `pixels` rows and symbols), with the commands to make them again;
+  `assets/`: the pictures, 4 KB in all. Painting them found one thing
+  worth knowing: `quill render` puts white paper behind a picture unless
+  told `--transparent`, which showed as a white band above the hills.
+- `tests.rs`: 8 play tests (running, jumping, a plank jumped through from
+  below and stood on, the brick wall, the water, pausing, and the
+  recorded playthrough reaching the flag with every coin).
+- `bot.rs` (this is 2.3): it heads for the leftmost coin, then the flag,
+  and jumps for coins above it, at walls and at water, or when it's been
+  stuck for half a second. It reached the flag with all 8 coins on its
+  first run, in 11.8 s of game time; `playthroughs/template.json` is its
+  recording.
+
+`template.tune.json` is gone: it only repeated the code's values, and now
+that the summary prints a `TUNED` line for every value from a file, it
+was noise. `tools/new_game.sh mygame platformer` copies the folder like
+the other starters, and its test now checks `main.rs`, `tests.rs` and
+`bot.rs` for the platformer too.
+
+Checked at the end of Step 3: all 15 examples pass `verify`; a game made
+from each of the four starters passes it too (23 s for all four); 401
+tests pass (383 headless); the headless clean build of `dodge` takes
+10.5 s (10.8 s at Step 0) and a one-line change 0.27 s (0.30 s).

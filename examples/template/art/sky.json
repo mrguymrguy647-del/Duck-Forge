@@ -1,0 +1,447 @@
+{
+ "title": "The platformer starter's sky: repeats sideways",
+ "palette": {
+  "sky1": "#5E9FE0",
+  "sky2": "#74B2EA",
+  "sky3": "#8CC4F0",
+  "sky4": "#A6D6F5",
+  "cloud": "#FFFFFF",
+  "cloud_shade": "#DCEBF7"
+ },
+ "commands": [
+  {
+   "cmd": "canvas",
+   "width": 192,
+   "height": 240,
+   "pixel": true
+  },
+  {
+   "cmd": "rect",
+   "x": 0,
+   "y": 0,
+   "width": 192,
+   "height": 70,
+   "fill": "sky1"
+  },
+  {
+   "cmd": "rect",
+   "x": 0,
+   "y": 70,
+   "width": 192,
+   "height": 60,
+   "fill": "sky2"
+  },
+  {
+   "cmd": "rect",
+   "x": 0,
+   "y": 130,
+   "width": 192,
+   "height": 50,
+   "fill": "sky3"
+  },
+  {
+   "cmd": "rect",
+   "x": 0,
+   "y": 180,
+   "width": 192,
+   "height": 60,
+   "fill": "sky4"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    40,
+    50
+   ],
+   "radius": [
+    14.0,
+    7.0
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    29.0,
+    53.0
+   ],
+   "radius": [
+    9.0,
+    5.0
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    52.0,
+    53.0
+   ],
+   "radius": [
+    10.0,
+    5.0
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "rect",
+   "x": 20.0,
+   "y": 54.0,
+   "width": 40.0,
+   "height": 4.0,
+   "fill": "cloud_shade"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    232,
+    50
+   ],
+   "radius": [
+    14.0,
+    7.0
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    221.0,
+    53.0
+   ],
+   "radius": [
+    9.0,
+    5.0
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    244.0,
+    53.0
+   ],
+   "radius": [
+    10.0,
+    5.0
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "rect",
+   "x": 212.0,
+   "y": 54.0,
+   "width": 40.0,
+   "height": 4.0,
+   "fill": "cloud_shade"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    -152,
+    50
+   ],
+   "radius": [
+    14.0,
+    7.0
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    -163.0,
+    53.0
+   ],
+   "radius": [
+    9.0,
+    5.0
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    -140.0,
+    53.0
+   ],
+   "radius": [
+    10.0,
+    5.0
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "rect",
+   "x": -172.0,
+   "y": 54.0,
+   "width": 40.0,
+   "height": 4.0,
+   "fill": "cloud_shade"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    150,
+    90
+   ],
+   "radius": [
+    9.799999999999999,
+    4.8999999999999995
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    142.3,
+    92.1
+   ],
+   "radius": [
+    6.3,
+    3.5
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    158.4,
+    92.1
+   ],
+   "radius": [
+    7.0,
+    3.5
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "rect",
+   "x": 136.0,
+   "y": 92.8,
+   "width": 28.0,
+   "height": 2.8,
+   "fill": "cloud_shade"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    342,
+    90
+   ],
+   "radius": [
+    9.799999999999999,
+    4.8999999999999995
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    334.3,
+    92.1
+   ],
+   "radius": [
+    6.3,
+    3.5
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    350.4,
+    92.1
+   ],
+   "radius": [
+    7.0,
+    3.5
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "rect",
+   "x": 328.0,
+   "y": 92.8,
+   "width": 28.0,
+   "height": 2.8,
+   "fill": "cloud_shade"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    -42,
+    90
+   ],
+   "radius": [
+    9.799999999999999,
+    4.8999999999999995
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    -49.7,
+    92.1
+   ],
+   "radius": [
+    6.3,
+    3.5
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    -33.6,
+    92.1
+   ],
+   "radius": [
+    7.0,
+    3.5
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "rect",
+   "x": -56.0,
+   "y": 92.8,
+   "width": 28.0,
+   "height": 2.8,
+   "fill": "cloud_shade"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    185,
+    30
+   ],
+   "radius": [
+    8.4,
+    4.2
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    178.4,
+    31.8
+   ],
+   "radius": [
+    5.3999999999999995,
+    3.0
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    192.2,
+    31.8
+   ],
+   "radius": [
+    6.0,
+    3.0
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "rect",
+   "x": 173.0,
+   "y": 32.4,
+   "width": 24.0,
+   "height": 2.4,
+   "fill": "cloud_shade"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    377,
+    30
+   ],
+   "radius": [
+    8.4,
+    4.2
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    370.4,
+    31.8
+   ],
+   "radius": [
+    5.3999999999999995,
+    3.0
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    384.2,
+    31.8
+   ],
+   "radius": [
+    6.0,
+    3.0
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "rect",
+   "x": 365.0,
+   "y": 32.4,
+   "width": 24.0,
+   "height": 2.4,
+   "fill": "cloud_shade"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    -7,
+    30
+   ],
+   "radius": [
+    8.4,
+    4.2
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    -13.6,
+    31.8
+   ],
+   "radius": [
+    5.3999999999999995,
+    3.0
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    0.1999999999999993,
+    31.8
+   ],
+   "radius": [
+    6.0,
+    3.0
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "rect",
+   "x": -19.0,
+   "y": 32.4,
+   "width": 24.0,
+   "height": 2.4,
+   "fill": "cloud_shade"
+  }
+ ]
+}

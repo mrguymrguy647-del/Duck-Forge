@@ -385,6 +385,64 @@ fn sprite_sheets_from_duck_quill() -> Result<(), LoadError> {
 }
 
 #[test]
+fn tile_maps_tilesets_and_backgrounds() -> Result<(), LoadError> {
+    const LEVEL: &str = "
+p.....
+...==.
+~~####";
+    let legend = Legend::new()
+        .solid('#', "grass")
+        .one_way('=', "plank")
+        .decoration('~', "water")
+        .spawn('p', "player");
+    let mut map = TileMap::parse(LEVEL, 16.0, &legend)?;
+    assert_eq!(map.spawn("player"), vec2(8.0, 16.0));
+    assert_eq!(map.spawns("player").len(), 1);
+    assert_eq!((map.columns(), map.rows(), map.tile_size()), (6, 3, 16.0));
+    assert_eq!(map.bounds(), Rect::new(0.0, 0.0, 96.0, 48.0));
+    assert_eq!(map.cell_at(vec2(40.0, 20.0)), (2, 1));
+    assert_eq!(map.tile_rect(2, 1), Rect::new(32.0, 16.0, 16.0, 16.0));
+    assert_eq!(map.tile_at(3, 1), Some(("plank", TileKind::OneWay)));
+    assert_eq!(
+        map.kind_at(vec2(1.0, 40.0)),
+        TileKind::Empty,
+        "water is only drawn"
+    );
+    let mut body = Rect::new(66.0, 0.0, 8.0, 8.0);
+    let velocity = vec2(0.0, 600.0);
+    let touched: Contacts = map.move_and_slide(&mut body, velocity * (1.0 / 60.0));
+    assert!(touched.ground && !touched.ceiling && !touched.wall_left && !touched.wall_right);
+    assert_eq!(body.bottom(), 16.0, "on the plank");
+    map.clear_tile(4, 1);
+    map.set_tile(0, 1, "grass", TileKind::Solid);
+    assert_eq!(map.tile_at(4, 1), None);
+
+    let sheet = SpriteSheet::load("tests/fixtures/quill/scale1/duck.json")?;
+    let mut tiles = Tileset::from_sheet(&sheet);
+    let green = Sprite::from_pixels(16, 16, vec![Color::GREEN; 256]);
+    let grid = Tileset::grid(&green, 16, 16, &["grass"]);
+    tiles.insert("grass", grid.get("grass").unwrap().clone());
+    for name in ["plank", "water"] {
+        tiles.insert(name, Animation::new(vec![green.clone()], 1.0));
+    }
+    let mut canvas = Canvas::new(96, 48);
+    let sky = Background::new(green.clone())
+        .parallax(0.2)
+        .parallax_xy(0.2, 0.1)
+        .offset(vec2(0.0, 0.0))
+        .repeat_x(true)
+        .repeat_y(true);
+    let camera = Camera2D::new(96.0, 48.0);
+    canvas.draw_background(&sky, &camera);
+    canvas.push_camera(&camera);
+    assert_eq!(canvas.visible_area(), Rect::new(0.0, 0.0, 96.0, 48.0));
+    map.draw(&mut canvas, &tiles, 0.0);
+    canvas.pop_camera();
+    assert_eq!(canvas.get_pixel(40, 40), Some(Color::GREEN));
+    Ok(())
+}
+
+#[test]
 fn math_and_collisions() {
     let v = vec2(3.0, 4.0);
     assert_eq!(v.length(), 5.0);
