@@ -130,6 +130,19 @@ impl<G: Game> Simulation<G> {
         Self::start(&config, game, Renderer::Cpu)
     }
 
+    /// Like [`new`](Simulation::new), but drawing 3D with `renderer`
+    /// (`new` always uses the CPU, so pictures are the same on every
+    /// computer). For comparing the GPU's pictures or speed with the CPU's;
+    /// without a usable graphics card, `Renderer::Gpu` falls back to the CPU
+    /// (check `sim.context().renderer_name()` after the first picture).
+    ///
+    /// # Panics
+    ///
+    /// If the config is impossible, like a canvas 0 pixels wide.
+    pub fn with_renderer(config: Config, game: G, renderer: Renderer) -> Self {
+        Self::start(&config, game, renderer)
+    }
+
     /// Like [`new`](Simulation::new), with a choice of 3D renderer (the window uses this).
     pub(crate) fn start(config: &Config, game: G, renderer: Renderer) -> Self {
         if let Err(message) = config.check() {

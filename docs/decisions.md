@@ -2183,3 +2183,36 @@ number (`verify.sh mygame lots`) is a usage error, exit code 2, in
 file is plain `cmd`). The README's Windows checklist gets a step for it,
 and its `new_game` step now expects "Bee Maze" (Step 2.7) and no tune
 file (Step 2.2), and checks the shooter's title.
+
+# Phase 3, Step 4: the 3D upgrade
+
+## Step 4.0: A GPU to compare with, and the "before" numbers
+
+Mesa's software Vulkan driver (lavapipe: `apt-get install
+mesa-vulkan-drivers`) gives this container a Vulkan device, `llvmpipe`.
+The 8 GPU tests that used to skip here now run, and pass. Two small
+additions make comparisons possible:
+
+- **`DUCKFORGE_RENDERER=gpu` now applies to headless runs too.** A
+  headless run still draws 3D on the CPU unless asked, so its pictures
+  are the same on every computer; with the variable set, the same command
+  gives the GPU's pictures, to put side by side.
+- **`Simulation::with_renderer(config, game, Renderer::Gpu)`**, next to
+  `Simulation::new` (always the CPU), for tests that compare the two.
+
+Before any 3D change, every 3D example (`world3d`, `stress3d`,
+`door_show_3d`) was saved headless at frames 40 to 240 with both
+renderers, to check later that the default lighting leaves every picture
+identical. The CPU and GPU already agree: `world3d` has no pixel more
+than 3 apart (242 pixels differ by 1 to 3).
+
+stress3d's timing test now times both renderers
+(`cargo test --release --example stress3d -- --ignored --nocapture`):
+
+| Before Step 4 | 500 objects (21,846 triangles) | 2,000 objects (89,412) |
+|---|---|---|
+| CPU, 320 x 240 | 2.85 ms per frame | 7.99 ms |
+| GPU (lavapipe, which is software too) | 4.34 ms | 12.06 ms |
+
+lavapipe runs on the same CPU cores, so its numbers say nothing about a
+real graphics card; it's here for correctness, not speed.

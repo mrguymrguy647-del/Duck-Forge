@@ -17,6 +17,7 @@ use crate::canvas::Canvas;
 use crate::cli::{self, Options};
 use crate::engine::{Config, Game, Timestep};
 use crate::pictures::{self, Crop, GifWriter};
+use crate::render3d::Renderer;
 use crate::report;
 use crate::scene;
 use crate::script::{self, InputScript};
@@ -251,7 +252,10 @@ fn run_and_save<G: Game>(
         config.tune_file.as_deref(),
         &options.tune,
     )?;
-    let mut sim = Simulation::new(config, game);
+    // Always the CPU, so a run gives the same pictures on every computer,
+    // unless DUCKFORGE_RENDERER asks otherwise (to compare with the GPU).
+    let renderer = crate::render3d::renderer_from_env().unwrap_or(Renderer::Cpu);
+    let mut sim = Simulation::start(&config, game, renderer);
     sim.set_tunes(tunes);
     sim.set_debug_overlay(options.debug);
     if let Some(script) = &options.inputs {

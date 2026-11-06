@@ -19,7 +19,6 @@ use crate::color::Color;
 use crate::engine::{Config, EngineError, Game, Timestep};
 use crate::input::{Key, MouseButton};
 use crate::math::{Rect, Vec2, vec2};
-use crate::render3d::Renderer;
 use crate::rng;
 use crate::script::{InputScript, timestep_warning};
 use crate::simulation::Simulation;
@@ -159,7 +158,7 @@ pub(crate) fn run<G: Game>(
     // minifb waits inside `update_with_buffer` so we don't run faster than this.
     window.set_target_fps(config.target_fps);
 
-    let renderer = renderer_from_env().unwrap_or(config.renderer);
+    let renderer = crate::render3d::renderer_from_env().unwrap_or(config.renderer);
     let tunes = crate::tune::Tunes::for_run(
         options.tune.as_deref(),
         config.tune_file.as_deref(),
@@ -425,21 +424,6 @@ fn window_to_canvas(
         (mouse.0 - offset_x) / scale,
         (mouse.1 - offset_y) / scale,
     ))
-}
-
-/// Reads the `DUCKFORGE_RENDERER` environment variable, if it's set:
-/// `cpu`, `gpu` or `auto`. It lets you switch renderers without changing code.
-fn renderer_from_env() -> Option<Renderer> {
-    let value = std::env::var("DUCKFORGE_RENDERER").ok()?;
-    match value.to_lowercase().as_str() {
-        "cpu" => Some(Renderer::Cpu),
-        "gpu" => Some(Renderer::Gpu),
-        "auto" => Some(Renderer::Auto),
-        other => {
-            eprintln!("duckforge: ignoring DUCKFORGE_RENDERER={other:?} (use cpu, gpu or auto)");
-            None
-        }
-    }
 }
 
 fn draw_fps(canvas: &mut Canvas, fps: f32) {

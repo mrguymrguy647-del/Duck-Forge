@@ -203,6 +203,24 @@ impl Projection {
     }
 }
 
+/// Reads the `DUCKFORGE_RENDERER` environment variable, if it's set:
+/// `cpu`, `gpu` or `auto`. It lets you switch renderers without changing
+/// code: in a window, and also in a headless run (which otherwise always
+/// draws on the CPU, so it's the same on every computer), to compare the
+/// two renderers' pictures.
+pub(crate) fn renderer_from_env() -> Option<Renderer> {
+    let value = std::env::var("DUCKFORGE_RENDERER").ok()?;
+    match value.to_lowercase().as_str() {
+        "cpu" => Some(Renderer::Cpu),
+        "gpu" => Some(Renderer::Gpu),
+        "auto" => Some(Renderer::Auto),
+        other => {
+            eprintln!("duckforge: ignoring DUCKFORGE_RENDERER={other:?} (use cpu, gpu or auto)");
+            None
+        }
+    }
+}
+
 /// What draws 3D meshes. Set it with [`Config::renderer`](crate::engine::Config::renderer)
 /// or [`Canvas::set_renderer`], or override it for any game with the
 /// `DUCKFORGE_RENDERER` environment variable (`cpu`, `gpu` or `auto`).
