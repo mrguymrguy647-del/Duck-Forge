@@ -22,7 +22,8 @@ use std::hash::{BuildHasherDefault, Hash, Hasher};
 
 use bytemuck::{Pod, Zeroable};
 
-use crate::render3d::{Camera3D, Mesh, Transform, triangle_corners};
+use crate::render3d::{Camera3D, Lighting, Mesh, Transform, triangle_corners};
+use crate::sprite::Sprite;
 
 /// One corner of one triangle, laid out exactly as the shader reads it.
 ///
@@ -34,7 +35,16 @@ use crate::render3d::{Camera3D, Mesh, Transform, triangle_corners};
 struct Vertex {
     position: [f32; 3],
     color: [u8; 4],
+    /// The texture point this corner shows (unused without a texture).
+    uv: [f32; 2],
+    /// [`TEXTURED`] and [`GLOWING`], added together.
+    flags: u32,
 }
+
+/// `Vertex::flags`: the triangle shows the mesh's texture.
+const TEXTURED: u32 = 1;
+/// `Vertex::flags`: the mesh ignores the light.
+const GLOWING: u32 = 2;
 
 /// Per-object data: the object's transform matrix.
 #[repr(C)]
@@ -50,6 +60,7 @@ struct Globals {
     view_projection: [[f32; 4]; 4],
     camera_position: [f32; 4],
     sun: [f32; 4],
+    sun_color: [f32; 4],
 }
 
 /// Where a mesh's two lists live in memory, and how long they are. The same
@@ -81,6 +92,21 @@ fn fingerprint(mesh: &Mesh) -> u64 {
     for &t in &mesh.triangles {
         hash_triangle(t, &mut hasher);
     }
+    for uvs in &mesh.uvs {
+        match uvs {
+            Some(corners) => {
+                for uv in corners {
+                    [uv.x.to_bits(), uv.y.to_bits()].hash(&mut hasher);
+                }
+            }
+            None => 0u8.hash(&mut hasher),
+        }
+    }
+    mesh.texture
+        .as_ref()
+        .map(Sprite::identity)
+        .hash(&mut hasher);
+    mesh.glowing.hash(&mut hasher);
     hasher.finish()
 }
 
@@ -91,6 +117,9 @@ fn fingerprint(mesh: &Mesh) -> u64 {
 struct Sample {
     vertices: [Option<crate::math::Vec3>; 3],
     triangles: [Option<crate::render3d::Triangle>; 3],
+    uvs: [Option<Option<[crate::math::Vec2; 3]>>; 3],
+    texture: Option<(usize, [usize; 4])>,
+    glowing: bool,
 }
 
 fn sample(mesh: &Mesh) -> Sample {
@@ -98,6 +127,9 @@ fn sample(mesh: &Mesh) -> Sample {
     Sample {
         vertices: picks(mesh.vertices.len()).map(|i| mesh.vertices.get(i).copied()),
         triangles: picks(mesh.triangles.len()).map(|i| mesh.triangles.get(i).copied()),
+        uvs: picks(mesh.uvs.len()).map(|i| mesh.uvs.get(i).copied()),
+        texture: mesh.texture.as_ref().map(Sprite::identity),
+        glowing: mesh.glowing,
     }
 }
 
@@ -154,7 +186,22 @@ type FastMap<K, V> = HashMap<K, V, BuildHasherDefault<FastHasher>>;
 struct GpuMesh {
     vertex_buffer: wgpu::Buffer,
     vertex_count: u32,
+    /// Its texture (see [`TextureKey`]), if it has one.
+    texture: Option<TextureKey>,
     /// The flush during which it was last drawn.
+    last_used: u64,
+}
+
+/// How the texture cache recognizes a picture: which picture, and which
+/// part of it (see `Sprite::identity`).
+type TextureKey = (usize, [usize; 4]);
+
+/// A texture that lives on the GPU.
+struct GpuTexture {
+    bind_group: wgpu::BindGroup,
+    /// Kept so the picture can't be freed (and its address reused by
+    /// another picture) while the GPU has a copy under its key.
+    _sprite: Sprite,
     last_used: u64,
 }
 
@@ -185,6 +232,15 @@ pub(crate) struct GpuRenderer {
     width: u32,
     height: u32,
     instance_buffer: wgpu::Buffer,
+    /// How textures are bound: the picture and how it's read (sampled).
+    texture_layout: wgpu::BindGroupLayout,
+    sampler: wgpu::Sampler,
+    /// A 1 x 1 white texture for meshes without one (the shader always
+    /// wants a texture, even when it doesn't read it).
+    plain: wgpu::BindGroup,
+    textures: FastMap<TextureKey, GpuTexture>,
+    /// The light for the pending objects.
+    lighting: Lighting,
 
     meshes: FastMap<MeshKey, GpuMesh>,
     /// Fingerprints worked out during the current batch, so each mesh is
@@ -291,13 +347,48 @@ impl GpuRenderer {
             }],
         });
 
+        // Textures: the picture, and a *sampler* that says how to read it:
+        // the nearest pixel (sharp pixel art), repeating past the edges.
+        let texture_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("texture"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                    count: None,
+                },
+            ],
+        });
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("nearest"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+        let white = Sprite::from_pixels(1, 1, vec![crate::color::Color::WHITE]);
+        let plain = texture_bind_group(&device, &queue, &texture_layout, &sampler, &white);
+
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("mesh"),
-            bind_group_layouts: &[Some(&globals_layout)],
+            bind_group_layouts: &[Some(&globals_layout), Some(&texture_layout)],
             immediate_size: 0,
         });
 
-        let vertex_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Unorm8x4];
+        let vertex_attributes =
+            wgpu::vertex_attr_array![0 => Float32x3, 1 => Unorm8x4, 6 => Float32x2, 7 => Uint32];
         let instance_attributes = wgpu::vertex_attr_array![
             2 => Float32x4, 3 => Float32x4, 4 => Float32x4, 5 => Float32x4
         ];
@@ -410,6 +501,11 @@ impl GpuRenderer {
             width,
             height,
             instance_buffer,
+            texture_layout,
+            sampler,
+            plain,
+            textures: FastMap::default(),
+            lighting: Lighting::default(),
             meshes: FastMap::default(),
             seen: FastMap::default(),
             pending: FastMap::default(),
@@ -442,16 +538,21 @@ impl GpuRenderer {
         mesh: &Mesh,
         transform: &Transform,
         camera: &Camera3D,
+        lighting: &Lighting,
         pixels: &mut [u32],
     ) {
         if mesh.triangles.is_empty() {
             return; // nothing to draw (and the GPU can't hold an empty buffer)
         }
-        // Everything in one batch shares a camera. A new camera? Draw what we have first.
-        if self.camera.is_some_and(|current| current != *camera) {
+        // Everything in one batch shares a camera and a light. A new one?
+        // Draw what we have first.
+        let changed = self.camera.is_some_and(|current| current != *camera)
+            || (self.camera.is_some() && self.lighting != *lighting);
+        if changed {
             self.flush(pixels);
         }
         self.camera = Some(*camera);
+        self.lighting = *lighting;
 
         let key = self.key_for(mesh);
         if let Some(cached) = self.meshes.get_mut(&key) {
@@ -488,21 +589,52 @@ impl GpuRenderer {
         }
     }
 
-    /// Sends a copy of `mesh` to the GPU.
+    /// Sends a copy of `mesh` (and its texture, if the GPU hasn't got it
+    /// yet) to the GPU.
     fn upload(&mut self, key: MeshKey, mesh: &Mesh) {
-        // One GPU vertex per triangle corner, each carrying the triangle's color.
+        let glow = if mesh.glowing { GLOWING } else { 0 };
+        // One GPU vertex per triangle corner, each carrying the triangle's
+        // color, and its texture point if it's textured.
         let vertices: Vec<Vertex> = mesh
             .triangles
             .iter()
             .enumerate()
             .flat_map(|(index, triangle)| {
                 let color = [triangle.color.r, triangle.color.g, triangle.color.b, 255];
-                triangle_corners(&mesh.vertices, index, triangle).map(|p| Vertex {
-                    position: [p.x, p.y, p.z],
-                    color,
+                let uvs = mesh.uvs_of(index);
+                let flags = glow | if uvs.is_some() { TEXTURED } else { 0 };
+                let corners = triangle_corners(&mesh.vertices, index, triangle);
+                [0, 1, 2].map(|i| {
+                    let p = corners[i];
+                    let uv = uvs.map_or([0.0, 0.0], |uvs| [uvs[i].x, uvs[i].y]);
+                    Vertex {
+                        position: [p.x, p.y, p.z],
+                        color,
+                        uv,
+                        flags,
+                    }
                 })
             })
             .collect();
+        let texture = mesh.texture.as_ref().map(|sprite| {
+            let texture_key = sprite.identity();
+            if !self.textures.contains_key(&texture_key) {
+                let bind_group = texture_bind_group(
+                    &self.device,
+                    &self.queue,
+                    &self.texture_layout,
+                    &self.sampler,
+                    sprite,
+                );
+                let texture = GpuTexture {
+                    bind_group,
+                    _sprite: sprite.clone(),
+                    last_used: self.flushes,
+                };
+                self.textures.insert(texture_key, texture);
+            }
+            texture_key
+        });
 
         use wgpu::util::DeviceExt; // brings `create_buffer_init` into scope
         let vertex_buffer = self
@@ -517,6 +649,7 @@ impl GpuRenderer {
             GpuMesh {
                 vertex_buffer,
                 vertex_count: vertices.len() as u32,
+                texture,
                 last_used: self.flushes,
             },
         );
@@ -550,11 +683,13 @@ impl GpuRenderer {
 
         let aspect = self.width as f32 / self.height as f32;
         let view_projection = camera.projection_matrix(aspect) * camera.view_matrix();
-        let sun = crate::render3d::sun_direction();
+        let sun = self.lighting.sun();
+        let [r, g, b] = self.lighting.sun_rgb();
         let globals = Globals {
             view_projection: view_projection.columns,
             camera_position: [camera.position.x, camera.position.y, camera.position.z, 0.0],
-            sun: [sun.x, sun.y, sun.z, crate::render3d::AMBIENT_LIGHT],
+            sun: [sun.x, sun.y, sun.z, self.lighting.ambient_level()],
+            sun_color: [r, g, b, 0.0],
         };
         self.queue
             .write_buffer(&self.globals_buffer, 0, bytemuck::bytes_of(&globals));
@@ -617,6 +752,14 @@ impl GpuRenderer {
             for (key, instances) in &batches {
                 let count = instances.len() as u32;
                 let mesh = &self.meshes[key];
+                let texture = match mesh.texture.and_then(|t| self.textures.get_mut(&t)) {
+                    Some(texture) => {
+                        texture.last_used = self.flushes;
+                        &texture.bind_group
+                    }
+                    None => &self.plain,
+                };
+                pass.set_bind_group(1, texture, &[]);
                 pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
                 pass.draw(0..mesh.vertex_count, first..first + count);
@@ -668,6 +811,8 @@ impl GpuRenderer {
         let now = self.flushes;
         self.meshes
             .retain(|_, mesh| now - mesh.last_used <= EVICT_AFTER_FLUSHES);
+        self.textures
+            .retain(|_, texture| now - texture.last_used <= EVICT_AFTER_FLUSHES);
         self.seen.clear(); // next batch: check every mesh again
         self.pending_instances = 0;
         self.clear_depth = false;
@@ -677,6 +822,71 @@ impl GpuRenderer {
 /// The picture's format on the GPU. Blue, green, red, alpha: the same byte
 /// order as the canvas's pixels.
 const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8Unorm;
+
+/// Sends a sprite's pixels to the GPU as a texture, and makes the bind
+/// group the shader reads it through.
+fn texture_bind_group(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    layout: &wgpu::BindGroupLayout,
+    sampler: &wgpu::Sampler,
+    sprite: &Sprite,
+) -> wgpu::BindGroup {
+    let (width, height) = (sprite.width().max(1) as u32, sprite.height().max(1) as u32);
+    // Red, green, blue, alpha bytes, row by row.
+    let mut bytes = Vec::with_capacity(width as usize * height as usize * 4);
+    for y in 0..sprite.height() {
+        for x in 0..sprite.width() {
+            let (rgb, alpha) = sprite.texel(x, y);
+            bytes.extend_from_slice(&[(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8, alpha]);
+        }
+    }
+    if bytes.is_empty() {
+        bytes = vec![255; 4]; // an empty sprite: one white pixel
+    }
+    let size = wgpu::Extent3d {
+        width,
+        height,
+        depth_or_array_layers: 1,
+    };
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("texture"),
+        size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        // Plain numbers, not sRGB: the shader multiplies them exactly as
+        // the CPU renderer does.
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        texture.as_image_copy(),
+        &bytes,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(width * 4),
+            rows_per_image: Some(height),
+        },
+        size,
+    );
+    let view = texture.create_view(&Default::default());
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("texture"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+    })
+}
 
 fn create_instance_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {
@@ -761,6 +971,107 @@ mod tests {
         }
         let share = different as f32 / gpu.pixels().len() as f32;
         assert!(share < 0.02, "{:.1}% of pixels differ", share * 100.0);
+    }
+
+    /// How many pixels of two pictures differ by more than 3 in any colour,
+    /// as a share of all of them.
+    fn share_different(a: &Canvas, b: &Canvas) -> f32 {
+        let different = a
+            .pixels()
+            .iter()
+            .zip(b.pixels())
+            .filter(|&(&x, &y)| {
+                let (x, y) = (Color::from_hex(x), Color::from_hex(y));
+                x.r.abs_diff(y.r)
+                    .max(x.g.abs_diff(y.g))
+                    .max(x.b.abs_diff(y.b))
+                    > 3
+            })
+            .count();
+        different as f32 / a.pixels().len() as f32
+    }
+
+    /// Textured shapes, see-through texels, a glowing cube and a coloured
+    /// sun.
+    fn draw_textured_scene(canvas: &mut Canvas) {
+        let camera = Camera3D::looking_at(vec3(-2.0, 3.0, -6.0), vec3(0.0, 0.5, 0.0));
+        canvas.clear(Color::from_hex(0x10_20_30));
+        canvas.set_lighting(crate::render3d::Lighting {
+            sun_direction: vec3(0.3, 1.0, -0.5),
+            sun_color: Color::from_hex(0xffe0b0),
+            sun_strength: 0.9,
+            ambient: 0.45,
+        });
+        // An 8 x 8 picture: a checker of four colours, and a see-through corner.
+        let pixels = (0..64)
+            .map(|i| {
+                let (x, y) = (i % 8, i / 8);
+                if x < 2 && y < 2 {
+                    Color::rgba(0, 0, 0, 0)
+                } else {
+                    [Color::RED, Color::YELLOW, Color::GREEN, Color::WHITE][(x / 2 + y / 2) % 4]
+                }
+            })
+            .collect();
+        let picture = crate::sprite::Sprite::from_pixels(8, 8, pixels);
+        let floor =
+            Mesh::checkerboard(4, 2.0, Color::WHITE, Color::GRAY).with_texture(picture.clone());
+        canvas.draw_mesh(&floor, &Transform::default(), &camera);
+        let crate_mesh = Mesh::cube(Color::WHITE).with_texture(picture.clone());
+        canvas.draw_mesh(
+            &crate_mesh,
+            &Transform::at(vec3(-1.0, 0.6, 0.0))
+                .rotated(vec3(0.0, 0.6, 0.0))
+                .sized(1.2),
+            &camera,
+        );
+        let ball = Mesh::sphere(Color::from_hex(0xc0_c0_ff), 16).with_texture(picture);
+        canvas.draw_mesh(&ball, &Transform::at(vec3(1.2, 0.8, 0.5)), &camera);
+        let lamp = Mesh::pyramid(Color::from_hex(0xff_80_20)).glowing();
+        canvas.draw_mesh(&lamp, &Transform::at(vec3(0.0, 0.5, 2.0)), &camera);
+    }
+
+    #[test]
+    fn textured_and_lit_gpu_picture_matches_the_cpu_picture() {
+        let Some(mut gpu) = gpu_canvas(160, 120) else {
+            return;
+        };
+        let mut cpu = Canvas::new(160, 120);
+        draw_textured_scene(&mut gpu);
+        draw_textured_scene(&mut cpu);
+        gpu.flush_3d();
+        let share = share_different(&gpu, &cpu);
+        assert!(share < 0.02, "{:.1}% of pixels differ", share * 100.0);
+    }
+
+    /// Saves `out/cpu-vs-gpu.png`: the textured, lit test scene drawn by
+    /// the CPU (left) and the GPU (right), and prints how many pixels
+    /// differ. For checking a real graphics card by eye:
+    /// `cargo test --release --lib cpu_and_gpu_side_by_side -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn cpu_and_gpu_side_by_side() {
+        let Some(mut gpu) = gpu_canvas(320, 240) else {
+            return;
+        };
+        let mut cpu = Canvas::new(320, 240);
+        draw_textured_scene(&mut gpu);
+        draw_textured_scene(&mut cpu);
+        gpu.flush_3d();
+        let mut both = Canvas::new(640, 240);
+        for y in 0..240 {
+            for x in 0..320 {
+                both.set_pixel(x, y, cpu.get_pixel(x, y).unwrap());
+                both.set_pixel(x + 320, y, gpu.get_pixel(x, y).unwrap());
+            }
+        }
+        std::fs::create_dir_all("out").unwrap();
+        both.save_png("out/cpu-vs-gpu.png").unwrap();
+        println!(
+            "{}: {:.2}% of pixels differ by more than 3; saved out/cpu-vs-gpu.png",
+            gpu.renderer_name(),
+            share_different(&gpu, &cpu) * 100.0
+        );
     }
 
     #[test]
@@ -867,7 +1178,13 @@ mod tests {
         let draw_all = |gpu: &mut GpuRenderer, pixels: &mut [u32]| {
             for i in 0..25 {
                 let at = vec3((i % 5) as f32 * 2.0 - 4.0, 0.0, (i / 5) as f32 * 2.0 - 4.0);
-                gpu.draw(&cube, &Transform::at(at), &camera, pixels);
+                gpu.draw(
+                    &cube,
+                    &Transform::at(at),
+                    &camera,
+                    &Default::default(),
+                    pixels,
+                );
             }
             gpu.flush(pixels);
         };

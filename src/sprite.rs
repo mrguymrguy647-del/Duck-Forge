@@ -309,6 +309,45 @@ impl Sprite {
         (&self.sheet.rgb[start..end], &self.sheet.alpha[start..end])
     }
 
+    /// The colour (`0x00RRGGBB`) and alpha of pixel `(x, y)`, which must be
+    /// inside the sprite. For 3D textures, read many times a frame.
+    #[inline]
+    pub(crate) fn texel(&self, x: usize, y: usize) -> (u32, u8) {
+        let i = self.index(x, y);
+        (self.sheet.rgb[i], self.sheet.alpha[i])
+    }
+
+    /// The whole picture this sprite was cut from (itself, if it wasn't
+    /// cut), and where this sprite is in it: left, top, width, height.
+    pub(crate) fn in_sheet(&self) -> (Sprite, [usize; 4]) {
+        let height = self.sheet.rgb.len() / self.sheet.width.max(1);
+        let whole = Sprite {
+            sheet: Arc::clone(&self.sheet),
+            left: 0,
+            top: 0,
+            width: self.sheet.width,
+            height,
+        };
+        (whole, [self.left, self.top, self.width, self.height])
+    }
+
+    /// Whether two sprites show exactly the same pixels of the same picture.
+    pub(crate) fn same_pixels(&self, other: &Sprite) -> bool {
+        Arc::ptr_eq(&self.sheet, &other.sheet)
+            && (self.left, self.top, self.width, self.height)
+                == (other.left, other.top, other.width, other.height)
+    }
+
+    /// A number that's the same for sprites showing the same pixels of the
+    /// same picture (while the picture exists), for the GPU's texture cache.
+    #[cfg_attr(not(feature = "gpu"), allow(dead_code))] // only the GPU uses it
+    pub(crate) fn identity(&self) -> (usize, [usize; 4]) {
+        (
+            Arc::as_ptr(&self.sheet) as usize,
+            [self.left, self.top, self.width, self.height],
+        )
+    }
+
     /// True if the picture this sprite was cut from has no see-through
     /// pixels at all.
     pub(crate) fn is_opaque(&self) -> bool {

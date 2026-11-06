@@ -2216,3 +2216,59 @@ stress3d's timing test now times both renderers
 
 lavapipe runs on the same CPU cores, so its numbers say nothing about a
 real graphics card; it's here for correctness, not speed.
+
+## Steps 4.1 and 4.2: Textures and lighting
+
+**Textures.** A mesh can have one `texture` (a `Sprite`, shared, not
+copied) and texture coordinates for each triangle's corners (0 to 1
+across the picture, repeating beyond). The coordinates live on the mesh
+(`mesh.uvs`, one entry per triangle, `None` for a plain one), not on
+`Triangle` or on each vertex as the design first said: `Triangle` gaining
+a field would have broken `door_show_3d`, which builds `Triangle {
+corners, color }` itself, and per-corner coordinates let a cube keep its
+8 corners and still show a whole picture on every face. Every built-in
+shape now comes with them (same vertex and triangle counts), so
+`Mesh::cube(Color::WHITE).with_texture(picture)` is a crate, and
+`add_triangle_uv` / `add_quad_uv` build your own.
+
+- The texture's colour is multiplied by the triangle's colour (white
+  shows it as painted) and the light. Nearest pixel, so pixel art stays
+  sharp. Pixels with alpha below half aren't drawn at all, depth
+  included, so what's behind shows through (tested).
+- On the CPU, `u/z`, `v/z` and `1/z` are blended across the screen and
+  divided per pixel: perspective-correct. The test looks at a long floor
+  from one end; the colours swap exactly where its middle line is.
+- On the GPU, each vertex carries its texture point and two flags
+  (textured, glowing); textures are uploaded once, cached by picture
+  (kept alive while cached, so an address can't be reused by another
+  picture), and bound per mesh; a 1 x 1 white texture stands in for
+  meshes without one. `textureSampleLevel` rather than `textureSample`,
+  which isn't allowed inside the shader's `if`.
+
+**Lighting.** `canvas.set_lighting(Lighting { sun_direction, sun_color,
+sun_strength, ambient })`, lasting until changed; `Mesh::glowing()`
+ignores it. `Lighting::default()` is the old light, and the arithmetic is
+arranged so the default gives the old numbers bit for bit: each colour's
+brightness is `ambient + (1 - ambient) * (sunlight * share)`, where
+`share` (the sun's colour times its strength) is exactly 1.0 by default,
+and with white light the CPU still uses the very same `lerp` as before.
+**Checked:** all 42 saved pictures (frames 40 to 240 and the last frame
+of `world3d`, `stress3d` and `door_show_3d`, on the CPU and the GPU) are
+byte for byte the same as before Step 4.
+
+**CPU and GPU agree** on a new test scene with textured floor, crate and
+ball, see-through texels, a glowing lamp and an orange sun: no pixel
+differs by more than 3 on lavapipe. An ignored test saves the two side by
+side (`cargo test --release --lib cpu_and_gpu_side_by_side -- --ignored
+--nocapture` writes `out/cpu-vs-gpu.png`), for checking a real graphics
+card. stress3d (untextured) on the CPU: 2.91 and 8.09 ms per frame (2.85
+and 7.99 before; the same within noise).
+
+**Mesh helpers (4.4) came along**, since the tests needed them:
+`Mesh::quad(w, h)`, `cylinder`, `cone`, `block(&atlas, [top, sides,
+bottom])`, `merge(&other, &transform)` and `bounds()`. `merge` with two
+different textures panics: "these meshes have different textures, and a
+mesh has only one; put their pictures in one atlas"; `Mesh::block` with
+tiles from two pictures says the same. A plain mesh merged with a
+textured one keeps its colours. Block tiles are sampled a hundredth of a
+pixel inside their edges, so a neighbouring tile never bleeds in.

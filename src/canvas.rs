@@ -16,9 +16,9 @@ use crate::font;
 #[cfg(feature = "gpu")]
 use crate::gpu::GpuRenderer;
 use crate::math::{Rect, Vec2, vec2};
-use crate::render3d::Renderer;
 #[cfg(feature = "gpu")]
 use crate::render3d::{Camera3D, Mesh, Transform};
+use crate::render3d::{Lighting, Renderer};
 use crate::scene::{Label, SceneText};
 use crate::sprite::{Blit, Sprite};
 
@@ -49,6 +49,8 @@ pub struct Canvas {
     labels: Vec<Label>,
     /// The lines of text drawn since the last `take_scene`.
     texts: Vec<SceneText>,
+    /// The light 3D is drawn with.
+    lighting: Lighting,
 }
 
 /// The state of a canvas's connection to the graphics card.
@@ -80,7 +82,21 @@ impl Canvas {
             frame_camera: None,
             labels: Vec::new(),
             texts: Vec::new(),
+            lighting: Lighting::default(),
         }
+    }
+
+    /// Sets the light that 3D meshes are drawn with, from now on (it
+    /// stays until it's changed: setting it at the start of `draw` is
+    /// simplest). [`Lighting::default`] is the light every canvas starts
+    /// with. See [`Lighting`].
+    pub fn set_lighting(&mut self, lighting: Lighting) {
+        self.lighting = lighting;
+    }
+
+    /// The light 3D meshes are drawn with now.
+    pub fn lighting(&self) -> Lighting {
+        self.lighting
     }
 
     /// Draws everything from now on through `camera`, until
@@ -275,7 +291,7 @@ impl Canvas {
         }
         match &mut self.gpu {
             GpuSlot::Running(gpu) => {
-                gpu.draw(mesh, transform, camera, &mut self.pixels);
+                gpu.draw(mesh, transform, camera, &self.lighting, &mut self.pixels);
                 true
             }
             _ => false,
@@ -499,6 +515,55 @@ impl Canvas {
                 depth[i] = d;
                 pixels[i] = c32;
             }
+        });
+    }
+
+    /// Fills a textured 3D triangle (see `render3d.rs`): `uv_over_z` is each
+    /// corner's texture point divided by its distance, `shade` what the
+    /// texture's red, green and blue are multiplied by. See-through texture
+    /// pixels (alpha below half) are left out, depth and all.
+    pub(crate) fn fill_triangle_3d_textured(
+        &mut self,
+        corners: [Vec2; 3],
+        inverse_depths: [f32; 3],
+        uv_over_z: [Vec2; 3],
+        texture: &Sprite,
+        shade: [f32; 3],
+    ) {
+        let (tw, th) = (texture.width(), texture.height());
+        if tw == 0 || th == 0 {
+            return;
+        }
+        let (pixels, depth) = (&mut self.pixels, &mut self.depth);
+        for_each_pixel_in_triangle(self.width, self.height, corners, |i, weights| {
+            let d = weights[0] * inverse_depths[0]
+                + weights[1] * inverse_depths[1]
+                + weights[2] * inverse_depths[2];
+            if d <= depth[i] || d <= 0.0 {
+                return;
+            }
+            // Back from "texture point / distance" to the texture point.
+            let u = (weights[0] * uv_over_z[0].x
+                + weights[1] * uv_over_z[1].x
+                + weights[2] * uv_over_z[2].x)
+                / d;
+            let v = (weights[0] * uv_over_z[0].y
+                + weights[1] * uv_over_z[1].y
+                + weights[2] * uv_over_z[2].y)
+                / d;
+            // The nearest texture pixel, repeating past the edges.
+            let x = ((u * tw as f32).floor() as i64).rem_euclid(tw as i64) as usize;
+            let y = ((v * th as f32).floor() as i64).rem_euclid(th as i64) as usize;
+            let (rgb, alpha) = texture.texel(x, y);
+            if alpha < 128 {
+                return; // see-through: not drawn, and nothing hidden behind it
+            }
+            let channel = |shift: u32, k: f32| {
+                let c = ((rgb >> shift) & 0xff) as f32 * k;
+                (c.round().clamp(0.0, 255.0) as u32) << shift
+            };
+            depth[i] = d;
+            pixels[i] = channel(16, shade[0]) | channel(8, shade[1]) | channel(0, shade[2]);
         });
     }
 

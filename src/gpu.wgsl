@@ -10,14 +10,26 @@ struct Globals {
     camera_position: vec4<f32>,
     // xyz: the direction sunlight comes from. w: the ambient light level.
     sun: vec4<f32>,
+    // rgb: the sun's colour times its strength (1, 1, 1 by default). w is unused.
+    sun_color: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> globals: Globals;
+
+// The mesh's texture, and how it's read: the nearest pixel, repeating.
+@group(1) @binding(0) var picture: texture_2d<f32>;
+@group(1) @binding(1) var picture_sampler: sampler;
+
+// Vertex flags (see gpu.rs): the triangle is textured; the mesh glows.
+const TEXTURED: u32 = 1u;
+const GLOWING: u32 = 2u;
 
 struct VertexIn {
     // From the mesh: one corner of one triangle.
     @location(0) position: vec3<f32>,
     @location(1) color: vec4<f32>,
+    @location(6) uv: vec2<f32>,
+    @location(7) flags: u32,
     // From the object being drawn: its transform matrix, one column at a time.
     @location(2) model_0: vec4<f32>,
     @location(3) model_1: vec4<f32>,
@@ -31,6 +43,11 @@ struct VertexOut {
     // Passed on to fs_main, blended across the triangle.
     @location(0) world_position: vec3<f32>,
     @location(1) color: vec3<f32>,
+    // The texture point, blended across the triangle. The GPU does that
+    // perspective-correctly by itself.
+    @location(2) uv: vec2<f32>,
+    // The same for the whole triangle, so not blended at all.
+    @location(3) @interpolate(flat) flags: u32,
 };
 
 @vertex
@@ -42,6 +59,8 @@ fn vs_main(v: VertexIn) -> VertexOut {
     out.clip_position = globals.view_projection * world;
     out.world_position = world.xyz;
     out.color = v.color.rgb;
+    out.uv = v.uv;
+    out.flags = v.flags;
     return out;
 }
 
@@ -65,9 +84,24 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         normal = -normal;
     }
 
+    // The texture's colour times the triangle's, as on the CPU. See-through
+    // texture pixels aren't drawn at all (nor written to the depth buffer).
+    // (`textureSampleLevel`, unlike `textureSample`, may be used inside an `if`.)
+    var color = in.color;
+    if (in.flags & TEXTURED) != 0u {
+        let texel = textureSampleLevel(picture, picture_sampler, in.uv, 0.0);
+        if texel.a < 0.5 {
+            discard;
+        }
+        color = color * texel.rgb;
+    }
+    if (in.flags & GLOWING) != 0u {
+        return vec4<f32>(color, 1.0);
+    }
+
     // The same flat shading as the CPU renderer.
     let sunlight = max(dot(normal, globals.sun.xyz), 0.0);
     let ambient = globals.sun.w;
-    let brightness = ambient + (1.0 - ambient) * sunlight;
-    return vec4<f32>(in.color * brightness, 1.0);
+    let brightness = ambient + (1.0 - ambient) * (sunlight * globals.sun_color.rgb);
+    return vec4<f32>(color * brightness, 1.0);
 }
