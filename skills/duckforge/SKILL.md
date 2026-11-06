@@ -41,10 +41,13 @@ options go after `--`: `cargo run --no-default-features --example dodge -- --hea
 tools/new_game.sh mygame topdown
 ```
 
-It copies the starter and its tune file, renames the game's type, sets
-the title, points the bot at `playthroughs/mygame.json`, adds the
-`[[example]]` entry to `Cargo.toml`, records a first playthrough, and runs
-`verify` (on Windows: `tools\new_game.bat mygame topdown`).
+It copies the starter (not its tune file), renames its type, titles it
+("Mygame"), points the bot at `playthroughs/mygame.json`, adds it to
+`Cargo.toml`, records a playthrough and runs `verify` (Windows:
+`tools\new_game.bat`). Art: Duck Quill, `quill export art/hero.json --sheet
+--out assets`, then `SpriteSheet::load("assets/hero.json")?` and
+`sheet.draw(canvas, "walk", time, feet, blit)` (by the pivot: feet stay
+put). Music: a Duck Echo `.wav` with `ctx.play_loop(&music, 0.6)`.
 
 ## 3. The loop
 
@@ -78,6 +81,7 @@ Read numbers you'll adjust at the top of `update`:
 `--set player_speed=120` (repeatable); keep them in
 `examples/mygame.tune.json`. `--write-tune` writes every name the game
 asked for. The summary warns about `--set` or tune-file names nobody asked for.
+Recordings keep their tune values: new values that still give the expected ending are only a `tuned` warning.
 
 ## 5. Labels: know what's on screen without pictures
 
@@ -139,7 +143,7 @@ add `--accept` to the replay to keep the new ending, or re-record.
 ## 9. Show your work
 
 ```sh
-cargo run --no-default-features --example mygame -- --headless --inputs playthroughs/mygame.json --sheet-events --gif --out out/show
+cargo run --release --no-default-features --example mygame -- --headless --inputs playthroughs/mygame.json --sheet-events --video out/show/run.mp4 --out out/show
 ```
 
-The summary prints the `ffmpeg` command for `run.mp4`, with sound. Send the sheet, the mp4 and the verify report.
+`--video` saves every frame, sharp, 1080p, with sound (needs `ffmpeg`). Send the sheet, the video and the verify report.

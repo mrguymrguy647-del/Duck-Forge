@@ -240,6 +240,27 @@ test = true
 (or a `git = "..."` dependency), and put the code in `src/main.rs`. Every
 option in this guide works the same way, with `cargo run -- --headless ...`.
 
+**Art from Duck Quill.** Small art can go straight in the code
+(`Sprite::from_ascii`). For characters with animations, paint them with
+Duck Quill (its `quill` program needs no window either): write the
+painting script with an `animations` block, then
+
+```sh
+quill export art/hero.json --sheet --out assets   # assets/hero.png and assets/hero.json
+```
+
+and load the pair with `SpriteSheet::load("assets/hero.json")?`. Each
+animation comes by its name, with its speed and whether it loops, and the
+sheet has a **pivot**, the point that stands on the ground (the bottom
+centre unless the script says otherwise). Draw by the pivot, so the
+feet stay put whichever animation plays:
+`sheet.draw(canvas, "walk", self.time, self.feet, Blit { flip_x: self.facing_left, ..Default::default() })`.
+Export with `quill export`, not `quill render --zoom`: a zoomed picture
+doesn't match its JSON, and `load` says so (`it's exactly 4 times too
+big`). `--scale 2` exports are fine: the frames and pivot say so. Duck
+Echo makes the sounds: a `.wav` for `Wav::load`, and loops for
+`ctx.play_loop`.
+
 **Good examples to read**, smallest first: `examples/hello.rs` (a square
 you move), `examples/dodge.rs` (a complete small game with play tests and
 a bot, built with this guide), `examples/breakout.rs` (a bigger game, with
@@ -780,8 +801,19 @@ see-through), `sub(x, y, w, h)` and `frames(w, h)` (cut a sheet, no
 copying). Draw with
 `canvas.blit_sprite(&sprite, top_left, Blit { flip_x, flip_y, scale, tint, opacity, ..Default::default() })`
 or `Blit::default()`; scaling is nearest-neighbour. Animations:
-`Animation::new(frames, fps)`, `anim.frame_at(seconds)` (loops),
+`Animation::new(frames, fps)`, `anim.frame_at(seconds)` (loops, unless
+`anim.looping = false`: then it stays on the last frame),
 `index_at(seconds)`, `duration()`.
+
+**Sprite sheets** (from Duck Quill's `quill export`):
+`let sheet = SpriteSheet::load("assets/hero.json")?;` then
+`sheet.draw(canvas, "walk", seconds, feet, Blit::default())` (draws the
+animation's frame at that time with its pivot on `feet`, a `Vec2`; with
+`flip_x` the pivot is mirrored too). `sheet.animation("walk")` (an
+`&Animation`; a misspelt name panics, listing the real ones),
+`sheet.get("walk")` (an `Option`), `names()`, `pivot()`, `frame_size()`,
+`scale()`, `image()`. Any sprite by a pivot:
+`canvas.draw_at_pivot(&sprite, at, pivot, blit)`.
 
 **Camera** (`Camera2D`): `Camera2D::new(screen_w, screen_h)` starts with
 world = screen. Fields `position` (world point at screen center), `zoom`
@@ -826,6 +858,16 @@ only known once the code reading it runs. `log.json` has
 `"tune": {"jump_speed": {"value": 400, "from": "set"}, ...}`. In play
 tests: `PlayTest::new(..).tune("jump_speed", 400.0)` or
 `.tune_file("x.json")`. A window re-reads the file when it changes.
+To name the file yourself (so a bot in a test program with another name
+reads it too): `Config { tune_file: Some("examples/mygame.tune.json".into()), ..Default::default() }`;
+a named file that doesn't exist yet just means the code's values.
+Recordings store the tune values they were made with. Replayed with
+other values, a playthrough that still ends as expected is a warning
+(`playthrough tuned: ... (speed 90 to 120)`), so you can tune without
+recording again; one that ends differently fails and names the changed
+values as the likely cause. `--accept` stores the new ending and values.
+The summary's second line says which values aren't the code's:
+`TUNED from examples/mygame.tune.json: speed = 120 (code says 90)`.
 
 **Checks** (rules that must always hold): in `update`,
 `ctx.check("player inside level", level.contains(player.center()))`.

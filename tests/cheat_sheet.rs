@@ -350,6 +350,41 @@ fn looping_sounds() {
 }
 
 #[test]
+fn sprite_sheets_from_duck_quill() -> Result<(), LoadError> {
+    let sheet = SpriteSheet::load("tests/fixtures/quill/scale1/duck.json")?;
+    let names: Vec<&str> = sheet.names().collect();
+    assert_eq!(names, ["idle", "jump"]);
+    let jump: &Animation = sheet.animation("jump");
+    assert!(
+        !jump.looping,
+        "jump plays once, then stays on its last frame"
+    );
+    assert!(sheet.get("swim").is_none());
+    assert_eq!(
+        (sheet.pivot(), sheet.frame_size(), sheet.scale()),
+        (vec2(8.0, 16.0), (16, 16), 1)
+    );
+    assert_eq!(sheet.image().width(), 48);
+    let mut canvas = Canvas::new(64, 64);
+    let feet = vec2(32.0, 40.0);
+    sheet.draw(&mut canvas, "idle", 0.0, feet, Blit::default());
+    let mut by_hand = Canvas::new(64, 64);
+    by_hand.draw_at_pivot(
+        &sheet.animation("idle").frames[0],
+        feet,
+        sheet.pivot(),
+        Blit::default(),
+    );
+    assert_eq!(canvas.pixels(), by_hand.pixels());
+    let named = Config {
+        tune_file: Some("examples/mygame.tune.json".into()),
+        ..Default::default()
+    };
+    assert!(named.tune_file.is_some());
+    Ok(())
+}
+
+#[test]
 fn math_and_collisions() {
     let v = vec2(3.0, 4.0);
     assert_eq!(v.length(), 5.0);

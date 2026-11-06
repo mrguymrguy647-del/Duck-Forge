@@ -100,13 +100,16 @@ cargo run --no-default-features --example breakout -- --headless --frames 600 --
 - **Sprites:** load a `.png`, or draw one with letters in your code
   (`Sprite::from_ascii`); cut frames from a sprite sheet, animate them, and
   draw them flipped, scaled (pixels stay sharp), tinted or see-through.
+  Duck Quill sprite sheets (`quill export`) load with `SpriteSheet::load`,
+  each animation by name, drawn by its pivot so feet stay put.
 - **A 2D camera:** worlds bigger than the screen, zoom, smooth following,
   screen shake that replays exactly, and mouse-to-world conversion. Draw
   the world between `push_camera` and `pop_camera`, the score after.
 - **Sound, with no files needed:** `ctx.beep(440.0, 100.0)`, ready-made
   `Sound::coin()`, `jump()`, `hit()` and `explosion()`, your own synth
-  sounds (square, sine, triangle or noise, with a pitch slide), and `.wav`
-  files. Headless runs mix every sound into `audio.wav` at its exact frame
+  sounds (square, sine, triangle or noise, with a pitch slide), `.wav`
+  files, and loops for music (`ctx.play_loop`, with volume and stop).
+  Headless runs mix every sound into `audio.wav` at its exact frame
   and list it in `log.json`, so tests can check sounds too.
 - **3D rendering:** a camera with ready-made fly controls, meshes (cube,
   pyramid, sphere, checkerboard, or build your own), transforms, sunlight

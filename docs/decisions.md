@@ -2049,3 +2049,20 @@ file repeats, sample after sample) or a synthesizer `Sound`.
   the new title contains the old type's name. The title is now set aside
   while renaming (`new_game.sh` and `new_game.ps1`, which `new_game.bat`
   runs).
+
+## Step 2.8: The docs point to Duck Quill
+
+The guide has a paragraph on art from Duck Quill (paint, `quill export
+... --sheet`, `SpriteSheet::load`, draw by the pivot, and why `quill
+render --zoom` pictures are refused), and the cheat sheet lists
+`SpriteSheet`, `draw_at_pivot`, `Animation::looping`, `Config::tune_file`
+and what recordings now do with tune values, each called in
+`tests/cheat_sheet.rs` (on the real Duck Quill export in
+`tests/fixtures/quill`). The quick start (still 125 lines), the skill
+(149), the tutorial (sprite sheets and loops, for beginners) and the
+README say the same in fewer words. Duck Echo is named as the place
+sounds and music come from.
+
+**2.3, a bot for the platformer starter, moves into Step 3.4**, where the
+starter is rebuilt on the tile map, background layers and a sprite sheet:
+a bot written now would be thrown away with the old level a step later.

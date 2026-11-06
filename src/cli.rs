@@ -546,6 +546,8 @@ mod tests {
         "--objects",
         "--seconds",
         "--renderer",
+        // Duck Quill's, in `quill export ... --sheet --scale 2`.
+        "--scale",
     ];
 
     #[test]

@@ -4063,7 +4063,33 @@ that counts how many sprites share them), so cutting a sheet into a
 hundred frames costs almost nothing.
 
 `Animation::new(frames, fps)` plays frames in a loop, and
-`frame_at(seconds)` picks the frame to show at that time.
+`frame_at(seconds)` picks the frame to show at that time. Set
+`anim.looping = false` for one that plays once and stays on its last
+frame, like a jump.
+
+### Sprite sheets from Duck Quill
+
+Duck Quill, the drawing program made for duckforge, saves animations as
+a sprite sheet *and* a JSON file that says where each one is:
+
+```sh
+quill export art/hero.json --sheet --out assets   # assets/hero.png and assets/hero.json
+```
+
+`SpriteSheet::load` reads the pair, so you never count pixels:
+
+```rust
+let hero = SpriteSheet::load("assets/hero.json")?;     // when the game starts
+hero.draw(canvas, "walk", self.time, self.feet, Blit::default()); // in draw
+```
+
+Each animation comes by its name, with its speed and whether it loops.
+The sheet also has a **pivot**: the point in every frame that stands on
+the ground, the bottom centre unless the artist moved it. `draw` puts the
+pivot at `self.feet`, so a character whose idle and jump frames are
+different sizes doesn't jump about when it changes animation. (A
+misspelt name, like `"wlak"`, stops the game with a message listing the
+names the sheet has.)
 
 ### How drawing a sprite works
 
@@ -4281,6 +4307,19 @@ often as you like:
 let quack = Wav::load("assets/quack.wav")?;  // when the game starts
 ctx.play_wav(&self.quack);                   // in update
 ```
+
+Music, an engine's hum or rain keep going until you stop them: that's a
+**loop**. `play_loop` starts one and gives back a `LoopId`, a small
+ticket you keep to change it later:
+
+```rust
+self.music = Some(ctx.play_loop(&self.theme, 0.6)); // 60% volume, repeats with no gap
+ctx.set_loop_volume(self.music.unwrap(), 0.3);      // quieter while paused
+ctx.stop_loop(self.music.unwrap());
+```
+
+Headless runs mix loops into `audio.wav` too, and `log.json` lists each
+one with the frames it started and stopped on.
 
 ### A tiny keyboard
 
