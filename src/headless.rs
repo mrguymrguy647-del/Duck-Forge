@@ -24,6 +24,7 @@ use crate::sheet;
 use crate::simulation::Simulation;
 use crate::sound;
 use crate::summary::Summary;
+use crate::video::VideoWriter;
 
 /// What a headless run should do. Make one with `HeadlessOptions::default()`
 /// and change what you need:
@@ -100,6 +101,11 @@ pub struct HeadlessOptions {
     /// Also save `sheet-follow.png`: the same frames, each cut down to the
     /// area around this label and enlarged three times (`--sheet-follow NAME`).
     pub sheet_follow: Option<String>,
+    /// Save the whole run as a video (`--video FILE.mp4`): every frame, at
+    /// the game's frame rate, enlarged with sharp pixels into 1920 x 1080,
+    /// with the sound. Needs `ffmpeg`; without it, the frames are saved as
+    /// PNG files and the command to join them is printed.
+    pub video: Option<PathBuf>,
 }
 
 impl Default for HeadlessOptions {
@@ -123,6 +129,7 @@ impl Default for HeadlessOptions {
             inputs_file: None,
             sheet_events: false,
             sheet_follow: None,
+            video: None,
         }
     }
 }
@@ -314,6 +321,17 @@ fn run_and_save<G: Game>(
     check_frames.insert(1);
     let mut scenes = Vec::new();
 
+    let mut video = match &options.video {
+        Some(path) => Some(VideoWriter::start(
+            path,
+            width,
+            height,
+            updates_per_second,
+            folder,
+        )?),
+        None => None,
+    };
+
     for _ in 0..options.frames {
         if sim.quit_requested() {
             break;
@@ -359,6 +377,9 @@ fn run_and_save<G: Game>(
         } else if spread {
             let picture = sim.picture().copy_picture();
             sheet.push((frame, picture, sim.scene().clone()));
+        }
+        if let Some(video) = &mut video {
+            video.add(sim.picture())?;
         }
         if let Some(gif) = &mut gif {
             if (frame - 1).is_multiple_of(gif_every) {
@@ -435,6 +456,14 @@ fn run_and_save<G: Game>(
             .map_err(|err| format!("could not save {}: {err}", path.display()))?;
         saved.push(String::from("audio.wav"));
     }
+    let video_note = match video {
+        Some(video) => {
+            let wav = folder.join("audio.wav");
+            let audio = (!sim.sounds().is_empty()).then_some(wav.as_path());
+            Some(video.finish(audio)?)
+        }
+        None => None,
+    };
     warnings.extend(unused_set_warnings(&sim));
     // Did the playthrough end the way it's expected to? (Only when it ran
     // its own length: a different --frames ends somewhere else.)
@@ -490,6 +519,7 @@ fn run_and_save<G: Game>(
     }
     summary.warnings = warnings;
     summary.notes.extend(note);
+    summary.notes.extend(video_note);
     summary.folder = Some(folder.clone());
     summary.files = saved;
     save_text(&summary.to_text(), &folder.join("summary.txt"))?;
@@ -819,6 +849,7 @@ pub(crate) fn run_from_command_line<G: Game>(
         inputs_file: options.inputs.clone(),
         sheet_events: options.sheet_events,
         sheet_follow: options.sheet_follow.clone(),
+        video: options.video.clone(),
     };
     if let Some(corner) = options.debug_corner {
         config.debug_corner = corner;
@@ -884,6 +915,7 @@ mod tests {
     use crate::engine::Context;
     use crate::input::Key;
     use crate::math::{Rect, vec2};
+    use std::process::Command;
 
     /// A square that moves right one pixel per update, and quits at frame `quit_at`.
     struct Mover {
@@ -1825,6 +1857,68 @@ mod tests {
         let sheet = Canvas::load_png_for_tests(&folder.join("sheet.png"));
         // 16 frames of 64 x 8 in 4 rows, with a caption line each.
         assert_eq!(sheet.height(), 4 + 4 * (8 + 14 + 13 + 4));
+        let _ = fs::remove_dir_all(folder);
+    }
+
+    /// Both ways of making a video, in one test (the first changes an
+    /// environment variable, which every test in this program shares).
+    #[test]
+    fn a_video_has_every_frame_or_the_frames_and_the_command() {
+        let folder = test_folder("video");
+        let options = |name: &str| HeadlessOptions {
+            frames: 30,
+            out: Some(folder.join(name)),
+            video: Some(folder.join(format!("{name}.mp4"))),
+            ..HeadlessOptions::default()
+        };
+        // Without ffmpeg: 30 PNG frames, and the command to join them.
+        // SAFETY: no other test in this program reads this variable.
+        unsafe { std::env::set_var("DUCKFORGE_FFMPEG", "no-such-ffmpeg-here") };
+        let result = run_and_save(config(), Mover { x: 0.0, quit_at: 0 }, &options("pngs"));
+        unsafe { std::env::remove_var("DUCKFORGE_FFMPEG") };
+        let summary = result.unwrap().1;
+        let frames = fs::read_dir(folder.join("pngs/video-frames"))
+            .unwrap()
+            .count();
+        assert_eq!(frames, 30);
+        let note = summary
+            .notes
+            .iter()
+            .find(|n| n.starts_with("video:"))
+            .unwrap();
+        assert!(
+            note.contains("ffmpeg wasn't found, so the 30 frames are in"),
+            "{note}"
+        );
+        assert!(note.contains("-framerate 60 -i "), "{note}");
+        assert!(
+            note.contains("scale=1920:240:flags=neighbor"),
+            "64 x 8, 30 times: {note}"
+        );
+
+        // With ffmpeg (if this machine has it): a 1080p video, 30 frames.
+        let has_ffmpeg = Command::new("ffmpeg").arg("-version").output().is_ok();
+        if has_ffmpeg {
+            let (_, summary) =
+                run_and_save(config(), Mover { x: 0.0, quit_at: 0 }, &options("real")).unwrap();
+            let note = summary
+                .notes
+                .iter()
+                .find(|n| n.starts_with("video:"))
+                .unwrap();
+            assert!(note.contains("30 frames, 0.5 s at 60 fps"), "{note}");
+            let probe = Command::new("ffprobe")
+                .args(["-v", "error", "-count_frames", "-show_entries"])
+                .args(["stream=width,height,nb_read_frames", "-of", "csv=p=0"])
+                .arg(folder.join("real.mp4"))
+                .output();
+            if let Ok(probe) = probe {
+                assert_eq!(
+                    String::from_utf8_lossy(&probe.stdout).trim(),
+                    "1920,1080,30"
+                );
+            }
+        }
         let _ = fs::remove_dir_all(folder);
     }
 

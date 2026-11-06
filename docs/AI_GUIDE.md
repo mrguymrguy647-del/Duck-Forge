@@ -873,6 +873,7 @@ and `Simulation::new(config, game)` with `press`, `release`,
 
 **Command line**: `--headless`, `--frames N`, `--out DIR`, `--seed N`,
 `--inputs FILE`, `--snapshot-every N`, `--sheet`, `--gif`,
+`--video FILE` (every frame, sharp, 1080p, with sound; needs ffmpeg),
 `--crop X,Y,W,H`, `--zoom N`, `--grid N` (a coordinate grid on saved
 pictures), `--grid-world N` (the same in world units, through the
 camera), `--describe`, `--debug`, `--debug-corner top-right` (where
@@ -1122,9 +1123,15 @@ Send them `show/sheet.png` (the whole run on one page) and `show/run.gif`
 what to look at: "the score goes up to 120 by frame 900, and the GIF shows
 the new enemy at 0:12".
 
-If the game makes sounds, the run also saves `show/audio.wav` and prints
-an `ffmpeg` command that joins the GIF and the sound into `run.mp4`, in
-step (a GIF has no sound). `examples/dodge.rs` with
+For a real video, add **`--video show/run.mp4`**: every frame at the
+game's full frame rate, each pixel a sharp square (the game is enlarged
+by the biggest whole number that fits in 1920 x 1080, with black bars),
+with the sound. It needs `ffmpeg`; without it the frames are saved as
+PNGs and the exact command to join them is printed.
+
+If the game makes sounds, the run also saves `show/audio.wav` and, with
+`--gif`, prints an `ffmpeg` command that joins the GIF and the sound into
+`run.mp4`, in step (a GIF has no sound). `examples/dodge.rs` with
 `--inputs playthroughs/dodge.json` is a complete example: 30.7 seconds of
 play, 10 sounds, and a video whose picture and sound are both exactly
 30.7 seconds long.

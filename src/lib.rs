@@ -60,6 +60,7 @@ pub mod sprite;
 pub mod spritesheet;
 mod summary;
 mod tune;
+mod video;
 #[cfg(feature = "window")]
 mod window;
 

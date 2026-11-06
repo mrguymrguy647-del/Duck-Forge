@@ -281,6 +281,7 @@ after `--` goes to the game, not to Cargo):
 | `--sheet-events` | Make `sheet.png` from the frames where reported values changed (state, lives, score...), plus the first and last, each captioned with what changed |
 | `--sheet-follow NAME` | Also save `sheet-follow.png`: the sheet's frames, each zoomed in three times around the label NAME (like `player`), to see small sprites |
 | `--gif` | Save `run.gif`: the run, shrunk, at about 20 pictures per second |
+| `--video FILE` | Save the run as a video (like `out/run.mp4`): every frame at the game's frame rate, each pixel a sharp square, enlarged by a whole number into 1920 x 1080 with black bars, with the sound. Needs `ffmpeg` (or `DUCKFORGE_FFMPEG`); without it the frames are saved as PNGs and the command to join them is printed |
 | `--crop X,Y,W,H` | Save `closeup.png`: that area of the last frame (and of each snapshot), enlarged |
 | `--zoom N` | How much close-ups are enlarged (default 4) |
 | `--accept` | With `--headless --inputs FILE`: write this run's final reported values into FILE's `"expect"` block, the ending the playthrough should show |

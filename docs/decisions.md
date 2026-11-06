@@ -1959,3 +1959,26 @@ Three ways the tune file caught the test games out, and what changed:
   summary. They're now the second line, in capitals, and say when a value
   isn't the code's: `TUNED from examples/x.tune.json: sight = 100 (code
   says 90)`. `verify` prints that line under each playthrough.
+
+## Step 2.4: `--video`, every frame, sharp
+
+`--gif` was made for a chat message: small, about 20 pictures a second,
+no sound. To show a game to a person properly, `--video out/run.mp4`
+saves every frame at the game's own frame rate, with the sound.
+
+- **No new dependency.** Encoding H.264 in Rust would be a heavy crate;
+  `ffmpeg` is already what the GIF note pointed people to, so the run
+  pipes its raw frames (RGB, the game's own size) to an `ffmpeg` process
+  as they're drawn, and adds `audio.wav` in a second pass at the end
+  (copying the picture, so nothing is encoded twice). `DUCKFORGE_FFMPEG`
+  names another `ffmpeg`. Without one, the run doesn't fail: it saves the
+  frames as PNGs and prints the exact command that joins them.
+- **Sharp pixels, as decided:** the game is enlarged by the biggest whole
+  number that fits in 1920 x 1080 (320 x 240 becomes 1280 x 960, four
+  times) with nearest-neighbour scaling, and centred on black. Filling
+  the height exactly (4.5 times) would make some pixels wider than
+  others. A game bigger than 1080p is kept as it is, rounded to even
+  sizes, which H.264 needs.
+- **Cost:** Dodge's 30.7-second playthrough (1,842 frames) takes 7.7 s
+  with `--video`, a 1920 x 1080, 60 fps file with sound. Drawing never
+  changes the game, so the video can't change what happens.
