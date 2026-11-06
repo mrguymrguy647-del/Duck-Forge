@@ -1,0 +1,30 @@
+# The runner's hum, made to loop: Duck Echo's engine_hum without its fade
+# in and out. It repeats every 2 seconds (the low notes, 55 and 110 Hz, and
+# the wobble, 7 times a second, all come round together), so rendering 3 s
+# and keeping the steady last 2 s (the start has the filter warming up)
+# gives a loop whose end meets its start:
+#   duck-echo render art/hum.toml -o hum-long.wav --seed 1
+#   python3 art/loop_cut.py hum-long.wav assets/hum.wav
+version = 0
+name = "hum"
+description = "Steady low hum that repeats with no gap."
+tags = ["ambient", "engine", "hum", "loop"]
+
+[master]
+normalize = true
+normalize_peak_db = -16.3
+trim_silence = false
+
+[[layers]]
+source = "saw"
+envelope = { attack = 0.0, hold = 3.0, decay = 0.0 }
+pitch = { start = 55, vibrato = { rate = 7, depth = 0.1 } }
+filter = { kind = "lowpass", cutoff = 400 }
+
+[[layers]]
+source = "square"
+duty = 0.3
+volume = 0.5
+envelope = { attack = 0.0, hold = 3.0, decay = 0.0 }
+pitch = { start = 110, vibrato = { rate = 7, depth = 0.1 } }
+filter = { kind = "lowpass", cutoff = 400 }

@@ -100,3 +100,7 @@ debug = "line-tables-only"
 # through their code, and the window/GPU build gets about 10% faster.
 [profile.dev.package."*"]
 debug = false
+
+[[example]]
+name = "starter_runner3d"
+test = true

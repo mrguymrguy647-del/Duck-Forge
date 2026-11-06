@@ -1,0 +1,14 @@
+{
+  "image": "blocks.png",
+  "frame": { "width": 16, "height": 16 },
+  "columns": 1,
+  "rows": 4,
+  "scale": 1,
+  "pivot": [8.0,16.0],
+  "animations": {
+    "road": {"row":0,"frames":[0],"fps":1.0,"loop":false},
+    "grass": {"row":1,"frames":[1],"fps":1.0,"loop":false},
+    "crate": {"row":2,"frames":[2],"fps":1.0,"loop":false},
+    "gold": {"row":3,"frames":[3],"fps":1.0,"loop":false}
+  }
+}

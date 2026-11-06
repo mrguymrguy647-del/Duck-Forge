@@ -1,0 +1,247 @@
+{
+ "title": "The 3D runner starter's atlas: one 16 x 16 tile per animation, for textures",
+ "palette": {
+  "paint": "#F0F0E8",
+  "asphalt": "#5A5A62",
+  "asphalt_dark": "#4A4A52",
+  "grass": "#5BB043",
+  "grass_dark": "#3E8A34",
+  "wood_dark": "#5C3A1E",
+  "wood": "#B07A40",
+  "wood_light": "#D49A5A",
+  "gold_dark": "#9A6A10",
+  "gold": "#F2C230",
+  "gold_shade": "#D9A21E",
+  "gold_light": "#FFF4B0"
+ },
+ "commands": [
+  {
+   "cmd": "canvas",
+   "width": 16,
+   "height": 16,
+   "pixel": true
+  },
+  {
+   "cmd": "define",
+   "name": "road",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "w": "paint",
+      "a": "asphalt",
+      "A": "asphalt_dark",
+      "g": "grass",
+      "G": "grass_dark",
+      "k": "wood_dark",
+      "p": "wood",
+      "P": "wood_light",
+      "o": "gold_dark",
+      "y": "gold",
+      "Y": "gold_shade",
+      "W": "gold_light"
+     },
+     "rows": [
+      "waaaaaaaaaaaaaaw",
+      "aaaaaaaaaaaaaaaa",
+      "aAaaaaaaAaaaaaaa",
+      "aaaaaAaaaaaaaAaa",
+      "aaaaaaaaaaaaaaaa",
+      "aaAaaaaaaaaAaaaa",
+      "aaaaaaaaaaaaaaaa",
+      "aaaaaaaAaaaaaaaa",
+      "waaaaaaaaaaaaaaw",
+      "waaaaAaaaaaaaaaw",
+      "waaaaaaaaaaAaaaw",
+      "waaaaaaaaaaaaaaw",
+      "aaAaaaaaaaaaaaaa",
+      "aaaaaaaaAaaaaaaa",
+      "aaaaaaaaaaaaaAaa",
+      "aaaaaaaaaaaaaaaa"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "grass",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "w": "paint",
+      "a": "asphalt",
+      "A": "asphalt_dark",
+      "g": "grass",
+      "G": "grass_dark",
+      "k": "wood_dark",
+      "p": "wood",
+      "P": "wood_light",
+      "o": "gold_dark",
+      "y": "gold",
+      "Y": "gold_shade",
+      "W": "gold_light"
+     },
+     "rows": [
+      "gggggGgggggggggg",
+      "ggGgggggggGggggg",
+      "gggggggGgggggggG",
+      "gGggggggggggGggg",
+      "ggggGgggGggggggg",
+      "gggggggggggggGgg",
+      "GggggGgggggggggg",
+      "gggggggggGgggggg",
+      "gggGgggggggggGgg",
+      "ggggggggGggggggg",
+      "gGgggggggggggggg",
+      "gggggggGggggGggg",
+      "ggggGggggggggggg",
+      "gggggggggggGgggg",
+      "ggGggggGgggggggG",
+      "gggggggggggggggg"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "crate",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "w": "paint",
+      "a": "asphalt",
+      "A": "asphalt_dark",
+      "g": "grass",
+      "G": "grass_dark",
+      "k": "wood_dark",
+      "p": "wood",
+      "P": "wood_light",
+      "o": "gold_dark",
+      "y": "gold",
+      "Y": "gold_shade",
+      "W": "gold_light"
+     },
+     "rows": [
+      "kkkkkkkkkkkkkkkk",
+      "kppppppppppppppk",
+      "kpPkkkkkkkkkkPpk",
+      "kpkPpppppppppkpk",
+      "kpkpPppppppppkpk",
+      "kpkppPpppppppkpk",
+      "kpkpppPppppppkpk",
+      "kpkppppPpppppkpk",
+      "kpkpppppPppppkpk",
+      "kpkppppppPpppkpk",
+      "kpkpppppppPppkpk",
+      "kpkppppppppPpkpk",
+      "kpkpppppppppPkpk",
+      "kpPkkkkkkkkkkPpk",
+      "kppppppppppppppk",
+      "kkkkkkkkkkkkkkkk"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "gold",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "w": "paint",
+      "a": "asphalt",
+      "A": "asphalt_dark",
+      "g": "grass",
+      "G": "grass_dark",
+      "k": "wood_dark",
+      "p": "wood",
+      "P": "wood_light",
+      "o": "gold_dark",
+      "y": "gold",
+      "Y": "gold_shade",
+      "W": "gold_light"
+     },
+     "rows": [
+      "oooooooooooooooo",
+      "oyyyyyyyyyyyyyyo",
+      "oyWWyyyyyyyyyyyo",
+      "oyWyyyyyyyyyyyYo",
+      "oyyyyyyyyyyyyyYo",
+      "oyyyyyyyyyyyyyYo",
+      "oyyyyyyyyyyyyyYo",
+      "oyyyyyyyyyyyyyYo",
+      "oyyyyyyyyyyyyyYo",
+      "oyyyyyyyyyyyyyYo",
+      "oyyyyyyyyyyyyyYo",
+      "oyyyyyyyyyyyyyYo",
+      "oyyyyyyyyyyyyyYo",
+      "oyyyyyyyyyyyyYYo",
+      "oYYYYYYYYYYYYYYo",
+      "oooooooooooooooo"
+     ]
+    }
+   ]
+  }
+ ],
+ "animations": {
+  "road": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "road"
+    }
+   ]
+  },
+  "grass": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "grass"
+    }
+   ]
+  },
+  "crate": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "crate"
+    }
+   ]
+  },
+  "gold": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "gold"
+    }
+   ]
+  }
+ }
+}

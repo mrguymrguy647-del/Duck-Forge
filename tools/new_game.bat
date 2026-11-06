@@ -1,7 +1,7 @@
 @echo off
 rem new_game: start a new game from a starter, ready to build and verify.
 rem
-rem   tools\new_game.bat mygame topdown      (or platformer, shooter, tiny)
+rem   tools\new_game.bat mygame topdown      (or platformer, shooter, runner3d, tiny)
 rem
 rem It copies the starter to examples\mygame, renames
 rem the game's main type (TopDown -> Mygame), sets the window title, points
@@ -40,6 +40,11 @@ if /i "%kind%"=="shooter" (
     set "starter=starter_shooter"
     set "type=Shooter"
     set "title=Shooter starter - duckforge"
+)
+if /i "%kind%"=="runner3d" (
+    set "starter=starter_runner3d"
+    set "type=Runner"
+    set "title=3D runner starter - duckforge"
 )
 if /i "%kind%"=="tiny" (
     set "starter=quickstart"
@@ -94,6 +99,6 @@ call "tools\verify.bat" %name%
 exit /b %errorlevel%
 
 :usage
-echo usage: tools\new_game.bat ^<name^> ^<platformer^|topdown^|shooter^|tiny^>
+echo usage: tools\new_game.bat ^<name^> ^<platformer^|topdown^|shooter^|runner3d^|tiny^>
 echo   the name is lowercase letters, digits and _, starting with a letter, like bee_maze
 exit /b 2

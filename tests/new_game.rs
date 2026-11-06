@@ -15,10 +15,11 @@ use std::process::Command;
 const ROOT: &str = env!("CARGO_MANIFEST_DIR");
 
 /// (kind, starter, the starter's type, a folder starter?)
-const STARTERS: [(&str, &str, &str, bool); 4] = [
+const STARTERS: [(&str, &str, &str, bool); 5] = [
     ("platformer", "template", "Template", true),
     ("topdown", "starter_topdown", "TopDown", true),
     ("shooter", "starter_shooter", "Shooter", true),
+    ("runner3d", "starter_runner3d", "Runner", true),
     ("tiny", "quickstart", "Catch", false),
 ];
 

@@ -2326,3 +2326,50 @@ other down):
   are bigger (texture point and flags), and every copy is checked
   against the view. lavapipe runs on these same CPU cores, so this needs
   checking on a real graphics card (it's on the Windows list).
+
+## Step 4.6: The 3D starter: a three-lane runner
+
+`tools/new_game.sh mygame runner3d` (and `new_game.bat`) starts from
+`examples/starter_runner3d/`, as agreed: the closest to Duck Dash 3D, and
+a game a bot can play.
+
+- **The game:** the duck runs along +z down a three-lane road; Left and
+  Right change lane (it slides there), Space jumps; rows of crates (one
+  or two per row, never three) and lines of gold coins come from the
+  game's own random numbers; a crate costs one of three lives (then a
+  second of blinking); the speed rises from 8 to 14 units a second. The
+  camera follows from behind and above.
+- **What it shows:** the road and grass are long strips whose texture
+  repeats (texture points beyond 1), redrawn under the duck at whole
+  repeats so they never end; crates and coins are `Mesh::block`s from
+  one Duck Quill atlas, lit by a warm sun with `set_lighting`; the duck
+  is a billboard drawn by its sprite sheet's pivot; the HUD is 2D over
+  the 3D; Duck Echo's coin, jump and hit sounds and a looping hum; labels
+  (the duck and the next crate in each lane, found with
+  `camera.project`), three checks, reports, a tune list.
+- **The hum** is the `engine_hum` preset made loopable (`art/hum.toml`):
+  no fades, and cut from a 3-second render at the steady part, 2 seconds
+  long so its notes and wobble come round together. Rendered straight,
+  its end was 3,761 steps from its start (a click every 2 seconds); cut,
+  4, smaller than an ordinary step (15). Duck Echo has no loop points,
+  so the starter's `art/loop_cut.py` does the cut.
+- **The bot** (`bot.rs`) plays a minute and records
+  `playthroughs/starter_runner3d.json`. Its first version lost all three
+  lives, and its failures taught two things worth knowing about the
+  game: a jump has to be timed to put the crate under its top (1/3 s
+  after taking off, so `speed / 3` units away), and above 10.5 units a
+  second one jump is longer than the gap between rows (7 units then),
+  so two crates in a row in one lane can't both be jumped. The rows are
+  now 8 apart with a top speed of 14, and the bot looks for the best lane
+  anywhere, sliding through a neighbour only when it's clear for long
+  enough. It now runs the minute losing one life: 734 m and 159 coins.
+- **8 play tests** (speeding up and the hum starting, lane changes,
+  jumping, three crates ending the game and stopping the hum, jumping a
+  crate, coins, every row leaving a way through, the playthrough).
+- **CPU and GPU:** the replay's pictures at frames 1,200, 2,400 and the
+  last differ in 16 to 22 pixels (0.03%) by more than 3.
+- Found while painting it: a see-through pixel in the road tile's top row
+  showed the sky through the road as thin blue lines.
+
+The test that makes a game from every starter and verifies it now covers
+five starters, in 27 s.
