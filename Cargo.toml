@@ -108,3 +108,7 @@ test = true
 [[example]]
 name = "duck_peaks"
 test = true
+
+[[example]]
+name = "mini_craft"
+test = true

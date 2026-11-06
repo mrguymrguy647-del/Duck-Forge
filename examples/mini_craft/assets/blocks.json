@@ -1,0 +1,18 @@
+{
+  "image": "blocks.png",
+  "frame": { "width": 16, "height": 16 },
+  "columns": 1,
+  "rows": 8,
+  "scale": 1,
+  "pivot": [8.0,16.0],
+  "animations": {
+    "grass_top": {"row":0,"frames":[0],"fps":1.0,"loop":false},
+    "grass_side": {"row":1,"frames":[1],"fps":1.0,"loop":false},
+    "dirt": {"row":2,"frames":[2],"fps":1.0,"loop":false},
+    "stone": {"row":3,"frames":[3],"fps":1.0,"loop":false},
+    "lava": {"row":4,"frames":[4],"fps":1.0,"loop":false},
+    "log": {"row":5,"frames":[5],"fps":1.0,"loop":false},
+    "leaves": {"row":6,"frames":[6],"fps":1.0,"loop":false},
+    "gem": {"row":7,"frames":[7],"fps":1.0,"loop":false}
+  }
+}

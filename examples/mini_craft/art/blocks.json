@@ -1,0 +1,523 @@
+{
+ "title": "Mini Duck Craft's block atlas: one 16 x 16 tile per animation, for Mesh::block",
+ "palette": {
+  "grass": "#5BB043",
+  "grass_dark": "#4A9638",
+  "dirt": "#8A5A35",
+  "dirt_dark": "#6E4426",
+  "stone": "#8A8E96",
+  "stone_light": "#A2A6AE",
+  "ink": "#3A3A40",
+  "lava": "#E0502A",
+  "lava_bright": "#F8902A",
+  "lava_hot": "#FFE070",
+  "bark_dark": "#4A321C",
+  "bark_light": "#6E4E2C",
+  "wood": "#7A5632",
+  "leaf": "#3E8A34",
+  "leaf_dark": "#2E6A28",
+  "gold": "#F2C230",
+  "gold_light": "#FFF4B0",
+  "gold_shade": "#D9A21E",
+  "gold_dark": "#B07A10",
+  "gold_ink": "#7A5208"
+ },
+ "commands": [
+  {
+   "cmd": "canvas",
+   "width": 16,
+   "height": 16,
+   "pixel": true
+  },
+  {
+   "cmd": "define",
+   "name": "grass_top",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "g": "grass",
+      "G": "grass_dark",
+      "d": "dirt",
+      "D": "dirt_dark",
+      "s": "stone",
+      "S": "stone_light",
+      "k": "ink",
+      "l": "lava",
+      "L": "lava_bright",
+      "y": "lava_hot",
+      "b": "bark_dark",
+      "B": "bark_light",
+      "w": "wood",
+      "f": "leaf",
+      "F": "leaf_dark",
+      "W": "gold_light",
+      "Y": "gold_shade",
+      "o": "gold_dark"
+     },
+     "rows": [
+      "gGgGggGgGgGGggGg",
+      "gggggGggGGgggggg",
+      "gGGggggggggggggg",
+      "gggGggGgGggggggg",
+      "ggggggGgggggggGg",
+      "GGGgGgggGggggggg",
+      "gggGGgggggGggggg",
+      "gggGggggggGgGGgG",
+      "gGGGGgGggGgggGgg",
+      "ggGGgggGGggGgGgg",
+      "ggggGggggggggggg",
+      "gggGGggggggggggg",
+      "ggggggggGgggggGg",
+      "gggggggGGGggGggg",
+      "ggGGgggggggggggg",
+      "ggGggggggggggGgg"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "grass_side",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "g": "grass",
+      "G": "grass_dark",
+      "d": "dirt",
+      "D": "dirt_dark",
+      "s": "stone",
+      "S": "stone_light",
+      "k": "ink",
+      "l": "lava",
+      "L": "lava_bright",
+      "y": "lava_hot",
+      "b": "bark_dark",
+      "B": "bark_light",
+      "w": "wood",
+      "f": "leaf",
+      "F": "leaf_dark",
+      "W": "gold_light",
+      "Y": "gold_shade",
+      "o": "gold_dark"
+     },
+     "rows": [
+      "gggggggggggggggg",
+      "gggggggggggggggg",
+      "ggdgDdggDdgggdgg",
+      "ggdgdgddgdgggggg",
+      "ddDdddDdddDdDddD",
+      "ddddDdddDDddDddd",
+      "DdDddddddDddDdDd",
+      "dddddddDdDdddddD",
+      "ddddddddddddddDD",
+      "DdddDddddddddddd",
+      "ddddddDdddddDdDd",
+      "DDdddddddddddDdd",
+      "DdddddDddddddddd",
+      "dDDdDddddddDdddd",
+      "dDddDddddddddddd",
+      "dDDddddDDddddddd"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "dirt",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "g": "grass",
+      "G": "grass_dark",
+      "d": "dirt",
+      "D": "dirt_dark",
+      "s": "stone",
+      "S": "stone_light",
+      "k": "ink",
+      "l": "lava",
+      "L": "lava_bright",
+      "y": "lava_hot",
+      "b": "bark_dark",
+      "B": "bark_light",
+      "w": "wood",
+      "f": "leaf",
+      "F": "leaf_dark",
+      "W": "gold_light",
+      "Y": "gold_shade",
+      "o": "gold_dark"
+     },
+     "rows": [
+      "DdddDddDdddddddd",
+      "dddDDddddddddddd",
+      "dddddDdddddDdDdd",
+      "ddddddddDDdddddd",
+      "dDdDdDdddddddddd",
+      "DddDdddddddddddD",
+      "DddddDddddddDDdd",
+      "ddddddDdddddDddd",
+      "DDdddddDdddddddd",
+      "dddDdddddddDdddd",
+      "dddddddddddddddd",
+      "ddDdddDDDddddddd",
+      "dddDddddDDdddDdd",
+      "ddddDddddddDdddD",
+      "DDddddddddddddDd",
+      "dddDdddddddddddd"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "stone",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "g": "grass",
+      "G": "grass_dark",
+      "d": "dirt",
+      "D": "dirt_dark",
+      "s": "stone",
+      "S": "stone_light",
+      "k": "ink",
+      "l": "lava",
+      "L": "lava_bright",
+      "y": "lava_hot",
+      "b": "bark_dark",
+      "B": "bark_light",
+      "w": "wood",
+      "f": "leaf",
+      "F": "leaf_dark",
+      "W": "gold_light",
+      "Y": "gold_shade",
+      "o": "gold_dark"
+     },
+     "rows": [
+      "sssssssSsssSSsss",
+      "sssSSsssssssssss",
+      "ssssssssssssssss",
+      "sssSssssSsSsssss",
+      "sssssSssssssssss",
+      "Sksksssskkkkskks",
+      "ssssssssssssssSs",
+      "ssssssSsssSsssss",
+      "ssSssssssssSssss",
+      "ssssssssssssssss",
+      "SssSsSssssssssss",
+      "kkskkkkkkSskSkkS",
+      "sSsssSssssssssss",
+      "ssssssSsssssssss",
+      "ssssSsssssssSsss",
+      "ssssSsssssssssss"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "lava",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "g": "grass",
+      "G": "grass_dark",
+      "d": "dirt",
+      "D": "dirt_dark",
+      "s": "stone",
+      "S": "stone_light",
+      "k": "ink",
+      "l": "lava",
+      "L": "lava_bright",
+      "y": "lava_hot",
+      "b": "bark_dark",
+      "B": "bark_light",
+      "w": "wood",
+      "f": "leaf",
+      "F": "leaf_dark",
+      "W": "gold_light",
+      "Y": "gold_shade",
+      "o": "gold_dark"
+     },
+     "rows": [
+      "LLLllllLLlllllll",
+      "LlLllLLlLlyLLlll",
+      "lLllLlllLlllllLL",
+      "LyllyllLllllLllL",
+      "lLLLllllllLlllll",
+      "llllllllLlylLLLl",
+      "lLLLllylLllllyyl",
+      "llLLLLlllllLLLlL",
+      "llLLLlllllllLyll",
+      "lllLyLlLLLllLlll",
+      "ylllLlLLlyLlLlll",
+      "lllllLlLLLllllLl",
+      "llllllylllylylLl",
+      "lLLlllLLLllLlLly",
+      "LlLlllllLlLLlLyl",
+      "ylllLlyllllllLll"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "log",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "g": "grass",
+      "G": "grass_dark",
+      "d": "dirt",
+      "D": "dirt_dark",
+      "s": "stone",
+      "S": "stone_light",
+      "k": "ink",
+      "l": "lava",
+      "L": "lava_bright",
+      "y": "lava_hot",
+      "b": "bark_dark",
+      "B": "bark_light",
+      "w": "wood",
+      "f": "leaf",
+      "F": "leaf_dark",
+      "W": "gold_light",
+      "Y": "gold_shade",
+      "o": "gold_dark"
+     },
+     "rows": [
+      "bwwwwwwBwwwwwwBb",
+      "bwwwBwwwwwwBwwwb",
+      "bBwwwwwwBwwwwwwb",
+      "bwwwwBwwwwwwBwwb",
+      "bwBwwwwwwBwwwwwb",
+      "bwwwwwBwwwwwwBwb",
+      "bwwBwwwwwwBwwwwb",
+      "bwwwwwwBwwwwwwBb",
+      "bwwwBwwwwwwBwwwb",
+      "bBwwwwwwBwwwwwwb",
+      "bwwwwBwwwwwwBwwb",
+      "bwBwwwwwwBwwwwwb",
+      "bwwwwwBwwwwwwBwb",
+      "bwwBwwwwwwBwwwwb",
+      "bwwwwwwBwwwwwwBb",
+      "bwwwBwwwwwwBwwwb"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "leaves",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "g": "grass",
+      "G": "grass_dark",
+      "d": "dirt",
+      "D": "dirt_dark",
+      "s": "stone",
+      "S": "stone_light",
+      "k": "ink",
+      "l": "lava",
+      "L": "lava_bright",
+      "y": "lava_hot",
+      "b": "bark_dark",
+      "B": "bark_light",
+      "w": "wood",
+      "f": "leaf",
+      "F": "leaf_dark",
+      "W": "gold_light",
+      "Y": "gold_shade",
+      "o": "gold_dark"
+     },
+     "rows": [
+      "FFFfFfFfFFfFfFFf",
+      "fffFffffFffFFffF",
+      "FfFffFffffFfffff",
+      "fffffFFfffFffffF",
+      "fffffffFFFffffFf",
+      "fffFffffFFffFffF",
+      "fffFFfffFffFffff",
+      "ffFFFfffffFFffFf",
+      "fFfFfFFffffFffff",
+      "ffFFFFFFfffffFff",
+      "FfFffffffFffFFFf",
+      "fffFffffFFfffFff",
+      "FFFFfFFFfFfFFfFf",
+      "ffFfFffffFfffFFF",
+      "ffFfFfFFfFFfFfFf",
+      "FffFfFFFffffFFfF"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "gem",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "g": "grass",
+      "G": "grass_dark",
+      "d": "dirt",
+      "D": "dirt_dark",
+      "s": "stone",
+      "S": "stone_light",
+      "k": "gold_ink",
+      "l": "lava",
+      "L": "lava_bright",
+      "y": "gold",
+      "b": "bark_dark",
+      "B": "bark_light",
+      "w": "wood",
+      "f": "leaf",
+      "F": "leaf_dark",
+      "W": "gold_light",
+      "Y": "gold_shade",
+      "o": "gold_dark"
+     },
+     "rows": [
+      "oooooooooooooooo",
+      "ooooookkkkoooooo",
+      "oooookyyyykooooo",
+      "ooookyWWyyykoooo",
+      "oookyWyyyyyykooo",
+      "ookyyyyyyyyyykoo",
+      "ookyyyyyyyyyYkoo",
+      "ookyyyyyyyyyYkoo",
+      "ookyyyyyyyyYYkoo",
+      "ookyyyyyyyyYYkoo",
+      "oookyyyyyyYYkooo",
+      "ooookyyyyYYkoooo",
+      "oooookYYYYkooooo",
+      "ooooookkkkoooooo",
+      "oooooooooooooooo",
+      "oooooooooooooooo"
+     ]
+    }
+   ]
+  }
+ ],
+ "animations": {
+  "grass_top": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "grass_top"
+    }
+   ]
+  },
+  "grass_side": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "grass_side"
+    }
+   ]
+  },
+  "dirt": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "dirt"
+    }
+   ]
+  },
+  "stone": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "stone"
+    }
+   ]
+  },
+  "lava": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "lava"
+    }
+   ]
+  },
+  "log": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "log"
+    }
+   ]
+  },
+  "leaves": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "leaves"
+    }
+   ]
+  },
+  "gem": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "gem"
+    }
+   ]
+  }
+ }
+}
