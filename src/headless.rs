@@ -246,11 +246,11 @@ fn run_and_save<G: Game>(
         .and_then(|script| script::timestep_warning(script, &config));
 
     // --tune FILE, or the file the game names in its Config, or the default.
-    let tunes = match (&options.tune_file, &config.tune_file) {
-        (Some(file), _) => crate::tune::Tunes::load(Some(file), &options.tune)?,
-        (None, Some(named)) => crate::tune::Tunes::load_named(named, &options.tune)?,
-        (None, None) => crate::tune::Tunes::load(None, &options.tune)?,
-    };
+    let tunes = crate::tune::Tunes::for_run(
+        options.tune_file.as_deref(),
+        config.tune_file.as_deref(),
+        &options.tune,
+    )?;
     let mut sim = Simulation::new(config, game);
     sim.set_tunes(tunes);
     sim.set_debug_overlay(options.debug);
@@ -447,19 +447,21 @@ fn run_and_save<G: Game>(
             saved.push(String::from("sheet-follow.png"));
         }
     }
-    if !sim.sounds().is_empty() {
-        // Every sound, mixed at the sample where its frame starts. The
-        // track lasts as long as the run (or longer, if a sound rings on).
+    let has_sound = !sim.sounds().is_empty() || !sim.loops().is_empty();
+    if has_sound {
+        // Every sound, mixed at the sample where its frame starts, and every
+        // loop. The track lasts as long as the run (or longer, if a sound
+        // rings on).
         let length = sim.sample_at(last + 1);
         let path = folder.join("audio.wav");
-        fs::write(&path, sound::mix_to_wav(sim.sounds(), length))
+        fs::write(&path, sound::mix_to_wav(sim.sounds(), sim.loops(), length))
             .map_err(|err| format!("could not save {}: {err}", path.display()))?;
         saved.push(String::from("audio.wav"));
     }
     let video_note = match video {
         Some(video) => {
             let wav = folder.join("audio.wav");
-            let audio = (!sim.sounds().is_empty()).then_some(wav.as_path());
+            let audio = has_sound.then_some(wav.as_path());
             Some(video.finish(audio)?)
         }
         None => None,
@@ -790,6 +792,16 @@ fn log_json<G: Game>(
         text += "\n  ";
     }
     text += "],\n";
+    text += "  \"loops\": [";
+    let loops = sim.loops();
+    for (index, looped) in loops.iter().enumerate() {
+        let comma = if index + 1 < loops.len() { "," } else { "" };
+        text += &format!("\n    {}{comma}", looped.to_json());
+    }
+    if !loops.is_empty() {
+        text += "\n  ";
+    }
+    text += "],\n";
     text += "  \"changes\": [";
     let changes = sim.report_log();
     for (index, change) in changes.iter().enumerate() {
@@ -1069,6 +1081,117 @@ mod tests {
         assert!(
             message.contains("never played") && message.contains("coin at 10"),
             "{message}"
+        );
+    }
+
+    #[test]
+    fn loops_repeat_change_volume_stop_and_are_logged() {
+        let folder = test_folder("audio-loops");
+        fs::create_dir_all(&folder).unwrap();
+        // A 1,000-sample loop (like a Duck Echo export): a ramp, so every
+        // place in it is different and a gap or a jump would show.
+        let path = folder.join("theme.wav");
+        let ramp = (0..1000).map(|i| (i * 16) as i16);
+        fs::write(&path, sound::wav_bytes(ramp, 1000)).unwrap();
+        let theme = crate::sound::Wav::load(&path).unwrap();
+
+        struct Musical {
+            theme: crate::sound::Wav,
+            music: Option<crate::sound::LoopId>,
+        }
+        impl Game for Musical {
+            fn update(&mut self, ctx: &mut Context) {
+                match ctx.frame() {
+                    1 => self.music = Some(ctx.play_loop(&self.theme, 1.0)),
+                    20 => ctx.set_loop_volume(self.music.unwrap(), 0.5),
+                    40 => ctx.stop_loop(self.music.unwrap()),
+                    41 => ctx.stop_loop(self.music.unwrap()), // again: nothing happens
+                    50 => {
+                        let hum = crate::sound::Sound {
+                            name: "hum",
+                            ..Default::default()
+                        };
+                        ctx.play_loop(hum, 0.25);
+                    }
+                    _ => {}
+                }
+            }
+            fn draw(&self, _: &mut Canvas) {}
+        }
+        let out = folder.join("run");
+        let options = HeadlessOptions {
+            frames: 60,
+            out: Some(out.clone()),
+            ..HeadlessOptions::default()
+        };
+        let game = Musical { theme, music: None };
+        let (sim, summary) = run_and_save(config(), game, &options).unwrap();
+
+        let loops = sim.loops();
+        assert_eq!(loops.len(), 2);
+        let (music, hum) = (&loops[0], &loops[1]);
+        assert_eq!(
+            (music.name.as_str(), music.start, music.stop),
+            ("theme", 1, Some(40))
+        );
+        assert_eq!(music.volumes, [(1, 1.0), (20, 0.5)]);
+        assert_eq!(
+            (
+                music.volume_at(19),
+                music.volume_at(20),
+                music.volume_at(40)
+            ),
+            (1.0, 0.5, 0.0)
+        );
+        assert_eq!((hum.name.as_str(), hum.start), ("hum", 50));
+        assert!(hum.is_playing() && !music.is_playing());
+
+        let log = fs::read_to_string(out.join("log.json")).unwrap();
+        assert!(
+            log.contains(r#"{"loop": "theme", "file": "#)
+                && log.contains(r#""start": 1, "stop": 40, "volume": [[1, 1], [20, 0.5]]}"#),
+            "{log}"
+        );
+        assert!(
+            log.contains(r#""start": 50, "stop": null, "volume": [[50, 0.25]]}"#),
+            "{log}"
+        );
+        assert_eq!(
+            summary.loops,
+            [
+                "theme from frame 1 to frame 40",
+                "hum from frame 50 to the end"
+            ]
+        );
+
+        // audio.wav: 735 samples per frame at 60 updates a second. The
+        // ramp goes round every 1,000 samples with no gap, halves at frame
+        // 20 (sample 13,965), and stops at frame 40 (sample 28,665).
+        let wav = fs::read(out.join("audio.wav")).unwrap();
+        let samples: Vec<i16> = wav[44..]
+            .chunks_exact(2)
+            .map(|b| i16::from_le_bytes([b[0], b[1]]))
+            .collect();
+        assert_eq!(samples.len(), 60 * 735, "as long as the run");
+        let ramp_at = |i: usize| (i % 1000) as i32 * 16;
+        for i in [0, 1, 999, 1000, 1001, 13_964] {
+            assert!(
+                (samples[i] as i32 - ramp_at(i)).abs() <= 1,
+                "sample {i}: {}",
+                samples[i]
+            );
+        }
+        for i in [13_965, 20_000, 28_664] {
+            assert!(
+                (samples[i] as i32 - ramp_at(i) / 2).abs() <= 1,
+                "sample {i} at half volume: {}",
+                samples[i]
+            );
+        }
+        assert!(samples[28_665..49 * 735].iter().all(|&s| s == 0), "stopped");
+        assert!(
+            samples[49 * 735..].iter().any(|&s| s != 0),
+            "the hum, to the end"
         );
     }
 

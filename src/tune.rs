@@ -82,6 +82,21 @@ impl Tunes {
         Tunes::load_from(Some(path), false, set)
     }
 
+    /// The tune values for a run: from `--tune FILE` if given (which must
+    /// exist), else the file the game names in its `Config` (which may not
+    /// exist yet), else `examples/<game>.tune.json`; then `--set` on top.
+    pub(crate) fn for_run(
+        command_line: Option<&Path>,
+        config: Option<&Path>,
+        set: &[(String, f32)],
+    ) -> Result<Tunes, String> {
+        match (command_line, config) {
+            (Some(file), _) => Tunes::load(Some(file), set),
+            (None, Some(named)) => Tunes::load_named(named, set),
+            (None, None) => Tunes::load(None, set),
+        }
+    }
+
     fn load_from(
         path: Option<&Path>,
         explicit: bool,

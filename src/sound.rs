@@ -495,40 +495,175 @@ impl PlayedSound {
     /// settings or its file, like
     /// `{"frame": 10, "sound": "coin", "wave": "square", "freq": 1050, ...}`.
     pub(crate) fn to_json(&self) -> String {
-        let text = |t: &str| Value::from(t).to_string();
-        // Numbers to 2 decimal places, and whole numbers without ".0".
-        let number = |v: f32| ReportValue::from((v as f64 * 100.0).round() / 100.0).to_json();
-        let mut line = format!(
-            "{{\"frame\": {}, \"sound\": {}",
+        format!(
+            "{{\"frame\": {}, \"sound\": {}{}}}",
             self.frame,
-            text(&self.name)
-        );
-        match &self.source {
-            SoundSource::Synth(s) => {
-                line += &format!(", \"wave\": {}", text(s.wave.name()));
-                for (key, value) in [
-                    ("freq", s.freq),
-                    ("slide_to", s.slide_to),
-                    ("ms", s.ms),
-                    ("volume", s.volume),
-                    ("attack", s.attack),
-                    ("decay", s.decay),
-                ] {
-                    line += &format!(", \"{key}\": {}", number(value));
-                }
-            }
-            SoundSource::File(path) => {
-                line += &format!(", \"file\": {}", text(&path.to_string_lossy()));
-            }
-        }
-        line + "}"
+            Value::from(self.name.as_str()),
+            source_json(&self.source)
+        )
     }
 }
 
-/// Mixes every sound into one track, each starting at its own sample, and
+/// A sound's settings (`, "wave": "square", "freq": 1050, ...`) or its
+/// file (`, "file": "assets/quack.wav"`), for `log.json`.
+fn source_json(source: &SoundSource) -> String {
+    let text = |t: &str| Value::from(t).to_string();
+    match source {
+        SoundSource::Synth(s) => {
+            let mut line = format!(", \"wave\": {}", text(s.wave.name()));
+            for (key, value) in [
+                ("freq", s.freq),
+                ("slide_to", s.slide_to),
+                ("ms", s.ms),
+                ("volume", s.volume),
+                ("attack", s.attack),
+                ("decay", s.decay),
+            ] {
+                line += &format!(", \"{key}\": {}", number_json(value));
+            }
+            line
+        }
+        SoundSource::File(path) => format!(", \"file\": {}", text(&path.to_string_lossy())),
+    }
+}
+
+/// A number for `log.json`: to 2 decimal places, whole numbers without ".0".
+fn number_json(v: f32) -> String {
+    ReportValue::from((v as f64 * 100.0).round() / 100.0)
+        .to_json()
+        .to_string()
+}
+
+/// A looping sound that's playing, from
+/// [`Context::play_loop`](crate::engine::Context::play_loop). Keep it to
+/// change the loop's volume or stop it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct LoopId(pub(crate) u32);
+
+/// What [`Context::play_loop`](crate::engine::Context::play_loop) can
+/// repeat: a `.wav` file (`&music`) or a synthesizer [`Sound`]. You don't
+/// make one yourself; pass either straight to `play_loop`.
+pub struct LoopSound(pub(crate) SoundRequest);
+
+impl From<&Wav> for LoopSound {
+    fn from(wav: &Wav) -> LoopSound {
+        LoopSound(SoundRequest::wav(wav))
+    }
+}
+
+impl From<&Sound> for LoopSound {
+    fn from(sound: &Sound) -> LoopSound {
+        LoopSound(SoundRequest::synth(*sound))
+    }
+}
+
+impl From<Sound> for LoopSound {
+    fn from(sound: Sound) -> LoopSound {
+        LoopSound(SoundRequest::synth(sound))
+    }
+}
+
+/// What the game asked a loop to do during an update.
+#[derive(Debug, Clone)]
+pub(crate) enum LoopCommand {
+    Start(LoopId, SoundRequest, f32),
+    Volume(LoopId, f32),
+    Stop(LoopId),
+}
+
+/// One looping sound the game played: when it started and stopped, and
+/// its volume over time. Play tests read them with
+/// [`Simulation::loops`](crate::Simulation::loops).
+#[derive(Debug, Clone)]
+pub struct PlayedLoop {
+    pub id: LoopId,
+    /// Its name: the `.wav` file's name without `.wav`, or the
+    /// [`Sound::name`].
+    pub name: String,
+    /// The update it started in.
+    pub start: u64,
+    /// The update it was stopped in, or `None` if it was still playing at
+    /// the end.
+    pub stop: Option<u64>,
+    /// Its volume from each frame on, the first being the starting volume:
+    /// `[(1, 0.6), (400, 0.3)]`.
+    pub volumes: Vec<(u64, f32)>,
+    pub(crate) source: SoundSource,
+    pub(crate) samples: Arc<[f32]>,
+    /// The samples in `audio.wav` where it starts and stops, and where
+    /// each volume begins (the same order as `volumes`).
+    pub(crate) start_sample: u64,
+    pub(crate) stop_sample: Option<u64>,
+    pub(crate) volume_samples: Vec<u64>,
+}
+
+impl PlayedLoop {
+    /// Was it still playing at the end of the run?
+    pub fn is_playing(&self) -> bool {
+        self.stop.is_none()
+    }
+
+    /// Its volume during update `frame` (0 before it started or after it
+    /// stopped).
+    pub fn volume_at(&self, frame: u64) -> f32 {
+        if frame < self.start || self.stop.is_some_and(|stop| frame >= stop) {
+            return 0.0;
+        }
+        self.volumes
+            .iter()
+            .take_while(|(from, _)| *from <= frame)
+            .last()
+            .map_or(0.0, |&(_, volume)| volume)
+    }
+
+    /// The loop's line in `log.json`, like
+    /// `{"loop": "theme", "file": "...", "start": 1, "stop": 900, "volume": [[1, 0.6], [400, 0.3]]}`.
+    pub(crate) fn to_json(&self) -> String {
+        let stop = self.stop.map_or(String::from("null"), |f| f.to_string());
+        let volumes: Vec<String> = self
+            .volumes
+            .iter()
+            .map(|&(frame, volume)| format!("[{frame}, {}]", number_json(volume)))
+            .collect();
+        format!(
+            "{{\"loop\": {}{}, \"start\": {}, \"stop\": {stop}, \"volume\": [{}]}}",
+            Value::from(self.name.as_str()),
+            source_json(&self.source),
+            self.start,
+            volumes.join(", ")
+        )
+    }
+
+    /// Adds the loop into `track`, repeating it with no gap, from its start
+    /// to its stop (or the end of the track), at each volume in turn.
+    fn mix_into(&self, track: &mut [f32]) {
+        if self.samples.is_empty() {
+            return;
+        }
+        let end = self
+            .stop_sample
+            .unwrap_or(track.len() as u64)
+            .min(track.len() as u64);
+        for (index, &volume) in self.volumes.iter().map(|(_, v)| v).enumerate() {
+            let from = self.volume_samples[index].max(self.start_sample);
+            let to = self
+                .volume_samples
+                .get(index + 1)
+                .copied()
+                .unwrap_or(end)
+                .min(end);
+            for at in from..to {
+                let i = ((at - self.start_sample) % self.samples.len() as u64) as usize;
+                track[at as usize] += self.samples[i] * volume;
+            }
+        }
+    }
+}
+
+/// Mixes every sound and loop into one track, each starting at its own sample, and
 /// turns it into the bytes of a 16-bit mono `.wav` file. The track is at
 /// least `length` samples long, and longer if a sound rings on past it.
-pub(crate) fn mix_to_wav(sounds: &[PlayedSound], length: u64) -> Vec<u8> {
+pub(crate) fn mix_to_wav(sounds: &[PlayedSound], loops: &[PlayedLoop], length: u64) -> Vec<u8> {
     let end = sounds
         .iter()
         .map(|s| s.start + s.samples.len() as u64)
@@ -539,6 +674,12 @@ pub(crate) fn mix_to_wav(sounds: &[PlayedSound], length: u64) -> Vec<u8> {
         for (out, &sample) in track[start..].iter_mut().zip(sound.samples.iter()) {
             *out += sample;
         }
+    }
+    // Loops still playing at the end stop with the run, not with the last
+    // one-off sound ringing on.
+    let run = (length as usize).min(track.len());
+    for looped in loops {
+        looped.mix_into(&mut track[..run]);
     }
     // Too loud is cut off at the top (clipping), rather than wrapping round.
     let pcm = track
@@ -719,12 +860,51 @@ mod tests {
             samples: samples.into(),
             start,
         };
-        let wav = mix_to_wav(&[sound(2, vec![0.5, 0.5]), sound(3, vec![0.75, 0.25])], 3);
+        let wav = mix_to_wav(
+            &[sound(2, vec![0.5, 0.5]), sound(3, vec![0.75, 0.25])],
+            &[],
+            3,
+        );
         let decoded = decode_wav(&wav).unwrap();
         let expected = [0.0, 0.0, 0.5, 1.0, 0.25]; // 0.5 + 0.75 is cut off at 1.0
         assert_eq!(decoded.len(), 5, "the last sound rings on past the length");
         for (got, want) in decoded.iter().zip(expected) {
             assert!((got - want).abs() < 0.001, "{decoded:?}");
         }
+    }
+
+    #[test]
+    fn loops_repeat_with_no_gap_change_volume_and_stop() {
+        let looped = |stop: Option<u64>| PlayedLoop {
+            id: LoopId(1),
+            name: String::from("hum"),
+            start: 1,
+            stop: stop.map(|_| 3),
+            volumes: vec![(1, 1.0), (2, 0.5)],
+            source: SoundSource::Synth(Sound::default()),
+            samples: vec![0.1, 0.2, 0.3].into(),
+            start_sample: 1,
+            stop_sample: stop,
+            volume_samples: vec![1, 5],
+        };
+        // Starts at sample 1, goes round every 3 samples, half as loud
+        // from sample 5, stopped at sample 7.
+        let wav = mix_to_wav(&[], &[looped(Some(7))], 9);
+        let decoded = decode_wav(&wav).unwrap();
+        let expected = [0.0, 0.1, 0.2, 0.3, 0.1, 0.1, 0.15, 0.0, 0.0];
+        assert_eq!(decoded.len(), 9);
+        for (got, want) in decoded.iter().zip(expected) {
+            assert!((got - want).abs() < 0.001, "{decoded:?}");
+        }
+        // Never stopped: it plays to the end of the run, and no further.
+        let wav = mix_to_wav(&[], &[looped(None)], 9);
+        let decoded = decode_wav(&wav).unwrap();
+        assert!((decoded[8] - 0.1).abs() < 0.001, "{decoded:?}");
+        let json = looped(Some(7)).to_json();
+        assert!(
+            json.starts_with(r#"{"loop": "hum", "wave": "square""#)
+                && json.ends_with(r#""start": 1, "stop": 3, "volume": [[1, 1], [2, 0.5]]}"#),
+            "{json}"
+        );
     }
 }

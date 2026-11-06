@@ -160,8 +160,12 @@ pub(crate) fn run<G: Game>(
     window.set_target_fps(config.target_fps);
 
     let renderer = renderer_from_env().unwrap_or(config.renderer);
-    let tunes =
-        crate::tune::Tunes::load(options.tune.as_deref(), &options.set).map_err(EngineError)?;
+    let tunes = crate::tune::Tunes::for_run(
+        options.tune.as_deref(),
+        config.tune_file.as_deref(),
+        &options.set,
+    )
+    .map_err(EngineError)?;
     let mut sim = Simulation::start(&config, game, renderer);
     sim.set_tunes(tunes);
     sim.forget_report_log();
@@ -250,8 +254,15 @@ pub(crate) fn run<G: Game>(
                 speaker.play(sound.samples);
             }
         }
+        let loops = sim.take_new_loop_commands();
+        #[cfg(feature = "audio")]
+        if let Some(speaker) = &speaker {
+            for command in loops {
+                speaker.change_loop(command);
+            }
+        }
         #[cfg(not(feature = "audio"))]
-        drop(sounds); // built without the "audio" feature: silent
+        drop((sounds, loops)); // built without the "audio" feature: silent
 
         // 4. The game's turn to draw.
         let fps = sim.context().fps();

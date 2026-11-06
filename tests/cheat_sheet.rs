@@ -288,6 +288,56 @@ fn headless_and_play_tests() {
     let _ = std::fs::remove_dir_all(folder);
 }
 
+/// Plays a looping hum and a looping file, changes one's volume and stops it.
+struct Looper {
+    music: Option<LoopId>,
+    theme: Option<Wav>,
+}
+
+impl Game for Looper {
+    fn update(&mut self, ctx: &mut Context) {
+        match ctx.frame() {
+            1 => {
+                let hum = Sound {
+                    name: "hum",
+                    wave: Wave::Sine,
+                    freq: 80.0,
+                    ms: 500.0,
+                    ..Default::default()
+                };
+                let music: LoopId = ctx.play_loop(hum, 0.6);
+                self.music = Some(music);
+                if let Some(theme) = &self.theme {
+                    ctx.play_loop(theme, 0.5);
+                }
+            }
+            10 => ctx.set_loop_volume(self.music.unwrap(), 0.3),
+            20 => ctx.stop_loop(self.music.unwrap()),
+            _ => {}
+        }
+    }
+
+    fn draw(&self, _: &mut Canvas) {}
+}
+
+#[test]
+fn looping_sounds() {
+    let played = PlayTest::new(
+        config(),
+        Looper {
+            music: None,
+            theme: None,
+        },
+    )
+    .frames(30)
+    .run();
+    let hum = &played.loops()[0];
+    assert_eq!((hum.name.as_str(), hum.start, hum.stop), ("hum", 1, Some(20)));
+    assert_eq!(hum.volumes, [(1, 0.6), (10, 0.3)]);
+    assert_eq!(hum.volume_at(15), 0.3);
+    assert!(!hum.is_playing());
+}
+
 #[test]
 fn math_and_collisions() {
     let v = vec2(3.0, 4.0);

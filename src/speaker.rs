@@ -27,6 +27,9 @@ const BLOCK: usize = 1024;
 #[derive(Default)]
 struct Voices {
     playing: Vec<(Arc<[f32]>, usize)>,
+    /// Looping sounds: the loop's number, its samples, how far through
+    /// them we are, and its volume.
+    loops: Vec<(u32, Arc<[f32]>, usize, f32)>,
 }
 
 impl Voices {
@@ -41,6 +44,15 @@ impl Voices {
             *at += out.len();
         }
         self.playing.retain(|(samples, at)| *at < samples.len());
+        for (_, samples, at, volume) in &mut self.loops {
+            if samples.is_empty() {
+                continue;
+            }
+            for o in out.iter_mut() {
+                *o += samples[*at] * *volume;
+                *at = (*at + 1) % samples.len(); // round again, with no gap
+            }
+        }
         for o in out {
             *o = o.clamp(-1.0, 1.0);
         }
@@ -75,6 +87,23 @@ impl Speaker {
             voices.playing.remove(0);
         }
         voices.playing.push((samples, 0));
+    }
+
+    /// Starts, changes or stops a looping sound.
+    pub(crate) fn change_loop(&self, command: crate::sound::LoopCommand) {
+        use crate::sound::LoopCommand;
+        let mut voices = self.voices.lock().unwrap_or_else(|e| e.into_inner());
+        match command {
+            LoopCommand::Start(id, request, volume) => {
+                voices.loops.push((id.0, request.samples, 0, volume));
+            }
+            LoopCommand::Volume(id, volume) => {
+                for looped in voices.loops.iter_mut().filter(|l| l.0 == id.0) {
+                    looped.3 = volume;
+                }
+            }
+            LoopCommand::Stop(id) => voices.loops.retain(|l| l.0 != id.0),
+        }
     }
 }
 
@@ -346,5 +375,22 @@ mod tests {
         voices.fill(&mut out);
         assert_eq!(out, [0.25, 0.0]);
         assert!(voices.playing.is_empty(), "both finished");
+    }
+
+    #[test]
+    fn loops_go_round_with_no_gap_at_their_volume() {
+        let mut voices = Voices::default();
+        voices.loops.push((1, vec![0.1, 0.2, 0.3].into(), 0, 2.0));
+        let mut out = [0.0; 4];
+        voices.fill(&mut out);
+        let want = [0.2, 0.4, 0.6, 0.2];
+        for (got, want) in out.iter().zip(want) {
+            assert!((got - want).abs() < 1e-6, "{out:?}");
+        }
+        voices.fill(&mut out);
+        assert!(
+            (out[0] - 0.4).abs() < 1e-6,
+            "carries on where it was: {out:?}"
+        );
     }
 }

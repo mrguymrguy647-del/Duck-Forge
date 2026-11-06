@@ -2003,3 +2003,33 @@ Pollen Run's wasps, the starters and Dodge stay quiet, on full and short
 runs. What it can't know: a level that labels nothing but its far-off
 enemies. Labelling the level (or, from Step 3, drawing a tile map, which
 labels itself) fixes that.
+
+## Step 2.6: Looping sounds and music
+
+Duck Dash wanted music and Duck Craft a hum, and a long `.wav` played
+once was the only way. Now `ctx.play_loop(&music, 0.6)` returns a
+`LoopId`; `ctx.set_loop_volume(id, 0.3)` and `ctx.stop_loop(id)` change
+it. It takes a `Wav` (a Duck Echo export loops with no gap: the whole
+file repeats, sample after sample) or a synthesizer `Sound`.
+
+- **Same as one-off sounds, everywhere.** A loop starts, changes and
+  stops at the first sample of the frame the game asked in, so headless
+  runs mix it into `audio.wav` exactly (a test checks a 1,000-sample ramp
+  goes round with no gap, halves on frame 20 and stops on frame 40), the
+  window's speaker plays the same thing, and `--video` gets it for free.
+  A loop still playing at the end stops with the run.
+- **Recorded, not only heard.** `log.json` has `"loops"`, one line each:
+  `{"loop": "theme", "file": "...", "start": 1, "stop": 40, "volume":
+  [[1, 1], [20, 0.5]]}`; play tests read `played.loops()` (with
+  `volume_at(frame)` and `is_playing()`); the summary adds `loops: theme
+  from frame 1 to frame 40` to its sounds line. Volume changes are only
+  recorded when the volume changes, so a fade is a line per frame of the
+  fade, not per frame of the game.
+- **Left out:** pitch changes while playing, stereo panning, loop points
+  inside a file (Duck Echo has none), and crossfades (lower one loop's
+  volume while raising another's). A window forgets stopped loops and old
+  volumes, like it forgets one-off sounds, so hours of play don't fill
+  memory.
+- **Fixed on the way:** the window ignored `Config::tune_file` (Step 2.2)
+  and only looked for `examples/<game>.tune.json`. The window, headless
+  runs and `Simulation` now choose the tune file with the same function.

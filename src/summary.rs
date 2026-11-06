@@ -49,6 +49,8 @@ pub(crate) struct Summary {
     pub text_changes: Vec<(String, Vec<(u64, ReportValue)>)>,
     /// How many times each sound played, by name.
     pub sounds: BTreeMap<String, usize>,
+    /// Each looping sound, like "theme from frame 1 to the end".
+    pub loops: Vec<String>,
     /// Tune values that didn't come from the game's default: name, value, where from.
     pub tuned: Vec<(String, f32, &'static str, f32)>,
     /// The tune file the values came from, if any did.
@@ -113,6 +115,15 @@ impl Summary {
         }
         for played in sim.sounds() {
             *summary.sounds.entry(played.name.clone()).or_default() += 1;
+        }
+        for looped in sim.loops() {
+            let stop = looped
+                .stop
+                .map_or(String::from("the end"), |frame| format!("frame {frame}"));
+            summary.loops.push(format!(
+                "{} from frame {} to {stop}",
+                looped.name, looped.start
+            ));
         }
         let tunes = sim.tunes();
         summary.tuned = tunes
@@ -261,13 +272,21 @@ impl Summary {
                 .collect();
             lines.push(format!("also changed: {} (see log.json)", more.join(", ")));
         }
+        // One line for every sound: the one-off ones, then the loops.
+        let mut heard = Vec::new();
         if !self.sounds.is_empty() {
             let sounds: Vec<String> = self
                 .sounds
                 .iter()
                 .map(|(name, count)| format!("{name} x{count}"))
                 .collect();
-            lines.push(format!("sounds: {}", cut(&sounds, MAX_FINAL)));
+            heard.push(format!("sounds: {}", cut(&sounds, MAX_FINAL)));
+        }
+        if !self.loops.is_empty() {
+            heard.push(format!("loops: {}", cut(&self.loops, MAX_FINAL)));
+        }
+        if !heard.is_empty() {
+            lines.push(heard.join("; "));
         }
         if self.checks > 0 {
             let failed = match self.failed.len() {
@@ -350,6 +369,7 @@ impl Summary {
             "ranges": ranges,
             "text_changes": changes,
             "sounds": self.sounds,
+            "loops": self.loops,
             "tuned": tuned,
             "checks": {"rules": self.checks, "failed": failed},
             "warnings": self.warnings,
@@ -445,6 +465,7 @@ mod tests {
                 })
                 .collect(),
             sounds: (0..30).map(|i| (format!("sound{i}"), 2)).collect(),
+            loops: vec![String::from("theme from frame 1 to the end")],
             tuned: vec![(String::from("gravity"), 900.0, "file", 800.0)],
             tune_file: Some(String::from("examples/busy.tune.json")),
             checks: 9,
@@ -485,6 +506,10 @@ mod tests {
         assert!(text.contains(", 1 snapshot (frame-NNNNNN.png and .scene.json)"));
         assert!(text.contains("seed 7, replaying 40 of 41 input events; the game quit"));
         assert!(text.contains("watch with sound: ffmpeg"));
+        assert!(
+            text.contains("loops: theme from frame 1 to the end"),
+            "{text}"
+        );
         assert!(text.contains("wrote 3 tune values"));
         // Every line is short enough to read, except the ffmpeg command.
         for line in text.lines().filter(|l| !l.contains("ffmpeg")) {

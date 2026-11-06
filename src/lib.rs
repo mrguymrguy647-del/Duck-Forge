@@ -94,7 +94,7 @@ pub mod prelude {
     pub use crate::report::ReportValue;
     pub use crate::rng::Rng;
     pub use crate::simulation::Simulation;
-    pub use crate::sound::{Sound, Wav, Wave};
+    pub use crate::sound::{LoopId, Sound, Wav, Wave};
     pub use crate::sprite::{Animation, Blit, Sprite};
     pub use crate::spritesheet::SpriteSheet;
 }

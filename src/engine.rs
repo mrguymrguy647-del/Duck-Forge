@@ -15,7 +15,7 @@ use crate::math::{Rect, Vec2};
 use crate::render3d::Renderer;
 use crate::report::ReportValue;
 use crate::rng::Rng;
-use crate::sound::{Sound, SoundRequest, Wav};
+use crate::sound::{LoopCommand, LoopId, LoopSound, Sound, SoundRequest, Wav};
 use crate::tune::Tunes;
 
 /// What every game must provide. The engine calls `update` and `draw` once
@@ -235,6 +235,10 @@ pub struct Context {
     reports: Vec<(String, ReportValue)>,
     /// The sounds the game played during this update.
     sounds: Vec<SoundRequest>,
+    /// What the game asked its looping sounds to do during this update.
+    loop_commands: Vec<LoopCommand>,
+    /// The number of the next loop started.
+    next_loop: u32,
     /// Shapes to outline in the debug overlay, from the latest update.
     debug_shapes: Vec<DebugShape>,
     /// Tuned numbers: from `--set`, the tune file, or the game's defaults.
@@ -272,6 +276,8 @@ impl Context {
             quit_requested: false,
             reports: Vec::new(),
             sounds: Vec::new(),
+            loop_commands: Vec::new(),
+            next_loop: 1,
             debug_shapes: Vec::new(),
             tunes: Tunes::default(),
             checked: HashSet::new(),
@@ -489,6 +495,55 @@ impl Context {
         self.sounds.push(SoundRequest::wav(wav));
     }
 
+    /// Starts a sound that repeats with no gap until you stop it: music, an
+    /// engine's hum, rain. `sound` is a `.wav` file (`&music`, loaded once
+    /// with [`Wav::load`](crate::sound::Wav::load); a Duck Echo loop
+    /// repeats seamlessly) or a synthesizer [`Sound`]. `volume` is 0.0
+    /// (silent) to 1.0 (as loud as the file), and more to make it louder.
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// # fn example(ctx: &mut Context, music: &Wav) {
+    /// let theme = ctx.play_loop(music, 0.6); // keep the LoopId
+    /// ctx.set_loop_volume(theme, 0.3);       // quieter during a pause
+    /// ctx.stop_loop(theme);
+    /// let hum = ctx.play_loop(Sound { name: "hum", wave: Wave::Sine, freq: 80.0, ms: 500.0, ..Default::default() }, 0.2);
+    /// # let _ = hum;
+    /// # }
+    /// ```
+    ///
+    /// In a window it comes out of the speakers. Without one it's mixed
+    /// into `audio.wav` from this frame on, and `log.json` lists it under
+    /// `"loops"` with when it started and stopped and its volumes. Play
+    /// tests read it with [`loops`](crate::Simulation::loops).
+    pub fn play_loop(&mut self, sound: impl Into<LoopSound>, volume: f32) -> LoopId {
+        let id = LoopId(self.next_loop);
+        self.next_loop += 1;
+        let LoopSound(request) = sound.into();
+        self.loop_commands
+            .push(LoopCommand::Start(id, request, clean_volume(volume)));
+        id
+    }
+
+    /// Changes a looping sound's volume from this frame on (0.0 is silent).
+    /// For a fade, change it a little every frame. A loop that has stopped
+    /// is left alone.
+    pub fn set_loop_volume(&mut self, id: LoopId, volume: f32) {
+        self.loop_commands
+            .push(LoopCommand::Volume(id, clean_volume(volume)));
+    }
+
+    /// Stops a looping sound. Stopping one that has already stopped does
+    /// nothing.
+    pub fn stop_loop(&mut self, id: LoopId) {
+        self.loop_commands.push(LoopCommand::Stop(id));
+    }
+
+    /// Hands over this update's loop changes and starts a fresh list.
+    pub(crate) fn take_loop_commands(&mut self) -> Vec<LoopCommand> {
+        std::mem::take(&mut self.loop_commands)
+    }
+
     /// Outlines `rect` in the debug overlay (F1 in a window, `--debug` on
     /// the command line), in world coordinates if the game draws through a
     /// camera. Call it in `update`, every frame you want to see it: a
@@ -644,6 +699,15 @@ impl fmt::Display for EngineError {
 }
 
 impl Error for EngineError {}
+
+/// A loop's volume: at least 0, and 0 if it isn't a number.
+fn clean_volume(volume: f32) -> f32 {
+    if volume.is_finite() {
+        volume.max(0.0)
+    } else {
+        0.0
+    }
+}
 
 #[cfg(test)]
 mod tests {

@@ -13,7 +13,7 @@ use crate::render3d::Renderer;
 use crate::report::{FrameReport, ReportLog, ReportValue};
 use crate::scene::{Scene, SceneCamera};
 use crate::script::{InputAction, InputEvent, InputScript};
-use crate::sound::{PlayedSound, SAMPLE_RATE};
+use crate::sound::{LoopCommand, PlayedLoop, PlayedSound, SAMPLE_RATE};
 
 /// Keys the engine itself uses in a window (FPS counter, recording,
 /// screenshots). They still reach the game, but aren't recorded, so a replay
@@ -92,6 +92,11 @@ pub struct Simulation<G> {
     keep_sounds: bool,
     /// How many of `sounds` have been handed to the speakers.
     sounds_sent: usize,
+    /// Every looping sound the game started (in a window, only those
+    /// still playing).
+    loops: Vec<PlayedLoop>,
+    /// Loop changes not yet handed to the speakers (only in a window).
+    loops_for_speaker: Vec<LoopCommand>,
     /// Whether the game's `init` has run.
     initialized: bool,
     /// What draws 3D, for a new canvas after a resize.
@@ -133,11 +138,8 @@ impl<G: Game> Simulation<G> {
         let seed = config.seed.unwrap_or(DEFAULT_SEED);
         let mut canvas = Canvas::new(config.width, config.height);
         canvas.set_renderer(renderer);
-        let tunes = match &config.tune_file {
-            Some(path) => crate::tune::Tunes::load_named(path, &[]),
-            None => crate::tune::Tunes::load(None, &[]),
-        }
-        .unwrap_or_else(|problem| panic!("bad tune file: {problem}"));
+        let tunes = crate::tune::Tunes::for_run(None, config.tune_file.as_deref(), &[])
+            .unwrap_or_else(|problem| panic!("bad tune file: {problem}"));
         let mut ctx = Context::new(config.width, config.height, seed);
         *ctx.tunes_mut() = tunes;
         // On the CPU, the renderer's name is known before anything is drawn.
@@ -169,6 +171,8 @@ impl<G: Game> Simulation<G> {
             sounds: Vec::new(),
             keep_sounds: true,
             sounds_sent: 0,
+            loops: Vec::new(),
+            loops_for_speaker: Vec::new(),
             initialized: false,
             renderer,
             debug_overlay: false,
@@ -231,6 +235,58 @@ impl<G: Game> Simulation<G> {
                 start,
             });
         }
+        for command in self.ctx.take_loop_commands() {
+            self.follow_loop_command(command, start);
+        }
+    }
+
+    /// Records a loop starting, changing volume or stopping on this frame
+    /// (`sample` is where this frame begins in `audio.wav`).
+    fn follow_loop_command(&mut self, command: LoopCommand, sample: u64) {
+        let frame = self.ctx.frame();
+        match &command {
+            LoopCommand::Start(id, request, volume) => self.loops.push(PlayedLoop {
+                id: *id,
+                name: request.name.clone(),
+                start: frame,
+                stop: None,
+                volumes: vec![(frame, *volume)],
+                source: request.source.clone(),
+                samples: request.samples.clone(),
+                start_sample: sample,
+                stop_sample: None,
+                volume_samples: vec![sample],
+            }),
+            LoopCommand::Volume(id, volume) => {
+                let Some(looped) = self.playing_loop(*id) else {
+                    return; // already stopped: nothing to change
+                };
+                let last = looped.volumes.len() - 1;
+                if looped.volumes[last].0 == frame {
+                    looped.volumes[last].1 = *volume; // changed twice in one frame
+                } else if looped.volumes[last].1 != *volume {
+                    looped.volumes.push((frame, *volume));
+                    looped.volume_samples.push(sample);
+                }
+            }
+            LoopCommand::Stop(id) => {
+                let Some(looped) = self.playing_loop(*id) else {
+                    return; // already stopped
+                };
+                looped.stop = Some(frame);
+                looped.stop_sample = Some(sample);
+            }
+        }
+        if !self.keep_sounds {
+            self.loops_for_speaker.push(command); // in a window
+        }
+    }
+
+    /// The loop `id`, if it's still playing.
+    fn playing_loop(&mut self, id: crate::sound::LoopId) -> Option<&mut PlayedLoop> {
+        self.loops
+            .iter_mut()
+            .find(|looped| looped.id == id && looped.stop.is_none())
     }
 
     /// The sample in `audio.wav` where update `frame` begins. Update 1
@@ -672,6 +728,28 @@ impl<G: Game> Simulation<G> {
         &self.sounds
     }
 
+    /// Every looping sound the game started with
+    /// [`Context::play_loop`](crate::engine::Context::play_loop), oldest
+    /// first: its name, the frames it started and stopped on, and its
+    /// volumes.
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// # struct G;
+    /// # impl Game for G {
+    /// #     fn update(&mut self, ctx: &mut Context) { if ctx.frame() == 1 { ctx.play_loop(Sound { name: "hum", ..Default::default() }, 0.5); } }
+    /// #     fn draw(&self, _: &mut Canvas) {}
+    /// # }
+    /// let played = PlayTest::new(Config::default(), G).frames(60).run();
+    /// let hum = &played.loops()[0];
+    /// assert_eq!((hum.name.as_str(), hum.start), ("hum", 1));
+    /// assert!(hum.is_playing());
+    /// assert_eq!(hum.volume_at(30), 0.5);
+    /// ```
+    pub fn loops(&self) -> &[PlayedLoop] {
+        &self.loops
+    }
+
     /// The frames on which a sound called `name` was played, like
     /// `[12, 80]`. Names are [`Sound::name`](crate::sound::Sound::name)
     /// (`"coin"`, `"jump"`...), `"beep"`, or a `.wav` file's name.
@@ -735,6 +813,23 @@ impl<G: Game> Simulation<G> {
             self.sounds_sent = 0;
         }
         new
+    }
+
+    /// The loop changes since the last call, for the speakers. Loops that
+    /// have stopped are then forgotten, so a long game doesn't fill memory.
+    #[cfg_attr(not(feature = "window"), allow(dead_code))] // only the window uses it
+    pub(crate) fn take_new_loop_commands(&mut self) -> Vec<LoopCommand> {
+        if !self.keep_sounds {
+            self.loops.retain(|looped| looped.stop.is_none());
+            for looped in &mut self.loops {
+                // Only the current volume matters now.
+                let volume = looped.volumes[looped.volumes.len() - 1];
+                let sample = looped.volume_samples[looped.volume_samples.len() - 1];
+                looped.volumes = vec![volume];
+                looped.volume_samples = vec![sample];
+            }
+        }
+        std::mem::take(&mut self.loops_for_speaker)
     }
 
     /// Has the game called [`Context::quit`]?

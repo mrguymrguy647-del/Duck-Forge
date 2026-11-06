@@ -847,10 +847,17 @@ float type), a `bool`, a `&str` or a `String`. Enums: report
 `Wave::Square` / `Sine` / `Triangle` / `Noise`; `attack` and `decay` are
 fade in/out in ms; `slide_to: 0.0` means no slide. Files:
 `let w = Wav::load("assets/x.wav")?;` (8/16/24/32-bit or float, any rate,
-mono or stereo) then `ctx.play_wav(&w)`. Play sounds in `update` only
+mono or stereo) then `ctx.play_wav(&w)`. Music and other repeating
+sounds: `let music: LoopId = ctx.play_loop(&w, 0.6);` (a `Wav`, or a
+`Sound` passed as it is; it repeats with no gap until stopped),
+`ctx.set_loop_volume(music, 0.3)`, `ctx.stop_loop(music)`; keep the
+`LoopId` in your game (`Option<LoopId>`). Play sounds in `update` only
 (`draw` has no `ctx`). Checking: `sim.sounds()` (each has `frame` and
 `name`), `sim.sound_frames("coin")`, and in play tests
-`played.assert_sound("coin", frame, within_frames)`.
+`played.assert_sound("coin", frame, within_frames)`; loops with
+`sim.loops()` (each has `name`, `start`, `stop`, `volumes`,
+`.volume_at(frame)` and `.is_playing()`). Headless runs mix loops into
+`audio.wav` and list them in `log.json` under `"loops"`.
 
 **Physics** (`use duckforge::physics::{Body, BodyId, PhysicsWorld, Shape};`):
 `PhysicsWorld::new(vec2(0.0, 400.0))` (gravity, y down),
@@ -1151,8 +1158,9 @@ They can also send *you* a game: F10 in the window records it to
 Plan around these. Don't spend time looking for them:
 
 - Sprites can't rotate (only flip and scale).
-- Sounds can't loop, be stopped, or change once started; there's no
-  music player (a long `.wav` works for background music, once).
+- One-off sounds can't be stopped or changed once started (loops can:
+  `play_loop`, `set_loop_volume`, `stop_loop`). No pitch changes while
+  playing, and no crossfades beyond changing volumes yourself.
 - No stereo panning: every sound is mono.
 - Physics boxes don't rotate (balls and axis-aligned boxes only).
 - No running in a web browser.
