@@ -2373,3 +2373,29 @@ a game a bot can play.
 
 The test that makes a game from every starter and verifies it now covers
 five starters, in 27 s.
+
+## Step 4.7: The 3D docs
+
+The AI guide gets a 3D section (11): units and directions, the camera
+and `project`, meshes and `merge`, textures and atlases, **merging blocks
+into chunks** (one mesh per 16 x 16 chunk, not one per block and not one
+for the whole world, so frustum culling can still skip the chunks behind
+the camera, with the block-world numbers), lighting, billboards, the HUD
+over the 3D and labels found with `project` (only what matters: far-off
+things overlap on screen in perspective, which the summary would report),
+the CPU and the GPU (`DUCKFORGE_RENDERER=gpu` headless, Mesa's driver on
+Linux), how much the CPU can draw, and 3D mistakes. The cheat sheet lists
+every new function, and `tests/cheat_sheet.rs` calls each one. "Can't do
+yet" gains 3D's limits: no shadows, no per-pixel light, no fog, one
+texture per mesh, no model files, no animated models. The tutorial
+explains textures (and why blending texture points straight across the
+screen bends a road), light, billboards and culling for a beginner; the
+quick start, skill and README name the runner starter; the README has a
+five-step check for a real graphics card. The guide's intro also stopped
+saying `new_game` copies the starter's tune file (it hasn't since 2.2).
+
+Checked at the end of Step 4: 425 tests pass (406 headless); all 16
+examples pass `verify`; a game made from each of the five starters passes
+it too; the 42 saved 3D pictures from before Step 4 are byte for byte the
+same on the CPU and the GPU; the headless clean build of `dodge` takes
+10.5 s and a one-line change 0.27 s (10.8 s and 0.30 s at Step 0).

@@ -29,10 +29,12 @@ game, start from [examples/starter_topdown/](examples/starter_topdown/main.rs)
 (walk a walled map, collect coins, escape chasing enemies; 4 or 8
 directions) or [examples/starter_shooter/](examples/starter_shooter/main.rs)
 (fast bullets, waves of enemies that dive and shoot, particle
-explosions). Each has a tune file, a playthrough, rules and play tests,
-and passes `tools/verify.sh`. One command makes a new game from any of
-them, renamed and ready: `tools/new_game.sh mygame topdown` (or
-`platformer`, `shooter`, `tiny`; on Windows `tools\new_game.bat`).
+explosions); for 3D, [examples/starter_runner3d/](examples/starter_runner3d/main.rs)
+(a three-lane runner: textured blocks, a billboard duck, lighting, a HUD
+over the 3D). Each has a playthrough recorded by its bot, rules and play
+tests, and passes `tools/verify.sh`. One command makes a new game from any
+of them, renamed and ready: `tools/new_game.sh mygame topdown` (or
+`platformer`, `shooter`, `runner3d`, `tiny`; on Windows `tools\new_game.bat`).
 
 **New to Rust? Start with [TUTORIAL.md](TUTORIAL.md)**. It teaches the
 language through this engine's code and explains how every part works.
@@ -114,8 +116,12 @@ cargo run --no-default-features --example breakout -- --headless --frames 600 --
   Headless runs mix every sound into `audio.wav` at its exact frame
   and list it in `log.json`, so tests can check sounds too.
 - **3D rendering:** a camera with ready-made fly controls, meshes (cube,
-  pyramid, sphere, checkerboard, or build your own), transforms, sunlight
-  shading, a depth buffer, and near-plane clipping.
+  pyramid, sphere, cylinder, cone, quad, checkerboard, blocks from an
+  atlas, or build your own, and merge many into one), transforms, a depth
+  buffer, and near-plane clipping. Textures with sharp pixels and
+  see-through holes, drawn perspective-correct; a sun you can aim, colour
+  and dim, and glowing meshes; sprites standing in the world
+  (billboards); meshes off screen skipped (frustum culling).
   - **On the graphics card** with wgpu (the default): meshes are cached on
     the GPU and every copy of a mesh is drawn with one draw call
     (instancing). Works with DirectX 12, Metal, Vulkan and OpenGL.
@@ -699,6 +705,28 @@ higher.
 | 5,000 | 222,078 | 40 FPS | 21 FPS |
 | 10,000 | 445,164 | 22 FPS | 13 to 17 FPS |
 | 20,000 | 910,914 | 12 FPS | 8 FPS |
+
+### Checking 3D on a real graphics card
+
+Phase 3's 3D (textures, lighting, billboards, culling) was checked on
+lavapipe, a software Vulkan driver on the CPU, not on a graphics card.
+On a computer with one (in PowerShell or cmd, in the project folder):
+
+1. `cargo test --release --lib gpu -- --nocapture`: every GPU test
+   should pass, and none should say `no GPU adapter: skipping`.
+2. `cargo test --release --lib cpu_and_gpu_side_by_side -- --ignored --nocapture`:
+   it prints how many pixels differ (expect under 2%) and saves
+   `out\cpu-vs-gpu.png`: a textured, lit scene with a billboard, CPU on
+   the left, GPU on the right. They should look the same.
+3. `cargo run --release --example starter_runner3d`: textures sharp, the
+   road scrolling with no seams, the duck in front of crates behind it and
+   behind crates in front, the hum looping with no click every 2 seconds.
+   F3 shows the frame rate; it should stay at 60.
+4. `cargo test --release --example stress3d -- --ignored --nocapture --test-threads=1`:
+   the GPU lines should be far below the CPU ones (the table in
+   `docs/decisions.md`, Phase 3 Step 4.5, has lavapipe's).
+5. `cargo run --release --example world3d`: it should look exactly as
+   before Phase 3 (the default light didn't change).
 
 ## What's inside
 

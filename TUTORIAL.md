@@ -2358,6 +2358,69 @@ and one triangle per slice:
 mesh.add_triangle(center, ring[next], ring[i], color);
 ```
 
+### Pictures on triangles: textures
+
+A *texture* is a picture painted on a mesh. Each triangle corner says
+which point of the picture it shows, as a *texture coordinate* from
+(0, 0) at the picture's top-left to (1, 1) at its bottom-right:
+
+```rust
+let crate_box = Mesh::cube(Color::WHITE).with_texture(Sprite::load_png("assets/crate.png")?);
+```
+
+The built-in shapes already have texture coordinates, so that's a crate.
+For every pixel of a triangle, the renderer works out which point of the
+picture is under it and takes that colour (times the triangle's colour,
+so white shows the picture as painted, and times the light).
+
+There's a catch, and it's a classic. Blending the corners' texture
+points straight across the screen looks wrong in perspective: a road
+going into the distance would bend, because its far half is squeezed on
+screen. The fix: blend *texture point divided by distance*, and *1
+divided by distance*, across the screen (both of those change in a
+straight line on screen, unlike the points themselves), then divide one
+by the other at each pixel. The CPU renderer already blends 1 / distance
+for its depth buffer, so the change is small:
+
+```rust
+let u = (weights[0] * uv_over_z[0].x + weights[1] * uv_over_z[1].x + weights[2] * uv_over_z[2].x) * to_texture;
+```
+
+(`to_texture` is 1 divided by the blended 1 / distance.) This is called
+*perspective-correct texturing*; the GPU does it by itself. A mesh has
+one texture, so a game with many block types puts all their pictures in
+one *atlas* and gives each block texture coordinates into its own part:
+`Mesh::block(&atlas, ["grass_top", "grass_side", "dirt"])`.
+
+### Light, glow and sprites in 3D
+
+Each triangle is shaded by how directly it faces the sun: fully lit
+facing it, `ambient` facing away. `canvas.set_lighting(Lighting { .. })`
+changes the sun's direction, colour and strength, and the ambient
+light; `Lighting::default()` is the light the engine always had, so old
+pictures don't change. A `.glowing()` mesh ignores the light.
+
+A *billboard* is a flat sprite standing in the world, always turned to
+face the camera, like the cardboard trees in old games:
+
+```rust
+canvas.draw_billboard(&duck_frame, vec3(x, 0.0, z), 1.0, &camera); // feet at (x, 0, z), 1 unit tall
+```
+
+It's a textured square drawn like any mesh, so a crate in front of it
+hides it. Its see-through pixels aren't drawn at all, not even into the
+depth buffer, so you see what's behind them.
+
+### Skipping what can't be seen
+
+Before drawing a mesh, the renderer puts an imaginary ball around it and
+checks the ball against the four edges of the view. If the whole ball is
+outside, so is every triangle, and the mesh is skipped before any of its
+corners are moved. That's *frustum culling* (the *frustum* is the shape
+of what the camera can see: a pyramid with its tip cut off). It never
+changes the picture; it only saves time when much of the world is behind
+or beside you. `examples/starter_runner3d/` uses all of this.
+
 ### How the 3D playground uses physics
 
 `examples/world3d.rs` runs a `PhysicsWorld<Vec3>`, and each frame it draws

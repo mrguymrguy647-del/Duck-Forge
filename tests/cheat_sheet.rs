@@ -563,6 +563,97 @@ fn three_d() {
     let _ = Camera3D::looking_at(vec3(0.0, 2.0, -5.0), Vec3::ZERO);
 }
 
+#[test]
+fn three_d_textures_light_and_billboards() -> Result<(), LoadError> {
+    let camera = Camera3D::looking_at(vec3(0.0, 2.0, -5.0), Vec3::ZERO);
+    let mut canvas = Canvas::new(320, 240);
+    let (screen, depth) = camera.project(Vec3::ZERO, &canvas).unwrap();
+    assert_eq!(Some(screen), camera.world_to_screen(Vec3::ZERO, &canvas));
+    assert!(depth > 5.0);
+
+    // Shapes, and one built by hand with texture coordinates.
+    let picture = Sprite::from_pixels(
+        2,
+        2,
+        vec![Color::RED, Color::GREEN, Color::BLUE, Color::WHITE],
+    );
+    let mut sign = Mesh::new();
+    let corners = [
+        vec3(0.0, 0.0, 0.0),
+        vec3(0.0, 1.0, 0.0),
+        vec3(1.0, 1.0, 0.0),
+        vec3(1.0, 0.0, 0.0),
+    ];
+    let [a, b, c, d] = corners.map(|p| sign.add_vertex(p));
+    let uv = [
+        vec2(0.0, 1.0),
+        vec2(0.0, 0.0),
+        vec2(1.0, 0.0),
+        vec2(1.0, 1.0),
+    ];
+    sign.add_quad_uv(a, b, c, d, uv, Color::WHITE);
+    let e = sign.add_vertex(vec3(0.5, 1.5, 0.0));
+    sign.add_triangle_uv(b, e, c, [uv[1], vec2(0.5, 0.0), uv[2]], Color::WHITE);
+    sign.add_triangle(a, b, d, Color::GRAY);
+    sign.add_quad(a, b, c, d, Color::GRAY);
+    let sign = sign.with_texture(picture.clone()).with_color(Color::WHITE);
+    let shapes = [
+        Mesh::cylinder(Color::RED, 12),
+        Mesh::cone(Color::GREEN, 12).glowing(),
+        Mesh::quad(1.0, 2.0).with_texture(picture.clone()),
+        sign,
+    ];
+    let atlas = Tileset::grid(
+        &Sprite::from_pixels(32, 16, vec![Color::GREEN; 512]),
+        16,
+        16,
+        &["grass_top", "dirt"],
+    );
+    let block = Mesh::block(&atlas, ["grass_top", "dirt", "dirt"]);
+    let mut chunk = Mesh::new();
+    for x in 0..4 {
+        chunk.merge(&block, &Transform::at(vec3(x as f32, 0.0, 0.0)));
+    }
+    assert_eq!(
+        chunk.bounds(),
+        (vec3(-0.5, -0.5, -0.5), vec3(3.5, 0.5, 0.5))
+    );
+
+    canvas.set_lighting(Lighting {
+        sun_direction: vec3(0.0, 0.3, -1.0),
+        sun_color: Color::from_hex(0xfff2d0),
+        sun_strength: 1.0,
+        ambient: 0.6,
+    });
+    assert_eq!(canvas.lighting().ambient, 0.6);
+    canvas.set_lighting(Lighting {
+        ambient: 0.5,
+        ..Lighting::default()
+    });
+    canvas.clear(Color::BLACK);
+    for (i, mesh) in shapes.iter().enumerate() {
+        let at = Transform::at(vec3(i as f32 - 1.5, 0.5, 0.0)).scaled(vec3(0.8, 0.8, 0.8));
+        canvas.draw_mesh(mesh, &at, &camera);
+    }
+    canvas.draw_mesh(&chunk, &Transform::at(vec3(-1.5, -1.0, 1.0)), &camera);
+    let duck = SpriteSheet::load("tests/fixtures/quill/scale1/duck.json")?;
+    let frame = duck.animation("idle").frame_at(0.0);
+    canvas.draw_billboard(frame, vec3(0.0, 0.0, -1.0), 1.0, &camera);
+    let look = Billboard {
+        pivot: Some(duck.pivot()),
+        flip_x: true,
+        face_camera: true,
+    };
+    canvas.draw_billboard_with(frame, vec3(1.0, 0.0, -1.0), 1.0, &camera, look);
+    let drawn = canvas.pixels().iter().filter(|&&p| p != 0).count();
+    assert!(drawn > 5_000, "{drawn} pixels drawn");
+
+    // Comparing renderers: without a graphics card, Gpu falls back to the CPU.
+    let gpu = Simulation::with_renderer(config(), Everything::new(), Renderer::Gpu);
+    assert_eq!(gpu.context().frame(), 0);
+    Ok(())
+}
+
 /// The function names the cheat sheet mentions: every `name(` inside a
 /// `code span` in section 7 of the guide.
 fn cheat_sheet_functions() -> BTreeSet<String> {

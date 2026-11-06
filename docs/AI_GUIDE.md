@@ -22,12 +22,15 @@ bot that records `playthroughs/template.json`, all passing:
 For a top-down game (walls, chasing enemies, coins, 4 or 8 directions)
 copy `examples/starter_topdown/`; for a shooter (fast bullets with
 `swept_aabb`, enemy waves, particle explosions) copy
-`examples/starter_shooter/`. Both have labels, checks, a tune file, a
-playthrough in `playthroughs/` and play tests, and pass
+`examples/starter_shooter/`; for 3D, a three-lane runner (textured
+blocks, a billboard duck, lighting, a HUD over the 3D) copy
+`examples/starter_runner3d/`. All have labels, checks, a playthrough in
+`playthroughs/` made by a bot, and play tests, and pass
 `tools/verify.sh`. Section 3 has an even smaller template.
 
 **Don't copy by hand: `tools/new_game.sh mygame topdown`** (or
-`platformer`, `shooter`, `tiny`) copies the starter and its tune file,
+`platformer`, `shooter`, `runner3d`, `tiny`) copies the starter (not its
+tune file: the new game uses its code's values until you make one),
 renames its main type (`TopDown` becomes `Mygame`), sets the window title,
 points its bot at `playthroughs/mygame.json`, adds the `[[example]]` entry
 to `Cargo.toml`, records a first playthrough with the bot, and runs
@@ -45,7 +48,8 @@ Contents:
 8. [Common mistakes](#8-common-mistakes)
 9. [Does the game feel good?](#9-does-the-game-feel-good)
 10. [Showing your work to a person](#10-showing-your-work-to-a-person)
-11. [What the engine can't do yet](#11-what-the-engine-cant-do-yet)
+11. [3D](#11-3d)
+12. [What the engine can't do yet](#12-what-the-engine-cant-do-yet)
 
 ---
 
@@ -267,8 +271,9 @@ Echo makes the sounds: a `.wav` for `Wav::load`, and loops for
 **Good examples to read**, smallest first: `examples/hello.rs` (a square
 you move), `examples/dodge.rs` (a complete small game with play tests and
 a bot, built with this guide), `examples/breakout.rs` (a bigger game, with
-a bot that makes recordings), `examples/physics.rs` (physics bodies), and
-`examples/world3d.rs` (3D).
+a bot that makes recordings), `examples/physics.rs` (physics bodies),
+`examples/world3d.rs` (3D shapes and a fly camera) and
+`examples/starter_runner3d/` (a whole 3D game; see section 11).
 
 ## 4. The loop: write, run, look, read, test, fix
 
@@ -951,13 +956,33 @@ sounds: `let music: LoopId = ctx.play_loop(&w, 0.6);` (a `Wav`, or a
 `world.touching(a, b)`, `world.remove(id)`. Boxes don't rotate. Works the
 same in 3D with `Vec3`.
 
-**3D**: `Camera3D::new(position)` (looks along +z) or
-`Camera3D::looking_at(position, target)`, `camera.fly(ctx, speed)`.
-Meshes: `Mesh::cube(color)`, `Mesh::sphere(color, segments)`,
-`Mesh::pyramid(color)`, `Mesh::checkerboard(tiles, tile_size, a, b)`.
-`Transform::at(position).rotated(vec3(x, y, z)).sized(scale)`.
-In `draw`: `canvas.draw_mesh(&mesh, &transform, &camera)`. Headless runs
-draw 3D on the CPU, so there's no graphics card to worry about.
+**3D** (section 11 explains it): `Camera3D::new(position)` (looks along
++z) or `Camera3D::looking_at(position, target)`, `camera.fly(ctx, speed)`,
+`camera.project(point, canvas)` (`Option<(Vec2, f32)>`: the screen
+point and its depth) and `camera.world_to_screen(point, canvas)`.
+Meshes (1 unit big, centred): `Mesh::cube(color)`, `Mesh::sphere(color,
+segments)`, `Mesh::pyramid(color)`, `Mesh::cylinder(color, segments)`,
+`Mesh::cone(color, segments)`, `Mesh::quad(width, height)` (standing,
+facing -z), `Mesh::checkerboard(tiles, tile_size, a, b)`,
+`Mesh::block(&atlas, ["grass_top", "grass_side", "dirt"])` (top, sides,
+bottom from one `Tileset`). Build your own with `add_vertex`,
+`add_triangle`, `add_quad`, `add_triangle_uv(a, b, c, [uv; 3], color)`,
+`add_quad_uv(a, b, c, d, [uv; 4], color)` (corners clockwise seen from
+the front). `.with_texture(sprite)` (colours times the texture; white
+shows it as painted), `.glowing()` (ignores the light),
+`.with_color(color)`. `chunk.merge(&mesh, &transform)` (many meshes in
+one; two different textures panic: use one atlas), `mesh.bounds()`
+(lowest and highest corner).
+`Transform::at(position).rotated(vec3(x, y, z)).scaled(vec3(x, y, z))`
+or `.sized(scale)`. In `draw`: `canvas.draw_mesh(&mesh, &transform,
+&camera)`. Light: `canvas.set_lighting(Lighting { sun_direction,
+sun_color, sun_strength, ambient })` (or `..Lighting::default()`, the
+light every canvas starts with), `canvas.lighting()`. Sprites in 3D:
+`canvas.draw_billboard(&sprite, feet, height, &camera)`, or
+`canvas.draw_billboard_with(&sprite, feet, height, &camera, Billboard {
+pivot: Some(sheet.pivot()), flip_x, face_camera, })`. Headless runs draw
+3D on the CPU unless `DUCKFORGE_RENDERER=gpu`;
+`Simulation::with_renderer(config, game, Renderer::Gpu)` compares.
 
 **Headless from code**: `duckforge::run_headless(config, game, &HeadlessOptions { frames, out, inputs, sheet, gif, ..Default::default() })`,
 and `Simulation::new(config, game)` with `press`, `release`,
@@ -1237,7 +1262,110 @@ If they can run it, they can watch the same game in a window:
 They can also send *you* a game: F10 in the window records it to
 `recording-1.json`, and you replay it headless, exactly as they played it.
 
-## 11. What the engine can't do yet
+## 11. 3D
+
+**Units and directions.** 1 unit is about a metre; x is right, **y is
+up**, z is forward (away from a camera with no turn). The built-in
+meshes are 1 unit big and centred on (0, 0, 0), so `Transform::at(p)
+.sized(2.0)` is a 2-metre one at `p`. Gravity is about `-9.8` on y; in a
+game, choose what feels right (the runner starter uses 18 with a jump
+speed of 6: one unit high).
+
+**The camera.** `Camera3D::looking_at(position, target)` is usually all
+you need: to follow a player from behind and above, set it every frame
+from the player's position (`starter_runner3d`'s `camera()`).
+`camera.project(point, canvas)` gives where a world point is on screen
+and how far along the view (`None` behind the camera): use it for a
+health bar over a character, a label, or sorting.
+
+**Meshes.** Built in: cube, sphere, pyramid, cylinder, cone, quad and
+checkerboard. Make a shape from parts with `merge` (each part placed by a
+transform), and draw it as one mesh: one draw instead of dozens. Every
+triangle is one flat colour times the light (flat shading).
+
+**Textures and atlases.** `mesh.with_texture(sprite)` paints a picture on
+it, where its texture coordinates say (every built-in shape has them: a
+cube shows the whole picture on each face, a checkerboard on each
+square). Points beyond 1 repeat the picture: a long road is one quad
+whose coordinates go from 0 to 40 along it. Pixels stay sharp squares;
+see-through pixels aren't drawn (a fence has holes). **A mesh has one
+texture**, so put many pictures in one *atlas*: a Duck Quill sheet with
+one 16 x 16 animation per tile (`quill export blocks.json --sheet`),
+loaded with `Tileset::load`. `Mesh::block(&atlas, [top, sides, bottom])`
+makes a block from three tiles of it.
+
+**Block worlds: merge into chunks.** Drawing 10,000 blocks one by one is
+slow on both renderers. Merge them in chunks (say 16 x 16 blocks, all
+from one atlas) and draw one mesh per chunk:
+
+```rust
+let mut chunk = Mesh::new();
+for (x, y, z, block) in blocks_in_this_chunk {
+    chunk.merge(&self.blocks[block], &Transform::at(vec3(x as f32, y as f32, z as f32)));
+}
+```
+
+Keep the chunks separate rather than merging the whole world into one
+mesh: before drawing a mesh, the engine checks a ball around it against
+the edges of the view and skips it if it's entirely outside (*frustum
+culling*), so chunks behind the camera cost nothing, but one world-sized
+mesh is always "on screen". Rebuild only the chunk that changes when a
+block is placed or broken. (Measured: 4,096 textured blocks in 16 chunks
+take about 5 ms a frame on the CPU at 320 x 240.)
+
+**Light.** `canvas.set_lighting(Lighting { sun_direction: vec3(-0.5, 1.0,
+-0.3), sun_color: Color::from_hex(0xfff0d8), sun_strength: 1.0, ambient:
+0.55 })` in `draw`, before the meshes: `sun_direction` is where the light
+comes *from*; `ambient` is how bright faces turned away from the sun are
+(0.35 by default; higher looks softer). It stays until changed.
+`.glowing()` meshes ignore it (lava, lamps, screens). There are no
+shadows.
+
+**Sprites in 3D (billboards).** `canvas.draw_billboard(&sprite, feet,
+height, &camera)` stands a sprite in the world, `height` units tall, its
+feet at `feet`, turned towards the camera and upright. It's
+depth-tested like a mesh (a crate in front hides it), its see-through
+pixels show what's behind, and it isn't shaded (it looks as painted). For
+an animated character: `let frame = sheet.animation("run").frame_at(t);`
+and `Billboard { pivot: Some(sheet.pivot()), flip_x, ..Default::default() }`.
+`face_camera: true` turns it fully towards a camera that looks down
+(sparks, coins); upright is better for characters.
+
+**The HUD over 3D.** Draw 3D first, then 2D: the score, the lives, a
+pause screen. 2D drawn before the 3D (a sky) ends up behind it. Labels
+for tools (`canvas.label`) are in screen pixels: find them with
+`camera.project` (`starter_runner3d` labels the duck and the next crate
+in each lane). Label only what matters: far-off things overlap on screen
+in perspective, and the summary would call that "spawned on top of each
+other".
+
+**The CPU and the GPU.** In a window, 3D goes to the graphics card if
+there is one; headless runs always use the CPU, so pictures are the same
+on every computer. Both give the same picture (tests compare them: at
+most a few edge pixels differ, by a shade). To see the GPU's pictures
+headless, set `DUCKFORGE_RENDERER=gpu` (Linux without a graphics card:
+install Mesa's `mesa-vulkan-drivers`, a software one).
+
+**How much it can draw.** On the CPU at 320 x 240, about 90,000
+triangles take 8 ms a frame (`stress3d`, 2,000 objects), so a few hundred
+thousand triangles a frame is the practical limit; textures add about
+20% where they cover the screen. Bigger canvases cost more in
+proportion to their pixels. A graphics card draws far more; check with
+`cargo run --release --example stress3d -- --objects 20000`.
+
+**Mistakes to avoid in 3D:**
+
+- Corners in the wrong order: a triangle's corners go **clockwise seen
+  from the front**, or it's invisible from where you look (only fronts
+  are drawn). If a face is missing, swap two corners.
+- Merging meshes with different textures panics: give them one atlas.
+- A camera inside a mesh sees nothing of it (only fronts are drawn,
+  and its fronts face out). With the target at the camera's own
+  position, `looking_at` just looks along +z; keep them apart.
+- Reports and labels from `draw`: reports belong in `update`; labels
+  in `draw`, in screen pixels.
+
+## 12. What the engine can't do yet
 
 Plan around these. Don't spend time looking for them:
 
@@ -1250,6 +1378,9 @@ Plan around these. Don't spend time looking for them:
 - No running in a web browser.
 - One built-in pixel font (ASCII only), and no other fonts.
 - No gamepads.
+- 3D: no shadows, no smooth (per-pixel) lighting, no fog, one texture
+  per mesh, no model files (build shapes in code, or merge the built-in
+  ones), no animated 3D models (use billboards for characters).
 
 For anything else, read the source: it's small, commented, and the
 tutorial (`TUTORIAL.md`) explains every part.

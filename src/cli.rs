@@ -548,6 +548,10 @@ mod tests {
         "--renderer",
         // Duck Quill's, in `quill export ... --sheet --scale 2`.
         "--scale",
+        // Cargo's and the test runner's, in the README's checks.
+        "--lib",
+        "--test-threads",
+        "--nocapture",
     ];
 
     #[test]

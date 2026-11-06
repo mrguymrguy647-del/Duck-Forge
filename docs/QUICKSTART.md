@@ -71,10 +71,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     duckforge::run(Config::default(), new_game())
 }
 ```
-Bigger starts: `tools/new_game.sh mygame topdown` makes `examples/mygame/`
-from a starter (`platformer`, `topdown`, `shooter` or `tiny`) and verifies
-it. Art: paint it in Duck Quill, `quill export hero.json --sheet --out
-assets`, then `SpriteSheet::load("assets/hero.json")?` (see the guide).
+Bigger starts: `tools/new_game.sh mygame topdown` makes `examples/mygame/` from
+a starter (`platformer`, `topdown`, `shooter`, `runner3d` for 3D, or `tiny`) and
+verifies it. Art: Duck Quill, `quill export hero.json --sheet --out assets`,
+then `SpriteSheet::load("assets/hero.json")?` (see the guide).
 
 ## The loop
 
