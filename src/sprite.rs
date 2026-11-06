@@ -400,6 +400,9 @@ pub struct Animation {
     pub frames: Vec<Sprite>,
     /// How many frames to show per second.
     pub fps: f32,
+    /// Whether it starts again from the first frame after the last (the
+    /// default). If not, it stays on the last frame: a jump, a death.
+    pub looping: bool,
 }
 
 impl Animation {
@@ -416,11 +419,15 @@ impl Animation {
             "Animation::new needs at least one frame, but got none (did Sprite::frames \
              get a frame size bigger than the sheet?)"
         );
-        Animation { frames, fps }
+        Animation {
+            frames,
+            fps,
+            looping: true,
+        }
     }
 
     /// The frame to show `time` seconds after the animation started. It
-    /// loops forever; use [`Animation::duration`] to play it only once.
+    /// loops forever, or stays on the last frame if `looping` is off.
     ///
     /// # Panics
     ///
@@ -439,7 +446,11 @@ impl Animation {
             return 0;
         }
         let step = (time * self.fps).floor() as i64;
-        step.rem_euclid(count as i64) as usize
+        if self.looping {
+            step.rem_euclid(count as i64) as usize
+        } else {
+            step.clamp(0, count as i64 - 1) as usize
+        }
     }
 
     /// Seconds to play every frame once.

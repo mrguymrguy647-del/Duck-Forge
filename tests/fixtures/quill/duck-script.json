@@ -1,0 +1,19 @@
+{
+  "title": "A 16 x 16 pixel duck for Duck Forge's sprite sheet tests",
+  "palette": { "yellow": "#F2C230", "ink": "#202020", "beak": "#E8892B" },
+  "commands": [
+    { "cmd": "canvas", "width": 16, "height": 16, "pixel": true },
+    { "cmd": "define", "name": "duck", "commands": [
+      { "cmd": "ellipse", "center": [0, -5], "radius": [5, 4], "fill": "yellow" },
+      { "cmd": "ellipse", "center": [3, -10], "radius": 3, "fill": "yellow" },
+      { "cmd": "rect", "x": 5, "y": -11, "width": 3, "height": 2, "fill": "beak" },
+      { "cmd": "rect", "x": 3, "y": -11, "width": 1, "height": 1, "fill": "ink" }
+    ] }
+  ],
+  "animations": {
+    "idle": { "frames": 2, "fps": 4, "loop": true, "commands": [
+      { "cmd": "use", "name": "duck", "translate": { "keys": [[0, [8, 16]], [1, [8, 15]]] } } ] },
+    "jump": { "frames": 3, "fps": 10, "loop": false, "commands": [
+      { "cmd": "use", "name": "duck", "translate": { "keys": [[0, [8, 16]], [1, [8, 12]], [2, [8, 9]]] } } ] }
+  }
+}
