@@ -126,9 +126,11 @@ fn each_starter_becomes_a_renamed_game() {
                 text.contains(&format!("\"My {kind} - duckforge\"")),
                 "{kind}: title"
             );
+            // Not the starter's tune file: it would quietly override the
+            // values written in the new game's code.
             assert!(
-                project.join(format!("examples/{name}.tune.json")).exists(),
-                "{kind}: tune file"
+                !project.join(format!("examples/{name}.tune.json")).exists(),
+                "{kind}: no tune file"
             );
         }
         if folder {

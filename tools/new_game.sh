@@ -3,7 +3,7 @@
 #
 #   tools/new_game.sh mygame topdown      (or platformer, shooter, tiny)
 #
-# It copies the starter (and its tune file) to examples/mygame, renames
+# It copies the starter to examples/mygame, renames
 # the game's main type (TopDown -> Mygame), sets the window title, points
 # the playthrough bot at playthroughs/mygame.json, adds the [[example]]
 # entry to Cargo.toml, records a first playthrough with the starter's bot
@@ -50,9 +50,9 @@ else
     files="examples/$name.rs"
     main="examples/$name.rs"
 fi
-if [ -f "examples/$starter.tune.json" ]; then
-    cp "examples/$starter.tune.json" "examples/$name.tune.json"
-fi
+# Not the starter's tune file: its values would quietly win over the ones
+# you write in the new game's code. Make one when you want to tune, with
+# --write-tune.
 
 # The game's type: bee_maze -> BeeMaze (BeeMazeGame if the starter
 # already uses that word for something else).

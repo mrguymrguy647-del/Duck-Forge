@@ -653,6 +653,7 @@ fn random_script(seed: u32, fuzz: &Fuzz) -> InputScript {
         frames: Some(fuzz.frames),
         events,
         expect: None,
+        tune: None,
     }
 }
 

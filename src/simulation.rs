@@ -133,8 +133,11 @@ impl<G: Game> Simulation<G> {
         let seed = config.seed.unwrap_or(DEFAULT_SEED);
         let mut canvas = Canvas::new(config.width, config.height);
         canvas.set_renderer(renderer);
-        let tunes = crate::tune::Tunes::load(None, &[])
-            .unwrap_or_else(|problem| panic!("bad tune file: {problem}"));
+        let tunes = match &config.tune_file {
+            Some(path) => crate::tune::Tunes::load_named(path, &[]),
+            None => crate::tune::Tunes::load(None, &[]),
+        }
+        .unwrap_or_else(|problem| panic!("bad tune file: {problem}"));
         let mut ctx = Context::new(config.width, config.height, seed);
         *ctx.tunes_mut() = tunes;
         // On the CPU, the renderer's name is known before anything is drawn.
@@ -371,12 +374,19 @@ impl<G: Game> Simulation<G> {
             .reports()
             .map(|(name, value)| (name.to_string(), value.clone()))
             .collect();
+        let tuned: std::collections::BTreeMap<String, f32> = self
+            .tunes()
+            .used()
+            .into_iter()
+            .map(|(name, value, _)| (name, value))
+            .collect();
         InputScript {
             seed: Some(self.seed),
             updates_per_second: self.updates_per_second,
             frames: Some(self.ctx.frame()),
             events: self.history.clone(),
             expect: (!reported.is_empty()).then_some(reported),
+            tune: (!tuned.is_empty()).then_some(tuned),
         }
     }
 

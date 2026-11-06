@@ -117,6 +117,12 @@ pub struct Config {
     /// (F1 in a window, `--debug` headless). Bottom-right by default,
     /// where games rarely put their score. `--debug-corner` overrides it.
     pub debug_corner: Corner,
+    /// The file `ctx.tune` reads, like `"examples/mygame.tune.json"`.
+    /// `None` (the default) means `examples/<program name>.tune.json`.
+    /// Naming it means every run of the game (a window, `--headless`, a
+    /// bot or play test with another program name) reads the same values.
+    /// It's fine for it not to exist yet.
+    pub tune_file: Option<std::path::PathBuf>,
 }
 
 /// A corner of the screen, for [`Config::debug_corner`].
@@ -200,6 +206,7 @@ impl Default for Config {
             seed: None,
             resizable: false,
             debug_corner: Corner::default(),
+            tune_file: None,
         }
     }
 }

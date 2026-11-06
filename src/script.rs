@@ -80,6 +80,10 @@ pub struct InputScript {
     /// with `--accept`). A replay that ends differently is reported as
     /// "playthrough changed".
     pub expect: Option<BTreeMap<String, ReportValue>>,
+    /// The `ctx.tune` values the recording was made with. A replay with
+    /// other values says which changed (a warning if it still ends as
+    /// expected, the likely cause if it doesn't).
+    pub tune: Option<BTreeMap<String, f32>>,
 }
 
 impl InputScript {
@@ -109,6 +113,7 @@ impl InputScript {
                 "updates_per_second",
                 "frames",
                 "expect",
+                "tune",
                 "events",
             ],
             "the script",
@@ -162,6 +167,26 @@ impl InputScript {
             }
         };
 
+        let tune = match top.get("tune") {
+            None | Some(Value::Null) => None,
+            Some(Value::Object(values)) => Some(
+                values
+                    .iter()
+                    .map(|(name, value)| match value.as_f64() {
+                        Some(n) => Ok((name.clone(), n as f32)),
+                        None => Err(format!(
+                            "\"tune\": {name:?} is {value}, but tune values are numbers"
+                        )),
+                    })
+                    .collect::<Result<_, _>>()?,
+            ),
+            Some(_) => {
+                return Err(String::from(
+                    "\"tune\" must be an object like {\"jump_speed\": 330}",
+                ));
+            }
+        };
+
         let Some(list) = top.get("events") else {
             return Err(String::from("the script has no \"events\" list"));
         };
@@ -184,6 +209,7 @@ impl InputScript {
             frames,
             events,
             expect,
+            tune,
         })
     }
 
@@ -206,6 +232,13 @@ impl InputScript {
                 .map(|(name, value)| format!("{}: {}", Value::from(name.as_str()), value.to_json()))
                 .collect();
             text += &format!("  \"expect\": {{{}}},\n", values.join(", "));
+        }
+        if let Some(tune) = &self.tune {
+            let values: Vec<String> = tune
+                .iter()
+                .map(|(name, &value)| format!("{}: {}", Value::from(name.as_str()), number(value)))
+                .collect();
+            text += &format!("  \"tune\": {{{}}},\n", values.join(", "));
         }
         text += "  \"events\": [";
         for (index, event) in self.events.iter().enumerate() {
@@ -274,6 +307,21 @@ impl InputScript {
             }
         }
         changes
+    }
+
+    /// Which `ctx.tune` values differ from the ones it was recorded with,
+    /// like `sight 100 to 90`. Names the game didn't ask for this time are
+    /// left out. Empty without a `"tune"` block.
+    pub fn tune_changes(&self, now: impl IntoIterator<Item = (String, f32)>) -> Vec<String> {
+        let Some(recorded) = &self.tune else {
+            return Vec::new();
+        };
+        now.into_iter()
+            .filter_map(|(name, value)| {
+                let old = *recorded.get(&name)?;
+                (old != value).then(|| format!("{name} {} to {}", number(old), number(value)))
+            })
+            .collect()
     }
 
     /// The last frame that has an event, or 0 if there are none.
@@ -542,6 +590,7 @@ mod tests {
     fn writing_and_reading_back_gives_the_same_script() {
         let script = InputScript {
             expect: None,
+            tune: None,
             seed: Some(123_456),
             updates_per_second: Some(60),
             frames: Some(90),

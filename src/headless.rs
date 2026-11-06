@@ -238,7 +238,12 @@ fn run_and_save<G: Game>(
         .as_ref()
         .and_then(|script| script::timestep_warning(script, &config));
 
-    let tunes = crate::tune::Tunes::load(options.tune_file.as_deref(), &options.tune)?;
+    // --tune FILE, or the file the game names in its Config, or the default.
+    let tunes = match (&options.tune_file, &config.tune_file) {
+        (Some(file), _) => crate::tune::Tunes::load(Some(file), &options.tune)?,
+        (None, Some(named)) => crate::tune::Tunes::load_named(named, &options.tune)?,
+        (None, None) => crate::tune::Tunes::load(None, &options.tune)?,
+    };
     let mut sim = Simulation::new(config, game);
     sim.set_tunes(tunes);
     sim.set_debug_overlay(options.debug);
@@ -433,12 +438,34 @@ fn run_and_save<G: Game>(
     warnings.extend(unused_set_warnings(&sim));
     // Did the playthrough end the way it's expected to? (Only when it ran
     // its own length: a different --frames ends somewhere else.)
-    let changed = match &options.inputs {
+    let (mut changed, mut tune_changed) = match &options.inputs {
         Some(script) if script.frames.is_none_or(|f| f == options.frames) => {
-            script.changes_from_expected(sim.reports())
+            let now = sim.tunes().used().into_iter().map(|(n, v, _)| (n, v));
+            (
+                script.changes_from_expected(sim.reports()),
+                script.tune_changes(now),
+            )
         }
-        _ => Vec::new(),
+        _ => (Vec::new(), Vec::new()),
     };
+    // Tune values changed since the recording. Still the expected ending:
+    // a warning (you can tune without re-recording). A different ending: a
+    // failure, naming the changed values as the likely cause.
+    if !changed.is_empty() && !tune_changed.is_empty() {
+        let file = options
+            .inputs_file
+            .as_ref()
+            .map_or(String::from("the playthrough"), |f| f.display().to_string());
+        warnings.push(format!(
+            "{file} ends differently ({}), and tune values changed since it was recorded ({}): \
+             that's the likely cause. If the new values are right, record it again (F10 in the \
+             game, or the test that recorded it) or keep this ending with --accept",
+            changed.join(", "),
+            tune_changed.join(", ")
+        ));
+        changed.clear();
+        tune_changed.clear();
+    }
     saved.push(String::from("log.json"));
     saved.push(String::from("summary.txt"));
     let log = log_json(
@@ -456,6 +483,7 @@ fn run_and_save<G: Game>(
 
     let mut summary = Summary::of(&sim, &title, started.elapsed().as_secs_f32());
     summary.changed = changed;
+    summary.tune_changed = tune_changed;
     if let Some(script) = &options.inputs {
         let replayed = script.events.iter().filter(|e| e.frame <= last).count();
         summary.inputs = Some((replayed, script.events.len()));
@@ -805,6 +833,14 @@ pub(crate) fn run_from_command_line<G: Game>(
                 .map(|(name, value)| (name.to_string(), value.clone()))
                 .collect(),
         );
+        // And the tune values it ends that way with.
+        let tuned: std::collections::BTreeMap<String, f32> = sim
+            .tunes()
+            .used()
+            .into_iter()
+            .map(|(name, value, _)| (name, value))
+            .collect();
+        script.tune = (!tuned.is_empty()).then_some(tuned);
         script.save(path)?;
         let was = if summary.changed.is_empty() {
             String::new()
@@ -812,6 +848,7 @@ pub(crate) fn run_from_command_line<G: Game>(
             format!(" (it had changed: {})", summary.changed.join(", "))
         };
         summary.changed.clear();
+        summary.tune_changed.clear();
         summary.notes.push(format!(
             "accepted: wrote this ending to {}'s \"expect\"{was}",
             path.display()
@@ -1620,6 +1657,102 @@ mod tests {
         };
         let err = run_headless(config(), game(), &options).err().unwrap();
         assert!(err.contains("could not create the folder"), "{err}");
+    }
+
+    #[test]
+    fn tune_values_changed_since_recording_warn_or_explain_the_failure() {
+        let folder = test_folder("tune-replay");
+        let options = |tune: Vec<(String, f32)>, script: InputScript| HeadlessOptions {
+            frames: 30,
+            out: Some(folder.clone()),
+            inputs: Some(script),
+            inputs_file: Some(PathBuf::from("playthroughs/t.json")),
+            tune,
+            ..HeadlessOptions::default()
+        };
+        // How the game ends with its own values.
+        let plain = run_headless(
+            config(),
+            Tuned { x: 0.0 },
+            &HeadlessOptions {
+                frames: 30,
+                ..HeadlessOptions::default()
+            },
+        )
+        .unwrap();
+        let x = plain.number("x");
+        // Recorded with wobble 0.5 (which made no difference to the end).
+        let script = InputScript::parse(&format!(
+            r#"{{"frames": 30, "expect": {{"size": 4, "speed": 10, "x": {x}}},
+                "tune": {{"size": 4, "speed": 10, "wobble": 0.5}}, "events": []}}"#
+        ))
+        .unwrap();
+        let run = |tune| {
+            run_and_save(config(), Tuned { x: 0.0 }, &options(tune, script.clone()))
+                .unwrap()
+                .1
+        };
+
+        // Replayed with wobble 0: the same ending, so only a warning naming the change.
+        let tuned = run(Vec::new());
+        assert_eq!(tuned.tune_changed, ["wobble 0.5 to 0"]);
+        assert!(tuned.changed.is_empty() && tuned.warnings.is_empty());
+        assert!(tuned.problems()[0].starts_with(
+            "playthrough tuned: recorded with other tune values (wobble 0.5 to 0), and it still ends as expected"
+        ));
+
+        // With size 5 the ending changes too: a failure naming the cause.
+        let failed = run(vec![(String::from("size"), 5.0)]);
+        assert_eq!(failed.warnings.len(), 1, "{:?}", failed.warnings);
+        let warning = &failed.warnings[0];
+        assert!(
+            warning.starts_with("playthroughs/t.json ends differently (size 4 to 5)"),
+            "{warning}"
+        );
+        assert!(warning.contains("tune values changed since it was recorded (size 4 to 5, wobble 0.5 to 0): that's the likely cause"), "{warning}");
+        assert!(
+            failed.changed.is_empty() && failed.tune_changed.is_empty(),
+            "said once"
+        );
+        let _ = fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn a_game_can_name_its_tune_file() {
+        let folder = test_folder("tune-named");
+        fs::create_dir_all(&folder).unwrap();
+        let path = folder.join("named.tune.json");
+        fs::write(&path, r#"{"speed": 20}"#).unwrap();
+        let named = Config {
+            tune_file: Some(path.clone()),
+            ..config()
+        };
+        // A Simulation (what bots and play tests use) and a headless run
+        // both read it, whatever the program is called.
+        let mut sim = Simulation::new(named.clone(), Tuned { x: 0.0 });
+        sim.step();
+        assert_eq!(sim.number("speed"), 20.0);
+        let run = run_headless(
+            named,
+            Tuned { x: 0.0 },
+            &HeadlessOptions {
+                frames: 2,
+                ..HeadlessOptions::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(run.number("speed"), 20.0);
+        // And it's fine for it not to exist yet: the code's values.
+        let missing = Config {
+            tune_file: Some(folder.join("not-yet.tune.json")),
+            ..config()
+        };
+        let mut sim = Simulation::new(missing, Tuned { x: 0.0 });
+        sim.step();
+        assert_eq!(sim.number("speed"), 10.0);
+        // A recording keeps the values it was made with.
+        assert_eq!(sim.recording().tune.unwrap()["speed"], 10.0);
+        let _ = fs::remove_dir_all(folder);
     }
 
     #[test]

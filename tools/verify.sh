@@ -79,16 +79,24 @@ for script in "playthroughs/$game.json" playthroughs/"$game"-*.json; do
         final=$(grep -E '^final: ' "$folder/summary.txt" | cut -c 8-)
         frames=$(head -n 1 "$folder/summary.txt" | sed -E 's/.* for ([0-9]+) frames.*/\1/')
         report "$name.json" ok "$frames frames; ${final:-nothing reported}"
-    elif [ $code -eq 0 ] && ! grep -q -v '^duckforge: playthrough changed: ' "$folder.txt"; then
-        # Nothing broke, but it no longer ends the way it was recorded: a
-        # warning, with the commands to accept the new ending.
-        changes=$(sed -E 's/^duckforge: playthrough changed: //; s/; if that.s right.*//' "$folder.txt")
-        printf '  %-28s %s: %s\n' "$name.json" changed "$changes"
-        echo "      if the new ending is right: cargo run --no-default-features --example $game -- --headless --inputs $script --accept"
+    elif [ $code -eq 0 ] && ! grep -q -v -E '^duckforge: playthrough (changed|tuned): ' "$folder.txt"; then
+        # Nothing broke, but it no longer ends the way it was recorded, or
+        # it was recorded with other tune values (and still ends as
+        # expected): a warning, with the command to accept it.
+        while IFS= read -r line; do
+            kind=$(printf '%s' "$line" | sed -E 's/^duckforge: playthrough (changed|tuned): .*/\1/')
+            text=$(printf '%s' "$line" | sed -E 's/^duckforge: playthrough (changed|tuned): //; s/; (if that.s right|--accept stores).*//')
+            printf '  %-28s %s: %s\n' "$name.json" "$kind" "$text"
+        done <"$folder.txt"
+        echo "      if that's right: cargo run --no-default-features --example $game -- --headless --inputs $script --accept"
         echo "      (or record it again: F10 in the game, or its record_playthrough test)"
         warnings=$((warnings + 1))
     else
         report "$name.json" FAILED "see $folder/summary.txt" "$folder.txt"
+    fi
+    # Tune values that aren't the ones in the code: never hidden.
+    if [ -f "$folder/summary.txt" ]; then
+        grep '^TUNED' "$folder/summary.txt" | sed 's/^/      /'
     fi
 done
 if [ $found -eq 0 ]; then

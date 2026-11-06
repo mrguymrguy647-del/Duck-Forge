@@ -50,13 +50,18 @@ pub(crate) struct Summary {
     /// How many times each sound played, by name.
     pub sounds: BTreeMap<String, usize>,
     /// Tune values that didn't come from the game's default: name, value, where from.
-    pub tuned: Vec<(String, f32, &'static str)>,
+    pub tuned: Vec<(String, f32, &'static str, f32)>,
+    /// The tune file the values came from, if any did.
+    pub tune_file: Option<String>,
     /// How many different `ctx.check` rules the game has.
     pub checks: usize,
     pub failed: Vec<FailedCheck>,
     pub warnings: Vec<String>,
     /// How the replay's ending differs from the playthrough's `"expect"`.
     pub changed: Vec<String>,
+    /// Tune values that differ from the ones the playthrough was recorded
+    /// with, when it still ends as expected.
+    pub tune_changed: Vec<String>,
     /// Other things worth a line, like "wrote 3 tune values to FILE".
     pub notes: Vec<String>,
     pub folder: Option<PathBuf>,
@@ -109,20 +114,39 @@ impl Summary {
         for played in sim.sounds() {
             *summary.sounds.entry(played.name.clone()).or_default() += 1;
         }
-        summary.tuned = sim
-            .tunes()
+        let tunes = sim.tunes();
+        summary.tuned = tunes
             .used()
             .into_iter()
             .filter(|(_, _, source)| *source != crate::tune::Source::Default)
-            .map(|(name, value, source)| (name, value, source.name()))
+            .map(|(name, value, source)| {
+                let default = tunes.code_default(&name).unwrap_or(value);
+                (name, value, source.name(), default)
+            })
             .collect();
+        summary.tune_file = tunes.path().map(|p| p.display().to_string());
         summary
     }
 
     /// True if nothing went wrong: no failed checks, no warnings, and the
     /// playthrough ended as expected.
     pub(crate) fn ok(&self) -> bool {
-        self.failed.is_empty() && self.warnings.is_empty() && self.changed.is_empty()
+        self.failed.is_empty()
+            && self.warnings.is_empty()
+            && self.changed.is_empty()
+            && self.tune_changed.is_empty()
+    }
+
+    /// The "playthrough tuned" line: recorded with other tune values, but
+    /// it still ends as expected.
+    pub(crate) fn tuned_line(&self) -> Option<String> {
+        (!self.tune_changed.is_empty()).then(|| {
+            format!(
+                "playthrough tuned: recorded with other tune values ({}), and it still ends as \
+                 expected; --accept stores the new values in it",
+                self.tune_changed.join(", ")
+            )
+        })
     }
 
     /// The "playthrough changed" line, if it did.
@@ -141,6 +165,7 @@ impl Summary {
         let mut lines: Vec<String> = self
             .changed_line()
             .into_iter()
+            .chain(self.tuned_line())
             .chain(self.failed.iter().map(|check| {
                 format!(
                     "CHECK FAILED: {:?} first failed on frame {}",
@@ -171,6 +196,36 @@ impl Summary {
             first += "; the game quit by itself";
         }
         lines.push(first);
+        // Right under the first line: values that aren't the ones in the
+        // code are the first thing to know when a run behaves oddly.
+        if !self.tuned.is_empty() {
+            let tuned: Vec<String> = self
+                .tuned
+                .iter()
+                .map(|(name, value, source, default)| {
+                    let set = if *source == "set" { "--set" } else { "" };
+                    let code = if value != default {
+                        format!("code says {}", ReportValue::from(*default))
+                    } else {
+                        String::new()
+                    };
+                    let why: Vec<&str> = [set, code.as_str()]
+                        .into_iter()
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    if why.is_empty() {
+                        format!("{name} = {value}")
+                    } else {
+                        format!("{name} = {value} ({})", why.join("; "))
+                    }
+                })
+                .collect();
+            let from = match (&self.tune_file, self.tuned.iter().any(|t| t.2 == "file")) {
+                (Some(file), true) => format!("TUNED from {file}"),
+                _ => String::from("TUNED"),
+            };
+            lines.push(format!("{from}: {}", cut(&tuned, MAX_FINAL)));
+        }
         if !self.final_values.is_empty() {
             let values: Vec<String> = self
                 .final_values
@@ -213,14 +268,6 @@ impl Summary {
                 .map(|(name, count)| format!("{name} x{count}"))
                 .collect();
             lines.push(format!("sounds: {}", cut(&sounds, MAX_FINAL)));
-        }
-        if !self.tuned.is_empty() {
-            let tuned: Vec<String> = self
-                .tuned
-                .iter()
-                .map(|(name, value, source)| format!("{name} = {value} ({source})"))
-                .collect();
-            lines.push(format!("tuned: {}", cut(&tuned, MAX_FINAL)));
         }
         if self.checks > 0 {
             let failed = match self.failed.len() {
@@ -275,10 +322,14 @@ impl Summary {
             changes.insert(name.clone(), Value::from(list));
         }
         let mut tuned = Map::new();
-        for (name, value, source) in &self.tuned {
+        for (name, value, source, default) in &self.tuned {
             tuned.insert(
                 name.clone(),
-                json!({"value": ReportValue::from(*value).to_json(), "from": source}),
+                json!({
+                    "value": ReportValue::from(*value).to_json(),
+                    "from": source,
+                    "code": ReportValue::from(*default).to_json()
+                }),
             );
         }
         let failed: Vec<Value> = self
@@ -303,6 +354,7 @@ impl Summary {
             "checks": {"rules": self.checks, "failed": failed},
             "warnings": self.warnings,
             "playthrough_changed": self.changed,
+            "playthrough_tuned": self.tune_changed,
             "notes": self.notes,
             "folder": self.folder.as_ref().map(|f| f.display().to_string()),
             "files": self.files,
@@ -393,7 +445,8 @@ mod tests {
                 })
                 .collect(),
             sounds: (0..30).map(|i| (format!("sound{i}"), 2)).collect(),
-            tuned: vec![(String::from("gravity"), 900.0, "file")],
+            tuned: vec![(String::from("gravity"), 900.0, "file", 800.0)],
+            tune_file: Some(String::from("examples/busy.tune.json")),
             checks: 9,
             failed: (0..9)
                 .map(|i| FailedCheck {
@@ -404,6 +457,7 @@ mod tests {
             warnings: many("something is off", 9),
             notes: vec![String::from("wrote 3 tune values to x.tune.json")],
             changed: vec![String::from("score 10 to 12")],
+            tune_changed: Vec::new(),
             folder: Some(PathBuf::from("shots")),
             files: vec![
                 String::from("run.gif"),
@@ -468,7 +522,13 @@ mod tests {
         assert_eq!(value["sounds"]["sound0"], 2);
         assert_eq!(
             value["tuned"]["gravity"],
-            json!({"value": 900, "from": "file"})
+            json!({"value": 900, "from": "file", "code": 800})
+        );
+        let text = busy().to_text();
+        assert_eq!(
+            text.lines().nth(1),
+            Some("TUNED from examples/busy.tune.json: gravity = 900 (code says 800)"),
+            "{text}"
         );
         assert_eq!(
             value["checks"]["failed"][8],

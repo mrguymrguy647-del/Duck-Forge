@@ -78,19 +78,18 @@ for %%S in ("playthroughs\%game%.json" "playthroughs\%game%-*.json") do (
         set "changed=0"
         for %%A in ("!folder!.txt") do if %%~zA GTR 0 (
             set "failed=1"
-            rem Only "playthrough changed" lines: a warning, not a failure.
-            findstr /v /b /c:"duckforge: playthrough changed: " "!folder!.txt" > nul
+            rem Only "playthrough changed" or "playthrough tuned" lines: a
+            rem warning, not a failure.
+            findstr /v /b /c:"duckforge: playthrough changed: " /c:"duckforge: playthrough tuned: " "!folder!.txt" > nul
             if errorlevel 1 set "changed=1"
         )
         if "!changed!"=="1" (
-            set "changes="
+            set "label=!name!.json                            "
             for /f "usebackq delims=" %%L in ("!folder!.txt") do (
                 set "line=%%L"
-                set "changes=!line:duckforge: playthrough changed: =!"
+                echo   !label:~0,28! !line:duckforge: playthrough =!
             )
-            set "label=!name!.json                            "
-            echo   !label:~0,28! changed: !changes!
-            echo       if the new ending is right: cargo run --no-default-features --example %game% -- --headless --inputs %%~S --accept
+            echo       if that's right: cargo run --no-default-features --example %game% -- --headless --inputs %%~S --accept
             echo       ^(or record it again: F10 in the game, or its record_playthrough test^)
             set /a warnings+=1
         ) else if "!failed!"=="0" (
@@ -109,6 +108,10 @@ for %%S in ("playthroughs\%game%.json" "playthroughs\%game%-*.json") do (
             set "msg=see !folder!\summary.txt"
             set "detail=!folder!.txt"
             call :report "!name!.json" FAILED
+        )
+        rem Tune values that aren't the ones in the code: never hidden.
+        if exist "!folder!\summary.txt" (
+            for /f "delims=" %%T in ('findstr /b /c:"TUNED" "!folder!\summary.txt"') do echo       %%T
         )
     )
 )

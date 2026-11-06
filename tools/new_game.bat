@@ -3,7 +3,7 @@ rem new_game: start a new game from a starter, ready to build and verify.
 rem
 rem   tools\new_game.bat mygame topdown      (or platformer, shooter, tiny)
 rem
-rem It copies the starter (and its tune file) to examples\mygame, renames
+rem It copies the starter to examples\mygame, renames
 rem the game's main type (TopDown -> Mygame), sets the window title, points
 rem the playthrough bot at playthroughs\mygame.json, adds the [[example]]
 rem entry to Cargo.toml, records a first playthrough with the starter's bot
@@ -67,7 +67,8 @@ if errorlevel 1 (
     echo new_game: could not copy examples\%starter%
     exit /b 1
 )
-if exist "examples\%starter%.tune.json" copy /y "examples\%starter%.tune.json" "examples\%name%.tune.json" > nul
+rem Not the starter's tune file: its values would quietly win over the ones
+rem you write in the new game's code. Make one with --write-tune when you want one.
 
 rem -Title only when there is one: Windows PowerShell 5 can't take an
 rem empty "" argument with -File.

@@ -1895,3 +1895,67 @@ one row per animation and a JSON with `frame` size, `columns`, `rows`,
 `animations` (each with `row`, `frames`, `fps` and `loop`). It has **no
 tileset or atlas export**. Duck Echo writes plain WAV files (16-bit,
 24-bit or float), which `Wav::load` already reads, with no loop points.
+
+## Step 1: The design
+
+`docs/phase3-design.md`, approved with changes: whole-number video
+scaling with black bars; a Duck Quill sprite sheet as the tileset
+format for now (kept easy to extend for a real export later); tune
+changes in a recording are a warning while the ending still matches,
+and the likely cause of a failure when it doesn't; the three-lane runner
+as the 3D starter; Mesa's software Vulkan driver installed here for
+CPU/GPU comparisons; upright billboards by default. Also: fast moves in
+`move_and_slide` split into steps, animated tiles take the time,
+parallax on both axes, a clear error for merging meshes with different
+textures, and a sprite sheet test at scale 2.
+
+## Step 2.1: Duck Quill sprite sheets
+
+`SpriteSheet::load("hero.json")` reads `quill export`'s two files: the
+animations by name (`sheet.animation("run")`, with `fps` and `looping`),
+the pivot (bottom centre unless the JSON says otherwise), and drawing by
+the pivot (`sheet.draw`, or `canvas.draw_at_pivot` for any sprite), which
+keeps the feet in place when mirrored or enlarged.
+
+**The size check.** A game once got a sheet six times too big, with no
+warning: the PNG had been saved with `quill render --zoom 6` instead of
+`quill export`, so every frame was cut from the wrong place. `load` now
+checks the PNG is exactly `columns × width` by `rows × height` and, when
+it's a whole number of times too big, says so:
+`duck.png is 96 x 64, but duck.json says 3 x 2 frames of 16 x 16 (48 x 32); it's exactly 2 times too big: was it saved with quill render --zoom 2? Use quill export ...`.
+
+`Animation` gained a public `looping` field (true by default: nothing
+changes for existing games); a non-looping animation stays on its last
+frame. Only the engine built `Animation` with a struct literal, so no game
+breaks. The tests use real `quill export` sheets at scale 1 and 2
+(`tests/fixtures/quill/`, with the script that made them): at scale 2 the
+frames and the pivot are doubled, and drawing either by its pivot covers
+exactly the same pixels.
+
+## Step 2.2: Tune files that can't surprise you
+
+Three ways the tune file caught the test games out, and what changed:
+
+- **`new_game` copied the starter's tune file**, so speeds written in the
+  new game's code were quietly replaced by the starter's. It no longer
+  copies it; a new game uses its code's values until `--write-tune` makes
+  a file.
+- **Bots and replays read different values.** The tune file is found by
+  the program's name, and a bot in a test program with another name got
+  none. Two fixes: a game can name its file (`Config { tune_file:
+  Some("examples/mygame.tune.json".into()), .. }`), read by windows,
+  headless runs, bots and play tests alike (a missing named file just
+  means the code's values); and every recording now stores the tune
+  values it was made with (`"tune": {...}` next to `"expect"`). A replay
+  with other values is, as decided: a **warning** if it still ends as
+  expected (`playthrough tuned: recorded with other tune values (wobble
+  0.5 to 0), and it still ends as expected`), so you can tune without
+  re-recording; and a **failure** if the ending changed too, naming the
+  tune values as the likely cause and how to re-record or `--accept`.
+  `--accept` stores the current tune values with the new ending.
+  Existing playthroughs have no `"tune"` block, so nothing changes for
+  them until they're recorded again.
+- **The tuned values were easy to miss**, on a line near the end of the
+  summary. They're now the second line, in capitals, and say when a value
+  isn't the code's: `TUNED from examples/x.tune.json: sight = 100 (code
+  says 90)`. `verify` prints that line under each playthrough.

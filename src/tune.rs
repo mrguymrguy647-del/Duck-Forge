@@ -58,10 +58,11 @@ pub(crate) struct Tunes {
     file: HashMap<String, f32>,
     /// Values from `--set`.
     set: HashMap<String, f32>,
-    /// Every name the game asked for: the value it got, and from where.
+    /// Every name the game asked for: the value it got, from where, and
+    /// the default written in the code.
     /// (A `RefCell` lets `ctx.tune` take `&self`, so it can be used inside
     /// another call on `ctx`, like `ctx.report("x", ctx.tune("x", 1.0))`.)
-    used: RefCell<BTreeMap<String, (f32, Source)>>,
+    used: RefCell<BTreeMap<String, (f32, Source, f32)>>,
     /// When the file was last changed, to notice edits.
     modified: Option<SystemTime>,
 }
@@ -71,7 +72,21 @@ impl Tunes {
     /// is one) and the `--set` values. A missing default file is fine (all
     /// defaults); a missing file named with `--tune` is an error.
     pub(crate) fn load(path: Option<&Path>, set: &[(String, f32)]) -> Result<Tunes, String> {
-        let explicit = path.is_some();
+        Tunes::load_from(path, path.is_some(), set)
+    }
+
+    /// Like [`load`](Tunes::load), for the file a game names in
+    /// `Config::tune_file`: it's fine for it not to exist yet (the game
+    /// then uses the values in its code).
+    pub(crate) fn load_named(path: &Path, set: &[(String, f32)]) -> Result<Tunes, String> {
+        Tunes::load_from(Some(path), false, set)
+    }
+
+    fn load_from(
+        path: Option<&Path>,
+        explicit: bool,
+        set: &[(String, f32)],
+    ) -> Result<Tunes, String> {
         let path = path.map(Path::to_path_buf).or_else(default_path);
         let mut tunes = Tunes {
             set: set.iter().cloned().collect(),
@@ -105,9 +120,9 @@ impl Tunes {
         // Only allocate the first time a name is used.
         let mut used = self.used.borrow_mut();
         match used.get_mut(name) {
-            Some(entry) => *entry = (value, source),
+            Some(entry) => *entry = (value, source, default),
             None => {
-                used.insert(name.to_string(), (value, source));
+                used.insert(name.to_string(), (value, source, default));
             }
         }
         value
@@ -135,8 +150,14 @@ impl Tunes {
         self.used
             .borrow()
             .iter()
-            .map(|(name, &(value, source))| (name.clone(), value, source))
+            .map(|(name, &(value, source, _))| (name.clone(), value, source))
             .collect()
+    }
+
+    /// The default the code gave for `name` (the second argument of
+    /// `ctx.tune`), if the game asked for it.
+    pub(crate) fn code_default(&self, name: &str) -> Option<f32> {
+        self.used.borrow().get(name).map(|&(_, _, default)| default)
     }
 
     /// `--set` names the game never asked for: probably typos.
