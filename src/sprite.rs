@@ -312,9 +312,22 @@ impl Sprite {
     /// The colour (`0x00RRGGBB`) and alpha of pixel `(x, y)`, which must be
     /// inside the sprite. For 3D textures, read many times a frame.
     #[inline]
+    #[cfg_attr(not(feature = "gpu"), allow(dead_code))] // only the GPU uses it
     pub(crate) fn texel(&self, x: usize, y: usize) -> (u32, u8) {
         let i = self.index(x, y);
         (self.sheet.rgb[i], self.sheet.alpha[i])
+    }
+
+    /// The picture's colour and alpha lists, the number of pixels per row
+    /// in them, and where this sprite's top-left pixel is: pixel (x, y) is
+    /// at `start + y * row + x`. For 3D textures, read in tight loops.
+    pub(crate) fn texels(&self) -> (&[u32], &[u8], usize, usize) {
+        (
+            &self.sheet.rgb,
+            &self.sheet.alpha,
+            self.sheet.width,
+            self.index(0, 0),
+        )
     }
 
     /// The whole picture this sprite was cut from (itself, if it wasn't
@@ -340,7 +353,6 @@ impl Sprite {
 
     /// A number that's the same for sprites showing the same pixels of the
     /// same picture (while the picture exists), for the GPU's texture cache.
-    #[cfg_attr(not(feature = "gpu"), allow(dead_code))] // only the GPU uses it
     pub(crate) fn identity(&self) -> (usize, [usize; 4]) {
         (
             Arc::as_ptr(&self.sheet) as usize,

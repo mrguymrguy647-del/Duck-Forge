@@ -188,6 +188,9 @@ struct GpuMesh {
     vertex_count: u32,
     /// Its texture (see [`TextureKey`]), if it has one.
     texture: Option<TextureKey>,
+    /// A ball around it (center and radius, in its own coordinates), to
+    /// skip copies of it that are off screen.
+    ball: (crate::math::Vec3, f32),
     /// The flush during which it was last drawn.
     last_used: u64,
 }
@@ -555,10 +558,21 @@ impl GpuRenderer {
         self.lighting = *lighting;
 
         let key = self.key_for(mesh);
-        if let Some(cached) = self.meshes.get_mut(&key) {
-            cached.last_used = self.flushes;
-        } else {
+        if !self.meshes.contains_key(&key) {
             self.upload(key, mesh);
+        }
+        let cached = self.meshes.get_mut(&key).expect("uploaded just above");
+        cached.last_used = self.flushes;
+        // Frustum culling: a copy whose ball is off screen is skipped.
+        let (center, radius) = cached.ball;
+        let (width, height) = (self.width as f32, self.height as f32);
+        if !camera.might_see(
+            transform.apply(center),
+            radius * transform.largest_scale(),
+            width,
+            height,
+        ) {
+            return;
         }
         let instance = Instance {
             model: transform.matrix().columns,
@@ -650,6 +664,7 @@ impl GpuRenderer {
                 vertex_buffer,
                 vertex_count: vertices.len() as u32,
                 texture,
+                ball: mesh.bounding_ball(),
                 last_used: self.flushes,
             },
         );
@@ -1029,6 +1044,16 @@ mod tests {
         canvas.draw_mesh(&ball, &Transform::at(vec3(1.2, 0.8, 0.5)), &camera);
         let lamp = Mesh::pyramid(Color::from_hex(0xff_80_20)).glowing();
         canvas.draw_mesh(&lamp, &Transform::at(vec3(0.0, 0.5, 2.0)), &camera);
+        // A billboard: a 4 x 6 figure with see-through corners, behind the crate.
+        let figure = (0..24)
+            .map(|i| match (i % 4, i / 4) {
+                (0 | 3, 0) => Color::rgba(0, 0, 0, 0),
+                (_, 5) => Color::BLACK,
+                _ => Color::from_hex(0xff_d0_40),
+            })
+            .collect();
+        let figure = crate::sprite::Sprite::from_pixels(4, 6, figure);
+        canvas.draw_billboard(&figure, vec3(-1.5, 0.0, 1.5), 1.5, &camera);
     }
 
     #[test]

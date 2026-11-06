@@ -359,7 +359,7 @@ mod tests {
                     println!("stress3d bench: no GPU here ({name})");
                     break;
                 }
-                let frames = 60;
+                let frames = 200;
                 let started = Instant::now();
                 for _ in 0..frames {
                     sim.step();
@@ -372,6 +372,71 @@ mod tests {
                     sim.game().triangles
                 );
             }
+        }
+    }
+
+    /// A block world, 64 x 64 blocks of ground in 16 chunks of 16 x 16,
+    /// each chunk merged into one mesh, seen from the middle looking along
+    /// +x (so the chunks behind and beside the camera are skipped). Textured from a two-tile atlas, then
+    /// the same blocks plain. Prints how long each takes per frame.
+    /// `cargo test --release --example stress3d -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn block_world_frame_time() {
+        // A 32 x 16 atlas: a speckled grass tile and a dirt tile.
+        let pixels = (0..32 * 16)
+            .map(|i| {
+                let (x, y) = (i % 32, i / 32);
+                let speckle = (x * 7 + y * 13) % 5 == 0;
+                match (x < 16, speckle) {
+                    (true, false) => Color::from_hex(0x4a9c3a),
+                    (true, true) => Color::from_hex(0x3a7c2a),
+                    (false, false) => Color::from_hex(0x8a5a35),
+                    (false, true) => Color::from_hex(0x6e4426),
+                }
+            })
+            .collect();
+        let atlas = Tileset::grid(
+            &Sprite::from_pixels(32, 16, pixels),
+            16,
+            16,
+            &["grass", "dirt"],
+        );
+        let textured = Mesh::block(&atlas, ["grass", "dirt", "dirt"]);
+        let plain = Mesh::cube(Color::from_hex(0x4a9c3a));
+        let camera = Camera3D::looking_at(vec3(32.0, 4.0, 32.0), vec3(48.0, 0.0, 32.0));
+        for (name, block) in [("textured", &textured), ("plain", &plain)] {
+            let mut chunks = Vec::new();
+            for cz in 0..4 {
+                for cx in 0..4 {
+                    let mut chunk = Mesh::new();
+                    for z in 0..16 {
+                        for x in 0..16 {
+                            let at = vec3((cx * 16 + x) as f32, 0.0, (cz * 16 + z) as f32);
+                            chunk.merge(block, &Transform::at(at));
+                        }
+                    }
+                    chunks.push(chunk);
+                }
+            }
+            let mut canvas = Canvas::new(320, 240);
+            let draw = |canvas: &mut Canvas| {
+                canvas.clear(Color::from_hex(0x87ceeb));
+                for chunk in &chunks {
+                    canvas.draw_mesh(chunk, &Transform::default(), &camera);
+                }
+            };
+            draw(&mut canvas); // warm up
+            let frames = 100;
+            let started = Instant::now();
+            for _ in 0..frames {
+                draw(&mut canvas);
+            }
+            let ms = started.elapsed().as_secs_f64() * 1000.0 / frames as f64;
+            let triangles: usize = chunks.iter().map(|c| c.triangles.len()).sum();
+            println!(
+                "block world bench: 4,096 {name} blocks in 16 chunks, {triangles} triangles, CPU at 320x240: {ms:.2} ms per frame"
+            );
         }
     }
 

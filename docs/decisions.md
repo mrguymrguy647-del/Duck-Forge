@@ -2272,3 +2272,57 @@ mesh has only one; put their pictures in one atlas"; `Mesh::block` with
 tiles from two pictures says the same. A plain mesh merged with a
 textured one keeps its colours. Block tiles are sampled a hundredth of a
 pixel inside their edges, so a neighbouring tile never bleeds in.
+
+## Steps 4.3 and 4.5: Billboards and frustum culling
+
+**Billboards.** `canvas.draw_billboard(&sprite, feet, height, &camera)`
+stands a sprite in the world, `height` units tall, its feet (bottom
+centre) at `feet`, upright and turned to face the camera, as decided.
+`draw_billboard_with(.., Billboard { pivot, flip_x, face_camera })` sets
+a pivot (a sprite sheet's: `Some(sheet.pivot())`), mirrors it, or turns
+it to face the camera fully (tilting back when the camera looks down,
+for sparks and coins). It's a textured, glowing quad drawn through
+`draw_mesh` with the camera's own turn, so it's depth-tested like any
+mesh on the CPU and the GPU alike, its see-through pixels write no depth
+(its outline is exact), its pixels stay sharp, and it isn't shaded (it
+looks as painted). Each quad is made once per picture and kept on the
+canvas, so the GPU uploads it once; its texture is the whole sheet a
+frame was cut from, so all of a character's frames share one texture.
+`camera.project(point, canvas)` gives the screen point and its depth
+along the view, for a health bar or sorting.
+
+**Frustum culling.** Before a mesh's corners are transformed, a ball
+around it (around its bounding box: one quick pass) is checked against
+the four sides of the view and the near plane; a mesh entirely outside
+is skipped. On the GPU each mesh's ball is found once, when it's
+uploaded, and checked for every copy. It only skips meshes that would
+draw nothing, so the 42 saved pictures are still byte-identical.
+
+**Numbers** (`cargo test --release --example stress3d -- --ignored
+--nocapture --test-threads=1`; one test at a time, or they slow each
+other down):
+
+| | Before Step 4 | After |
+|---|---|---|
+| stress3d, 500 objects, CPU | 2.85 ms | 2.89 to 3.56 ms (noisy; 3.0 at 200 frames) |
+| stress3d, 2,000 objects, CPU | 7.99 ms | 8.12 to 8.17 ms |
+| stress3d, 500 objects, GPU (lavapipe) | 4.34 ms | 5.65 to 5.84 ms |
+| stress3d, 2,000 objects, GPU (lavapipe) | 12.06 ms | 12.81 to 12.91 ms |
+| block world, 4,096 blocks, textured, CPU | (new) | 4.83 to 4.98 ms |
+| block world, the same plain, CPU | (new) | 3.85 to 4.04 ms |
+
+- stress3d keeps every object on screen, so culling can't help it; on
+  the CPU it costs nothing measurable.
+- **Textures cost about 20%** on the CPU in the block world (the goal
+  was "about 20%"). The first version cost 48%: one division per pixel
+  instead of two, whole-number colour maths instead of rounding floats,
+  and reading the texture's lists directly brought it down.
+- **Culling in the block world** (16 chunks of 16 x 16 merged blocks,
+  seen from the middle looking along +x): 5.94 ms textured with it,
+  6.35 ms without (measured once by switching it off), so about 7%. Less
+  than one might hope, because the CPU already skips back faces and
+  off-screen triangles cheaply; the saving grows with the world.
+- On lavapipe the GPU path is about 6% slower than before: its vertices
+  are bigger (texture point and flags), and every copy is checked
+  against the view. lavapipe runs on these same CPU cores, so this needs
+  checking on a real graphics card (it's on the Windows list).

@@ -9,6 +9,7 @@
 use std::fs::File;
 use std::io::{self, BufWriter, Write};
 use std::path::Path;
+use std::rc::Rc;
 
 use crate::camera::{Camera2D, View};
 use crate::color::{self, Color};
@@ -51,6 +52,16 @@ pub struct Canvas {
     texts: Vec<SceneText>,
     /// The light 3D is drawn with.
     lighting: Lighting,
+    /// Billboard quads made so far, kept so the GPU sees the same mesh
+    /// every frame (and uploads it once).
+    billboards: Vec<BillboardQuad>,
+}
+
+/// One billboard's quad: which picture, mirrored or not, and the mesh.
+struct BillboardQuad {
+    picture: (usize, [usize; 4]),
+    flip_x: bool,
+    mesh: Rc<crate::render3d::Mesh>,
 }
 
 /// The state of a canvas's connection to the graphics card.
@@ -83,7 +94,35 @@ impl Canvas {
             labels: Vec::new(),
             texts: Vec::new(),
             lighting: Lighting::default(),
+            billboards: Vec::new(),
         }
+    }
+
+    /// The quad mesh for a billboard of `sprite`, made once and kept (the
+    /// most recent 256).
+    pub(crate) fn billboard_mesh(
+        &mut self,
+        sprite: &Sprite,
+        flip_x: bool,
+    ) -> Rc<crate::render3d::Mesh> {
+        let picture = sprite.identity();
+        let known = self
+            .billboards
+            .iter()
+            .find(|quad| quad.picture == picture && quad.flip_x == flip_x);
+        if let Some(quad) = known {
+            return Rc::clone(&quad.mesh);
+        }
+        if self.billboards.len() >= 256 {
+            self.billboards.remove(0);
+        }
+        let mesh = Rc::new(crate::render3d::billboard_quad(sprite, flip_x));
+        self.billboards.push(BillboardQuad {
+            picture,
+            flip_x,
+            mesh: Rc::clone(&mesh),
+        });
+        mesh
     }
 
     /// Sets the light that 3D meshes are drawn with, from now on (it
@@ -534,6 +573,10 @@ impl Canvas {
         if tw == 0 || th == 0 {
             return;
         }
+        // The shade as whole numbers out of 65,536, so each pixel's colour
+        // is integer arithmetic (much quicker than rounding floats).
+        let shade = shade.map(|k| (k.clamp(0.0, 255.0) * 65536.0).round() as u32);
+        let (texture_rgb, texture_alpha, row, start) = texture.texels();
         let (pixels, depth) = (&mut self.pixels, &mut self.depth);
         for_each_pixel_in_triangle(self.width, self.height, corners, |i, weights| {
             let d = weights[0] * inverse_depths[0]
@@ -542,25 +585,28 @@ impl Canvas {
             if d <= depth[i] || d <= 0.0 {
                 return;
             }
-            // Back from "texture point / distance" to the texture point.
+            // Back from "texture point / distance" to the texture point
+            // (one division, then two multiplications: quicker).
+            let to_texture = 1.0 / d;
             let u = (weights[0] * uv_over_z[0].x
                 + weights[1] * uv_over_z[1].x
                 + weights[2] * uv_over_z[2].x)
-                / d;
+                * to_texture;
             let v = (weights[0] * uv_over_z[0].y
                 + weights[1] * uv_over_z[1].y
                 + weights[2] * uv_over_z[2].y)
-                / d;
+                * to_texture;
             // The nearest texture pixel, repeating past the edges.
-            let x = ((u * tw as f32).floor() as i64).rem_euclid(tw as i64) as usize;
-            let y = ((v * th as f32).floor() as i64).rem_euclid(th as i64) as usize;
-            let (rgb, alpha) = texture.texel(x, y);
+            let x = wrap((u * tw as f32).floor(), tw);
+            let y = wrap((v * th as f32).floor(), th);
+            let at = start + y * row + x;
+            let (rgb, alpha) = (texture_rgb[at], texture_alpha[at]);
             if alpha < 128 {
                 return; // see-through: not drawn, and nothing hidden behind it
             }
-            let channel = |shift: u32, k: f32| {
-                let c = ((rgb >> shift) & 0xff) as f32 * k;
-                (c.round().clamp(0.0, 255.0) as u32) << shift
+            let channel = |shift: u32, k: u32| {
+                let c = ((rgb >> shift) & 0xff) as u64 * k as u64;
+                (((c + 32768) >> 16).min(255) as u32) << shift
             };
             depth[i] = d;
             pixels[i] = channel(16, shade[0]) | channel(8, shade[1]) | channel(0, shade[2]);
@@ -994,6 +1040,18 @@ fn for_each_pixel_in_triangle(
                 plot(y * width + x, weights);
             }
         }
+    }
+}
+
+/// A texture pixel number, wrapped round into `0..size` (repeating
+/// textures). Usually it's already inside, which is checked first because
+/// it's much quicker than the general case.
+#[inline]
+fn wrap(position: f32, size: usize) -> usize {
+    if position >= 0.0 && position < size as f32 {
+        position as usize
+    } else {
+        (position as i64).rem_euclid(size as i64) as usize
     }
 }
 

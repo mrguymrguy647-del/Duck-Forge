@@ -231,6 +231,44 @@ impl Camera3D {
         Some(self.projection(canvas).project(p))
     }
 
+    /// Where a point in the world appears on the canvas, and how far it is
+    /// from the camera along the view (its depth), or `None` if it's behind
+    /// the camera. For a health bar above a 3D character, or to sort
+    /// things yourself (bigger depth is further away).
+    pub fn project(&self, point: Vec3, canvas: &Canvas) -> Option<(Vec2, f32)> {
+        let p = self.to_camera_space(point);
+        if p.z < NEAR {
+            return None;
+        }
+        Some((self.projection(canvas).project(p), p.z))
+    }
+
+    /// Whether any of a ball (`center` in the world, `radius`) could be on
+    /// a canvas `width` x `height`. False only when it's all outside the
+    /// view, so skipping such a mesh never changes the picture.
+    pub(crate) fn might_see(&self, center: Vec3, radius: f32, width: f32, height: f32) -> bool {
+        if !(radius.is_finite()
+            && center.x.is_finite()
+            && center.y.is_finite()
+            && center.z.is_finite())
+        {
+            return true; // can't tell: draw it
+        }
+        let p = self.to_camera_space(center);
+        if p.z + radius < NEAR {
+            return false; // all of it behind the camera
+        }
+        // The four sides of the view, as planes through the camera. A
+        // point is inside when it's on the inner side of all four.
+        let up = (self.usable_fov() / 2.0).tan();
+        let across = up * width / height;
+        let outside = |slope: f32, sideways: f32| {
+            // How far the center is past the plane x (or y) = slope * z.
+            (sideways - slope * p.z) / (1.0 + slope * slope).sqrt() > radius
+        };
+        !(outside(across, p.x) || outside(across, -p.x) || outside(up, p.y) || outside(up, -p.y))
+    }
+
     /// The field of view actually used: `fov` kept between 1 and 179 degrees
     /// (or 60 degrees if it isn't a number). At 0 or 180 degrees the
     /// projection would divide by zero, and beyond 180 the picture would turn
@@ -378,6 +416,16 @@ impl Transform {
             .rotate_y(self.rotation.y)
             .rotate_z(self.rotation.z)
             + self.position
+    }
+
+    /// The biggest of the three scales (ignoring signs): how much longer
+    /// any distance can get.
+    pub(crate) fn largest_scale(&self) -> f32 {
+        self.scale
+            .x
+            .abs()
+            .max(self.scale.y.abs())
+            .max(self.scale.z.abs())
     }
 
     /// The same as [`Transform::apply`], packed into one matrix: scale, then
@@ -869,6 +917,15 @@ impl Mesh {
         }
     }
 
+    /// A ball around every corner: the one around its
+    /// [`bounds`](Mesh::bounds) box (a little bigger than the tightest,
+    /// but found in one quick pass). Used to skip meshes that are off
+    /// screen.
+    pub(crate) fn bounding_ball(&self) -> (Vec3, f32) {
+        let (low, high) = self.bounds();
+        ((low + high) * 0.5, (high - low).length() * 0.5)
+    }
+
     /// The smallest box around every corner: its lowest and highest x, y
     /// and z. Both are (0, 0, 0) for an empty mesh.
     pub fn bounds(&self) -> (Vec3, Vec3) {
@@ -938,7 +995,19 @@ impl Canvas {
             return; // the graphics card will draw it (see gpu.rs)
         }
 
-        // Otherwise, draw it right here on the CPU.
+        // Otherwise, draw it right here on the CPU. First, a quick look:
+        // if a ball around the whole mesh is off screen, so is every
+        // triangle (frustum culling).
+        let (center, radius) = mesh.bounding_ball();
+        let (width, height) = (self.width() as f32, self.height() as f32);
+        if !camera.might_see(
+            transform.apply(center),
+            radius * transform.largest_scale(),
+            width,
+            height,
+        ) {
+            return;
+        }
         let world: Vec<Vec3> = mesh.vertices.iter().map(|&v| transform.apply(v)).collect();
         let lighting = self.lighting();
         let sun = lighting.sun();
@@ -1016,6 +1085,118 @@ impl Canvas {
             }
         }
     }
+}
+
+/// How a [billboard](Canvas::draw_billboard_with) is drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Billboard {
+    /// The point of the sprite (in its pixels) that goes at the position
+    /// given: `None` for the middle of its bottom edge (its feet). A
+    /// [`SpriteSheet`](crate::spritesheet::SpriteSheet)'s is
+    /// `Some(sheet.pivot())`.
+    pub pivot: Option<Vec2>,
+    /// Mirrored left to right (a character facing the other way).
+    pub flip_x: bool,
+    /// Turned to face the camera fully, tilting back when the camera looks
+    /// down (for things that float: sparks, coins, clouds). Normally a
+    /// billboard stays upright and only turns round, so characters stand
+    /// straight.
+    pub face_camera: bool,
+}
+
+impl Canvas {
+    /// Draws a sprite standing in the 3D world, turned towards the camera:
+    /// a *billboard*. Its feet (the middle of its bottom edge) are at `at`,
+    /// and it's `height` world units tall (as wide as its picture says).
+    /// It stays upright, hides behind meshes in front of it and hides those
+    /// behind it, and its see-through pixels show what's behind (they
+    /// don't hide anything). Its pixels stay sharp squares, and it isn't
+    /// shaded: it looks as painted.
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// # let mut canvas = Canvas::new(64, 48);
+    /// # let camera = Camera3D::new(vec3(0.0, 1.0, -4.0));
+    /// # let duck = Sprite::from_pixels(16, 16, vec![Color::YELLOW; 256]);
+    /// canvas.draw_billboard(&duck, vec3(0.0, 0.0, 0.0), 1.0, &camera);
+    /// ```
+    pub fn draw_billboard(&mut self, sprite: &Sprite, at: Vec3, height: f32, camera: &Camera3D) {
+        self.draw_billboard_with(sprite, at, height, camera, Billboard::default());
+    }
+
+    /// [`draw_billboard`](Canvas::draw_billboard), with a pivot, mirroring
+    /// or full facing (see [`Billboard`]):
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// # let mut canvas = Canvas::new(64, 48);
+    /// # let camera = Camera3D::new(vec3(0.0, 1.0, -4.0));
+    /// # let frame = Sprite::from_pixels(16, 16, vec![Color::YELLOW; 256]);
+    /// let look = Billboard { pivot: Some(vec2(8.0, 16.0)), flip_x: true, ..Default::default() };
+    /// canvas.draw_billboard_with(&frame, vec3(1.0, 0.0, 2.0), 1.0, &camera, look);
+    /// ```
+    pub fn draw_billboard_with(
+        &mut self,
+        sprite: &Sprite,
+        at: Vec3,
+        height: f32,
+        camera: &Camera3D,
+        look: Billboard,
+    ) {
+        let (w, h) = (sprite.width() as f32, sprite.height() as f32);
+        if w == 0.0 || h == 0.0 || !(height.is_finite() && height > 0.0) {
+            return;
+        }
+        let size = vec3(height * w / h, height, 1.0);
+        // Turned like the camera: round (yaw), and back (pitch) if asked.
+        let pitch = if look.face_camera { camera.pitch } else { 0.0 };
+        let rotation = vec3(pitch, camera.yaw, 0.0);
+        // The pivot, in the quad's own units (it's 1 x 1, centred).
+        let pivot = look.pivot.unwrap_or(vec2(w / 2.0, h));
+        let mut x = pivot.x / w - 0.5;
+        if look.flip_x {
+            x = -x;
+        }
+        let local = vec3(x * size.x, (0.5 - pivot.y / h) * size.y, 0.0);
+        let turned = local.rotate_x(rotation.x).rotate_y(rotation.y);
+        let transform = Transform {
+            position: at - turned,
+            rotation,
+            scale: size,
+        };
+        let mesh = self.billboard_mesh(sprite, look.flip_x);
+        self.draw_mesh(&mesh, &transform, camera);
+    }
+}
+
+/// A 1 x 1 quad showing `sprite`, glowing (sprites look as painted). The
+/// texture is the whole picture the sprite was cut from, so every frame of
+/// a sprite sheet shares one texture on the GPU.
+pub(crate) fn billboard_quad(sprite: &Sprite, flip_x: bool) -> Mesh {
+    let (sheet, [left, top, w, h]) = sprite.in_sheet();
+    let (sheet_w, sheet_h) = (sheet.width() as f32, sheet.height() as f32);
+    let (mut u0, mut u1) = (left as f32 / sheet_w, (left + w) as f32 / sheet_w);
+    if flip_x {
+        std::mem::swap(&mut u0, &mut u1);
+    }
+    // A hundredth of a pixel inside the edges, so the next frame never shows.
+    let nudge = |u: f32, towards: f32| u + (towards - u).signum() * 0.01 / sheet_w;
+    let (u0, u1) = (nudge(u0, u1), nudge(u1, u0));
+    let (v0, v1) = (
+        (top as f32 + 0.01) / sheet_h,
+        ((top + h) as f32 - 0.01) / sheet_h,
+    );
+    let mut mesh = Mesh::new();
+    let corners = [
+        vec3(-0.5, -0.5, 0.0),
+        vec3(-0.5, 0.5, 0.0),
+        vec3(0.5, 0.5, 0.0),
+        vec3(0.5, -0.5, 0.0),
+    ];
+    let [a, b, c, d] = corners.map(|p| mesh.add_vertex(p));
+    let uvs = [vec2(u0, v1), vec2(u0, v0), vec2(u1, v0), vec2(u1, v1)];
+    mesh.add_quad_uv(a, b, c, d, uvs, Color::WHITE);
+    mesh.with_texture(sheet).glowing()
 }
 
 /// Cuts a camera-space triangle against the near plane (`z = NEAR`), keeping
@@ -1471,6 +1652,139 @@ mod tests {
             Lighting::default().sun(),
             vec3(-0.4, 1.0, -0.6).normalized()
         );
+    }
+
+    /// A 4 x 8 sprite: yellow, with a see-through top-left corner pixel
+    /// and a red bottom row (its feet).
+    fn duck() -> Sprite {
+        let pixels = (0..32)
+            .map(|i| match (i % 4, i / 4) {
+                (0, 0) => Color::rgba(0, 0, 0, 0),
+                (_, 7) => Color::RED,
+                _ => Color::YELLOW,
+            })
+            .collect();
+        Sprite::from_pixels(4, 8, pixels)
+    }
+
+    #[test]
+    fn billboards_stand_on_their_feet_and_hide_behind_things() {
+        let camera = Camera3D::new(vec3(0.0, 1.0, -5.0));
+        let mut canvas = Canvas::new(64, 64);
+        canvas.clear(Color::BLACK);
+        canvas.draw_billboard(&duck(), vec3(0.0, 0.0, 0.0), 2.0, &camera);
+        // Its feet are at the ground's height on screen, its middle above.
+        let (feet, depth) = camera.project(vec3(0.0, 0.0, 0.0), &canvas).unwrap();
+        assert_eq!(depth, 5.0, "depth is the distance along the view");
+        let (middle, _) = camera.project(vec3(0.0, 1.0, 0.0), &canvas).unwrap();
+        assert_eq!(
+            canvas.get_pixel(feet.x as i32, feet.y as i32 - 1),
+            Some(Color::RED)
+        );
+        assert_eq!(
+            canvas.get_pixel(middle.x as i32, middle.y as i32),
+            Some(Color::YELLOW)
+        );
+        assert_eq!(
+            canvas.get_pixel(feet.x as i32, feet.y as i32 + 2),
+            Some(Color::BLACK),
+            "nothing under its feet"
+        );
+        // A cube in front hides its lower half; one behind is hidden by it.
+        let wall = Mesh::cube(Color::BLUE).glowing();
+        canvas.draw_mesh(
+            &wall,
+            &Transform::at(vec3(0.0, 0.25, -1.0)).scaled(vec3(4.0, 0.5, 0.1)),
+            &camera,
+        );
+        canvas.draw_mesh(
+            &wall,
+            &Transform::at(vec3(0.0, 1.0, 3.0)).scaled(vec3(4.0, 4.0, 0.1)),
+            &camera,
+        );
+        assert_eq!(
+            canvas.get_pixel(feet.x as i32, feet.y as i32 - 1),
+            Some(Color::BLUE),
+            "behind the low wall"
+        );
+        assert_eq!(
+            canvas.get_pixel(middle.x as i32, middle.y as i32),
+            Some(Color::YELLOW),
+            "in front of the far wall"
+        );
+        // Its see-through corner shows the far wall.
+        let corner = camera.project(vec3(-0.45, 1.95, 0.0), &canvas).unwrap().0;
+        assert_eq!(
+            canvas.get_pixel(corner.x as i32, corner.y as i32),
+            Some(Color::BLUE)
+        );
+    }
+
+    #[test]
+    fn billboards_turn_with_the_camera_and_flip() {
+        // Seen from the side (the camera at +x looking back along -x), it
+        // still faces the camera, as wide as from the front.
+        let side = Camera3D::looking_at(vec3(5.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0));
+        let mut canvas = Canvas::new(64, 64);
+        canvas.draw_billboard(&duck(), Vec3::ZERO, 2.0, &side);
+        let width = (0..64)
+            .filter(|&x| canvas.get_pixel(x, 32) == Some(Color::YELLOW))
+            .count();
+        assert!((10..=14).contains(&width), "{width} pixels wide");
+        // Mirrored, the see-through pixel is on the other side.
+        let front = Camera3D::new(vec3(0.0, 1.0, -5.0));
+        let look = Billboard {
+            flip_x: true,
+            ..Default::default()
+        };
+        let mut flipped = Canvas::new(64, 64);
+        flipped.draw_billboard_with(&duck(), Vec3::ZERO, 2.0, &front, look);
+        let corner = |x: f32| {
+            let p = front.project(vec3(x, 1.95, 0.0), &flipped).unwrap().0;
+            flipped.get_pixel(p.x as i32, p.y as i32).unwrap()
+        };
+        assert_eq!((corner(-0.45), corner(0.45)), (Color::YELLOW, Color::BLACK));
+        // Upright, a camera looking down sees it lean back; facing the
+        // camera, it stays square to the view (so it looks taller).
+        let above = Camera3D::looking_at(vec3(0.0, 4.0, -3.0), vec3(0.0, 1.0, 0.0));
+        let height = |face_camera: bool| {
+            let mut c = Canvas::new(64, 64);
+            let look = Billboard {
+                face_camera,
+                ..Default::default()
+            };
+            c.draw_billboard_with(&duck(), Vec3::ZERO, 2.0, &above, look);
+            (0..64)
+                .filter(|&y| c.get_pixel(32, y) != Some(Color::BLACK))
+                .count()
+        };
+        assert!(
+            height(true) > height(false),
+            "{} vs {}",
+            height(true),
+            height(false)
+        );
+    }
+
+    #[test]
+    fn meshes_off_screen_are_skipped_but_never_ones_partly_on_it() {
+        let camera = Camera3D::new(Vec3::ZERO);
+        let sees =
+            |x: f32, z: f32, radius: f32| camera.might_see(vec3(x, 0.0, z), radius, 320.0, 240.0);
+        assert!(sees(0.0, 10.0, 1.0), "straight ahead");
+        assert!(!sees(0.0, -10.0, 1.0), "behind");
+        assert!(!sees(30.0, 10.0, 1.0), "far to the right");
+        // The middle is off screen, but it's big enough to reach onto it.
+        assert!(sees(30.0, 10.0, 25.0));
+        // At the edge of the view (60 degrees high, 4:3 wide): the side is
+        // slanted, so a ball 1 across is fully outside only once its middle
+        // is about 1.26 past the edge sideways.
+        let slope = 30f32.to_radians().tan() * 320.0 / 240.0;
+        let edge = 10.0 * slope;
+        let reach = (1.0 + slope * slope).sqrt();
+        assert!(sees(edge + reach - 0.05, 10.0, 1.0) && !sees(edge + reach + 0.05, 10.0, 1.0));
+        // A big mesh whose middle is behind the camera, reaching in front.
+        assert!(sees(0.0, -1.0, 5.0));
     }
 
     #[test]
