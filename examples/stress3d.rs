@@ -338,6 +338,37 @@ mod tests {
         assert_eq!(parse("").unwrap().objects, 2_000);
     }
 
+    /// How long the CPU renderer takes per frame, drawing every frame
+    /// (a headless run only draws the frames it saves, so this is the way
+    /// to time drawing without a window). Run it with:
+    /// `cargo test --release --no-default-features --example stress3d -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn cpu_frame_time() {
+        for objects in [500, 2_000] {
+            let options = parse(&format!("--objects {objects} --renderer cpu")).unwrap();
+            let config = Config {
+                renderer: Renderer::Cpu,
+                ..Config::default()
+            };
+            let mut sim = Simulation::new(config, Stress::new(&options));
+            sim.step();
+            sim.picture(); // warm up
+            let frames = 60;
+            let started = Instant::now();
+            for _ in 0..frames {
+                sim.step();
+                sim.picture();
+            }
+            let ms = started.elapsed().as_secs_f64() * 1000.0 / frames as f64;
+            let (width, height) = (sim.picture().width(), sim.picture().height());
+            println!(
+                "stress3d bench: {objects} objects, {} triangles, CPU at {width}x{height}: {ms:.2} ms per frame",
+                sim.game().triangles
+            );
+        }
+    }
+
     #[test]
     fn nonsense_options_are_refused() {
         // A NaN or infinite benchmark would never finish; zero or less makes no sense.

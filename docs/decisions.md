@@ -1852,3 +1852,46 @@ limit of 20) and its frames, spread out, crowded out the two rarer
 `lives` change first (3 in the run), then `coins` (9), then `chasing`
 (19), each spread out only if it doesn't all fit. The sheet now shows all
 three lives lost and every coin. (Tested with a run like that one.)
+
+# Phase 3: what real test games found
+
+An AI agent built Duck Dash (a 2D auto-runner) and started Duck Tower (a
+platformer with painted backgrounds and a boss), Duck Dash 3D (a
+three-lane runner) and Duck Craft (a side-view mining game: 3D cubes,
+2D characters), using Duck Quill for art and Duck Echo for sound. This
+phase fixes what they had to work around. The plan is in
+`docs/phase3-design.md`.
+
+## Step 0: Baseline
+
+Measured on the cloud machine (4 cores, Rust 1.97) before any change, to
+compare against at the end:
+
+| What | Time |
+|---|---|
+| Headless clean build of `dodge` (empty target folder) | 10.8 s |
+| ...after changing one line of `dodge` | 0.30 s |
+| Headless test suite from an empty target folder (`cargo test --no-default-features`) | 32.2 s (345 tests) |
+| Headless test suite, already built | 11.2 s |
+| Default-features test suite, already built | 11.3 s (362 tests) |
+| `stress3d`, 500 objects: 21,846 triangles, CPU, 320 x 240 | 3.0 ms per frame |
+| `stress3d`, 2,000 objects: 89,412 triangles, CPU, 320 x 240 | 8.6 ms per frame |
+
+The stress numbers come from a new ignored test in `examples/stress3d.rs`
+(`cargo test --release --no-default-features --example stress3d --
+--ignored --nocapture`), which draws every frame on the CPU. stress3d's own
+`--seconds` benchmark needs a window: a headless run only draws the frames
+it saves, so it would time the game logic, not the drawing. There's no
+graphics card here (no Vulkan driver, no EGL), so the GPU renderer can't
+be measured in this container.
+
+All 15 examples pass `tools/verify.sh`.
+
+Duck Quill's format, read from its repository (still named `art-app`;
+the `quill` command is on its `phase-5` branch, `art-cli` on `main`, and
+the export format is the same on both): `quill export` writes a PNG with
+one row per animation and a JSON with `frame` size, `columns`, `rows`,
+`scale`, `pivot` (in scaled pixels, bottom centre by default) and
+`animations` (each with `row`, `frames`, `fps` and `loop`). It has **no
+tileset or atlas export**. Duck Echo writes plain WAV files (16-bit,
+24-bit or float), which `Wav::load` already reads, with no loop points.
