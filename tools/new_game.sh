@@ -74,8 +74,11 @@ for file in $files; do
         sed "s/\"$title\"/\"NEW_GAME_TITLE\"/" "$file" >"$file.new" && mv "$file.new" "$file"
     fi
     for _ in 1 2; do # twice, for names next to each other like "TopDown(TopDown"
+        # In sentences ("plays the template") the starter becomes "the game";
+        # in commands and paths it becomes the new name.
         sed -E \
             -e "s/(^|[^A-Za-z0-9_])$type([^A-Za-z0-9_]|\$)/\\1$new_type\\2/g" \
+            -e "s/(^|[^A-Za-z0-9_])([Tt]he) $starter([^A-Za-z0-9_\/.]|\$)/\\1\\2 game\\3/g" \
             -e "s/(^|[^A-Za-z0-9_])$starter([^A-Za-z0-9_]|\$)/\\1$name\\2/g" \
             "$file" >"$file.new" && mv "$file.new" "$file"
     done

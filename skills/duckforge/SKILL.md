@@ -1,6 +1,6 @@
 ---
 name: duckforge
-description: Use when making, changing or checking a 2D game in Rust with the duckforge engine, especially on a server with no screen.
+description: Use when making, changing or checking a 2D or 3D game in Rust with the duckforge engine, especially on a server with no screen.
 ---
 
 # duckforge: make games you can't see
@@ -11,8 +11,7 @@ and a log. You never play the game; you read what it reports, look at a
 contact sheet, and let tests and a fuzzer play it for you.
 
 Read [QUICKSTART.md](../../docs/QUICKSTART.md) first (one page). The full
-reference is [AI_GUIDE.md](../../docs/AI_GUIDE.md): section 7 is the API
-cheat sheet, section 8 the common mistakes.
+reference is [AI_GUIDE.md](../../docs/AI_GUIDE.md) (7: API cheat sheet, 11: 3D).
 
 ## 1. Get it and build headless
 
@@ -23,10 +22,9 @@ cargo build --no-default-features --examples
 tools/verify.sh dodge
 ```
 
-The first build takes about 15 s, a one-line change under a second.
-`VERIFY OK` means the engine works here (on Windows: `tools\verify.bat
-dodge`). On a server **always** pass `--no-default-features`. Engine
-options go after `--`: `cargo run --no-default-features --example dodge -- --headless`.
+First build about 15 s, a one-line change under a second. `VERIFY OK`
+means it works here (Windows: `tools\verify.bat dodge`). On a server
+**always** pass `--no-default-features`; engine options go after `--`.
 
 ## 2. Start from a starter
 
@@ -45,46 +43,61 @@ tools/new_game.sh mygame topdown
 It copies the starter (not its tune file), renames its type, titles it
 ("Mygame"), points the bot at `playthroughs/mygame.json`, adds it to
 `Cargo.toml`, records a playthrough and runs `verify` (Windows:
-`tools\new_game.bat`). Art: Duck Quill, `quill export art/hero.json --sheet
---out assets`, then `SpriteSheet::load("assets/hero.json")?` and
-`sheet.draw(canvas, "walk", time, feet, blit)` (by the pivot: feet stay
-put). Music: a Duck Echo `.wav` with `ctx.play_loop(&music, 0.6)`.
+`tools\new_game.bat`). The starter's play tests name its level's
+positions: update them when you change the level.
 
-## 3. The loop
+## 3. Built in: use these, don't write your own
+
+Details: the guide's section 7 (cheat sheet) and section 11 (3D).
+
+- **Levels as text**, one letter per tile:
+  `TileMap::parse(LEVEL, 16.0, &legend)?` with
+  `Legend::new().solid('#', "ground").one_way('=', "plank").spawn('p', "player")`;
+  `map.move_and_slide(&mut body, motion)` (ground, walls, ceiling; fast
+  bodies never pass through); `map.spawns("player")`; `map.draw(canvas, &tiles, time)`.
+- **Art** from Duck Quill: `quill export art/hero.json --sheet --out assets`,
+  then `SpriteSheet::load("assets/hero.json")?` and
+  `sheet.draw(canvas, "walk", time, feet, blit)` (by the pivot). Tiles:
+  `Tileset::grid(&sheet, 16, 16, &names)`.
+- **Backgrounds**: `Background::new(image).parallax_xy(0.3, 0.1)`, drawn with
+  `canvas.draw_background(&sky, &camera)` before `push_camera`; no seams.
+- **Music and hums**: a Duck Echo `.wav` with `ctx.play_loop(&music, 0.6)`;
+  `ctx.stop_loop(id)`.
+- **3D**: `Mesh::block(&atlas, [top, sides, bottom])`, `mesh.with_texture(sprite)`,
+  `canvas.set_lighting(...)`, `.glowing()` for lava and signs,
+  `canvas.draw_billboard(&frame, at, 1.0, &camera)` for 2D characters
+  that hide behind blocks, `chunk.merge(&block, &transform)` to build
+  block worlds in 16 x 16 chunks, `camera.project(point, canvas)` for labels.
+
+## 4. The loop
 
 1. **Change one thing** in `examples/mygame/main.rs` (or `examples/mygame.rs`).
-2. **Verify**: `tools/verify.sh mygame`. It builds, runs the play tests,
-   replays every `playthroughs/mygame*.json` with a contact sheet, fuzzes
-   50 runs, and prints one line per step. Fix the first `FAILED` line
-   first; it shows the failing test, rule or crash with its frame.
-3. **Read** `out/verify/mygame/mygame/summary.txt` (final values, ranges,
-   text changes, sounds, problems), then **look** at `sheet.png` next to
-   it. A run by hand:
+2. **Verify**: `tools/verify.sh mygame` builds, runs the play tests, replays
+   every `playthroughs/mygame*.json` with a contact sheet, fuzzes 50 runs,
+   and prints one line per step. Fix the first `FAILED` line first.
+3. **Read** `out/verify/mygame/mygame/summary.txt`, then **look** at
+   `sheet.png` next to it. A run by hand:
 
 ```sh
 cargo run --no-default-features --example mygame -- --headless --inputs playthroughs/mygame.json --sheet-events --debug --out out/look
 ```
 
-4. **Compare** before and after a change: run once with `--out out/before`,
-   change the code, run with `--out out/after`, then
-   `cargo run --no-default-features --example mygame -- --diff out/before out/after`.
-5. **Pin it down** with a play test (copy one from the bottom of the
-   starter), and go round again. Same seed and inputs, same result.
+4. **Compare**: run with `--out out/before`, change the code, run with
+   `--out out/after`, then add `--diff out/before out/after` to a run.
+5. **Pin it down** with a play test (copy one from the starter), and go
+   round again. Same seed and inputs, same result.
 
-`--quiet` prints only problems (no output: all is well). `--json` prints
-the summary as one line of JSON. A panic is one line with the frame:
-replay with `--frames N` just before it.
+`--quiet` prints only problems; `--json` prints the summary as JSON. A
+panic is one line with the frame: replay with `--frames N` just before it.
 
-## 4. Tune without rebuilding
+## 5. Tune without rebuilding
 
-Read numbers you'll adjust at the top of `update`:
-`let speed = ctx.tune("player_speed", 90.0);`. Try values with
-`--set player_speed=120` (repeatable); keep them in
-`examples/mygame.tune.json`. `--write-tune` writes every name the game
-asked for. The summary warns about `--set` or tune-file names nobody asked for.
-Recordings keep their tune values: new values that still give the expected ending are only a `tuned` warning.
+`let speed = ctx.tune("player_speed", 90.0);` at the top of `update`; try
+`--set player_speed=120`; keep values in `examples/mygame.tune.json`
+(`--write-tune` writes them all). New values that still give a recording's
+expected ending are only a `tuned` warning.
 
-## 5. Labels: know what's on screen without pictures
+## 6. Labels: know what's on screen without pictures
 
 In `draw`, name things right after drawing them:
 `canvas.label("enemy", rect)`. Add `--describe` to a headless run to get
@@ -93,55 +106,37 @@ summary warns about labels off screen and outside the world; `--sheet-follow ene
 each sheet frame in on that label. `--grid 20` (`--grid-world 32` in world
 units) draws coordinates on saved pictures.
 
-## 6. Rules and fuzzing
+## 7. Rules and fuzzing
 
 State what must always be true, in `update`:
 `ctx.check("player inside the map", world.contains(player.center()));`.
-A broken rule is reported once with its first frame (summary, `log.json`,
-play tests fail). Then let the engine play:
+Then let the engine play: `--fuzz 200` (with `--release`) reports crashes,
+broken rules and freezes with a shrunk, replayable script
+(`--inputs fuzz/seed-14.json --sheet --debug`), then `coverage:` lines: what
+the runs reached. Judge "no problems found" by them: random runs rarely
+reach a level's end. Call `ctx.idle_ok()` on waiting screens;
+`--fuzz-keys Left,Right,Space` picks the keys.
 
-```sh
-cargo run --release --no-default-features --example mygame -- --fuzz 200
-```
-
-It reports crashes, broken rules and freezes with a replayable, shrunk
-script (`--inputs fuzz/seed-14.json --sheet --debug` shows it), then
-`coverage:` lines: each number's range and each text value reached across
-all runs. Judge "no problems found" by them. Call `ctx.idle_ok()` on
-waiting screens. `--fuzz-keys Left,Right,Space` picks the keys.
-
-## 7. Playthroughs
+## 8. Playthroughs
 
 A playthrough is an input script in `playthroughs/mygame.json`:
 `{"events": [{"frame": 10, "press": "Right"}, {"frame": 70, "release": "Right"}]}`
-(frames start at 1). Write one, press F10 in a window, or let a bot in
-an ignored test save `sim.recording()` (`record_playthrough`; run with
-`cargo test --no-default-features --example mygame -- --ignored`).
-Recordings store their ending (`"expect"`). When `verify` says `changed`,
-add `--accept` to the replay to keep the new ending, or re-record.
+(frames start at 1). Write one, press F10 in a window, or let a bot save
+`sim.recording()` (`cargo test --no-default-features --example mygame -- --ignored`).
+When `verify` says `changed`, add `--accept` to keep the new ending, or re-record.
 
-## 8. Common mistakes
+## 9. Common mistakes (and the quick start's five)
 
-- `cargo run --example x --headless`: the flag goes to Cargo. Write
-  `cargo run --example x -- --headless`.
-- `is_down` for one-shot actions (start, shoot, sounds): they repeat every
-  frame. Use `was_pressed`.
-- Speeds without `ctx.dt()`: write `x += SPEED * ctx.dt()`.
-- Randomness or time not from `ctx` (`ctx.rng`, `ctx.time()`): runs stop
-  being repeatable, and so do playthroughs and fuzz seeds.
-- Reports that don't show what the player does: report the player's
-  position, not only the score, or `--fuzz` calls moving a freeze.
-- Reporting, playing sounds or `ctx.check` in `draw`: `draw` has no `ctx`.
-  Do it in `update`.
-- The HUD drawn between `push_camera` and `pop_camera` moves with the
-  world. Draw it after `pop_camera`.
-- Bullets moving more than their own size per frame pass through things:
-  use `swept_aabb` (see the shooter starter).
-- Effects drawing from `ctx.rng` change the game; give them their own
-  `Rng::new(1)`.
-- Forgetting `test = true` in `Cargo.toml`: the play tests never run.
+- Report the player's position, not only the score, or `--fuzz` calls
+  moving a freeze.
+- `draw` has no `ctx`: report, play sounds and `ctx.check` in `update`.
+- Randomness not from `ctx.rng` breaks repeatable runs; effects get their
+  own `Rng::new(1)`.
+- Bullets moving more than their size per frame pass through things:
+  `swept_aabb` (see the shooter starter).
+- Without `test = true` in `Cargo.toml` the play tests never run.
 
-## 9. Show your work
+## 10. Show your work
 
 ```sh
 cargo run --release --no-default-features --example mygame -- --headless --inputs playthroughs/mygame.json --sheet-events --video out/show/run.mp4 --out out/show

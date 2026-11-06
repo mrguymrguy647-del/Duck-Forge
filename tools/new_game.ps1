@@ -37,6 +37,9 @@ foreach ($file in $files) {
     # one can contain the type's name ("Template - duckforge", "My Shooter").
     if ($Title) { $text = $text.Replace("""$Title""", """NEW_GAME_TITLE""") }
     $text = $text -creplace (& $word $Type), $newType
+    # In sentences ("plays the template") the starter becomes "the game";
+    # in commands and paths it becomes the new name.
+    $text = $text -creplace "\b([Tt]he) $([regex]::Escape($Starter))(?![A-Za-z0-9_/.])", '$1 game'
     $text = $text -creplace (& $word $Starter), $Name
     $text = $text.Replace("""NEW_GAME_TITLE""", """$pretty - duckforge""")
     if ($file -eq $main) {
