@@ -145,6 +145,11 @@ impl Camera2D {
         }
     }
 
+    /// How far the screen is pushed by shaking right now, in pixels.
+    pub(crate) fn shake_offset(&self) -> Vec2 {
+        self.shake_offset
+    }
+
     /// Where the world point `world` appears on the screen, in pixels.
     pub fn world_to_screen(&self, world: Vec2) -> Vec2 {
         (world - self.position) * self.safe_zoom() + self.screen_size * 0.5 + self.shake_offset

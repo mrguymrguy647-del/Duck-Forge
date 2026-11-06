@@ -2066,3 +2066,69 @@ sounds and music come from.
 **2.3, a bot for the platformer starter, moves into Step 3.4**, where the
 starter is rebuilt on the tile map, background layers and a sprite sheet:
 a bot written now would be thrown away with the old level a step later.
+
+## Step 3.1: Tile maps from text
+
+Every test game wrote its own level grid, its own "which tile am I in",
+and its own collision, and three of the four had a bug in it (a seam
+that snagged the player, a fast fall through a floor, a platform you
+could stand on from below). `TileMap` does it once:
+
+- **A level is text**, one letter per tile, with a `Legend`:
+  `.solid('#', "ground")`, `.one_way('=', "plank")`, `.decoration('f',
+  "flower")` (drawn, never bumped into), `.spawn('p', "player")`. `.` and
+  space are always empty, rows can differ in length, and blank lines
+  around a level are ignored, so it can start on the line after `"`. A
+  letter the legend doesn't have is an error with its row and column,
+  and the file: `levels/1.txt row 3, column 17: 'x' isn't in the legend
+  (it has # = p c . and space)`.
+- **Spawn points** are the bottom centre of their tile, where feet go:
+  `map.spawn("player")` (which panics naming the spawn points there are,
+  rather than giving a player at 0,0) and `map.spawns("coin")`.
+- **`move_and_slide(&mut body, velocity * dt)`** moves sideways, then up
+  or down, and reports `ground`, `ceiling`, `wall_left` and `wall_right`.
+  As decided, it moves in steps of at most half a tile, so a body moving
+  300 pixels in one frame stops at a wall one tile thick, and one falling
+  2,000 pixels lands on a floor or a one-way platform instead of passing
+  through (tested). Tiles count only when a body is inside them by more
+  than a thousandth of a pixel, so standing exactly on a floor isn't
+  touching the floor's row, and walking along a floor of separate tiles
+  never snags on the seams. One-way platforms are landed on only by feet
+  that were at or above their top before the step.
+- **Drawing** happens between `push_camera` and `pop_camera`, like the
+  rest of the world: `map.draw(canvas, &tiles, self.time)`. The time is a
+  parameter, as decided, so animated tiles move, and a run stays exactly
+  repeatable (the game keeps the time in `update`). It asks the canvas
+  what's visible (`canvas.visible_area()`, now public), so a 5,000-tile
+  level draws 21 columns. Each tile is stretched to whole pixels that
+  meet its neighbour's, so there are no seams at any zoom, 1.3 included.
+  It labels the whole map `"map"`, which tells the summary's off-screen
+  warning (Step 2.5) how big the world is.
+- **Changing a level while playing**: `clear_tile` and `set_tile` (a
+  broken block, a door). Outside the map is empty, so bodies can leave
+  it; a game adds walls or a `ctx.check`.
+
+## Step 3.2: Tilesets
+
+A `Tileset` is a list of named tiles, each an `Animation`, filled in one
+of three ways: `Tileset::grid(&sheet, 16, 16, &["ground", "", "plank"])`
+(a picture cut in a grid, `""` skipping a cell), `Tileset::load(json)`
+(a Duck Quill sprite sheet, as agreed: one animation per tile, several
+frames for an animated tile), or `insert(name, animation)`. When Duck
+Quill gets a real tileset export, it's one more way to fill the list.
+A tile the map uses but the tileset lacks panics on the first draw,
+naming the tiles there are.
+
+## Step 3.3: Repeating background layers
+
+`Background::new(picture)` with `.parallax(0.5)` (both directions, as
+far things move slower both ways), `.parallax_xy(0.5, 0.1)` (as decided,
+for Duck Tower's climb), `.offset(vec2(0.0, 120.0))`, `.repeat_y(true)`
+and `.repeat_x(false)`. `canvas.draw_background(&layer, &camera)` draws
+in screen pixels wherever it's called, even inside a camera. The copies
+go at whole pixels, edge to edge, so a test that checks every pixel of
+the screen against the repeated picture finds no seam, at camera
+positions with fractions and negative ones, and when the camera climbs
+40 pixels the far wall at 0.25 moves down exactly 10. Backgrounds aren't
+zoomed with the camera (a zoomed parallax layer would need its own
+scale; no test game wanted it), but they do shake with it.

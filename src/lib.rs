@@ -29,6 +29,7 @@
 //! }
 //! ```
 
+pub mod background;
 pub mod camera;
 pub mod canvas;
 mod cli;
@@ -59,6 +60,8 @@ mod speaker;
 pub mod sprite;
 pub mod spritesheet;
 mod summary;
+pub mod tilemap;
+pub mod tileset;
 mod tune;
 mod video;
 #[cfg(feature = "window")]
@@ -80,6 +83,7 @@ pub use simulation::Simulation;
 /// Everything a game usually needs, importable in one line:
 /// `use duckforge::prelude::*;`
 pub mod prelude {
+    pub use crate::background::Background;
     pub use crate::camera::Camera2D;
     pub use crate::canvas::Canvas;
     pub use crate::color::Color;
@@ -98,4 +102,6 @@ pub mod prelude {
     pub use crate::sound::{LoopId, Sound, Wav, Wave};
     pub use crate::sprite::{Animation, Blit, Sprite};
     pub use crate::spritesheet::SpriteSheet;
+    pub use crate::tilemap::{Contacts, Legend, TileKind, TileMap};
+    pub use crate::tileset::Tileset;
 }

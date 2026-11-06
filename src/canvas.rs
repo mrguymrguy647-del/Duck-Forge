@@ -130,6 +130,32 @@ impl Canvas {
         self.pop_camera(); // the same stack: undo the last push, whatever it was
     }
 
+    /// The part of the world that's on the canvas now, with the current
+    /// camera and offsets (the whole canvas, in pixels, without a camera).
+    /// Handy for drawing only what can be seen.
+    pub fn visible_area(&self) -> Rect {
+        let top_left = self.view.unapply(Vec2::ZERO);
+        let bottom_right = self
+            .view
+            .unapply(vec2(self.width as f32, self.height as f32));
+        Rect::new(
+            top_left.x,
+            top_left.y,
+            bottom_right.x - top_left.x,
+            bottom_right.y - top_left.y,
+        )
+    }
+
+    /// How positions become pixels right now (for helpers that draw in
+    /// screen pixels for a moment, then put it back with `set_view`).
+    pub(crate) fn view(&self) -> View {
+        self.view
+    }
+
+    pub(crate) fn set_view(&mut self, view: View) {
+        self.view = view;
+    }
+
     /// Where a position given to the drawing functions ends up on the
     /// screen, with the current camera and offsets.
     #[cfg(test)]
