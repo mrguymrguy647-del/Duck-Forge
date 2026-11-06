@@ -1336,10 +1336,14 @@ mod tests {
         );
         assert!(folder.join("last.scene.json").exists());
 
-        // The ghost is never on screen, but this camera scrolls, so being
-        // off screen is normal and not a warning (see scene::warnings).
+        // The ghost is never on screen, and far outside everything the
+        // camera showed: drawn in the wrong place (see scene::warnings).
         let warnings = &outcome.warnings;
-        assert_eq!(warnings.len(), 2, "{warnings:#?}");
+        assert_eq!(warnings.len(), 3, "{warnings:#?}");
+        assert!(
+            warnings[2].starts_with(r#"label "ghost" at -500,0 is off screen"#),
+            "{warnings:#?}"
+        );
         assert!(
             warnings[0]
                 .starts_with(r#"frame 1: labels "player" at 1,2 and "enemy" at 3,2 overlap"#),

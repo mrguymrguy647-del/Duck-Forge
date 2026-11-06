@@ -84,7 +84,7 @@ asked for. The summary warns about `--set` or tune-file names nobody asked for.
 In `draw`, name things right after drawing them:
 `canvas.label("enemy", rect)`. Add `--describe` to a headless run to get
 the last frame in words; every saved picture gets a `.scene.json`; the
-summary warns about labels never on screen; `--sheet-follow enemy` zooms
+summary warns about labels off screen and outside the world; `--sheet-follow enemy` zooms
 each sheet frame in on that label. `--grid 20` (`--grid-world 32` in world
 units) draws coordinates on saved pictures.
 

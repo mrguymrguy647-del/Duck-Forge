@@ -362,13 +362,18 @@ text: "TIME 10.0" at 4,4; "LIVES 3" at 289,4
 `last.scene.json` (and `frame-NNNNNN.scene.json` for each snapshot) has
 the same as JSON, with each label's world rect, screen rect and
 `on_screen`. The summary also warns, naming the frame and the label,
-about: a label that's off screen in every checked frame (the first, 16
-spread over the run, every snapshot, the last; only in games whose
-camera never moves, since in a scrolling game things off screen are
-normal), text drawn partly off the
-screen, and labels that overlap on frame 1 (things spawned on top of each
-other; a label entirely inside another, like an enemy inside a "level",
-doesn't count).
+about:
+
+- a label that's off screen in every checked frame (the first, 16 spread
+  over the run, every snapshot, the last) *and* outside the world:
+  everything the camera showed, plus every label of a kind that was on
+  screen at least once. An enemy far ahead in a long level is fine (label
+  the level or its ground, or use a tile map, which labels itself); one
+  at -500,0 that should be at 500,0 is not;
+- text drawn partly off the screen;
+- labels that overlap on frame 1 (things spawned on top of each other; a
+  label entirely inside another, like an enemy inside a "level", doesn't
+  count).
 
 ### Step 4: Look
 

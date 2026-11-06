@@ -210,6 +210,36 @@ fn num(value: f32) -> String {
     }
 }
 
+/// The part of the world a scene's screen showed: through its camera,
+/// or the screen itself without one.
+fn view_of(scene: &Scene, width: f32, height: f32) -> Rect {
+    match scene.camera {
+        Some(camera) => {
+            let zoom = if camera.zoom > 0.0 { camera.zoom } else { 1.0 };
+            let size = vec2(width, height) * (1.0 / zoom);
+            Rect::new(
+                camera.position.x - size.x / 2.0,
+                camera.position.y - size.y / 2.0,
+                size.x,
+                size.y,
+            )
+        }
+        None => Rect::new(0.0, 0.0, width, height),
+    }
+}
+
+/// The smallest rectangle around both.
+fn union(a: Rect, b: Rect) -> Rect {
+    let left = a.left().min(b.left());
+    let top = a.top().min(b.top());
+    Rect::new(
+        left,
+        top,
+        a.right().max(b.right()) - left,
+        a.bottom().max(b.bottom()) - top,
+    )
+}
+
 /// Problems found by looking at a run's scenes, for the run summary.
 pub(crate) fn warnings(scenes: &[Scene], width: f32, height: f32) -> Vec<String> {
     let mut warnings = Vec::new();
@@ -257,32 +287,60 @@ pub(crate) fn warnings(scenes: &[Scene], width: f32, height: f32) -> Vec<String>
         }
     }
 
-    // A kind of label that's in every checked frame, but never on screen.
-    // Only when the view never scrolls: in a game whose camera moves (a
-    // top-down map, a long level), plenty of things are off screen, and
-    // that's normal.
-    let screen_center = vec2(width / 2.0, height / 2.0);
-    let scrolls = scenes.iter().any(|s| {
-        s.camera
-            .is_some_and(|c| c.position.distance(screen_center) > 0.5 || c.zoom != 1.0)
-    });
-    if scenes.len() >= 2 && !scrolls {
+    // A kind of label that's in every checked frame, but never on screen,
+    // and never anywhere near the game's world: usually drawn in the wrong
+    // coordinates (screen pixels through a camera, or the reverse).
+    //
+    // Off screen alone is normal: a long level has enemies ahead that the
+    // camera hasn't reached, and wasps start out of view. So a label is
+    // only suspicious when it's also outside the world's area: everything
+    // the camera showed in the checked frames, and every label of a kind
+    // that was on screen at least once (the level, the ground, the coins:
+    // things drawn in the right coordinates, which show how big the world
+    // is).
+    if scenes.len() >= 2 {
         let mut names: Vec<&str> = Vec::new();
         for label in scenes.iter().flat_map(|s| &s.labels) {
             if !names.contains(&label.name.as_str()) {
                 names.push(&label.name);
             }
         }
+        let ever_seen = |name: &str| {
+            scenes
+                .iter()
+                .any(|s| s.labels_named(name).any(|l| l.on_screen))
+        };
+        let mut world: Option<Rect> = None;
+        let mut grow = |r: Rect| {
+            world = Some(world.map_or(r, |w| union(w, r)));
+        };
+        for scene in scenes {
+            grow(view_of(scene, width, height));
+        }
+        for name in names.iter().filter(|name| ever_seen(name)) {
+            for scene in scenes {
+                for label in scene.labels_named(name) {
+                    grow(label.world);
+                }
+            }
+        }
+        let world = world.unwrap_or(canvas);
         for name in names {
             let in_every = scenes.iter().all(|s| s.labels_named(name).next().is_some());
-            let ever_seen = scenes
+            let anywhere_near = scenes
                 .iter()
-                .any(|s| s.labels_named(name).any(|l| l.on_screen));
-            if in_every && !ever_seen {
+                .any(|s| s.labels_named(name).any(|l| l.world.overlaps(&world)));
+            if in_every && !ever_seen(name) && !anywhere_near {
                 let frames: Vec<String> = scenes.iter().map(|s| s.frame.to_string()).collect();
+                let first = scenes[0].labels_named(name).next().map(|l| l.world);
+                let at = first.map_or(String::new(), |r| format!(" at {:.0},{:.0}", r.x, r.y));
                 warnings.push(format!(
-                    "label {name:?} is off screen in every checked frame ({}): is it drawn outside the camera's view?",
-                    frames.join(", ")
+                    "label {name:?}{at} is off screen in every checked frame ({}), and outside the world the camera showed ({:.0},{:.0} to {:.0},{:.0}): is it drawn in the wrong coordinates?",
+                    frames.join(", "),
+                    world.left(),
+                    world.top(),
+                    world.right(),
+                    world.bottom()
                 ));
             }
         }
@@ -377,26 +435,59 @@ mod tests {
         );
         assert!(
             warnings[2]
-                .starts_with(r#"label "ghost" is off screen in every checked frame (1, 60)"#)
+                .starts_with(r#"label "ghost" at -50,0 is off screen in every checked frame (1, 60), and outside the world the camera showed (0,0 to 320,240)"#),
+            "{warnings:#?}"
         );
     }
 
     #[test]
-    fn off_screen_things_are_normal_when_the_view_scrolls() {
+    fn off_screen_things_inside_the_world_are_normal() {
+        // A long level, 2000 wide, labelled as "ground"; a wasp far ahead
+        // that the camera hasn't reached; a "ghost" drawn in the wrong
+        // coordinates, far outside everything.
         let scene = |frame: u64, camera_x: f32| Scene {
             frame,
             camera: Some(SceneCamera {
                 position: vec2(camera_x, 120.0),
                 zoom: 1.0,
             }),
-            labels: vec![label("wasp", 900.0, 10.0, false)],
+            labels: vec![
+                Label {
+                    name: String::from("ground"),
+                    world: Rect::new(0.0, 200.0, 2000.0, 40.0),
+                    screen: Rect::new(160.0 - camera_x, 200.0, 2000.0, 40.0),
+                    on_screen: true,
+                },
+                label("wasp", 1500.0, 10.0, false),
+                label("ghost", -900.0, 10.0, false),
+            ],
             ..Scene::default()
         };
-        // A camera that stays put, showing exactly the screen: a warning.
-        let still = [scene(1, 160.0), scene(60, 160.0)];
-        assert_eq!(warnings(&still, 320.0, 240.0).len(), 1);
-        // One that has moved: the wasp is just elsewhere in the world.
-        let scrolled = [scene(1, 160.0), scene(60, 300.0)];
-        assert!(warnings(&scrolled, 320.0, 240.0).is_empty());
+        for frames in [
+            [scene(1, 160.0), scene(60, 160.0)], // the camera stays put
+            [scene(1, 160.0), scene(60, 400.0)], // it has scrolled a little
+        ] {
+            let warnings = warnings(&frames, 320.0, 240.0);
+            assert_eq!(warnings.len(), 1, "{warnings:#?}");
+            assert!(
+                warnings[0].starts_with(r#"label "ghost" at -900,10 is off screen"#),
+                "{warnings:#?}"
+            );
+        }
+        // Somewhere the camera has shown counts as the world too, even
+        // with nothing else labelled there.
+        let wasp_only = |frame: u64, camera_x: f32| Scene {
+            frame,
+            camera: Some(SceneCamera {
+                position: vec2(camera_x, 120.0),
+                zoom: 1.0,
+            }),
+            labels: vec![label("wasp", 400.0, 10.0, false)],
+            ..Scene::default()
+        };
+        let passed = [wasp_only(1, 160.0), wasp_only(60, 800.0)];
+        assert!(warnings(&passed, 320.0, 240.0).is_empty());
+        let not_yet = [wasp_only(1, 160.0), wasp_only(60, 161.0)];
+        assert_eq!(warnings(&not_yet, 320.0, 240.0).len(), 1);
     }
 }

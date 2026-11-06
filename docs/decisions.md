@@ -1982,3 +1982,24 @@ saves every frame at the game's own frame rate, with the sound.
 - **Cost:** Dodge's 30.7-second playthrough (1,842 frames) takes 7.7 s
   with `--video`, a 1920 x 1080, 60 fps file with sound. Drawing never
   changes the game, so the video can't change what happens.
+
+## Step 2.5: Off-screen labels in long levels
+
+Phase 2 stopped the "off screen in every checked frame" warning in any
+game whose camera moves, which also hid the bug it was made for (a label
+drawn in screen pixels through a camera, or the reverse). The test games
+showed the other half: a camera that hasn't moved yet in a short run, with
+enemies further along a long level, warned about every one of them.
+
+Now the warning looks at where the world is, not at whether the camera
+moved. The world is everything the camera showed in the checked frames,
+plus every label of a kind that was on screen at least once (those are
+drawn in the right coordinates, and the level, its ground and its coins
+show how far it goes). A label kind that's never on screen is only
+reported when it's also outside all of that, with its position and the
+world's: `label "ghost" at -500,0 is off screen in every checked frame
+(1, 15, 30), and outside the world the camera showed (1,0 to 94,8)`.
+Pollen Run's wasps, the starters and Dodge stay quiet, on full and short
+runs. What it can't know: a level that labels nothing but its far-off
+enemies. Labelling the level (or, from Step 3, drawing a tile map, which
+labels itself) fixes that.
