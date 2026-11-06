@@ -1,0 +1,2256 @@
+{
+ "title": "Duck Peaks' pine forest: repeats sideways, see-through above",
+ "palette": {
+  "pine": "#2E5A4A",
+  "pine_dark": "#224536",
+  "trunk": "#3A2A20"
+ },
+ "commands": [
+  {
+   "cmd": "canvas",
+   "width": 256,
+   "height": 110,
+   "pixel": true
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -2,
+     59
+    ],
+    [
+     8,
+     37
+    ],
+    [
+     18,
+     59
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -7,
+     75
+    ],
+    [
+     8,
+     53
+    ],
+    [
+     23,
+     75
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -12,
+     91
+    ],
+    [
+     8,
+     69
+    ],
+    [
+     28,
+     91
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": 6,
+   "y": 107,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     254,
+     59
+    ],
+    [
+     264,
+     37
+    ],
+    [
+     274,
+     59
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     249,
+     75
+    ],
+    [
+     264,
+     53
+    ],
+    [
+     279,
+     75
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     244,
+     91
+    ],
+    [
+     264,
+     69
+    ],
+    [
+     284,
+     91
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": 262,
+   "y": 107,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -258,
+     59
+    ],
+    [
+     -248,
+     37
+    ],
+    [
+     -238,
+     59
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -263,
+     75
+    ],
+    [
+     -248,
+     53
+    ],
+    [
+     -233,
+     75
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -268,
+     91
+    ],
+    [
+     -248,
+     69
+    ],
+    [
+     -228,
+     91
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": -250,
+   "y": 107,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     20,
+     61
+    ],
+    [
+     30,
+     39
+    ],
+    [
+     40,
+     61
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     15,
+     77
+    ],
+    [
+     30,
+     55
+    ],
+    [
+     45,
+     77
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     10,
+     93
+    ],
+    [
+     30,
+     71
+    ],
+    [
+     50,
+     93
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": 28,
+   "y": 109,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     276,
+     61
+    ],
+    [
+     286,
+     39
+    ],
+    [
+     296,
+     61
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     271,
+     77
+    ],
+    [
+     286,
+     55
+    ],
+    [
+     301,
+     77
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     266,
+     93
+    ],
+    [
+     286,
+     71
+    ],
+    [
+     306,
+     93
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": 284,
+   "y": 109,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -236,
+     61
+    ],
+    [
+     -226,
+     39
+    ],
+    [
+     -216,
+     61
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -241,
+     77
+    ],
+    [
+     -226,
+     55
+    ],
+    [
+     -211,
+     77
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -246,
+     93
+    ],
+    [
+     -226,
+     71
+    ],
+    [
+     -206,
+     93
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": -228,
+   "y": 109,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     42,
+     55
+    ],
+    [
+     52,
+     33
+    ],
+    [
+     62,
+     55
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     37,
+     71
+    ],
+    [
+     52,
+     49
+    ],
+    [
+     67,
+     71
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     32,
+     87
+    ],
+    [
+     52,
+     65
+    ],
+    [
+     72,
+     87
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": 50,
+   "y": 103,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     298,
+     55
+    ],
+    [
+     308,
+     33
+    ],
+    [
+     318,
+     55
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     293,
+     71
+    ],
+    [
+     308,
+     49
+    ],
+    [
+     323,
+     71
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     288,
+     87
+    ],
+    [
+     308,
+     65
+    ],
+    [
+     328,
+     87
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": 306,
+   "y": 103,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -214,
+     55
+    ],
+    [
+     -204,
+     33
+    ],
+    [
+     -194,
+     55
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -219,
+     71
+    ],
+    [
+     -204,
+     49
+    ],
+    [
+     -189,
+     71
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -224,
+     87
+    ],
+    [
+     -204,
+     65
+    ],
+    [
+     -184,
+     87
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": -206,
+   "y": 103,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     64,
+     75
+    ],
+    [
+     74,
+     53
+    ],
+    [
+     84,
+     75
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     59,
+     91
+    ],
+    [
+     74,
+     69
+    ],
+    [
+     89,
+     91
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     54,
+     107
+    ],
+    [
+     74,
+     85
+    ],
+    [
+     94,
+     107
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": 72,
+   "y": 123,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     320,
+     75
+    ],
+    [
+     330,
+     53
+    ],
+    [
+     340,
+     75
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     315,
+     91
+    ],
+    [
+     330,
+     69
+    ],
+    [
+     345,
+     91
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     310,
+     107
+    ],
+    [
+     330,
+     85
+    ],
+    [
+     350,
+     107
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": 328,
+   "y": 123,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -192,
+     75
+    ],
+    [
+     -182,
+     53
+    ],
+    [
+     -172,
+     75
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -197,
+     91
+    ],
+    [
+     -182,
+     69
+    ],
+    [
+     -167,
+     91
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -202,
+     107
+    ],
+    [
+     -182,
+     85
+    ],
+    [
+     -162,
+     107
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": -184,
+   "y": 123,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     86,
+     64
+    ],
+    [
+     96,
+     42
+    ],
+    [
+     106,
+     64
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     81,
+     80
+    ],
+    [
+     96,
+     58
+    ],
+    [
+     111,
+     80
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     76,
+     96
+    ],
+    [
+     96,
+     74
+    ],
+    [
+     116,
+     96
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": 94,
+   "y": 112,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     342,
+     64
+    ],
+    [
+     352,
+     42
+    ],
+    [
+     362,
+     64
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     337,
+     80
+    ],
+    [
+     352,
+     58
+    ],
+    [
+     367,
+     80
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     332,
+     96
+    ],
+    [
+     352,
+     74
+    ],
+    [
+     372,
+     96
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": 350,
+   "y": 112,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -170,
+     64
+    ],
+    [
+     -160,
+     42
+    ],
+    [
+     -150,
+     64
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -175,
+     80
+    ],
+    [
+     -160,
+     58
+    ],
+    [
+     -145,
+     80
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -180,
+     96
+    ],
+    [
+     -160,
+     74
+    ],
+    [
+     -140,
+     96
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": -162,
+   "y": 112,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     108,
+     67
+    ],
+    [
+     118,
+     45
+    ],
+    [
+     128,
+     67
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     103,
+     83
+    ],
+    [
+     118,
+     61
+    ],
+    [
+     133,
+     83
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     98,
+     99
+    ],
+    [
+     118,
+     77
+    ],
+    [
+     138,
+     99
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": 116,
+   "y": 115,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     364,
+     67
+    ],
+    [
+     374,
+     45
+    ],
+    [
+     384,
+     67
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     359,
+     83
+    ],
+    [
+     374,
+     61
+    ],
+    [
+     389,
+     83
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     354,
+     99
+    ],
+    [
+     374,
+     77
+    ],
+    [
+     394,
+     99
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": 372,
+   "y": 115,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -148,
+     67
+    ],
+    [
+     -138,
+     45
+    ],
+    [
+     -128,
+     67
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -153,
+     83
+    ],
+    [
+     -138,
+     61
+    ],
+    [
+     -123,
+     83
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -158,
+     99
+    ],
+    [
+     -138,
+     77
+    ],
+    [
+     -118,
+     99
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": -140,
+   "y": 115,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     130,
+     56
+    ],
+    [
+     140,
+     34
+    ],
+    [
+     150,
+     56
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     125,
+     72
+    ],
+    [
+     140,
+     50
+    ],
+    [
+     155,
+     72
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     120,
+     88
+    ],
+    [
+     140,
+     66
+    ],
+    [
+     160,
+     88
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": 138,
+   "y": 104,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     386,
+     56
+    ],
+    [
+     396,
+     34
+    ],
+    [
+     406,
+     56
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     381,
+     72
+    ],
+    [
+     396,
+     50
+    ],
+    [
+     411,
+     72
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     376,
+     88
+    ],
+    [
+     396,
+     66
+    ],
+    [
+     416,
+     88
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": 394,
+   "y": 104,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -126,
+     56
+    ],
+    [
+     -116,
+     34
+    ],
+    [
+     -106,
+     56
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -131,
+     72
+    ],
+    [
+     -116,
+     50
+    ],
+    [
+     -101,
+     72
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -136,
+     88
+    ],
+    [
+     -116,
+     66
+    ],
+    [
+     -96,
+     88
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": -118,
+   "y": 104,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     152,
+     54
+    ],
+    [
+     162,
+     32
+    ],
+    [
+     172,
+     54
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     147,
+     70
+    ],
+    [
+     162,
+     48
+    ],
+    [
+     177,
+     70
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     142,
+     86
+    ],
+    [
+     162,
+     64
+    ],
+    [
+     182,
+     86
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": 160,
+   "y": 102,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     408,
+     54
+    ],
+    [
+     418,
+     32
+    ],
+    [
+     428,
+     54
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     403,
+     70
+    ],
+    [
+     418,
+     48
+    ],
+    [
+     433,
+     70
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     398,
+     86
+    ],
+    [
+     418,
+     64
+    ],
+    [
+     438,
+     86
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": 416,
+   "y": 102,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -104,
+     54
+    ],
+    [
+     -94,
+     32
+    ],
+    [
+     -84,
+     54
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -109,
+     70
+    ],
+    [
+     -94,
+     48
+    ],
+    [
+     -79,
+     70
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -114,
+     86
+    ],
+    [
+     -94,
+     64
+    ],
+    [
+     -74,
+     86
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": -96,
+   "y": 102,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     174,
+     54
+    ],
+    [
+     184,
+     32
+    ],
+    [
+     194,
+     54
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     169,
+     70
+    ],
+    [
+     184,
+     48
+    ],
+    [
+     199,
+     70
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     164,
+     86
+    ],
+    [
+     184,
+     64
+    ],
+    [
+     204,
+     86
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": 182,
+   "y": 102,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     430,
+     54
+    ],
+    [
+     440,
+     32
+    ],
+    [
+     450,
+     54
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     425,
+     70
+    ],
+    [
+     440,
+     48
+    ],
+    [
+     455,
+     70
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     420,
+     86
+    ],
+    [
+     440,
+     64
+    ],
+    [
+     460,
+     86
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": 438,
+   "y": 102,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -82,
+     54
+    ],
+    [
+     -72,
+     32
+    ],
+    [
+     -62,
+     54
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -87,
+     70
+    ],
+    [
+     -72,
+     48
+    ],
+    [
+     -57,
+     70
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -92,
+     86
+    ],
+    [
+     -72,
+     64
+    ],
+    [
+     -52,
+     86
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": -74,
+   "y": 102,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     196,
+     52
+    ],
+    [
+     206,
+     30
+    ],
+    [
+     216,
+     52
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     191,
+     68
+    ],
+    [
+     206,
+     46
+    ],
+    [
+     221,
+     68
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     186,
+     84
+    ],
+    [
+     206,
+     62
+    ],
+    [
+     226,
+     84
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": 204,
+   "y": 100,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     452,
+     52
+    ],
+    [
+     462,
+     30
+    ],
+    [
+     472,
+     52
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     447,
+     68
+    ],
+    [
+     462,
+     46
+    ],
+    [
+     477,
+     68
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     442,
+     84
+    ],
+    [
+     462,
+     62
+    ],
+    [
+     482,
+     84
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": 460,
+   "y": 100,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -60,
+     52
+    ],
+    [
+     -50,
+     30
+    ],
+    [
+     -40,
+     52
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -65,
+     68
+    ],
+    [
+     -50,
+     46
+    ],
+    [
+     -35,
+     68
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -70,
+     84
+    ],
+    [
+     -50,
+     62
+    ],
+    [
+     -30,
+     84
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": -52,
+   "y": 100,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     218,
+     64
+    ],
+    [
+     228,
+     42
+    ],
+    [
+     238,
+     64
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     213,
+     80
+    ],
+    [
+     228,
+     58
+    ],
+    [
+     243,
+     80
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     208,
+     96
+    ],
+    [
+     228,
+     74
+    ],
+    [
+     248,
+     96
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": 226,
+   "y": 112,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     474,
+     64
+    ],
+    [
+     484,
+     42
+    ],
+    [
+     494,
+     64
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     469,
+     80
+    ],
+    [
+     484,
+     58
+    ],
+    [
+     499,
+     80
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     464,
+     96
+    ],
+    [
+     484,
+     74
+    ],
+    [
+     504,
+     96
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": 482,
+   "y": 112,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -38,
+     64
+    ],
+    [
+     -28,
+     42
+    ],
+    [
+     -18,
+     64
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -43,
+     80
+    ],
+    [
+     -28,
+     58
+    ],
+    [
+     -13,
+     80
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -48,
+     96
+    ],
+    [
+     -28,
+     74
+    ],
+    [
+     -8,
+     96
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": -30,
+   "y": 112,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     240,
+     69
+    ],
+    [
+     250,
+     47
+    ],
+    [
+     260,
+     69
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     235,
+     85
+    ],
+    [
+     250,
+     63
+    ],
+    [
+     265,
+     85
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     230,
+     101
+    ],
+    [
+     250,
+     79
+    ],
+    [
+     270,
+     101
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": 248,
+   "y": 117,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     496,
+     69
+    ],
+    [
+     506,
+     47
+    ],
+    [
+     516,
+     69
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     491,
+     85
+    ],
+    [
+     506,
+     63
+    ],
+    [
+     521,
+     85
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     486,
+     101
+    ],
+    [
+     506,
+     79
+    ],
+    [
+     526,
+     101
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": 504,
+   "y": 117,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -16,
+     69
+    ],
+    [
+     -6,
+     47
+    ],
+    [
+     4,
+     69
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -21,
+     85
+    ],
+    [
+     -6,
+     63
+    ],
+    [
+     9,
+     85
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "polygon",
+   "points": [
+    [
+     -26,
+     101
+    ],
+    [
+     -6,
+     79
+    ],
+    [
+     14,
+     101
+    ]
+   ],
+   "fill": "pine"
+  },
+  {
+   "cmd": "rect",
+   "x": -8,
+   "y": 117,
+   "width": 4,
+   "height": 10,
+   "fill": "trunk"
+  },
+  {
+   "cmd": "rect",
+   "x": 0,
+   "y": 90,
+   "width": 256,
+   "height": 20,
+   "fill": "pine_dark"
+  }
+ ]
+}

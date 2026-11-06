@@ -1,0 +1,214 @@
+# Duck Peaks' music: a 4-second loop at 120 beats a minute, one layer per
+# note (Duck Echo has no note lists, but layers start at an `offset`).
+# Every note fades out before the next, so the loop ends in silence and
+# repeats with no click. Then the file is made exactly 4.0 s long:
+#   duck-echo render art/music.toml -o music-raw.wav --seed 1
+#   python3 art/loop_fit.py music-raw.wav assets/music.wav 4.0
+version = 0
+name = "duck_peaks_music"
+description = "A cheerful 4-second loop: square melody over a triangle bass."
+tags = ["music", "loop"]
+
+[master]
+normalize = true
+normalize_peak_db = -9.0
+trim_silence = false
+
+[[layers]]
+name = "melody 1"
+source = "square"
+duty = 0.25
+volume = 0.5
+offset = 0.0
+envelope = { attack = 0.005, hold = 0.07, decay = 0.13 }
+pitch = { start = "E5" }
+
+[[layers]]
+name = "melody 2"
+source = "square"
+duty = 0.25
+volume = 0.5
+offset = 0.25
+envelope = { attack = 0.005, hold = 0.07, decay = 0.13 }
+pitch = { start = "G5" }
+
+[[layers]]
+name = "melody 3"
+source = "square"
+duty = 0.25
+volume = 0.5
+offset = 0.5
+envelope = { attack = 0.005, hold = 0.07, decay = 0.13 }
+pitch = { start = "A5" }
+
+[[layers]]
+name = "melody 4"
+source = "square"
+duty = 0.25
+volume = 0.5
+offset = 0.75
+envelope = { attack = 0.005, hold = 0.07, decay = 0.13 }
+pitch = { start = "G5" }
+
+[[layers]]
+name = "melody 5"
+source = "square"
+duty = 0.25
+volume = 0.5
+offset = 1.0
+envelope = { attack = 0.005, hold = 0.07, decay = 0.13 }
+pitch = { start = "E5" }
+
+[[layers]]
+name = "melody 6"
+source = "square"
+duty = 0.25
+volume = 0.5
+offset = 1.25
+envelope = { attack = 0.005, hold = 0.07, decay = 0.13 }
+pitch = { start = "D5" }
+
+[[layers]]
+name = "melody 7"
+source = "square"
+duty = 0.25
+volume = 0.5
+offset = 1.5
+envelope = { attack = 0.005, hold = 0.07, decay = 0.13 }
+pitch = { start = "C5" }
+
+[[layers]]
+name = "melody 8"
+source = "square"
+duty = 0.25
+volume = 0.5
+offset = 1.75
+envelope = { attack = 0.005, hold = 0.07, decay = 0.13 }
+pitch = { start = "D5" }
+
+[[layers]]
+name = "melody 9"
+source = "square"
+duty = 0.25
+volume = 0.5
+offset = 2.0
+envelope = { attack = 0.005, hold = 0.07, decay = 0.13 }
+pitch = { start = "E5" }
+
+[[layers]]
+name = "melody 10"
+source = "square"
+duty = 0.25
+volume = 0.5
+offset = 2.25
+envelope = { attack = 0.005, hold = 0.07, decay = 0.13 }
+pitch = { start = "G5" }
+
+[[layers]]
+name = "melody 11"
+source = "square"
+duty = 0.25
+volume = 0.5
+offset = 2.5
+envelope = { attack = 0.005, hold = 0.07, decay = 0.13 }
+pitch = { start = "A5" }
+
+[[layers]]
+name = "melody 12"
+source = "square"
+duty = 0.25
+volume = 0.5
+offset = 2.75
+envelope = { attack = 0.005, hold = 0.07, decay = 0.13 }
+pitch = { start = "C6" }
+
+[[layers]]
+name = "melody 13"
+source = "square"
+duty = 0.25
+volume = 0.5
+offset = 3.0
+envelope = { attack = 0.005, hold = 0.07, decay = 0.13 }
+pitch = { start = "A5" }
+
+[[layers]]
+name = "melody 14"
+source = "square"
+duty = 0.25
+volume = 0.5
+offset = 3.25
+envelope = { attack = 0.005, hold = 0.07, decay = 0.13 }
+pitch = { start = "G5" }
+
+[[layers]]
+name = "melody 15"
+source = "square"
+duty = 0.25
+volume = 0.5
+offset = 3.5
+envelope = { attack = 0.005, hold = 0.07, decay = 0.13 }
+pitch = { start = "E5" }
+
+[[layers]]
+name = "bass 1"
+source = "triangle"
+volume = 0.7
+offset = 0.0
+envelope = { attack = 0.005, hold = 0.2, decay = 0.25 }
+pitch = { start = "C3" }
+
+[[layers]]
+name = "bass 2"
+source = "triangle"
+volume = 0.7
+offset = 0.5
+envelope = { attack = 0.005, hold = 0.2, decay = 0.25 }
+pitch = { start = "C3" }
+
+[[layers]]
+name = "bass 3"
+source = "triangle"
+volume = 0.7
+offset = 1.0
+envelope = { attack = 0.005, hold = 0.2, decay = 0.25 }
+pitch = { start = "A2" }
+
+[[layers]]
+name = "bass 4"
+source = "triangle"
+volume = 0.7
+offset = 1.5
+envelope = { attack = 0.005, hold = 0.2, decay = 0.25 }
+pitch = { start = "A2" }
+
+[[layers]]
+name = "bass 5"
+source = "triangle"
+volume = 0.7
+offset = 2.0
+envelope = { attack = 0.005, hold = 0.2, decay = 0.25 }
+pitch = { start = "F2" }
+
+[[layers]]
+name = "bass 6"
+source = "triangle"
+volume = 0.7
+offset = 2.5
+envelope = { attack = 0.005, hold = 0.2, decay = 0.25 }
+pitch = { start = "F2" }
+
+[[layers]]
+name = "bass 7"
+source = "triangle"
+volume = 0.7
+offset = 3.0
+envelope = { attack = 0.005, hold = 0.2, decay = 0.25 }
+pitch = { start = "G2" }
+
+[[layers]]
+name = "bass 8"
+source = "triangle"
+volume = 0.7
+offset = 3.5
+envelope = { attack = 0.005, hold = 0.2, decay = 0.25 }
+pitch = { start = "G2" }

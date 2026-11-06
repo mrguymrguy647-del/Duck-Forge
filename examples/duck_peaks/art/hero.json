@@ -1,0 +1,402 @@
+{
+ "title": "The platformer starter's duck: 16 x 16, feet on the bottom row",
+ "palette": {
+  "yellow": "#F2C230",
+  "wing": "#D9A21E",
+  "ink": "#2A2018",
+  "beak": "#E8782B"
+ },
+ "commands": [
+  {
+   "cmd": "canvas",
+   "width": 16,
+   "height": 16,
+   "pixel": true
+  },
+  {
+   "cmd": "define",
+   "name": "body",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "k": "ink",
+      "y": "yellow",
+      "w": "wing",
+      "o": "beak"
+     },
+     "rows": [
+      "................",
+      "................",
+      ".........kkk....",
+      "........kyyyk...",
+      "........kykyoo..",
+      "........kyyyk...",
+      "...kk...kyyk....",
+      "..kyykkkkyyk....",
+      ".kyyyyyyyyyk....",
+      ".kyywwwyyyyk....",
+      ".kyyywwyyyk.....",
+      "..kyyyyyyk......",
+      "...kkkkkk......."
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "wing_up",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "k": "ink",
+      "y": "yellow",
+      "w": "wing",
+      "o": "beak"
+     },
+     "rows": [
+      "................",
+      "................",
+      "................",
+      "................",
+      "................",
+      "................",
+      "..kk............",
+      ".kwwk...........",
+      ".kwwwk..........",
+      "..kwwk..........",
+      "................",
+      "................",
+      "................"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "legs_stand",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      13
+     ],
+     "colors": {
+      "k": "ink",
+      "y": "yellow",
+      "w": "wing",
+      "o": "beak"
+     },
+     "rows": [
+      "....o..o........",
+      "....o..o........",
+      "...oo.oo........"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "legs_step1",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      13
+     ],
+     "colors": {
+      "k": "ink",
+      "y": "yellow",
+      "w": "wing",
+      "o": "beak"
+     },
+     "rows": [
+      "...o....o.......",
+      "..o.....o.......",
+      "..oo...oo......."
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "legs_step2",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      13
+     ],
+     "colors": {
+      "k": "ink",
+      "y": "yellow",
+      "w": "wing",
+      "o": "beak"
+     },
+     "rows": [
+      "....o.o.........",
+      "....o.o.........",
+      "...oooo........."
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "legs_step3",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      13
+     ],
+     "colors": {
+      "k": "ink",
+      "y": "yellow",
+      "w": "wing",
+      "o": "beak"
+     },
+     "rows": [
+      ".....oo.........",
+      "....o..o........",
+      "...oo..oo......."
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "legs_tuck",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      12
+     ],
+     "colors": {
+      "k": "ink",
+      "y": "yellow",
+      "w": "wing",
+      "o": "beak"
+     },
+     "rows": [
+      "....oo.o........",
+      "....oooo........",
+      "................"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "legs_hang",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      13
+     ],
+     "colors": {
+      "k": "ink",
+      "y": "yellow",
+      "w": "wing",
+      "o": "beak"
+     },
+     "rows": [
+      "....o..o........",
+      "...o....o.......",
+      "................"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "legs",
+   "params": {
+    "pose": "legs_stand"
+   },
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "$pose"
+    }
+   ]
+  }
+ ],
+ "animations": {
+  "idle": {
+   "frames": 2,
+   "fps": 3,
+   "loop": true,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "legs"
+    },
+    {
+     "cmd": "use",
+     "name": "body",
+     "translate": {
+      "keys": [
+       [
+        0,
+        [
+         0,
+         0
+        ]
+       ],
+       [
+        1,
+        [
+         0,
+         1
+        ]
+       ]
+      ],
+      "ease": "step"
+     }
+    }
+   ]
+  },
+  "run": {
+   "frames": 4,
+   "fps": 10,
+   "loop": true,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "legs",
+     "with": {
+      "pose": {
+       "keys": [
+        [
+         0,
+         "legs_step1"
+        ],
+        [
+         1,
+         "legs_step2"
+        ],
+        [
+         2,
+         "legs_step3"
+        ],
+        [
+         3,
+         "legs_step2"
+        ]
+       ]
+      }
+     }
+    },
+    {
+     "cmd": "use",
+     "name": "body",
+     "translate": {
+      "keys": [
+       [
+        0,
+        [
+         0,
+         0
+        ]
+       ],
+       [
+        1,
+        [
+         0,
+         -1
+        ]
+       ],
+       [
+        2,
+        [
+         0,
+         0
+        ]
+       ],
+       [
+        3,
+        [
+         0,
+         -1
+        ]
+       ]
+      ],
+      "ease": "step"
+     }
+    }
+   ]
+  },
+  "jump": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "legs",
+     "with": {
+      "pose": "legs_tuck"
+     }
+    },
+    {
+     "cmd": "use",
+     "name": "body",
+     "translate": [
+      0,
+      -1
+     ]
+    },
+    {
+     "cmd": "use",
+     "name": "wing_up",
+     "translate": [
+      0,
+      -1
+     ]
+    }
+   ]
+  },
+  "fall": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "legs",
+     "with": {
+      "pose": "legs_hang"
+     }
+    },
+    {
+     "cmd": "use",
+     "name": "body"
+    },
+    {
+     "cmd": "use",
+     "name": "wing_up",
+     "translate": [
+      0,
+      1
+     ]
+    }
+   ]
+  }
+ }
+}

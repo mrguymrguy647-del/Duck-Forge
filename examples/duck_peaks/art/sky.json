@@ -1,0 +1,294 @@
+{
+ "title": "Duck Peaks' sunset sky: repeats sideways, taller than the screen for the climb",
+ "palette": {
+  "dusk": "#3B3F7A",
+  "sky1": "#5A5A9A",
+  "sky2": "#8A6AA8",
+  "glow1": "#D07A90",
+  "glow2": "#F09A70",
+  "glow3": "#FBC66A",
+  "sun": "#FFE9A0",
+  "cloud": "#F6B6A8"
+ },
+ "commands": [
+  {
+   "cmd": "canvas",
+   "width": 192,
+   "height": 360,
+   "pixel": true
+  },
+  {
+   "cmd": "rect",
+   "x": 0,
+   "y": 0,
+   "width": 192,
+   "height": 90,
+   "fill": "dusk"
+  },
+  {
+   "cmd": "rect",
+   "x": 0,
+   "y": 90,
+   "width": 192,
+   "height": 70,
+   "fill": "sky1"
+  },
+  {
+   "cmd": "rect",
+   "x": 0,
+   "y": 160,
+   "width": 192,
+   "height": 60,
+   "fill": "sky2"
+  },
+  {
+   "cmd": "rect",
+   "x": 0,
+   "y": 220,
+   "width": 192,
+   "height": 50,
+   "fill": "glow1"
+  },
+  {
+   "cmd": "rect",
+   "x": 0,
+   "y": 270,
+   "width": 192,
+   "height": 50,
+   "fill": "glow2"
+  },
+  {
+   "cmd": "rect",
+   "x": 0,
+   "y": 320,
+   "width": 192,
+   "height": 40,
+   "fill": "glow3"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    130,
+    300
+   ],
+   "radius": 26,
+   "fill": "sun"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    30,
+    120
+   ],
+   "radius": [
+    18.0,
+    5.0
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    40.0,
+    117.0
+   ],
+   "radius": [
+    10.0,
+    4.0
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    222,
+    120
+   ],
+   "radius": [
+    18.0,
+    5.0
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    232.0,
+    117.0
+   ],
+   "radius": [
+    10.0,
+    4.0
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    -162,
+    120
+   ],
+   "radius": [
+    18.0,
+    5.0
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    -152.0,
+    117.0
+   ],
+   "radius": [
+    10.0,
+    4.0
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    150,
+    60
+   ],
+   "radius": [
+    12.6,
+    3.5
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    157.0,
+    57.9
+   ],
+   "radius": [
+    7.0,
+    2.8
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    342,
+    60
+   ],
+   "radius": [
+    12.6,
+    3.5
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    349.0,
+    57.9
+   ],
+   "radius": [
+    7.0,
+    2.8
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    -42,
+    60
+   ],
+   "radius": [
+    12.6,
+    3.5
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    -35.0,
+    57.9
+   ],
+   "radius": [
+    7.0,
+    2.8
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    80,
+    200
+   ],
+   "radius": [
+    14.4,
+    4.0
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    88.0,
+    197.6
+   ],
+   "radius": [
+    8.0,
+    3.2
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    272,
+    200
+   ],
+   "radius": [
+    14.4,
+    4.0
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    280.0,
+    197.6
+   ],
+   "radius": [
+    8.0,
+    3.2
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    -112,
+    200
+   ],
+   "radius": [
+    14.4,
+    4.0
+   ],
+   "fill": "cloud"
+  },
+  {
+   "cmd": "ellipse",
+   "center": [
+    -104.0,
+    197.6
+   ],
+   "radius": [
+    8.0,
+    3.2
+   ],
+   "fill": "cloud"
+  }
+ ]
+}
