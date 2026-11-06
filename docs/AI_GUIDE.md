@@ -799,7 +799,8 @@ camera; the engine resets the camera stack every frame.
 **Math**: `vec2(x, y)` / `Vec2` (`+ - * f32`, `length()`, `normalized()`,
 `distance(other)`, `dot(other)`, `Vec2::ZERO`).
 `Rect::new(x, y, w, h)`, `Rect::from_center(center, w, h)`, `left()`,
-`right()`, `top()`, `bottom()`, `center()`, `overlaps(&other)`,
+`right()`, `top()`, `bottom()`, `center()`, `top_left()`, `top_right()`,
+`bottom_left()`, `bottom_right()` (corners as `Vec2`), `overlaps(&other)`,
 `contains(point)`, `inset(by)`, `expand(by)`, `intersection(&other)`
 (`Option<Rect>`). `vec3(x, y, z)` / `Vec3` for 3D (y is up).
 
@@ -881,7 +882,9 @@ draw 3D on the CPU, so there's no graphics card to worry about.
 and `Simulation::new(config, game)` with `press`, `release`,
 `move_mouse`, `press_mouse`, `release_mouse`, `scroll`, `step`,
 `run(frames)`, `game()`, `picture()`, `recording()`, `follow(script)`,
-`resize(w, h)`.
+`resize(w, h)`. Scripts: `InputScript::load(path)` or its other name
+`InputScript::from_file(path)`; `InputScript::parse(text)` or
+`InputScript::from_json(text)`; `script.save(path)`.
 
 **Command line**: `--headless`, `--frames N`, `--out DIR`, `--seed N`,
 `--inputs FILE`, `--snapshot-every N`, `--sheet`, `--gif`,

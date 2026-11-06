@@ -239,8 +239,16 @@ fn the_game_parts_of_the_cheat_sheet_work() {
     assert_eq!(sim.sounds().len(), 9);
     sim.assert_sound("laser", 3, 0);
     let replay = sim.recording();
+    let file = std::env::temp_dir().join(format!("cheat-sheet-{}.json", std::process::id()));
+    replay.save(&file).unwrap();
+    let loaded = InputScript::load(&file).unwrap();
+    assert_eq!(InputScript::from_file(&file).unwrap(), loaded);
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert_eq!(InputScript::parse(&text).unwrap(), loaded);
+    assert_eq!(InputScript::from_json(&text).unwrap(), loaded);
+    let _ = std::fs::remove_file(file);
     let mut again = Simulation::new(config(), Everything::new());
-    again.follow(replay);
+    again.follow(loaded);
     again.run(6);
     assert_eq!(again.game().x, sim.game().x);
 }
@@ -354,6 +362,20 @@ fn math_and_collisions() {
     let r = Rect::new(0.0, 0.0, 10.0, 10.0);
     let c = Rect::from_center(vec2(5.0, 5.0), 4.0, 4.0);
     let _ = (r.left(), r.right(), r.top(), r.bottom(), r.center());
+    assert_eq!(
+        (
+            r.top_left(),
+            r.top_right(),
+            r.bottom_left(),
+            r.bottom_right()
+        ),
+        (
+            vec2(0.0, 0.0),
+            vec2(10.0, 0.0),
+            vec2(0.0, 10.0),
+            vec2(10.0, 10.0)
+        )
+    );
     assert!(r.overlaps(&c) && r.contains(vec2(1.0, 1.0)));
     assert_eq!(r.inset(1.0), Rect::new(1.0, 1.0, 8.0, 8.0));
     assert_eq!(r.expand(1.0), Rect::new(-1.0, -1.0, 12.0, 12.0));

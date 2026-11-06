@@ -62,13 +62,15 @@ for file in $files; do
         new_type="${new_type}Game"
     fi
 done
-pretty=$(printf '%s' "$name" | tr '_' ' ' | awk '{ print toupper(substr($0, 1, 1)) substr($0, 2) }')
+# Its name in words, each starting with a capital: bee_maze -> Bee Maze.
+pretty=$(printf '%s' "$name" | tr '_' ' ' | awk '{ for (i = 1; i <= NF; i++) $i = toupper(substr($i, 1, 1)) substr($i, 2); print }')
 
 # Whole words only: the type, and the starter's name in commands and paths.
 for file in $files; do
-    # The title first: it can contain the type's name ("Template - duckforge").
+    # The title is set aside first, since both the old title and the new
+    # one can contain the type's name ("Template - duckforge", "My Shooter").
     if [ -n "$title" ]; then
-        sed "s/\"$title\"/\"$pretty - duckforge\"/" "$file" >"$file.new" && mv "$file.new" "$file"
+        sed "s/\"$title\"/\"NEW_GAME_TITLE\"/" "$file" >"$file.new" && mv "$file.new" "$file"
     fi
     for _ in 1 2; do # twice, for names next to each other like "TopDown(TopDown"
         sed -E \
@@ -76,6 +78,7 @@ for file in $files; do
             -e "s/(^|[^A-Za-z0-9_])$starter([^A-Za-z0-9_]|\$)/\\1$name\\2/g" \
             "$file" >"$file.new" && mv "$file.new" "$file"
     done
+    sed "s/\"NEW_GAME_TITLE\"/\"$pretty - duckforge\"/" "$file" >"$file.new" && mv "$file.new" "$file"
 done
 # Say where it came from, at the top.
 {

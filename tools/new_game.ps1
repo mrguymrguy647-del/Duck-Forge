@@ -28,15 +28,17 @@ $word = { param($w) "(?<![A-Za-z0-9_])" + [regex]::Escape($w) + "(?![A-Za-z0-9_]
 foreach ($file in $files) {
     if ([IO.File]::ReadAllText($file) -cmatch (& $word $newType)) { $newType = "${newType}Game"; break }
 }
-$pretty = $Name.Replace("_", " ")
-$pretty = $pretty.Substring(0, 1).ToUpper() + $pretty.Substring(1)
+# Its name in words, each starting with a capital: bee_maze -> Bee Maze.
+$pretty = ($Name.Split("_") | Where-Object { $_ } | ForEach-Object { $_.Substring(0, 1).ToUpper() + $_.Substring(1) }) -join " "
 
 foreach ($file in $files) {
     $text = [IO.File]::ReadAllText($file)
-    # The title first: it can contain the type's name ("Template - duckforge").
-    if ($Title) { $text = $text.Replace("""$Title""", """$pretty - duckforge""") }
+    # The title is set aside first, since both the old title and the new
+    # one can contain the type's name ("Template - duckforge", "My Shooter").
+    if ($Title) { $text = $text.Replace("""$Title""", """NEW_GAME_TITLE""") }
     $text = $text -creplace (& $word $Type), $newType
     $text = $text -creplace (& $word $Starter), $Name
+    $text = $text.Replace("""NEW_GAME_TITLE""", """$pretty - duckforge""")
     if ($file -eq $main) {
         $text = "//! ${pretty}: started from the $Kind starter with tools/new_game.`n//!`n" + $text
     }

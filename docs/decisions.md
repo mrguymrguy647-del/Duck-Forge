@@ -2033,3 +2033,19 @@ file repeats, sample after sample) or a synthesizer `Sound`.
 - **Fixed on the way:** the window ignored `Config::tune_file` (Step 2.2)
   and only looked for `examples/<game>.tune.json`. The window, headless
   runs and `Simulation` now choose the tune file with the same function.
+
+## Step 2.7: Small ones
+
+- `Rect::top_left()`, `top_right()`, `bottom_left()`, `bottom_right()`,
+  next to `center()`: the test games wrote `vec2(r.x, r.bottom())` by
+  hand for feet and ledges.
+- `InputScript::from_file(path)` and `InputScript::from_json(text)`, the
+  names the test games guessed first, as plain other names for `load`
+  and `parse` (the cheat sheet lists all four), and `InputScript` is now
+  in the prelude, since bots and play tests use it.
+- `new_game duck_tower` makes "Duck Tower", not "Duck tower". Its test
+  then caught a real bug: the shooter starter became "My MyShooter -
+  duckforge", because the type was renamed after the title was set and
+  the new title contains the old type's name. The title is now set aside
+  while renaming (`new_game.sh` and `new_game.ps1`, which `new_game.bat`
+  runs).

@@ -95,6 +95,18 @@ impl InputScript {
         InputScript::parse(&text).map_err(|err| format!("{}: {err}", path.display()))
     }
 
+    /// The same as [`load`](InputScript::load): reads a script from a JSON
+    /// file.
+    pub fn from_file(path: impl AsRef<Path>) -> Result<InputScript, String> {
+        InputScript::load(path)
+    }
+
+    /// The same as [`parse`](InputScript::parse): reads a script from JSON
+    /// text.
+    pub fn from_json(text: &str) -> Result<InputScript, String> {
+        InputScript::parse(text)
+    }
+
     /// Reads a script from JSON text. The error message says what's wrong
     /// and where.
     pub fn parse(text: &str) -> Result<InputScript, String> {

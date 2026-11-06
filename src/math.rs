@@ -140,6 +140,27 @@ impl Rect {
         vec2(self.x + self.w / 2.0, self.y + self.h / 2.0)
     }
 
+    /// The top-left corner (`x`, `y`), with y pointing down.
+    pub fn top_left(&self) -> Vec2 {
+        vec2(self.left(), self.top())
+    }
+
+    /// The top-right corner.
+    pub fn top_right(&self) -> Vec2 {
+        vec2(self.right(), self.top())
+    }
+
+    /// The bottom-left corner: where the feet of a character standing in
+    /// this box touch the ground on the left.
+    pub fn bottom_left(&self) -> Vec2 {
+        vec2(self.left(), self.bottom())
+    }
+
+    /// The bottom-right corner.
+    pub fn bottom_right(&self) -> Vec2 {
+        vec2(self.right(), self.bottom())
+    }
+
     /// Axis-aligned bounding box (AABB) collision test: do the two rectangles overlap?
     ///
     /// Two boxes overlap unless one is completely to the left, right,

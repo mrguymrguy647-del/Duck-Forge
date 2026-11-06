@@ -115,17 +115,30 @@ fn each_starter_becomes_a_renamed_game() {
                 before && after
             })
         };
-        assert!(!word(old_type), "{kind}: {old_type} is still there");
+        // (The game's own name in words, like "My Shooter", may contain it.)
+        let pretty = format!("My {}{}", kind[..1].to_uppercase(), &kind[1..]);
+        let without_name = text.replace(&pretty, "");
+        let old_word = |w: &str| {
+            without_name.match_indices(w).any(|(i, _)| {
+                let edge = |c: Option<char>| c.is_none_or(|c| !c.is_alphanumeric() && c != '_');
+                edge(without_name[..i].chars().last())
+                    && edge(without_name[i + w.len()..].chars().next())
+            })
+        };
+        assert!(!old_word(old_type), "{kind}: {old_type} is still there");
         assert!(!word(starter), "{kind}: {starter} is still there");
         assert!(
             text.contains(&format!("struct {new_type}")),
             "{kind}: no struct {new_type}"
         );
         if kind != "tiny" {
-            assert!(
-                text.contains(&format!("\"My {kind} - duckforge\"")),
-                "{kind}: title"
+            // Title Case: my_platformer is "My Platformer".
+            let title = format!(
+                "\"My {}{} - duckforge\"",
+                kind[..1].to_uppercase(),
+                &kind[1..]
             );
+            assert!(text.contains(&title), "{kind}: title {title}");
             // Not the starter's tune file: it would quietly override the
             // values written in the new game's code.
             assert!(
