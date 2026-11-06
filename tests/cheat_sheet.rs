@@ -332,7 +332,10 @@ fn looping_sounds() {
     .frames(30)
     .run();
     let hum = &played.loops()[0];
-    assert_eq!((hum.name.as_str(), hum.start, hum.stop), ("hum", 1, Some(20)));
+    assert_eq!(
+        (hum.name.as_str(), hum.start, hum.stop),
+        ("hum", 1, Some(20))
+    );
     assert_eq!(hum.volumes, [(1, 0.6), (10, 0.3)]);
     assert_eq!(hum.volume_at(15), 0.3);
     assert!(!hum.is_playing());
