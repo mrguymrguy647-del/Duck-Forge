@@ -3,6 +3,7 @@
 #
 #   tools/verify.sh dodge          (50 fuzz runs)
 #   tools/verify.sh dodge 200      (200 fuzz runs)
+#   tools/verify.sh dodge 0        (no fuzzing: the step says "skipped")
 #
 # It builds the example headless, runs its play tests, replays every
 # playthroughs/<game>.json and playthroughs/<game>-*.json with a contact
@@ -14,8 +15,11 @@ set -u
 game="${1:-}"
 runs="${2:-50}"
 cd "$(dirname "$0")/.." || exit 2
-if [ -z "$game" ] || { [ ! -f "examples/$game.rs" ] && [ ! -f "examples/$game/main.rs" ]; }; then
-    echo "usage: tools/verify.sh <example> [fuzz runs]   (examples/<example>.rs or examples/<example>/main.rs must exist)"
+case "$runs" in
+    '' | *[!0-9]*) runs=bad ;;
+esac
+if [ -z "$game" ] || [ "$runs" = bad ] || { [ ! -f "examples/$game.rs" ] && [ ! -f "examples/$game/main.rs" ]; }; then
+    echo "usage: tools/verify.sh <example> [fuzz runs]   (examples/<example>.rs or examples/<example>/main.rs must exist; fuzz runs is a number, 0 to skip fuzzing)"
     exit 2
 fi
 out="out/verify/$game"
@@ -28,9 +32,9 @@ warnings=0
 started=$SECONDS
 
 # Prints a step's result line, and on failure up to 6 lines of detail.
-report() { # report NAME ok|FAILED TEXT [DETAIL_FILE]
+report() { # report NAME ok|skipped|FAILED TEXT [DETAIL_FILE]
     printf '  %-28s %s: %s\n' "$1" "$2" "$3"
-    if [ "$2" != ok ]; then
+    if [ "$2" = FAILED ]; then
         problems=$((problems + 1))
         if [ -n "${4:-}" ]; then
             head -n 6 "$4" | sed 's/^/      /'
@@ -104,19 +108,23 @@ if [ $found -eq 0 ]; then
 fi
 
 # 4. A short fuzz: random key presses, looking for crashes, failed checks
-#    and freezes.
-cargo run -q --no-default-features --example "$game" -- \
-    --fuzz "$runs" --out "$out/fuzz" >"$out/fuzz.txt" 2>&1
-code=$?
-if [ $code -eq 0 ] && grep -q 'no problems found' "$out/fuzz.txt"; then
-    report "fuzz $runs runs" ok "no problems found"
+#    and freezes. 0 runs skips it.
+if [ "$runs" -eq 0 ]; then
+    report fuzz skipped "0 runs asked for"
 else
-    grep -v -E 'fuzzed [0-9]+ runs|^duckforge: coverage: ' "$out/fuzz.txt" | sed 's/^duckforge: //' >"$out/fuzz-problems.txt"
-    count=$(grep -c '^seed' "$out/fuzz-problems.txt")
-    report "fuzz $runs runs" FAILED "$count different problem(s); replay scripts in $out/fuzz" "$out/fuzz-problems.txt"
+    cargo run -q --no-default-features --example "$game" -- \
+        --fuzz "$runs" --out "$out/fuzz" >"$out/fuzz.txt" 2>&1
+    code=$?
+    if [ $code -eq 0 ] && grep -q 'no problems found' "$out/fuzz.txt"; then
+        report "fuzz $runs runs" ok "no problems found"
+    else
+        grep -v -E 'fuzzed [0-9]+ runs|^duckforge: coverage: ' "$out/fuzz.txt" | sed 's/^duckforge: //' >"$out/fuzz-problems.txt"
+        count=$(grep -c '^seed' "$out/fuzz-problems.txt")
+        report "fuzz $runs runs" FAILED "$count different problem(s); replay scripts in $out/fuzz" "$out/fuzz-problems.txt"
+    fi
+    # What the random runs reached, so "no problems found" can be judged.
+    grep '^duckforge: coverage: ' "$out/fuzz.txt" | sed 's/^duckforge: coverage: /      coverage: /'
 fi
-# What the random runs reached, so "no problems found" can be judged.
-grep '^duckforge: coverage: ' "$out/fuzz.txt" | sed 's/^duckforge: coverage: /      coverage: /'
 
 seconds=$((SECONDS - started))
 if [ $problems -eq 0 ] && [ $warnings -gt 0 ]; then

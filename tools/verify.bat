@@ -3,6 +3,7 @@ rem verify: the whole check for one game, in one command.
 rem
 rem   tools\verify.bat dodge          (50 fuzz runs)
 rem   tools\verify.bat dodge 200      (200 fuzz runs)
+rem   tools\verify.bat dodge 0        (no fuzzing: the step says "skipped")
 rem
 rem It builds the example headless, runs its play tests, replays every
 rem playthroughs\<game>.json and playthroughs\<game>-*.json with a contact
@@ -16,6 +17,8 @@ set "runs=%~2"
 if "%runs%"=="" set "runs=50"
 cd /d "%~dp0.."
 if "%game%"=="" goto usage
+rem The number of fuzz runs: digits only.
+echo %runs%| findstr /r /x "[0-9][0-9]*" > nul || goto usage
 if not exist "examples\%game%.rs" if not exist "examples\%game%\main.rs" goto usage
 
 set "out=out\verify\%game%"
@@ -122,7 +125,8 @@ if "!found!"=="0" (
 )
 
 rem 4. A short fuzz: random key presses, looking for crashes, failed checks
-rem    and freezes.
+rem    and freezes. 0 runs skips it.
+if "%runs%"=="0" goto skipfuzz
 cargo run -q --no-default-features --example %game% -- --fuzz %runs% --out "%out%\fuzz" > "%out%\fuzz.txt" 2>&1
 set "code=!errorlevel!"
 findstr /c:"no problems found" "%out%\fuzz.txt" > nul
@@ -144,6 +148,14 @@ for /f "usebackq delims=" %%L in ("%out%\fuzz.txt") do (
     set "line=%%L"
     if "!line:~0,20!"=="duckforge: coverage:" echo       coverage: !line:~21!
 )
+goto fuzzdone
+
+:skipfuzz
+set "msg=0 runs asked for"
+set "detail="
+call :report fuzz skipped
+
+:fuzzdone
 
 if !problems!==0 (
     if !warnings! gtr 0 (
@@ -158,11 +170,12 @@ exit /b 1
 
 rem Prints a step's result line (the text is in msg), and on failure up to
 rem 6 lines of the file named in detail.
-rem   call :report NAME ok|FAILED
+rem   call :report NAME ok|skipped|FAILED
 :report
 set "label=%~1                            "
 echo   !label:~0,28! %~2: !msg!
 if /i "%~2"=="ok" exit /b 0
+if /i "%~2"=="skipped" exit /b 0
 set /a problems+=1
 if "!detail!"=="" exit /b 0
 rem The first 6 lines, exactly as they are (cmd would drop any "!").
@@ -170,5 +183,5 @@ powershell -NoProfile -Command "Get-Content -LiteralPath '!detail!' -TotalCount 
 exit /b 0
 
 :usage
-echo usage: tools\verify.bat ^<example^> [fuzz runs]   ^(examples\^<example^>.rs or examples\^<example^>\main.rs must exist^)
+echo usage: tools\verify.bat ^<example^> [fuzz runs]   ^(examples\^<example^>.rs or examples\^<example^>\main.rs must exist; fuzz runs is a number, 0 to skip fuzzing^)
 exit /b 2

@@ -292,7 +292,7 @@ VERIFY OK: dodge in 2 s (pictures and summaries in out/verify/dodge)
 It builds the game headless, runs its play tests, replays every
 `playthroughs/mygame.json` and `playthroughs/mygame-*.json` with a
 contact sheet and the debug overlay, plays 50 random games (`--fuzz`;
-`tools/verify.sh mygame 200` for more), and prints one line per step. A
+`tools/verify.sh mygame 200` for more, `0` to skip it), and prints one line per step. A
 failed step shows its first few lines of detail (the failing test, the
 check that broke, the fuzz problem with its replay command) and the run
 ends with `VERIFY FAILED` and exit code 1. Everything it saved is in

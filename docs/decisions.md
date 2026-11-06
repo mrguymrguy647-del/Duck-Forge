@@ -2172,3 +2172,14 @@ Checked at the end of Step 3: all 15 examples pass `verify`; a game made
 from each of the four starters passes it too (23 s for all four); 401
 tests pass (383 headless); the headless clean build of `dodge` takes
 10.5 s (10.8 s at Step 0) and a one-line change 0.27 s (0.30 s).
+
+## After Step 3: `verify mygame 0`
+
+`tools/verify.sh mygame 0` failed: `--fuzz 0` is an error, so the fuzz step
+reported `FAILED`. Zero runs now skips the step (`fuzz  skipped: 0 runs
+asked for`) without counting as a problem, and a count that isn't a
+number (`verify.sh mygame lots`) is a usage error, exit code 2, in
+`verify.sh` and `verify.bat` alike (there's no `verify.ps1`: the batch
+file is plain `cmd`). The README's Windows checklist gets a step for it,
+and its `new_game` step now expects "Bee Maze" (Step 2.7) and no tune
+file (Step 2.2), and checks the shooter's title.

@@ -489,7 +489,7 @@ tools/verify.sh dodge        # on Windows: tools\verify.bat dodge
 builds the game headless, runs its play tests, replays every
 `playthroughs/dodge.json` and `playthroughs/dodge-*.json` with a contact
 sheet and the debug overlay, fuzzes 50 runs (`tools/verify.sh dodge 200`
-for more), and prints one line per step, ending in `VERIFY OK` or
+for more, `tools/verify.sh dodge 0` to skip fuzzing), and prints one line per step, ending in `VERIFY OK` or
 `VERIFY FAILED` (exit code 1). Each failed step shows its first lines of
 detail; everything is saved in `out/verify/dodge/`.
 
@@ -550,18 +550,23 @@ Linux but have **never been run on Windows**. To try them:
    Expected: `new_game: made examples\bee_maze ... with the type BeeMaze`,
    `recording playthroughs\bee_maze.json`, then a verify report that ends
    `VERIFY OK: bee_maze`, and `0`. Check that `examples\bee_maze\main.rs`
-   starts with `//! Bee maze: started from the topdown starter` and says
-   `"Bee maze - duckforge"`, and that the end of `Cargo.toml` has the
-   `bee_maze` entry. Try `tools\new_game.bat mini tiny` too (the starter
-   with no title or tune file). Then clean up:
+   starts with `//! Bee Maze: started from the topdown starter` and says
+   `"Bee Maze - duckforge"`, that there's no `examples\bee_maze.tune.json`,
+   and that the end of `Cargo.toml` has the `bee_maze` entry. Try
+   `tools\new_game.bat my_shooter shooter` too (its title must be
+   `"My Shooter - duckforge"`, not `"My MyShooter"`), and
+   `tools\new_game.bat mini tiny` (the starter with no title). Then clean up:
 
    ```bat
-   rmdir /s /q examples\bee_maze
-   del examples\bee_maze.tune.json playthroughs\bee_maze.json examples\mini.rs
+   rmdir /s /q examples\bee_maze examples\my_shooter
+   del playthroughs\bee_maze.json playthroughs\my_shooter.json examples\mini.rs
    git checkout Cargo.toml
    ```
-7. Errors: `tools\verify.bat nosuch` and `tools\new_game.bat Bad topdown`
-   should each print a usage line and give `2` from `echo %errorlevel%`.
+7. Errors: `tools\verify.bat nosuch`, `tools\verify.bat dodge lots` and
+   `tools\new_game.bat Bad topdown` should each print a usage line and give
+   `2` from `echo %errorlevel%`.
+8. No fuzzing: `tools\verify.bat dodge 0` should end its list with
+   `fuzz  skipped: 0 runs asked for`, then `VERIFY OK: dodge`, and `0`.
 
 Please send back everything each step printed (and the `errorlevel`), as
 text or screenshots, especially anything that differs from "Expected".
