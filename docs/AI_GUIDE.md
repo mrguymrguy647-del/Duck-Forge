@@ -1000,7 +1000,11 @@ a plain part merged into a textured mesh stays plain), `mesh.bounds()`
 (lowest and highest corner).
 `Transform::at(position).rotated(vec3(x, y, z)).scaled(vec3(x, y, z))`
 or `.sized(scale)`. In `draw`: `canvas.draw_mesh(&mesh, &transform,
-&camera)`. First-person hands and held things:
+&camera)`. `canvas.draw_mesh_tinted(&mesh, &transform, &camera,
+Color::rgba(255, 120, 120, 255))` (colours times the tint; its alpha is
+how solid: 255 solid, 128 half see-through; see-through meshes don't hide
+what's drawn after them, so draw them after the solid world).
+First-person hands and held things:
 `canvas.draw_mesh_in_view(&mesh, &transform, &camera)` (the transform is
 relative to the camera: x right, y up, z ahead; it stays put on the
 screen, is lit by the world's sun, and is drawn in front of the 3D drawn

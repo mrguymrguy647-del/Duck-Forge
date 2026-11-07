@@ -71,7 +71,9 @@ Details: the guide's section 7 (cheat sheet) and section 11 (3D).
   `world.update_meshes(&palette)` rebuilds just the changed chunks),
   `camera.project(point, canvas)` for labels.
   `canvas.draw_mesh_in_view(&hand, &Transform::at(vec3(0.3, -0.3, 0.6)), &camera)`
-  for first-person hands and held items (after the world).
+  for first-person hands and held items (after the world);
+  `canvas.draw_mesh_tinted(&mesh, &at, &camera, Color::rgba(0, 0, 0, 90))`
+  for tints, ghosts, shadows and glassy boxes (see-through ones last).
   Mouse look: `ctx.lock_pointer(true)` (the window hides and holds the
   pointer; Escape should free it) and turn by `ctx.input.mouse_delta()`;
   tests move it with `sim.move_mouse_by(vec2(dx, dy))`.

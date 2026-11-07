@@ -2739,3 +2739,44 @@ through a wall that is nearer than it, and is bright with the sun behind
 the camera and dark when turned to face the sun; the GPU draws the same
 picture. The 42 baseline 3D pictures are unchanged (`draw_mesh` itself
 only resets a flag).
+
+## Fix 8: Tint and see-through, per draw
+
+A mesh's colours were fixed when it was built, and nothing in 3D could
+be see-through except whole texels of a texture. Duck Craft wanted a
+shadow under the duck and a glassy selection box (it drew 12 lines).
+`canvas.draw_mesh_tinted(&mesh, &transform, &camera, tint)` multiplies
+the mesh's colours by `tint` for that one draw, and `tint`'s alpha is how
+solid it is. One colour does both, the same way `Blit` tints sprites.
+
+See-through drawing follows the usual rule: it's hidden by nearer things
+already drawn, but doesn't write the depth buffer, so it hides nothing
+drawn after it. "Draw see-through meshes last" is in the docs. Sorting
+them automatically would need every see-through draw kept until the end
+of the frame, which the CPU renderer (it draws at once) can't do without
+a big change.
+
+- **CPU:** the two triangle fillers take an opacity; at 255 they run the
+  same code as before, so the 42 baseline pictures are unchanged. Below
+  255 a pixel is mixed with `color::blend`. The triangle filler covers
+  the pixels on an edge that two triangles share twice, which is
+  invisible for solid triangles but showed as a darker diagonal line
+  through see-through squares. Each see-through mesh now marks the pixels
+  it painted, so each is mixed once. Changing the filler's edge rule
+  would have moved pixels in every existing picture.
+- **GPU:** each object carries its tint next to its matrix, the shader
+  multiplies by it, and a second pipeline (alpha blending, no depth
+  write) draws the see-through objects after the solid ones in the same
+  batch, one at a time, in drawing order. A solid object drawn after
+  see-through ones first draws them, so the GPU follows the drawing order
+  like the CPU.
+
+Tests: exact colours on the CPU (half blue over red is `(127, 0, 128)`),
+an invisible tint changes nothing, a white tint gives exactly
+`draw_mesh`'s picture, a see-through cube hides nothing drawn after it,
+and the GPU matches the CPU. Duck Craft draws a soft shadow under the duck
+(smaller and fainter as it jumps) and a faint glassy box over the block
+you look at; its CPU and GPU pictures differ in 0.18% of pixels. The
+CPU benchmarks (`stress3d`'s `frame_time`, two runs each) were 5.7 to 6.4
+ms for the textured block world before and 6.2 to 6.9 ms after, about the
+spread between runs.

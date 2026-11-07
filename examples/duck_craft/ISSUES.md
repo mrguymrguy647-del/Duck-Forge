@@ -79,6 +79,10 @@ game; the tool still has the gap.
 12. **Meshes can't be drawn with a per-draw tint or transparency**, so a
     shadow blob under the duck or a see-through selection box isn't
     possible; the selection is 12 `draw_line`s instead.
+    **Fixed in the engine:** `canvas.draw_mesh_tinted(mesh, transform,
+    camera, Color::rgba(..))` (the colour multiplies, its alpha is how
+    solid). Duck Craft now has a soft shadow under the duck and a faint
+    glassy box over the block you look at (the edge lines stay).
 
 ## Found while fixing the engine
 

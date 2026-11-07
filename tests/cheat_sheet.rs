@@ -667,6 +667,13 @@ fn three_d_textures_light_and_billboards() -> Result<(), LoadError> {
     }
     canvas.draw_mesh(&chunk, &Transform::at(vec3(-1.5, -1.0, 1.0)), &camera);
     world.draw(&mut canvas, &camera);
+    let ghost = Color::rgba(160, 200, 255, 100);
+    canvas.draw_mesh_tinted(
+        &Mesh::cube(Color::WHITE),
+        &Transform::default(),
+        &camera,
+        ghost,
+    );
     let held = Transform::at(vec3(0.3, -0.3, 0.6)).sized(0.2);
     canvas.draw_mesh_in_view(&Mesh::cube(Color::RED), &held, &camera);
     let duck = SpriteSheet::load("tests/fixtures/quill/scale1/duck.json")?;

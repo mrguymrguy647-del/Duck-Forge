@@ -46,11 +46,13 @@ const TEXTURED: u32 = 1;
 /// `Vertex::flags`: the mesh ignores the light.
 const GLOWING: u32 = 2;
 
-/// Per-object data: the object's transform matrix.
+/// Per-object data: the object's transform matrix, and its tint (red,
+/// green, blue multiply its colours; alpha is how solid it is).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 struct Instance {
     model: [[f32; 4]; 4],
+    tint: [f32; 4],
 }
 
 /// Settings shared by one batch of drawing (see `Globals` in `gpu.wgsl`).
@@ -222,6 +224,9 @@ pub(crate) struct GpuRenderer {
     /// "GPU: " plus the graphics card's name and the API used to talk to it.
     description: String,
     pipeline: wgpu::RenderPipeline,
+    /// The same, for see-through objects: mixed over what's there, and not
+    /// written to the depth buffer.
+    see_through_pipeline: wgpu::RenderPipeline,
     globals_buffer: wgpu::Buffer,
     globals_bind_group: wgpu::BindGroup,
     /// The picture being drawn. Same size and byte layout as the canvas.
@@ -251,6 +256,9 @@ pub(crate) struct GpuRenderer {
     seen: FastMap<Address, Seen>,
     /// The objects recorded since the last flush, grouped by mesh.
     pending: FastMap<MeshKey, Vec<Instance>>,
+    /// See-through objects recorded since the last flush, in the order
+    /// they were drawn (drawn after the solid ones, one at a time).
+    pending_see_through: Vec<(MeshKey, Instance)>,
     /// The camera for the pending objects.
     camera: Option<Camera3D>,
     /// Whether the next flush starts with an empty depth buffer.
@@ -393,62 +401,71 @@ impl GpuRenderer {
         let vertex_attributes =
             wgpu::vertex_attr_array![0 => Float32x3, 1 => Unorm8x4, 6 => Float32x2, 7 => Uint32];
         let instance_attributes = wgpu::vertex_attr_array![
-            2 => Float32x4, 3 => Float32x4, 4 => Float32x4, 5 => Float32x4
+            2 => Float32x4, 3 => Float32x4, 4 => Float32x4, 5 => Float32x4, 8 => Float32x4
         ];
 
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("mesh"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[
-                    // Buffer 0: the mesh's corners, one per shader run.
-                    Some(wgpu::VertexBufferLayout {
-                        array_stride: std::mem::size_of::<Vertex>() as u64,
-                        step_mode: wgpu::VertexStepMode::Vertex,
-                        attributes: &vertex_attributes,
-                    }),
-                    // Buffer 1: one matrix per *object*. `Instance` step mode means
-                    // the GPU moves to the next matrix only for the next copy
-                    // of the whole mesh. That's instancing.
-                    Some(wgpu::VertexBufferLayout {
-                        array_stride: std::mem::size_of::<Instance>() as u64,
-                        step_mode: wgpu::VertexStepMode::Instance,
-                        attributes: &instance_attributes,
-                    }),
-                ],
-            },
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                // Our rule: corners go clockwise when seen from the front.
-                front_face: wgpu::FrontFace::Cw,
-                cull_mode: Some(wgpu::Face::Back), // back-face culling, in hardware
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: Some(true),
-                // Depth is `near / distance`, so bigger means closer (like the CPU's 1 / z).
-                depth_compare: Some(wgpu::CompareFunction::Greater),
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: Default::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: COLOR_FORMAT,
-                    blend: None, // just replace the pixel
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        // Two pipelines, the same but for how pixels are written: solid
+        // objects replace the pixel and write the depth; see-through ones
+        // mix over it and don't.
+        let make_pipeline = |see_through: bool| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("mesh"),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    compilation_options: Default::default(),
+                    buffers: &[
+                        // Buffer 0: the mesh's corners, one per shader run.
+                        Some(wgpu::VertexBufferLayout {
+                            array_stride: std::mem::size_of::<Vertex>() as u64,
+                            step_mode: wgpu::VertexStepMode::Vertex,
+                            attributes: &vertex_attributes,
+                        }),
+                        // Buffer 1: one matrix per *object*. `Instance` step mode means
+                        // the GPU moves to the next matrix only for the next copy
+                        // of the whole mesh. That's instancing.
+                        Some(wgpu::VertexBufferLayout {
+                            array_stride: std::mem::size_of::<Instance>() as u64,
+                            step_mode: wgpu::VertexStepMode::Instance,
+                            attributes: &instance_attributes,
+                        }),
+                    ],
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    // Our rule: corners go clockwise when seen from the front.
+                    front_face: wgpu::FrontFace::Cw,
+                    cull_mode: Some(wgpu::Face::Back), // back-face culling, in hardware
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: Some(!see_through),
+                    // Depth is `near / distance`, so bigger means closer (like the CPU's 1 / z).
+                    depth_compare: Some(wgpu::CompareFunction::Greater),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: Default::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_main"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: COLOR_FORMAT,
+                        // Solid: just replace the pixel. See-through: new * alpha
+                        // + old * (1 - alpha).
+                        blend: see_through.then_some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let pipeline = make_pipeline(false);
+        let see_through_pipeline = make_pipeline(true);
 
         // 5. The picture, the depth buffer, and a buffer to copy the picture into.
         let size = wgpu::Extent3d {
@@ -497,6 +514,7 @@ impl GpuRenderer {
             queue,
             description,
             pipeline,
+            see_through_pipeline,
             globals_buffer,
             globals_bind_group,
             readback_buffer,
@@ -512,6 +530,7 @@ impl GpuRenderer {
             meshes: FastMap::default(),
             seen: FastMap::default(),
             pending: FastMap::default(),
+            pending_see_through: Vec::new(),
             camera: None,
             clear_depth: true,
             flushes: 0,
@@ -529,6 +548,7 @@ impl GpuRenderer {
     /// batch with an empty depth buffer.
     pub(crate) fn clear(&mut self) {
         self.pending.clear();
+        self.pending_see_through.clear();
         self.pending_instances = 0;
         self.seen.clear();
         self.camera = None;
@@ -548,6 +568,7 @@ impl GpuRenderer {
         transform: &Transform,
         camera: &Camera3D,
         lighting: &Lighting,
+        tint: crate::color::Color,
         pixels: &mut [u32],
     ) {
         if mesh.triangles.is_empty() {
@@ -557,7 +578,10 @@ impl GpuRenderer {
         // Draw what we have first.
         let changed = self.camera.is_some_and(|current| current != *camera)
             || (self.camera.is_some() && self.lighting != *lighting);
-        if changed {
+        // A solid object after see-through ones: draw those first, so the
+        // picture follows the drawing order, as on the CPU.
+        let solid_after_glass = tint.a == 255 && !self.pending_see_through.is_empty();
+        if changed || solid_after_glass {
             self.flush(pixels);
         }
         self.camera = Some(*camera);
@@ -582,8 +606,13 @@ impl GpuRenderer {
         }
         let instance = Instance {
             model: transform.matrix().columns,
+            tint: [tint.r, tint.g, tint.b, tint.a].map(|c| c as f32 / 255.0),
         };
-        self.pending.entry(key).or_default().push(instance);
+        if tint.a < 255 {
+            self.pending_see_through.push((key, instance));
+        } else {
+            self.pending.entry(key).or_default().push(instance);
+        }
         self.pending_instances += 1;
         if self.pending_instances >= self.max_batch_instances {
             self.flush(pixels); // a huge batch: draw this part now
@@ -682,7 +711,7 @@ impl GpuRenderer {
         let Some(camera) = self.camera else {
             return;
         };
-        if self.pending.is_empty() {
+        if self.pending.is_empty() && self.pending_see_through.is_empty() {
             return;
         }
 
@@ -715,9 +744,15 @@ impl GpuRenderer {
         self.queue
             .write_buffer(&self.globals_buffer, 0, bytemuck::bytes_of(&globals));
 
-        // All objects' matrices go into one buffer, mesh after mesh.
+        // All objects' matrices go into one buffer, mesh after mesh, then
+        // the see-through objects one by one.
         let batches: Vec<(MeshKey, Vec<Instance>)> = self.pending.drain().collect();
-        let total: usize = batches.iter().map(|(_, instances)| instances.len()).sum();
+        let see_through = std::mem::take(&mut self.pending_see_through);
+        let total: usize = batches
+            .iter()
+            .map(|(_, instances)| instances.len())
+            .sum::<usize>()
+            + see_through.len();
         let needed = (total * std::mem::size_of::<Instance>()) as u64;
         if self.instance_buffer.size() < needed {
             let capacity = total.next_power_of_two().min(self.max_batch_instances);
@@ -726,6 +761,7 @@ impl GpuRenderer {
         let all_instances: Vec<Instance> = batches
             .iter()
             .flat_map(|(_, list)| list.iter().copied())
+            .chain(see_through.iter().map(|&(_, instance)| instance))
             .collect();
         self.queue.write_buffer(
             &self.instance_buffer,
@@ -768,10 +804,15 @@ impl GpuRenderer {
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.globals_bind_group, &[]);
 
-            // One draw call per mesh, however many copies of it there are.
+            // One draw call per mesh, however many copies of it there are;
+            // then each see-through object, in the order it was drawn.
+            let solid = batches.iter().map(|(key, list)| (key, list.len() as u32));
+            let glassy = see_through.iter().map(|(key, _)| (key, 1));
             let mut first = 0u32;
-            for (key, instances) in &batches {
-                let count = instances.len() as u32;
+            for (n, (key, count)) in solid.chain(glassy).enumerate() {
+                if n == batches.len() {
+                    pass.set_pipeline(&self.see_through_pipeline);
+                }
                 let mesh = &self.meshes[key];
                 let texture = match mesh.texture.and_then(|t| self.textures.get_mut(&t)) {
                     Some(texture) => {
@@ -1076,6 +1117,30 @@ mod tests {
     }
 
     #[test]
+    fn tinted_and_see_through_meshes_are_drawn_like_the_cpu() {
+        for green in [false, true] {
+            let Some(mut gpu) = gpu_canvas(80, 60) else {
+                return;
+            };
+            let mut cpu = Canvas::new(80, 60);
+            crate::render3d::draw_glass_scene(&mut gpu, green);
+            crate::render3d::draw_glass_scene(&mut cpu, green);
+            gpu.flush_3d();
+            let share = share_different(&gpu, &cpu);
+            assert!(share < 0.02, "{:.1}% of pixels differ", share * 100.0);
+            let (g, c) = (
+                gpu.get_pixel(40, 30).unwrap(),
+                cpu.get_pixel(40, 30).unwrap(),
+            );
+            let near = |a: u8, b: u8| a.abs_diff(b) <= 2;
+            assert!(
+                near(g.r, c.r) && near(g.g, c.g) && near(g.b, c.b),
+                "{g:?} {c:?}"
+            );
+        }
+    }
+
+    #[test]
     fn a_mesh_in_view_is_drawn_like_the_cpu() {
         for (yaw, glowing) in [(0.0, true), (2.5, false)] {
             let Some(mut gpu) = gpu_canvas(80, 60) else {
@@ -1246,6 +1311,7 @@ mod tests {
                     &Transform::at(at),
                     &camera,
                     &Default::default(),
+                    Color::WHITE,
                     pixels,
                 );
             }

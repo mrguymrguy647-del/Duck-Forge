@@ -56,6 +56,11 @@ pub struct Canvas {
     /// depth buffer was emptied for it, and isn't again until the world is
     /// drawn once more.
     pub(crate) drawing_in_view: bool,
+    /// For see-through meshes: which mesh last painted each pixel (by
+    /// number), so a pixel on the edge two triangles share is mixed in
+    /// once, not twice. Empty until the first see-through mesh.
+    see_through_marks: Vec<u32>,
+    see_through_mark: u32,
     /// Billboard quads made so far, kept so the GPU sees the same mesh
     /// every frame (and uploads it once).
     billboards: Vec<BillboardQuad>,
@@ -99,6 +104,8 @@ impl Canvas {
             texts: Vec::new(),
             lighting: Lighting::default(),
             drawing_in_view: false,
+            see_through_marks: Vec::new(),
+            see_through_mark: 0,
             billboards: Vec::new(),
         }
     }
@@ -321,6 +328,21 @@ impl Canvas {
         }
     }
 
+    /// Called before drawing each see-through mesh on the CPU: from now on,
+    /// pixels it paints are marked with a new number.
+    pub(crate) fn start_see_through_mesh(&mut self) {
+        let size = self.width * self.height;
+        if self.see_through_marks.len() != size {
+            self.see_through_marks = vec![0; size];
+        }
+        self.see_through_mark = self.see_through_mark.wrapping_add(1);
+        if self.see_through_mark == 0 {
+            // Every number used: start again from clean marks.
+            self.see_through_marks.fill(0);
+            self.see_through_mark = 1;
+        }
+    }
+
     pub fn flush_3d(&mut self) {
         #[cfg(feature = "gpu")]
         if let GpuSlot::Running(gpu) = &mut self.gpu {
@@ -335,6 +357,7 @@ impl Canvas {
         mesh: &Mesh,
         transform: &Transform,
         camera: &Camera3D,
+        tint: Color,
     ) -> bool {
         if matches!(self.gpu, GpuSlot::NotStarted) {
             self.gpu = match GpuRenderer::new(self.width, self.height) {
@@ -347,7 +370,14 @@ impl Canvas {
         }
         match &mut self.gpu {
             GpuSlot::Running(gpu) => {
-                gpu.draw(mesh, transform, camera, &self.lighting, &mut self.pixels);
+                gpu.draw(
+                    mesh,
+                    transform,
+                    camera,
+                    &self.lighting,
+                    tint,
+                    &mut self.pixels,
+                );
                 true
             }
             _ => false,
@@ -559,10 +589,27 @@ impl Canvas {
         corners: [Vec2; 3],
         inverse_depths: [f32; 3],
         color: Color,
+        opacity: u8,
     ) {
         let c32 = color.to_u32();
         // Borrow the two buffers separately, so the closure can change both.
         let (pixels, depth) = (&mut self.pixels, &mut self.depth);
+        if opacity < 255 {
+            // See-through: mixed over what's there, behind nearer things,
+            // but it doesn't hide what's drawn after it (no depth written).
+            // Each pixel once per mesh, even on an edge two triangles share.
+            let (marks, mark) = (&mut self.see_through_marks, self.see_through_mark);
+            for_each_pixel_in_triangle(self.width, self.height, corners, |i, weights| {
+                let d = weights[0] * inverse_depths[0]
+                    + weights[1] * inverse_depths[1]
+                    + weights[2] * inverse_depths[2];
+                if d > depth[i] && marks[i] != mark {
+                    marks[i] = mark;
+                    pixels[i] = crate::color::blend(pixels[i], c32, opacity);
+                }
+            });
+            return;
+        }
         for_each_pixel_in_triangle(self.width, self.height, corners, |i, weights| {
             // Blend the corners' depths by how close this pixel is to each corner.
             let d = weights[0] * inverse_depths[0]
@@ -586,6 +633,7 @@ impl Canvas {
         uv_over_z: [Vec2; 3],
         texture: &Sprite,
         shade: [f32; 3],
+        opacity: u8,
     ) {
         let (tw, th) = (texture.width(), texture.height());
         if tw == 0 || th == 0 {
@@ -596,6 +644,7 @@ impl Canvas {
         let shade = shade.map(|k| (k.clamp(0.0, 255.0) * 65536.0).round() as u32);
         let (texture_rgb, texture_alpha, row, start) = texture.texels();
         let (pixels, depth) = (&mut self.pixels, &mut self.depth);
+        let (marks, mark) = (&mut self.see_through_marks, self.see_through_mark);
         for_each_pixel_in_triangle(self.width, self.height, corners, |i, weights| {
             let d = weights[0] * inverse_depths[0]
                 + weights[1] * inverse_depths[1]
@@ -626,8 +675,17 @@ impl Canvas {
                 let c = ((rgb >> shift) & 0xff) as u64 * k as u64;
                 (((c + 32768) >> 16).min(255) as u32) << shift
             };
-            depth[i] = d;
-            pixels[i] = channel(16, shade[0]) | channel(8, shade[1]) | channel(0, shade[2]);
+            let color = channel(16, shade[0]) | channel(8, shade[1]) | channel(0, shade[2]);
+            if opacity < 255 {
+                // See-through: no depth, and each pixel once per mesh.
+                if marks[i] != mark {
+                    marks[i] = mark;
+                    pixels[i] = crate::color::blend(pixels[i], color, opacity);
+                }
+            } else {
+                depth[i] = d;
+                pixels[i] = color;
+            }
         });
     }
 
@@ -1509,13 +1567,13 @@ mod tests {
         let mut canvas = Canvas::new(10, 10);
         canvas.clear(Color::BLACK);
         let corners = [vec2(0.0, 0.0), vec2(10.0, 0.0), vec2(0.0, 10.0)];
-        canvas.fill_triangle_3d(corners, [0.5; 3], Color::RED); // 2 units away
-        canvas.fill_triangle_3d(corners, [0.1; 3], Color::BLUE); // 10 units away: hidden
+        canvas.fill_triangle_3d(corners, [0.5; 3], Color::RED, 255); // 2 units away
+        canvas.fill_triangle_3d(corners, [0.1; 3], Color::BLUE, 255); // 10 units away: hidden
         assert_eq!(canvas.get_pixel(1, 1), Some(Color::RED));
-        canvas.fill_triangle_3d(corners, [1.0; 3], Color::GREEN); // 1 unit away: in front
+        canvas.fill_triangle_3d(corners, [1.0; 3], Color::GREEN, 255); // 1 unit away: in front
         assert_eq!(canvas.get_pixel(1, 1), Some(Color::GREEN));
         canvas.clear(Color::BLACK); // clearing resets depth too
-        canvas.fill_triangle_3d(corners, [0.1; 3], Color::BLUE);
+        canvas.fill_triangle_3d(corners, [0.1; 3], Color::BLUE, 255);
         assert_eq!(canvas.get_pixel(1, 1), Some(Color::BLUE));
     }
 

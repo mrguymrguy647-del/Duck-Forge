@@ -35,6 +35,8 @@ struct VertexIn {
     @location(3) model_1: vec4<f32>,
     @location(4) model_2: vec4<f32>,
     @location(5) model_3: vec4<f32>,
+    // From the object: its tint (rgb multiply the colour; a is how solid).
+    @location(8) tint: vec4<f32>,
 };
 
 struct VertexOut {
@@ -48,6 +50,7 @@ struct VertexOut {
     @location(2) uv: vec2<f32>,
     // The same for the whole triangle, so not blended at all.
     @location(3) @interpolate(flat) flags: u32,
+    @location(4) @interpolate(flat) tint: vec4<f32>,
 };
 
 @vertex
@@ -61,6 +64,7 @@ fn vs_main(v: VertexIn) -> VertexOut {
     out.color = v.color.rgb;
     out.uv = v.uv;
     out.flags = v.flags;
+    out.tint = v.tint;
     return out;
 }
 
@@ -95,13 +99,14 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         }
         color = color * texel.rgb;
     }
+    color = color * in.tint.rgb;
     if (in.flags & GLOWING) != 0u {
-        return vec4<f32>(color, 1.0);
+        return vec4<f32>(color, in.tint.a);
     }
 
     // The same flat shading as the CPU renderer.
     let sunlight = max(dot(normal, globals.sun.xyz), 0.0);
     let ambient = globals.sun.w;
     let brightness = ambient + (1.0 - ambient) * (sunlight * globals.sun_color.rgb);
-    return vec4<f32>(color * brightness, 1.0);
+    return vec4<f32>(color * brightness, in.tint.a);
 }

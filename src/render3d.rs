@@ -1000,7 +1000,31 @@ impl Canvas {
     /// lets a type's methods be spread over several files in the same crate.)
     pub fn draw_mesh(&mut self, mesh: &Mesh, transform: &Transform, camera: &Camera3D) {
         self.drawing_in_view = false;
-        self.draw_mesh_from(mesh, transform, camera);
+        self.draw_mesh_from(mesh, transform, camera, Color::WHITE);
+    }
+
+    /// Draws `mesh` like [`draw_mesh`](Canvas::draw_mesh), with every colour
+    /// multiplied by `tint` (white changes nothing; `Color::rgb(255, 120,
+    /// 120)` is redder), and `tint`'s alpha as how solid it is: 255 solid,
+    /// 128 half see-through, 0 invisible. The mesh itself doesn't change,
+    /// so one mesh can be drawn in many tints: a hurt flash, a ghost, a
+    /// shadow under a character (a flat black disc at alpha 90), a glassy
+    /// selection box.
+    ///
+    /// A see-through mesh is hidden by nearer things drawn before it, but
+    /// doesn't hide anything: draw see-through meshes after the solid
+    /// world, and far ones before near ones.
+    pub fn draw_mesh_tinted(
+        &mut self,
+        mesh: &Mesh,
+        transform: &Transform,
+        camera: &Camera3D,
+        tint: Color,
+    ) {
+        self.drawing_in_view = false;
+        if tint.a > 0 {
+            self.draw_mesh_from(mesh, transform, camera, tint);
+        }
     }
 
     /// Draws `mesh` placed by `transform` *relative to the camera*: x to
@@ -1036,14 +1060,20 @@ impl Canvas {
             ..world_light
         };
         self.set_lighting(in_view);
-        self.draw_mesh_from(mesh, transform, &view);
+        self.draw_mesh_from(mesh, transform, &view, Color::WHITE);
         self.set_lighting(world_light);
     }
 
     /// Draws a mesh on whichever renderer this canvas uses.
-    fn draw_mesh_from(&mut self, mesh: &Mesh, transform: &Transform, camera: &Camera3D) {
+    fn draw_mesh_from(
+        &mut self,
+        mesh: &Mesh,
+        transform: &Transform,
+        camera: &Camera3D,
+        tint: Color,
+    ) {
         #[cfg(feature = "gpu")]
-        if self.draw_mesh_on_gpu(mesh, transform, camera) {
+        if self.draw_mesh_on_gpu(mesh, transform, camera, tint) {
             return; // the graphics card will draw it (see gpu.rs)
         }
 
@@ -1061,6 +1091,9 @@ impl Canvas {
             return;
         }
         let world: Vec<Vec3> = mesh.vertices.iter().map(|&v| transform.apply(v)).collect();
+        if tint.a < 255 {
+            self.start_see_through_mesh();
+        }
         let lighting = self.lighting();
         let sun = lighting.sun();
         let sun_rgb = lighting.sun_rgb();
@@ -1091,8 +1124,13 @@ impl Canvas {
             if let (Some(uvs), Some(texture)) = (mesh.uvs_of(index), &mesh.texture) {
                 // Textured: each colour is the texture's, times the
                 // triangle's, times the light.
-                let tint = [triangle.color.r, triangle.color.g, triangle.color.b];
-                let shade = [0, 1, 2].map(|i| tint[i] as f32 / 255.0 * brightness[i]);
+                let own = [triangle.color.r, triangle.color.g, triangle.color.b];
+                let mut shade = [0, 1, 2].map(|i| own[i] as f32 / 255.0 * brightness[i]);
+                if tint != Color::WHITE {
+                    for (channel, t) in shade.iter_mut().zip([tint.r, tint.g, tint.b]) {
+                        *channel *= t as f32 / 255.0;
+                    }
+                }
                 let (points, count) = clip_near_uv(in_camera, uvs);
                 for i in 1..count.saturating_sub(1) {
                     let corners = [points[0], points[i], points[i + 1]];
@@ -1109,6 +1147,7 @@ impl Canvas {
                         uv_over_z,
                         texture,
                         shade,
+                        tint.a,
                     );
                 }
                 continue;
@@ -1125,6 +1164,7 @@ impl Canvas {
                     mix(t.b, brightness[2]),
                 )
             };
+            let color = tinted(color, tint);
             let (points, count) = clip_near(in_camera);
 
             // Clipping can turn the triangle into a 4-sided shape; draw it as a
@@ -1133,7 +1173,7 @@ impl Canvas {
                 let corners = [points[0], points[i], points[i + 1]];
                 let on_screen = corners.map(|p| projection.project(p));
                 let inverse_depths = corners.map(|p| 1.0 / p.z);
-                self.fill_triangle_3d(on_screen, inverse_depths, color);
+                self.fill_triangle_3d(on_screen, inverse_depths, color, tint.a);
             }
         }
     }
@@ -1301,6 +1341,35 @@ fn clip_near_uv(triangle: [Vec3; 3], uvs: [Vec2; 3]) -> ([(Vec3, Vec2); 4], usiz
         }
     }
     (out, count)
+}
+
+/// `color` times `tint` (the alpha is ignored): whole-number math, so a
+/// white tint leaves the colour exactly as it was.
+fn tinted(color: Color, tint: Color) -> Color {
+    let times = |c: u8, t: u8| ((c as u32 * t as u32 + 127) / 255) as u8;
+    Color::rgb(
+        times(color.r, tint.r),
+        times(color.g, tint.g),
+        times(color.b, tint.b),
+    )
+}
+
+/// Against black: a red cube at distance 3, a half see-through blue
+/// cube at 1.5 in front of it, then (drawn last) a green cube between them.
+/// All glow, so the colours are exact. `green` leaves the green one out.
+#[cfg(test)]
+pub(crate) fn draw_glass_scene(canvas: &mut crate::canvas::Canvas, green: bool) {
+    let camera = Camera3D::new(Vec3::ZERO);
+    let white = Mesh::cube(Color::WHITE).glowing();
+    let at = |z: f32| Transform::at(vec3(0.0, 0.0, z)).sized(0.4);
+    canvas.clear(Color::BLACK);
+    let big = Transform::at(vec3(0.0, 0.0, 3.0)).sized(2.0);
+    canvas.draw_mesh_tinted(&white, &big, &camera, Color::rgb(255, 0, 0));
+    canvas.draw_mesh_tinted(&white, &at(1.5), &camera, Color::rgba(0, 0, 255, 128));
+    canvas.draw_mesh_tinted(&white, &at(1.0), &camera, Color::rgba(0, 255, 0, 0)); // invisible
+    if green {
+        canvas.draw_mesh_tinted(&white, &at(1.9), &camera, Color::GREEN);
+    }
 }
 
 /// A wall right in front of a camera turned to `yaw`, and a green hand
@@ -1498,6 +1567,29 @@ mod tests {
             &Transform::at(vec3(2.0, 0.0, 0.0)),
         );
         assert!(plain.uvs_of(0).is_none() && plain.uvs_of(12).is_some());
+    }
+
+    #[test]
+    fn a_mesh_can_be_tinted_and_see_through() {
+        let mut canvas = crate::canvas::Canvas::new(80, 60);
+        draw_glass_scene(&mut canvas, false);
+        let middle = canvas.get_pixel(40, 30).unwrap();
+        // Half blue over red; the invisible cube in front changed nothing.
+        assert_eq!(middle, Color::rgb(127, 0, 128));
+        // Round the glass's edge, the red cube alone, tinted red.
+        assert_eq!(canvas.get_pixel(40, 42), Some(Color::rgb(255, 0, 0)));
+        // The glass hides nothing drawn after it: that's why see-through
+        // meshes go last.
+        draw_glass_scene(&mut canvas, true);
+        assert_eq!(canvas.get_pixel(40, 30), Some(Color::GREEN));
+        // A white tint leaves a mesh exactly as draw_mesh draws it.
+        let camera = Camera3D::new(vec3(1.0, 2.0, -3.0));
+        let crate_ = Mesh::cube(Color::ORANGE);
+        let mut plain = crate::canvas::Canvas::new(40, 30);
+        plain.draw_mesh(&crate_, &Transform::default(), &camera);
+        let mut tinted = crate::canvas::Canvas::new(40, 30);
+        tinted.draw_mesh_tinted(&crate_, &Transform::default(), &camera, Color::WHITE);
+        assert_eq!(plain.pixels(), tinted.pixels());
     }
 
     #[test]

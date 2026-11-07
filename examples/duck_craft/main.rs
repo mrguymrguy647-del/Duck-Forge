@@ -612,6 +612,10 @@ struct Art {
     ocean: Mesh,
     clouds: Mesh,
     duck: Duck,
+    /// A flat dark disc, drawn see-through under the duck.
+    shadow: Mesh,
+    /// A white cube, drawn faintly over the block you look at.
+    highlight: Mesh,
     wind: Wav,
 }
 
@@ -660,6 +664,8 @@ impl Art {
             ocean: ocean(atlas.tile("water")),
             clouds: clouds(atlas.tile("cloud")),
             duck: Duck::load(Sprite::load_png(format!("{ASSETS}/skin.png"))?),
+            shadow: Mesh::cylinder(Color::BLACK, 16).glowing(),
+            highlight: Mesh::cube(Color::WHITE).glowing(),
             wind: Wav::load(format!("{ASSETS}/hum.wav"))?,
         })
     }
@@ -1668,6 +1674,32 @@ impl Game for DuckCraft {
             if let Some(rect) = screen_box(&camera, canvas, self.position, 1.0, 1.75) {
                 canvas.label("player", rect);
             }
+        }
+
+        // See-through things last (they don't hide what's drawn after
+        // them): the duck's shadow on the ground under it, and a faint
+        // glassy box over the block you look at.
+        if self.behind_view {
+            let [x, z] = [self.position.x, self.position.z];
+            let ground = (0..=self.position.y.floor() as i32).rev().find(|&y| {
+                self.world
+                    .get(x.floor() as i32, y - 1, z.floor() as i32)
+                    .solid()
+            });
+            if let Some(y) = ground {
+                let height = self.position.y - y as f32;
+                let size = (0.8 - height * 0.12).max(0.3);
+                let alpha = (110.0 - height * 18.0).max(20.0) as u8;
+                let place =
+                    Transform::at(vec3(x, y as f32 + 0.01, z)).scaled(vec3(size, 0.004, size));
+                canvas.draw_mesh_tinted(&art.shadow, &place, &camera, Color::rgba(0, 0, 0, alpha));
+            }
+        }
+        if let Some(hit) = self.target {
+            let [x, y, z] = hit.cell.map(|v| v as f32);
+            let place = Transform::at(vec3(x + 0.5, y + 0.5, z + 0.5)).sized(1.006);
+            let glass = Color::rgba(255, 255, 255, 36);
+            canvas.draw_mesh_tinted(&art.highlight, &place, &camera, glass);
         }
 
         // The edges of the block you're looking at.
