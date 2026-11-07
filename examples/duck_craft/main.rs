@@ -3,8 +3,10 @@
 //!
 //! An island grows from noise: grass hills, sandy beaches, the sea, trees,
 //! stone with coal and gold inside, and caves. Walk it as the duck, dig any
-//! block, pick it up, and build with it. The sun crosses the sky; at night,
-//! the lamps you place glow.
+//! block, pick it up, and build with it. Craft what you dig into new
+//! things (coal and gold are worth finding). Ducklings waddle about; meet
+//! one and it follows you. Sand falls. The sun crosses the sky; at night,
+//! the lamps you place glow. The island is saved as you play.
 //!
 //!     cargo run --release --example duck_craft
 //!
@@ -14,6 +16,12 @@
 //! - **left click** or **X** (hold) digs the block you look at;
 //!   **right click** or **C** places the block in your hand
 //! - **1 to 9** or the **mouse wheel** pick a block; **middle click** picks the one you look at
+//! - **E** crafting (`crafting.rs`): log to planks, sand and coal to glass,
+//!   mud and coal to bricks, gold and glass to lamps, leaves to dirt
+//! - **right click** a duckling and it follows you; again, and it waits
+//!   (`ducklings.rs`)
+//! - **F5** saves (it also saves every 30 seconds and when you quit, to
+//!   `duck_craft_save.dat`; delete that file for a new island: `save.rs`)
 //! - **V** first person / behind the duck, **H** hides the help, **Escape** twice quits
 //!
 //! How it's made:
@@ -34,6 +42,8 @@
 //!   (`Duck`, `art/make_skin.py`): boxes for the head, beak, body, arms and
 //!   legs, each face painted from one 64 x 32 picture, limbs swinging as it
 //!   walks. In first person you see your own arm holding the block in hand.
+//!   The ducklings are built the same way from their own skin
+//!   (`art/make_duckling.py`).
 //!
 //! Without a screen (or to test):
 //!
@@ -285,6 +295,9 @@ struct World {
     grid: BlockWorld,
     /// Where the lamps are: the faces near them glow a little.
     lamps: Vec<[i32; 3]>,
+    /// Cells that changed, or are on top of one that did: sand there may
+    /// have nothing under it now (see `settle_sand`).
+    unsettled: Vec<[i32; 3]>,
     /// For each column, the lowest y with nothing above it that casts a
     /// shadow: air there and above is under the open sky.
     sky: Vec<i32>,
@@ -330,6 +343,8 @@ impl World {
         }
         self.grid.set(x, y, z, block as BlockId);
         self.update_sky(x, z);
+        self.unsettled.push([x, y, z]);
+        self.unsettled.push([x, y + 1, z]);
     }
 
     /// Builds again the chunks that changed, shading each face by the light
@@ -383,6 +398,7 @@ impl World {
         let mut world = World {
             grid: BlockWorld::with_chunk_size(SIZE, TALL, SIZE, CHUNK),
             lamps: Vec::new(),
+            unsettled: Vec::new(),
             sky: vec![0; SIZE * SIZE],
             spawn: Vec3::ZERO,
             spawn_yaw: 0.0,
@@ -655,6 +671,7 @@ struct Art {
     ocean: Mesh,
     clouds: Mesh,
     duck: Duck,
+    duckling: DucklingModel,
     /// A flat dark disc, drawn see-through under the duck.
     shadow: Mesh,
     /// A white cube, drawn faintly over the block you look at.
@@ -707,6 +724,7 @@ impl Art {
             ocean: ocean(atlas.tile("water")),
             clouds: clouds(atlas.tile("cloud")),
             duck: Duck::load(Sprite::load_png(format!("{ASSETS}/skin.png"))?),
+            duckling: DucklingModel::load(Sprite::load_png(format!("{ASSETS}/duckling.png"))?),
             shadow: Mesh::cylinder(Color::BLACK, 16).glowing(),
             highlight: Mesh::cube(Color::WHITE).glowing(),
             wind: Wav::load(format!("{ASSETS}/hum.wav"))?,
@@ -958,6 +976,183 @@ impl Duck {
     }
 }
 
+/// The size of something that walks about and bumps into blocks: the
+/// duck, a duckling. Its position is its feet, in the middle of the box.
+#[derive(Debug, Clone, Copy)]
+struct Body {
+    half_width: f32,
+    height: f32,
+}
+
+/// The duck's body.
+const PLAYER: Body = Body {
+    half_width: HALF_WIDTH,
+    height: BODY_HEIGHT,
+};
+
+impl Body {
+    /// Whether the body, with its feet at `feet`, overlaps anything solid.
+    fn hits(&self, world: &World, feet: Vec3) -> bool {
+        let low = feet - vec3(self.half_width, 0.0, self.half_width);
+        let high = feet + vec3(self.half_width, self.height, self.half_width);
+        let shrink = 1e-4;
+        for y in low.y.floor() as i32..=(high.y - shrink).floor() as i32 {
+            for z in low.z.floor() as i32..=(high.z - shrink).floor() as i32 {
+                for x in low.x.floor() as i32..=(high.x - shrink).floor() as i32 {
+                    if world.blocks_body(x, y, z) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Moves the body at `position` along one axis (0 x, 1 y, 2 z), in steps
+    /// small enough never to pass through a block, stopping flush against
+    /// one. Returns whether something stopped it.
+    fn move_axis(&self, world: &World, position: &mut Vec3, axis: usize, distance: f32) -> bool {
+        let steps = (distance.abs() / 0.4).ceil().max(1.0) as i32;
+        let step = distance / steps as f32;
+        let half = [self.half_width, 0.0, self.half_width];
+        for _ in 0..steps {
+            let mut moved = *position;
+            match axis {
+                0 => moved.x += step,
+                1 => moved.y += step,
+                _ => moved.z += step,
+            }
+            if !self.hits(world, moved) {
+                *position = moved;
+                continue;
+            }
+            // Flush against the block it ran into.
+            let gap = 1e-3;
+            let value = |v: Vec3| [v.x, v.y, v.z][axis];
+            let edge = if step > 0.0 {
+                let top = if axis == 1 { self.height } else { half[axis] };
+                (value(moved) + top).floor() - top - gap
+            } else {
+                (value(moved) - half[axis]).floor() + 1.0 + half[axis] + gap
+            };
+            let mut flush = *position;
+            match axis {
+                0 => flush.x = edge,
+                1 => flush.y = edge,
+                _ => flush.z = edge,
+            }
+            if !self.hits(world, flush) {
+                *position = flush;
+            }
+            return true;
+        }
+        false
+    }
+}
+
+// ---- Falling sand ----
+
+/// Sand with nothing under it, on its way down.
+#[derive(Debug, Clone, Copy)]
+struct FallingBlock {
+    /// The column it's falling in.
+    x: i32,
+    z: i32,
+    /// The height of its bottom face.
+    y: f32,
+    speed: f32,
+    block: Block,
+}
+
+impl DuckCraft {
+    /// Sand that has lost what held it up starts to fall (the sand above
+    /// it follows a frame later, and so on up the pile).
+    fn settle_sand(&mut self) {
+        for [x, y, z] in std::mem::take(&mut self.world.unsettled) {
+            let block = self.world.get(x, y, z);
+            if block == Block::Sand && !self.world.get(x, y - 1, z).solid() && y > 0 {
+                self.world.set(x, y, z, Block::Air);
+                self.falling.push(FallingBlock {
+                    x,
+                    z,
+                    y: y as f32,
+                    speed: 0.0,
+                    block,
+                });
+            }
+        }
+    }
+
+    /// Moves falling blocks down; one that lands becomes a block again
+    /// (through water: sand sinks), unless something stands in its way,
+    /// and then you get it.
+    fn drop_falling(&mut self, ctx: &mut Context) {
+        let dt = ctx.dt();
+        let mut landed = Vec::new();
+        for (i, falling) in self.falling.iter_mut().enumerate() {
+            falling.speed = (falling.speed + GRAVITY * dt).min(30.0);
+            let next = falling.y - falling.speed * dt;
+            // The highest solid cell it would pass into, if any.
+            let from = falling.y.floor() as i32 - 1;
+            let to = next.floor() as i32;
+            let floor = (to..=from)
+                .rev()
+                .find(|&y| y < 0 || self.world.get(falling.x, y, falling.z).solid());
+            match floor {
+                Some(y) => {
+                    falling.y = (y + 1) as f32;
+                    landed.push(i);
+                }
+                None => falling.y = next,
+            }
+        }
+        for &i in landed.iter().rev() {
+            let falling = self.falling.remove(i);
+            let [x, y, z] = [falling.x, falling.y as i32, falling.z];
+            let low = vec3(x as f32, y as f32, z as f32);
+            let in_the_way = boxes_overlap(self.position, PLAYER, low)
+                || self
+                    .ducklings
+                    .iter()
+                    .any(|d| boxes_overlap(d.position, ducklings::DUCKLING, low));
+            if in_the_way || !World::inside(x, y, z) {
+                self.carried[falling.block as usize] += 1;
+                self.say(format!(
+                    "{} fell on you: you caught it",
+                    falling.block.name()
+                ));
+            } else {
+                self.world.set(x, y, z, falling.block);
+            }
+            ctx.play(Sound {
+                name: "thud",
+                wave: Wave::Noise,
+                freq: 250.0,
+                ms: 90.0,
+                volume: 0.18,
+                decay: 70.0,
+                ..Default::default()
+            });
+        }
+    }
+}
+
+/// Whether a body standing at `feet` overlaps the block whose low corner
+/// is `low`.
+fn boxes_overlap(feet: Vec3, body: Body, low: Vec3) -> bool {
+    let (b_low, b_high) = (
+        feet - vec3(body.half_width, 0.0, body.half_width),
+        feet + vec3(body.half_width, body.height, body.half_width),
+    );
+    let high = low + vec3(1.0, 1.0, 1.0);
+    b_low.x < high.x
+        && b_high.x > low.x
+        && b_low.y < high.y
+        && b_high.y > low.y
+        && b_low.z < high.z
+        && b_high.z > low.z
+}
+
 // ---- The game ----
 
 /// A crumb of a broken block, flying.
@@ -1002,6 +1197,21 @@ struct DuckCraft {
     coal: u32,
     dug: u32,
     placed: u32,
+    /// Where the game saves (`None`: it doesn't), and when it last did.
+    save_path: Option<std::path::PathBuf>,
+    last_save: f32,
+    /// Sand on its way down.
+    falling: Vec<FallingBlock>,
+    /// The ducklings on the island.
+    ducklings: Vec<Duckling>,
+    /// The duckling you're looking at, if it's nearer than any block.
+    aimed: Option<usize>,
+    /// How many times a duckling has imprinted on you (orders the line).
+    imprints: u32,
+    /// Blocks made by crafting, all told.
+    crafted: u32,
+    /// The crafting menu, when it's open: which recipe is picked.
+    menu: Option<usize>,
 
     /// The block being dug, and how long it's been dug for.
     digging: Option<[i32; 3]>,
@@ -1026,7 +1236,15 @@ impl DuckCraft {
         carried[Block::Glass as usize] = 16;
         carried[Block::Brick as usize] = 32;
         carried[Block::Lamp as usize] = 8;
+        let ducklings = ducklings::hatch(&world);
+        world.unsettled.clear();
         DuckCraft {
+            save_path: None,
+            last_save: 0.0,
+            falling: Vec::new(),
+            ducklings,
+            aimed: None,
+            imprints: 0,
             art,
             position: world.spawn,
             yaw: world.spawn_yaw,
@@ -1047,6 +1265,8 @@ impl DuckCraft {
             coal: 0,
             dug: 0,
             placed: 0,
+            crafted: 0,
+            menu: None,
             digging: None,
             dig_seconds: 0.0,
             place_wait: 0.0,
@@ -1075,60 +1295,13 @@ impl DuckCraft {
     /// Whether the duck's body, with its feet at `feet`, overlaps anything
     /// solid.
     fn body_hits(&self, feet: Vec3) -> bool {
-        let low = feet - vec3(HALF_WIDTH, 0.0, HALF_WIDTH);
-        let high = feet + vec3(HALF_WIDTH, BODY_HEIGHT, HALF_WIDTH);
-        let shrink = 1e-4;
-        for y in low.y.floor() as i32..=(high.y - shrink).floor() as i32 {
-            for z in low.z.floor() as i32..=(high.z - shrink).floor() as i32 {
-                for x in low.x.floor() as i32..=(high.x - shrink).floor() as i32 {
-                    if self.world.blocks_body(x, y, z) {
-                        return true;
-                    }
-                }
-            }
-        }
-        false
+        PLAYER.hits(&self.world, feet)
     }
 
-    /// Moves the duck along one axis (0 x, 1 y, 2 z), in steps small enough
-    /// never to pass through a block, stopping flush against one. Returns
-    /// whether something stopped it.
+    /// Moves the duck along one axis (0 x, 1 y, 2 z); `true` if something
+    /// stopped it.
     fn move_axis(&mut self, axis: usize, distance: f32) -> bool {
-        let steps = (distance.abs() / 0.4).ceil().max(1.0) as i32;
-        let step = distance / steps as f32;
-        for _ in 0..steps {
-            let mut moved = self.position;
-            let half = [HALF_WIDTH, 0.0, HALF_WIDTH];
-            match axis {
-                0 => moved.x += step,
-                1 => moved.y += step,
-                _ => moved.z += step,
-            }
-            if !self.body_hits(moved) {
-                self.position = moved;
-                continue;
-            }
-            // Flush against the block it ran into.
-            let gap = 1e-3;
-            let value = |v: Vec3| [v.x, v.y, v.z][axis];
-            let edge = if step > 0.0 {
-                let top = if axis == 1 { BODY_HEIGHT } else { half[axis] };
-                (value(moved) + top).floor() - top - gap
-            } else {
-                (value(moved) - half[axis]).floor() + 1.0 + half[axis] + gap
-            };
-            let mut flush = self.position;
-            match axis {
-                0 => flush.x = edge,
-                1 => flush.y = edge,
-                _ => flush.z = edge,
-            }
-            if !self.body_hits(flush) {
-                self.position = flush;
-            }
-            return true;
-        }
-        false
+        PLAYER.move_axis(&self.world, &mut self.position, axis, distance)
     }
 
     fn say(&mut self, text: impl Into<String>) {
@@ -1148,24 +1321,29 @@ impl DuckCraft {
     fn walk(&mut self, ctx: &mut Context) {
         let dt = ctx.dt();
         let input = &ctx.input;
+        // While the crafting menu is open the duck stands still (it still
+        // falls and floats).
+        let free = self.menu.is_none();
+        let axis = |minus, plus| if free { input.axis(minus, plus) } else { 0.0 };
+        let down = |key| free && input.is_down(key);
 
         // Look: the mouse (while the window holds the pointer), or the arrow keys.
-        let mouse = if ctx.pointer_locked() {
+        let mouse = if ctx.pointer_locked() && free {
             input.mouse_delta()
         } else {
             Vec2::ZERO
         };
-        self.yaw += mouse.x * MOUSE_LOOK + input.axis(Key::Left, Key::Right) * TURN_SPEED * dt;
-        self.pitch += -mouse.y * MOUSE_LOOK + input.axis(Key::Down, Key::Up) * TURN_SPEED * dt;
+        self.yaw += mouse.x * MOUSE_LOOK + axis(Key::Left, Key::Right) * TURN_SPEED * dt;
+        self.pitch += -mouse.y * MOUSE_LOOK + axis(Key::Down, Key::Up) * TURN_SPEED * dt;
         self.pitch = self.pitch.clamp(-1.55, 1.55);
         self.yaw = self.yaw.rem_euclid(TAU);
 
         // Walk along the ground, the way you're facing.
         let ahead = vec3(self.yaw.sin(), 0.0, self.yaw.cos());
         let right = vec3(self.yaw.cos(), 0.0, -self.yaw.sin());
-        let wish = ahead * input.axis(Key::S, Key::W) + right * input.axis(Key::A, Key::D);
+        let wish = ahead * axis(Key::S, Key::W) + right * axis(Key::A, Key::D);
         self.walking = wish.length() > 0.0;
-        let running = input.is_down(Key::LeftShift);
+        let running = down(Key::LeftShift);
         let mut speed = if running { RUN_SPEED } else { WALK_SPEED };
         if self.in_water {
             speed *= 0.55;
@@ -1181,7 +1359,7 @@ impl DuckCraft {
         self.velocity.z = approach(self.velocity.z, wish.z, grip * dt);
 
         // Jump, swim, fall.
-        let jump = input.is_down(Key::Space);
+        let jump = down(Key::Space);
         if self.in_water {
             self.velocity.y -= GRAVITY * 0.25 * dt;
             if jump {
@@ -1508,10 +1686,19 @@ impl Game for DuckCraft {
         if ctx.frame() == 1 {
             ctx.lock_pointer(true);
         }
-        if ctx.input.was_pressed(Key::Escape) {
+        // The crafting menu takes E, Escape and the movement keys while
+        // it's open.
+        let menu_was_open = self.menu.is_some();
+        self.crafting(ctx);
+        if menu_was_open || self.menu.is_some() {
+            // (Escape closed the menu; it doesn't also free the pointer.)
+        } else if ctx.input.was_pressed(Key::Escape) {
             if ctx.pointer_locked() {
                 ctx.lock_pointer(false);
             } else {
+                if let Err(error) = self.save() {
+                    eprintln!("duck_craft: couldn't save: {error}");
+                }
                 ctx.quit();
             }
         } else if !ctx.pointer_locked() && ctx.input.was_mouse_pressed(MouseButton::Left) {
@@ -1539,9 +1726,22 @@ impl Game for DuckCraft {
 
         self.walk(ctx);
         self.target = self.world.raycast(self.eye(), self.look_direction(), REACH);
-        self.pick_block(ctx);
-        self.dig(ctx);
-        self.place(ctx);
+        self.aimed = self.aimed_duckling();
+        if self.aimed.is_some() {
+            self.target = None; // the duckling is in the way
+        }
+        if self.menu.is_none() {
+            self.pick_block(ctx);
+            if !self.touch_duckling(ctx) {
+                self.dig(ctx);
+                self.place(ctx);
+            }
+        }
+        self.update_ducklings(ctx);
+        self.maybe_save(ctx);
+        self.settle_sand();
+        self.drop_falling(ctx);
+        self.update_chunks();
 
         for crumb in &mut self.crumbs {
             crumb.velocity.y -= GRAVITY * 0.6 * dt;
@@ -1566,6 +1766,19 @@ impl Game for DuckCraft {
         ctx.report("yaw", (self.yaw * 100.0).round() / 100.0);
         ctx.report("dug", self.dug);
         ctx.report("placed", self.placed);
+        ctx.report("crafted", self.crafted);
+        ctx.report("menu", self.menu.is_some());
+        ctx.report("menu_row", self.menu.map_or(-1, |row| row as i32));
+        ctx.report("view", if self.behind_view { "behind" } else { "eyes" });
+        ctx.report("help", self.show_help);
+        ctx.report(
+            "message",
+            if self.message_seconds > 0.0 {
+                self.message.as_str()
+            } else {
+                ""
+            },
+        );
         ctx.report("gold", self.gold);
         ctx.report("coal", self.coal);
         ctx.report("holding", self.holding().name());
@@ -1573,7 +1786,11 @@ impl Game for DuckCraft {
         ctx.report("in_water", self.in_water);
         ctx.report(
             "looking_at",
-            self.target.map_or("nothing", |t| t.block.name()),
+            if self.aimed.is_some() {
+                "Duckling"
+            } else {
+                self.target.map_or("nothing", |t| t.block.name())
+            },
         );
     }
 
@@ -1690,6 +1907,16 @@ impl Game for DuckCraft {
                 canvas.draw_mesh(&art.cracks[stage.min(3)], &place, &camera);
             }
         }
+        for falling in &self.falling {
+            if let Some(cube) = &art.cubes[falling.block as usize] {
+                let middle = vec3(
+                    falling.x as f32 + 0.5,
+                    falling.y + 0.5,
+                    falling.z as f32 + 0.5,
+                );
+                canvas.draw_mesh(cube, &Transform::at(middle), &camera);
+            }
+        }
         for crumb in &self.crumbs {
             if let Some(cube) = &art.cubes[crumb.block as usize] {
                 let place = Transform::at(crumb.position)
@@ -1730,21 +1957,9 @@ impl Game for DuckCraft {
         // them): the duck's shadow on the ground under it, and a faint
         // glassy box over the block you look at.
         if self.behind_view {
-            let [x, z] = [self.position.x, self.position.z];
-            let ground = (0..=self.position.y.floor() as i32).rev().find(|&y| {
-                self.world
-                    .get(x.floor() as i32, y - 1, z.floor() as i32)
-                    .solid()
-            });
-            if let Some(y) = ground {
-                let height = self.position.y - y as f32;
-                let size = (0.8 - height * 0.12).max(0.3);
-                let alpha = (110.0 - height * 18.0).max(20.0) as u8;
-                let place =
-                    Transform::at(vec3(x, y as f32 + 0.01, z)).scaled(vec3(size, 0.004, size));
-                canvas.draw_mesh_tinted(&art.shadow, &place, &camera, Color::rgba(0, 0, 0, alpha));
-            }
+            self.draw_shadow(canvas, &camera, self.position, 0.8);
         }
+        self.draw_ducklings(canvas, &camera);
         if let Some(hit) = self.target {
             let [x, y, z] = hit.cell.map(|v| v as f32);
             let place = Transform::at(vec3(x + 0.5, y + 0.5, z + 0.5)).sized(1.006);
@@ -1756,26 +1971,14 @@ impl Game for DuckCraft {
         if let Some(hit) = self.target {
             let [x, y, z] = hit.cell.map(|v| v as f32);
             let e = 0.002;
-            let corner = |i: usize| {
-                vec3(
-                    if i & 1 == 0 { x - e } else { x + 1.0 + e },
-                    if i & 2 == 0 { y - e } else { y + 1.0 + e },
-                    if i & 4 == 0 { z - e } else { z + 1.0 + e },
-                )
-            };
-            let points: Vec<Option<Vec2>> = (0..8)
-                .map(|i| camera.world_to_screen(corner(i), canvas))
-                .collect();
-            for a in 0..8 {
-                for bit in [1, 2, 4] {
-                    let b = a | bit;
-                    if b != a {
-                        if let (Some(p), Some(q)) = (points[a], points[b]) {
-                            canvas.draw_line(p, q, Color::rgba(20, 20, 24, 200));
-                        }
-                    }
-                }
-            }
+            let low = vec3(x - e, y - e, z - e);
+            draw_box_edges(
+                canvas,
+                &camera,
+                low,
+                low + vec3(1.0 + 2.0 * e, 1.0 + 2.0 * e, 1.0 + 2.0 * e),
+                Color::rgba(20, 20, 24, 200),
+            );
             if let Some((p, _)) = camera.project(vec3(x + 0.5, y + 0.5, z + 0.5), canvas) {
                 canvas.label("target", Rect::from_center(p, 4.0, 4.0));
             }
@@ -1799,10 +2002,34 @@ impl Game for DuckCraft {
             self.draw_hand(canvas, &camera);
         }
         self.draw_hud(canvas);
+        self.draw_crafting(canvas);
     }
 }
 
 impl DuckCraft {
+    /// A soft round shadow on the ground under something standing at
+    /// `feet`, `size` across, fainter and smaller the higher it is.
+    fn draw_shadow(&self, canvas: &mut Canvas, camera: &Camera3D, feet: Vec3, size: f32) {
+        let [x, z] = [feet.x, feet.z];
+        let ground = (0..=feet.y.floor() as i32).rev().find(|&y| {
+            self.world
+                .get(x.floor() as i32, y - 1, z.floor() as i32)
+                .solid()
+        });
+        if let Some(y) = ground {
+            let height = feet.y - y as f32;
+            let size = (size - height * 0.12).max(size * 0.35);
+            let alpha = (110.0 - height * 18.0).max(20.0) as u8;
+            let place = Transform::at(vec3(x, y as f32 + 0.01, z)).scaled(vec3(size, 0.004, size));
+            canvas.draw_mesh_tinted(
+                &self.art.shadow,
+                &place,
+                camera,
+                Color::rgba(0, 0, 0, alpha),
+            );
+        }
+    }
+
     /// Your own right arm, bottom right of the view, holding the block in
     /// hand. It bobs as you walk and swings when you dig or build.
     fn draw_hand(&self, canvas: &mut Canvas, camera: &Camera3D) {
@@ -1936,16 +2163,17 @@ impl DuckCraft {
             canvas.draw_text_centered(text, panel.y + 3.0, 1, Color::WHITE);
         }
 
-        if self.show_help {
+        if self.show_help && self.menu.is_none() {
             let lines = [
                 "DUCK CRAFT",
                 "WASD walk   Shift run   Space jump",
                 "Mouse or arrows: look   Esc: free the mouse",
                 "Click / X: dig    Right click / C: build",
-                "1-9 or wheel: pick a block",
-                "V: view   H: hide this",
+                "1-9 or wheel: pick a block   E: craft",
+                "Right click a duckling: it follows you",
+                "V: view   F5: save   H: hide this",
             ];
-            let panel = Rect::new(52.0, 26.0, 216.0, 74.0);
+            let panel = Rect::new(46.0, 26.0, 228.0, 85.0);
             canvas.fill_rect(panel, Color::rgba(0, 0, 0, 150));
             for (i, line) in lines.iter().enumerate() {
                 let color = if i == 0 {
@@ -1954,6 +2182,30 @@ impl DuckCraft {
                     Color::WHITE
                 };
                 canvas.draw_text_centered(line, panel.y + 6.0 + i as f32 * 11.0, 1, color);
+            }
+        }
+    }
+}
+
+/// The twelve edges of the box from `low` to `high`, as lines.
+fn draw_box_edges(canvas: &mut Canvas, camera: &Camera3D, low: Vec3, high: Vec3, color: Color) {
+    let corner = |i: usize| {
+        vec3(
+            if i & 1 == 0 { low.x } else { high.x },
+            if i & 2 == 0 { low.y } else { high.y },
+            if i & 4 == 0 { low.z } else { high.z },
+        )
+    };
+    let points: Vec<Option<Vec2>> = (0..8)
+        .map(|i| camera.world_to_screen(corner(i), canvas))
+        .collect();
+    for a in 0..8 {
+        for bit in [1, 2, 4] {
+            let b = a | bit;
+            if b != a {
+                if let (Some(p), Some(q)) = (points[a], points[b]) {
+                    canvas.draw_line(p, q, color);
+                }
             }
         }
     }
@@ -1980,8 +2232,9 @@ fn screen_box(
 }
 
 /// The game, with its world and art.
+/// A new island, never saved (tests, replays, fuzz runs).
 fn new_game() -> Result<DuckCraft, LoadError> {
-    Ok(DuckCraft::new(Rc::new(Art::load()?), World::generate()))
+    save::load_or_new(None)
 }
 
 fn config() -> Config {
@@ -1994,11 +2247,24 @@ fn config() -> Config {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    duckforge::run(config(), new_game()?)
+    // Only the game in a window saves: a headless run (a replay, a fuzz
+    // run, a video) always starts from the same new island.
+    let game = if std::env::args().any(|arg| arg == "--headless") {
+        new_game()?
+    } else {
+        save::load_or_new(Some(std::path::PathBuf::from(save::SAVE_FILE)))?
+    };
+    duckforge::run(config(), game)
 }
 
 // Play tests: `cargo test --example duck_craft`. The bot that records
 // playthroughs/duck_craft.json: `cargo test --example duck_craft -- --ignored`.
+mod crafting;
+mod ducklings;
+mod save;
+
+use ducklings::{Duckling, DucklingModel};
+
 #[cfg(test)]
 mod tests;
 

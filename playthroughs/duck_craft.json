@@ -3,7 +3,7 @@
   "seed": 1,
   "updates_per_second": 60,
   "frames": 760,
-  "expect": {"coal": 0, "dug": 2, "gold": 0, "holding": "Planks", "in_water": false, "looking_at": "Leaves", "on_ground": true, "placed": 7, "x": 27.6, "y": 19, "yaw": 4.3, "z": 24.9},
+  "expect": {"coal": 0, "crafted": 0, "ducklings_following": 0, "dug": 2, "gold": 0, "help": false, "holding": "Planks", "in_water": false, "looking_at": "Leaves", "menu": false, "menu_row": -1, "message": "", "on_ground": true, "placed": 7, "view": "behind", "x": 27.6, "y": 19, "yaw": 4.3, "z": 24.9},
   "events": [
     {"frame": 41, "press": "Right"},
     {"frame": 91, "release": "Right"},

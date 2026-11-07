@@ -107,6 +107,38 @@ game; the tool still has the gap.
 15. **winit can make only one event loop per program**, so
     `duckforge::run` can open one window per program. No game needs two.
 
+## Found while adding crafting, ducklings, falling sand and saving
+
+16. **A game can't tell it's running headless.** Saving must never happen
+    in a replay or fuzz run (or the next replay would start from a saved
+    island and stop being repeatable), but `Context` doesn't say. `main`
+    looks for `--headless` in the command line itself. A
+    `ctx.is_headless()` (or a `Config` flag the CLI fills in) would do.
+17. **No hook when the window closes.** Closing the window with its X
+    button ends the program without calling the game, so the last moments
+    aren't saved; the game autosaves every 30 seconds to make up for it.
+    A `Game::quit(&mut self, ctx)` called on any way out would fix it.
+18. **The command line refuses the game's own options.** `duckforge::run`
+    parses the arguments and stops at any it doesn't know, so the game
+    can't offer `--new-world`; to start again you delete the save file.
+    Letting options after `--` (or unknown `--game-*` ones) through to the
+    game would help.
+19. **The fuzzer's freeze rule fires on menus.** With the crafting menu
+    open, keys that do nothing in the menu (A, D, digits at first) looked
+    like a frozen game. That was partly right: those keys now do things
+    in the menu, and the menu's row and the message on screen are
+    reported. But a game with a pause screen will meet the same rule; a
+    way to say "paused" (`ctx.report_paused(true)`) that the fuzzer
+    respects would be fairer.
+20. **`Simulation` tests have no way to step until something is true.**
+    The showcase and the bot both write `for _ in 0..N { if done { break } sim.step() }`.
+    A `sim.run_until(limit, |game| ...)` would read better and stop
+    off-by-one waits.
+21. **My own slip, not the engine's:** the tests' `hold` helper presses a
+    key and never lets go (its comment said "for N frames"). Two new tests
+    failed because of it before I saw why; the comment is fixed and the
+    tests that need a release write it out.
+
 ## Duck Quill
 
 1. **First build is slow (about 8 minutes)**, because `cargo build
