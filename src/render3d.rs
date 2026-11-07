@@ -999,6 +999,49 @@ impl Canvas {
     /// (This `impl Canvas` block lives in `render3d.rs`, not `canvas.rs`: Rust
     /// lets a type's methods be spread over several files in the same crate.)
     pub fn draw_mesh(&mut self, mesh: &Mesh, transform: &Transform, camera: &Camera3D) {
+        self.drawing_in_view = false;
+        self.draw_mesh_from(mesh, transform, camera);
+    }
+
+    /// Draws `mesh` placed by `transform` *relative to the camera*: x to
+    /// the right of the view, y up it, z straight ahead (so `vec3(0.3,
+    /// -0.3, 0.6)` is a little right, below the middle, 0.6 ahead). It
+    /// moves and turns with the camera, so it stays put on the screen: for
+    /// a first-person hand, a held tool, a gun. It's lit by the scene's
+    /// light as the world is (turn round, and the sun moves across it).
+    ///
+    /// It's drawn in front of all the 3D drawn before it, so a hand never
+    /// sinks into a wall you stand against: draw these after the world.
+    /// Several in a row (a hand and the block it holds) still hide each
+    /// other properly.
+    pub fn draw_mesh_in_view(&mut self, mesh: &Mesh, transform: &Transform, camera: &Camera3D) {
+        if !self.drawing_in_view {
+            self.forget_depth();
+            self.drawing_in_view = true;
+        }
+        // A camera at the middle of the world, looking along +z: view
+        // space is its world.
+        let view = Camera3D {
+            position: Vec3::ZERO,
+            yaw: 0.0,
+            pitch: 0.0,
+            fov: camera.fov,
+        };
+        // The sun turned the same way, so the light still comes from the
+        // same place in the world.
+        let world_light = self.lighting();
+        let sun = world_light.sun_direction;
+        let in_view = Lighting {
+            sun_direction: camera.to_camera_space(camera.position + sun),
+            ..world_light
+        };
+        self.set_lighting(in_view);
+        self.draw_mesh_from(mesh, transform, &view);
+        self.set_lighting(world_light);
+    }
+
+    /// Draws a mesh on whichever renderer this canvas uses.
+    fn draw_mesh_from(&mut self, mesh: &Mesh, transform: &Transform, camera: &Camera3D) {
         #[cfg(feature = "gpu")]
         if self.draw_mesh_on_gpu(mesh, transform, camera) {
             return; // the graphics card will draw it (see gpu.rs)
@@ -1260,6 +1303,25 @@ fn clip_near_uv(triangle: [Vec3; 3], uvs: [Vec2; 3]) -> ([(Vec3, Vec2); 4], usiz
     (out, count)
 }
 
+/// A wall right in front of a camera turned to `yaw`, and a green hand
+/// (`glowing` or lit) held out in view space, behind the wall's depth.
+#[cfg(test)]
+pub(crate) fn draw_hand_in_front_of_wall(
+    canvas: &mut crate::canvas::Canvas,
+    yaw: f32,
+    glowing: bool,
+) {
+    let mut camera = Camera3D::new(vec3(5.0, 1.0, 5.0));
+    camera.yaw = yaw;
+    canvas.clear(Color::BLACK);
+    let wall = Transform::at(camera.position + camera.forward() * 0.5).sized(0.5);
+    canvas.draw_mesh(&Mesh::cube(Color::RED), &wall, &camera);
+    let hand = Mesh::cube(Color::GREEN);
+    let hand = if glowing { hand.glowing() } else { hand };
+    let held = Transform::at(vec3(0.0, 0.0, 0.9)).sized(0.2);
+    canvas.draw_mesh_in_view(&hand, &held, &camera);
+}
+
 /// A floor 6 x 6 blocks wide painted with the "red" tile of a two-tile
 /// atlas (red, then blue), repeated once a block: texture points 0 to 6.
 #[cfg(test)]
@@ -1436,6 +1498,46 @@ mod tests {
             &Transform::at(vec3(2.0, 0.0, 0.0)),
         );
         assert!(plain.uvs_of(0).is_none() && plain.uvs_of(12).is_some());
+    }
+
+    #[test]
+    fn a_mesh_in_view_stays_on_the_screen_in_front_of_the_world() {
+        let green_pixels = |yaw: f32| {
+            let mut canvas = crate::canvas::Canvas::new(80, 60);
+            draw_hand_in_front_of_wall(&mut canvas, yaw, true);
+            let middle = canvas.get_pixel(40, 30).unwrap();
+            assert_eq!(middle, Color::GREEN, "the hand, though the wall is nearer");
+            canvas
+                .pixels()
+                .iter()
+                .map(|&p| p == Color::GREEN.to_u32())
+                .collect::<Vec<bool>>()
+        };
+        // Turning round doesn't move it on the screen.
+        assert_eq!(green_pixels(0.0), green_pixels(2.5));
+    }
+
+    #[test]
+    fn a_mesh_in_view_is_lit_by_the_worlds_sun() {
+        let middle = |yaw: f32| {
+            let mut canvas = crate::canvas::Canvas::new(80, 60);
+            canvas.set_lighting(Lighting {
+                // From behind a camera with yaw 0: on the hand's face.
+                sun_direction: vec3(0.0, 0.0, -1.0),
+                sun_strength: 1.0,
+                ambient: 0.3,
+                ..Lighting::default()
+            });
+            draw_hand_in_front_of_wall(&mut canvas, yaw, false);
+            assert_eq!(
+                canvas.lighting().sun_direction,
+                vec3(0.0, 0.0, -1.0),
+                "put back"
+            );
+            canvas.get_pixel(40, 30).unwrap().g
+        };
+        // Turned round, the sun is ahead: the face we see is in shadow.
+        assert!(middle(0.0) > middle(std::f32::consts::PI) + 60);
     }
 
     /// One tile of an atlas repeats over a big floor, and the tile next to

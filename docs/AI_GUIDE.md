@@ -1000,7 +1000,11 @@ a plain part merged into a textured mesh stays plain), `mesh.bounds()`
 (lowest and highest corner).
 `Transform::at(position).rotated(vec3(x, y, z)).scaled(vec3(x, y, z))`
 or `.sized(scale)`. In `draw`: `canvas.draw_mesh(&mesh, &transform,
-&camera)`. Light: `canvas.set_lighting(Lighting { sun_direction,
+&camera)`. First-person hands and held things:
+`canvas.draw_mesh_in_view(&mesh, &transform, &camera)` (the transform is
+relative to the camera: x right, y up, z ahead; it stays put on the
+screen, is lit by the world's sun, and is drawn in front of the 3D drawn
+before it, so draw it after the world). Light: `canvas.set_lighting(Lighting { sun_direction,
 sun_color, sun_strength, ambient })` (or `..Lighting::default()`, the
 light every canvas starts with), `canvas.lighting()`. Sprites in 3D:
 `canvas.draw_billboard(&sprite, feet, height, &camera)`, or

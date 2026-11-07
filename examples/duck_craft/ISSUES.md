@@ -72,6 +72,10 @@ game; the tool still has the gap.
     be placed in the world every frame from the camera's position, yaw
     and pitch (`draw_hand`). A `canvas.draw_mesh_in_view(mesh, transform)`
     that ignores the camera would make hands, weapons and HUD props easy.
+    **Fixed in the engine:** `canvas.draw_mesh_in_view(mesh, transform,
+    camera)` (it takes the camera for its field of view and to keep the
+    sun in the right place). `draw_hand` is half as long, and the arm no
+    longer sinks into a wall you stand against.
 12. **Meshes can't be drawn with a per-draw tint or transparency**, so a
     shadow blob under the duck or a see-through selection box isn't
     possible; the selection is 12 `draw_line`s instead.

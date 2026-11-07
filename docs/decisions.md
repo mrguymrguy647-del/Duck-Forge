@@ -2712,3 +2712,30 @@ floor with one tile repeated six times on the CPU and on the GPU
 (lavapipe here): the tile next to it in the atlas never shows, and the
 two pictures match. Duck Craft's sea, clouds and hotbar icons use it now,
 with the same picture to the pixel.
+
+## Fix 7: Meshes in view space, for hands and held things
+
+Duck Craft placed its first-person arm in the world every frame from the
+camera's position, yaw and pitch, and the arm sank into walls when you
+stood against one. `canvas.draw_mesh_in_view(&mesh, &transform, &camera)`
+places a mesh relative to the camera instead (x right, y up, z ahead).
+
+It draws the mesh with a camera at the origin looking along +z (so view
+space *is* that camera's world), with the same field of view, and with
+the sun turned into view space for that draw, so the hand is lit by the
+world's sun and the light moves across it as you turn. It takes the
+camera for those two reasons; the request said `(mesh, transform)`, but
+without the camera the hand would be lit as if you always faced the same
+way. The first view-space draw after any world draw empties the depth
+buffer (on the GPU, the batch so far is drawn first and the next one
+starts empty), so view meshes are always in front of the world but still
+hide each other properly (the block in the hand). The catch, in its docs:
+draw them after the world. Building one `Transform` for view-to-world
+instead was the other way, but a `Transform`'s three angles can't hold a
+camera turn followed by a mesh turn in general.
+
+Tests: the hand stays on the same pixels however the camera turns, shows
+through a wall that is nearer than it, and is bright with the sun behind
+the camera and dark when turned to face the sun; the GPU draws the same
+picture. The 42 baseline 3D pictures are unchanged (`draw_mesh` itself
+only resets a flag).

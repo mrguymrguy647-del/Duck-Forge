@@ -52,6 +52,10 @@ pub struct Canvas {
     texts: Vec<SceneText>,
     /// The light 3D is drawn with.
     lighting: Lighting,
+    /// The last 3D drawn was in view space (`draw_mesh_in_view`): the
+    /// depth buffer was emptied for it, and isn't again until the world is
+    /// drawn once more.
+    pub(crate) drawing_in_view: bool,
     /// Billboard quads made so far, kept so the GPU sees the same mesh
     /// every frame (and uploads it once).
     billboards: Vec<BillboardQuad>,
@@ -94,6 +98,7 @@ impl Canvas {
             labels: Vec::new(),
             texts: Vec::new(),
             lighting: Lighting::default(),
+            drawing_in_view: false,
             billboards: Vec::new(),
         }
     }
@@ -304,6 +309,18 @@ impl Canvas {
     /// You rarely need this: the engine calls it at the end of every frame,
     /// and drawing anything in 2D calls it first, so 2D drawn after 3D
     /// always lands on top.
+    /// Starts drawing in front of all the 3D drawn so far: the depth
+    /// buffer is emptied (on the GPU, for its next batch, after drawing what
+    /// it has).
+    pub(crate) fn forget_depth(&mut self) {
+        self.depth.fill(0.0);
+        #[cfg(feature = "gpu")]
+        if let GpuSlot::Running(gpu) = &mut self.gpu {
+            gpu.flush(&mut self.pixels);
+            gpu.forget_depth();
+        }
+    }
+
     pub fn flush_3d(&mut self) {
         #[cfg(feature = "gpu")]
         if let GpuSlot::Running(gpu) = &mut self.gpu {
@@ -359,6 +376,7 @@ impl Canvas {
     pub fn clear(&mut self, color: Color) {
         self.pixels.fill(color.to_u32());
         self.depth.fill(0.0);
+        self.drawing_in_view = false;
         #[cfg(feature = "gpu")]
         if let GpuSlot::Running(gpu) = &mut self.gpu {
             gpu.clear(); // throw away 3D that was never shown, and reset the GPU's depth

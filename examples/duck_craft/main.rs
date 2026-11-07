@@ -1725,7 +1725,6 @@ impl DuckCraft {
     /// hand. It bobs as you walk and swings when you dig or build.
     fn draw_hand(&self, canvas: &mut Canvas, camera: &Camera3D) {
         let art = &self.art;
-        let eye = self.eye();
         let bob = if self.walking && self.on_ground {
             (self.time * 10.0).sin() * 0.03
         } else {
@@ -1736,31 +1735,21 @@ impl DuckCraft {
         } else {
             0.0
         };
-        // The shoulder, by the right edge of the view, then the arm points
-        // forward and a little down (rotation about x, before the yaw).
-        // The shoulder is below the bottom of the view; the arm points
-        // forward and up into it, like a hand held out.
-        // The offset is in view space (x right, y up, z ahead), tilted with
-        // the view and turned with it, so the arm stays put on screen.
-        let offset = vec3(0.36, -0.6 + bob, 0.1)
-            .rotate_x(self.pitch)
-            .rotate_y(self.yaw);
-        let shoulder = eye + offset;
-        let reach = std::f32::consts::FRAC_PI_2 + 0.6 - swing + self.pitch;
-        let arm = Transform::at(shoulder).rotated(vec3(reach, self.yaw, 0.0));
-        canvas.draw_mesh(&art.duck.arm, &arm, camera);
+        // In view space (x right, y up, z ahead): it moves and turns with
+        // the camera, and is drawn in front of the world. The shoulder is
+        // below the bottom of the view; the arm points forward and up into
+        // it, like a hand held out.
+        let shoulder = vec3(0.36, -0.6 + bob, 0.1);
+        let reach = std::f32::consts::FRAC_PI_2 + 0.6 - swing;
+        let arm = Transform::at(shoulder).rotated(vec3(reach, 0.0, 0.0));
+        canvas.draw_mesh_in_view(&art.duck.arm, &arm, camera);
         let block = self.holding();
         if self.carried[block as usize] > 0 {
             if let Some(cube) = &art.cubes[block as usize] {
                 // The hand is 10 pixels down the arm: the block sits just past it.
-                let hand = shoulder
-                    + vec3(0.0, -11.0 * SKIN_PIXEL, 0.0)
-                        .rotate_x(reach)
-                        .rotate_y(self.yaw);
-                let place = Transform::at(hand)
-                    .rotated(vec3(0.0, self.yaw + 0.5, 0.0))
-                    .sized(0.24);
-                canvas.draw_mesh(cube, &place, camera);
+                let hand = shoulder + vec3(0.0, -11.0 * SKIN_PIXEL, 0.0).rotate_x(reach);
+                let place = Transform::at(hand).rotated(vec3(0.0, 0.5, 0.0)).sized(0.24);
+                canvas.draw_mesh_in_view(cube, &place, camera);
             }
         }
     }

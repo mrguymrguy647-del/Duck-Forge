@@ -535,6 +535,12 @@ impl GpuRenderer {
         self.clear_depth = true;
     }
 
+    /// The next batch starts with an empty depth buffer: it's drawn in
+    /// front of everything before it (call `flush` first).
+    pub(crate) fn forget_depth(&mut self) {
+        self.clear_depth = true;
+    }
+
     /// Records one object to draw at the next flush.
     pub(crate) fn draw(
         &mut self,
@@ -1067,6 +1073,22 @@ mod tests {
         gpu.flush_3d();
         let share = share_different(&gpu, &cpu);
         assert!(share < 0.02, "{:.1}% of pixels differ", share * 100.0);
+    }
+
+    #[test]
+    fn a_mesh_in_view_is_drawn_like_the_cpu() {
+        for (yaw, glowing) in [(0.0, true), (2.5, false)] {
+            let Some(mut gpu) = gpu_canvas(80, 60) else {
+                return;
+            };
+            let mut cpu = Canvas::new(80, 60);
+            crate::render3d::draw_hand_in_front_of_wall(&mut gpu, yaw, glowing);
+            crate::render3d::draw_hand_in_front_of_wall(&mut cpu, yaw, glowing);
+            gpu.flush_3d();
+            let share = share_different(&gpu, &cpu);
+            assert!(share < 0.02, "{:.1}% of pixels differ", share * 100.0);
+            assert_eq!(gpu.get_pixel(40, 30), cpu.get_pixel(40, 30));
+        }
     }
 
     /// A tile cut from an atlas repeats on its own on the GPU too.
