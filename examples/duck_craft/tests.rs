@@ -193,7 +193,7 @@ fn a_wall_stops_the_duck_and_a_step_is_hopped_up() {
 fn digging_grass_takes_a_moment_and_gives_dirt() {
     // A grass block on the floor, two blocks ahead, at eye height minus one.
     let game = arena(|w| w.set(8, FLOOR + 1, 10, Block::Grass));
-    let carried_before = game.carried[Block::Dirt as usize];
+    let carried_before = game.count(Item::Block(Block::Dirt));
     let played = PlayTest::new(config(), game)
         .script(&hold(&["X"], 20))
         .frames(20)
@@ -213,7 +213,7 @@ fn digging_grass_takes_a_moment_and_gives_dirt() {
     assert_eq!(played.number("dug"), 1.0);
     let game = played.game();
     assert_eq!(game.world.get(8, FLOOR + 1, 10), Block::Air);
-    assert_eq!(game.carried[Block::Dirt as usize], carried_before + 1);
+    assert_eq!(game.count(Item::Block(Block::Dirt)), carried_before + 1);
     assert_eq!(played.sound_frames("break").len(), 1);
 }
 
@@ -315,14 +315,14 @@ fn placing_puts_the_block_in_hand_on_the_face_you_look_at() {
     // Looking down at the floor two blocks ahead.
     let mut game = arena(|_| {});
     game.pitch = -0.6;
-    let planks = game.carried[Block::Planks as usize];
+    let planks = game.count(Item::Block(Block::Planks));
     let played = PlayTest::new(config(), game)
         .script(&tap("C"))
         .frames(10)
         .run();
     let game = played.game();
     assert_eq!(played.number("placed"), 1.0);
-    assert_eq!(game.carried[Block::Planks as usize], planks - 1);
+    assert_eq!(game.count(Item::Block(Block::Planks)), planks - 1);
     let target = game
         .world
         .raycast(game.eye(), game.look_direction(), REACH)
@@ -370,10 +370,14 @@ fn the_ray_finds_the_first_block_and_its_face() {
 #[test]
 fn picking_a_slot_changes_the_block_in_hand() {
     let played = PlayTest::new(config(), arena(|_| {}))
-        .script(&tap("Digit6"))
+        .script(&tap("Digit3"))
         .frames(5)
         .run();
-    assert_eq!(played.text("holding"), "Brick");
+    assert_eq!(
+        played.text("holding"),
+        "Brick",
+        "the starting kit's third slot"
+    );
     assert_eq!(played.sound_frames("pick").len(), 1);
 }
 
@@ -485,19 +489,30 @@ fn views() {
         sim.run(30);
         sim.picture().save_png("out/views/parade.png").unwrap();
     }
-    // The crafting menu, with some things to craft with.
-    {
+    // The inventory: with a log in the grid, a stack on the pointer, and
+    // the recipe book open.
+    for (name, book) in [("inventory", false), ("inventory_book", true)] {
         let mut game = arena(|_| {});
-        game.carried[Block::Log as usize] = 3;
-        game.carried[Block::Sand as usize] = 6;
-        game.carried[Block::Dirt as usize] = 1;
-        game.coal = 2;
-        game.gold = 1;
-        game.menu = Some(1);
+        game.inventory.set(Item::Block(Block::Log), 3);
+        game.inventory.set(Item::Block(Block::Sand), 6);
+        game.inventory.set(Item::Block(Block::Dirt), 40);
+        game.inventory.set(Item::Seeds, 5);
+        game.inventory.set(Item::Coal, 2);
+        game.inventory.set(Item::Gold, 1);
+        game.inventory.set(Item::Apple, 2);
+        let mut screen = inventory::Screen::default();
+        screen.grid[0] = Some(Stack::new(Item::Block(Block::Log), 1));
+        screen.held = (!book).then(|| Stack::new(Item::Block(Block::Sand), 3));
+        screen.book_open = book;
+        game.screen = Some(screen);
         game.show_help = false;
         let mut sim = Simulation::new(config(), game);
+        let mouse = inventory::spot_rect(inventory::Spot::Slot(20), book);
+        sim.move_mouse(vec2(mouse.x + 9.0, mouse.y + 9.0));
         sim.step();
-        sim.picture().save_png("out/views/crafting.png").unwrap();
+        sim.picture()
+            .save_png(format!("out/views/{name}.png"))
+            .unwrap();
     }
     // First person: the arm, level and looking down.
     for (name, pitch) in [("hand_level", 0.0), ("hand_down", -0.8)] {
@@ -540,87 +555,6 @@ fn views() {
         sim.picture()
             .save_png(format!("out/views/{name}.png"))
             .unwrap();
-    }
-}
-
-#[test]
-fn a_log_makes_four_planks() {
-    let mut game = arena(|_| {});
-    game.carried[Block::Log as usize] = 2;
-    let planks = game.carried[Block::Planks as usize];
-    // E opens the menu on the first recipe (log to planks); Space makes it.
-    let script = r#"{"events": [
-        {"frame": 2, "press": "E"}, {"frame": 3, "release": "E"},
-        {"frame": 5, "press": "Space"}, {"frame": 6, "release": "Space"}
-    ], "frames": 10}"#;
-    let played = PlayTest::new(config(), game).script(script).run();
-    let game = played.game();
-    assert_eq!(game.carried[Block::Log as usize], 1);
-    assert_eq!(game.carried[Block::Planks as usize], planks + 4);
-    assert_eq!(played.sound_frames("craft").len(), 1);
-    assert_eq!(
-        played.number("y"),
-        FLOOR as f64,
-        "Space crafted, it didn't jump"
-    );
-    assert!(game.menu.is_some());
-}
-
-#[test]
-fn shift_crafts_as_many_as_you_can_and_gold_makes_lamps() {
-    let mut game = arena(|_| {});
-    game.gold = 3;
-    game.carried[Block::Glass as usize] = 2;
-    game.carried[Block::Lamp as usize] = 0;
-    // Recipe 4 (gold and glass to lamps): down three times, then Shift+Space.
-    let script = r#"{"events": [
-        {"frame": 2, "press": "E"}, {"frame": 3, "release": "E"},
-        {"frame": 4, "press": "S"}, {"frame": 5, "release": "S"},
-        {"frame": 6, "press": "S"}, {"frame": 7, "release": "S"},
-        {"frame": 8, "press": "S"}, {"frame": 9, "release": "S"},
-        {"frame": 10, "press": "LeftShift"},
-        {"frame": 11, "press": "Space"}, {"frame": 12, "release": "Space"}
-    ], "frames": 14}"#;
-    let played = PlayTest::new(config(), game).script(script).run();
-    let game = played.game();
-    assert_eq!(
-        game.gold, 1,
-        "two lamps' worth of glass, so two of the three gold"
-    );
-    assert_eq!(game.carried[Block::Glass as usize], 0);
-    assert_eq!(game.carried[Block::Lamp as usize], 4);
-    assert_eq!(
-        played.number("z"),
-        8.5,
-        "S picked a recipe; the duck didn't walk"
-    );
-}
-
-#[test]
-fn missing_things_make_nothing() {
-    let mut game = arena(|_| {});
-    game.carried[Block::Sand as usize] = 5; // sand but no coal
-    game.menu = Some(1);
-    let glass = game.carried[Block::Glass as usize];
-    let played = PlayTest::new(config(), game)
-        .script(&tap("Space"))
-        .frames(6)
-        .run();
-    assert_eq!(played.game().carried[Block::Glass as usize], glass);
-    assert_eq!(played.game().carried[Block::Sand as usize], 5);
-    assert_eq!(played.number("crafted"), 0.0);
-}
-
-#[test]
-fn e_and_escape_close_the_menu() {
-    for key in ["E", "Escape"] {
-        let mut game = arena(|_| {});
-        game.menu = Some(0);
-        let played = PlayTest::new(config(), game)
-            .script(&tap(key))
-            .frames(6)
-            .run();
-        assert!(played.game().menu.is_none(), "{key} closes the menu");
     }
 }
 
@@ -791,8 +725,8 @@ fn sand_placed_in_the_air_falls_and_sinks_through_water() {
         w.set(8, FLOOR - 1, 10, Block::Water); // a pool two deep under it
         w.set(8, FLOOR - 2, 10, Block::Water);
     });
-    game.carried[Block::Sand as usize] = 1;
-    game.slot = HOTBAR.iter().position(|&b| b == Block::Sand).unwrap();
+    game.inventory.slots[0] = Some(Stack::new(Item::Block(Block::Sand), 1));
+    game.slot = 0;
     game.pitch = 0.25; // looking up a little, at the brick's near face
     let target = game
         .world
@@ -818,10 +752,10 @@ fn sand_landing_on_the_duck_is_caught() {
     let mut game = arena(|w| w.set(8, FLOOR + 3, 8, Block::Sand));
     // Hold the sand up with nothing, then let it go: it lands on the duck.
     game.world.unsettled.push([8, FLOOR + 3, 8]);
-    let sand = game.carried[Block::Sand as usize];
+    let sand = game.count(Item::Block(Block::Sand));
     let played = PlayTest::new(config(), game).frames(60).run();
     let game = played.game();
-    assert_eq!(game.carried[Block::Sand as usize], sand + 1);
+    assert_eq!(game.count(Item::Block(Block::Sand)), sand + 1);
     assert_eq!(game.world.get(8, FLOOR + 1, 8), Block::Air);
 }
 
@@ -833,9 +767,9 @@ fn a_saved_island_loads_back_the_same() {
     let y = game.world.spawn.y as i32 - 1;
     game.world.set(x + 2, y, z, Block::Air);
     game.world.set(x - 2, y + 1, z, Block::Lamp);
-    game.gold = 3;
-    game.coal = 5;
-    game.carried[Block::Log as usize] = 7;
+    game.inventory.set(Item::Gold, 3);
+    game.inventory.set(Item::Coal, 5);
+    game.inventory.set(Item::Block(Block::Log), 7);
     game.ducklings[2].follows = Some(4);
     game.imprints = 4;
     game.time = 123.5;
@@ -853,9 +787,14 @@ fn a_saved_island_loads_back_the_same() {
     assert_eq!(loaded.world.grid.blocks(), game.world.grid.blocks());
     assert_eq!(loaded.world.get(x + 2, y, z), Block::Air);
     assert_eq!(loaded.world.lamps.len(), game.world.lamps.len());
-    assert_eq!(loaded.carried, game.carried);
+    assert_eq!(loaded.inventory, game.inventory);
     assert_eq!(
-        (loaded.gold, loaded.coal, loaded.imprints, loaded.slot),
+        (
+            loaded.count(Item::Gold),
+            loaded.count(Item::Coal),
+            loaded.imprints,
+            loaded.slot
+        ),
         (3, 5, 4, 6)
     );
     assert_eq!(loaded.position, game.position);
@@ -870,16 +809,16 @@ fn a_saved_island_loads_back_the_same() {
 fn saving_writes_a_file_that_the_game_carries_on_from() {
     let path = std::env::temp_dir().join(format!("duck_craft_test_{}.dat", std::process::id()));
     let mut game = save::load_or_new(Some(path.clone())).unwrap();
-    game.gold = 9;
+    game.inventory.set(Item::Gold, 9);
     game.save().unwrap();
     assert!(path.exists());
     let again = save::load_or_new(Some(path.clone())).unwrap();
-    assert_eq!(again.gold, 9);
+    assert_eq!(again.count(Item::Gold), 9);
     assert_eq!(again.save_path.as_deref(), Some(path.as_path()));
     // A broken file: a new island, not a crash.
     std::fs::write(&path, b"DUCKCRAFT1 and then nonsense").unwrap();
     let fresh = save::load_or_new(Some(path.clone())).unwrap();
-    assert_eq!(fresh.gold, 0);
+    assert_eq!(fresh.count(Item::Gold), 0);
     std::fs::remove_file(&path).unwrap();
 }
 
@@ -894,29 +833,6 @@ fn tests_and_replays_never_save() {
     assert!(played.game().message.contains("off"));
 }
 
-#[test]
-fn number_keys_and_a_d_pick_recipes_in_the_menu() {
-    let mut game = arena(|_| {});
-    game.menu = Some(0);
-    let played = PlayTest::new(config(), game)
-        .script(&tap("Digit4"))
-        .frames(5)
-        .run();
-    assert_eq!(played.number("menu_row"), 3.0);
-    assert_eq!(played.text("holding"), "Planks", "the hotbar didn't change");
-    let mut game = arena(|_| {});
-    game.menu = Some(0);
-    let played = PlayTest::new(config(), game)
-        .script(&tap("A"))
-        .frames(5)
-        .run();
-    assert_eq!(
-        played.number("menu_row"),
-        4.0,
-        "A goes up, round to the last"
-    );
-}
-
 /// Pictures for a showcase video of crafting, ducklings and falling sand,
 /// one every other frame, in out/showcase:
 /// `cargo test --example duck_craft -- --ignored showcase`, then
@@ -928,12 +844,17 @@ fn showcase() {
     let _ = std::fs::remove_dir_all(dir);
     std::fs::create_dir_all(dir).unwrap();
     let mut game = new_game().unwrap();
-    game.carried[Block::Log as usize] = 3;
-    game.carried[Block::Sand as usize] = 6;
-    game.coal = 4;
-    game.gold = 2;
+    game.inventory.set(Item::Block(Block::Log), 3);
+    game.inventory.set(Item::Block(Block::Sand), 6);
+    game.inventory.set(Item::Coal, 4);
+    game.inventory.set(Item::Gold, 2);
+    game.inventory.set(Item::Seeds, 3);
     game.show_help = false;
+    game.draw_pointer = true;
+    game.vitals.food = 13;
+    game.vitals.health = 16;
     let mut sim = Simulation::new(config(), game);
+    sim.move_mouse(vec2(WIDTH / 2.0, HEIGHT / 2.0));
     let mut frame = 0;
     let mut shoot = |sim: &mut Simulation<DuckCraft>, steps: usize| {
         for _ in 0..steps {
@@ -945,28 +866,62 @@ fn showcase() {
             frame += 1;
         }
     };
-    let mut tap = |sim: &mut Simulation<DuckCraft>, key: Key, shoot: &mut dyn FnMut(&mut Simulation<DuckCraft>, usize)| {
+    let tap = |sim: &mut Simulation<DuckCraft>,
+               key: Key,
+               shoot: &mut dyn FnMut(&mut Simulation<DuckCraft>, usize)| {
         sim.press(key);
         shoot(sim, 1);
         sim.release(key);
         shoot(sim, 14);
     };
     shoot(&mut sim, 40);
-    // Crafting: planks from logs, glass from sand and coal, lamps from gold.
-    tap(&mut sim, Key::E, &mut shoot);
-    sim.press(Key::LeftShift);
-    tap(&mut sim, Key::Space, &mut shoot);
-    sim.release(Key::LeftShift);
+    // Hungry: eat a loaf (hotbar slot 5).
+    tap(&mut sim, Key::Digit5, &mut shoot);
+    sim.press(Key::C);
+    shoot(&mut sim, 80);
+    sim.release(Key::C);
     shoot(&mut sim, 20);
-    tap(&mut sim, Key::Digit2, &mut shoot);
-    tap(&mut sim, Key::Space, &mut shoot);
-    tap(&mut sim, Key::Space, &mut shoot);
+    tap(&mut sim, Key::Digit1, &mut shoot);
+    // Crafting in the inventory: open the recipe book, fill the grid from
+    // it, take what it makes.
+    use inventory::{Spot, spot_rect};
+    let click = |sim: &mut Simulation<DuckCraft>,
+                 spot: Spot,
+                 shift: bool,
+                 shoot: &mut dyn FnMut(&mut Simulation<DuckCraft>, usize)| {
+        let book = sim.game().screen.as_ref().is_some_and(|s| s.book_open);
+        let r = spot_rect(spot, book);
+        let target = vec2(r.x + r.w / 2.0, r.y + r.h / 2.0);
+        // Glide the pointer there, so the video shows it moving.
+        let from = sim.game().mouse.unwrap_or(vec2(WIDTH / 2.0, HEIGHT / 2.0));
+        for i in 1..=8 {
+            sim.move_mouse(from + (target - from) * (i as f32 / 8.0));
+            shoot(sim, 1);
+        }
+        if shift {
+            sim.press(Key::LeftShift);
+        }
+        sim.press_mouse(MouseButton::Left);
+        shoot(sim, 1);
+        sim.release_mouse(MouseButton::Left);
+        if shift {
+            sim.release(Key::LeftShift);
+        }
+        shoot(sim, 10);
+    };
+    tap(&mut sim, Key::E, &mut shoot);
+    click(&mut sim, Spot::Book, false, &mut shoot);
+    click(&mut sim, Spot::Recipe(0), false, &mut shoot); // a log
+    click(&mut sim, Spot::Result, true, &mut shoot); // planks, into the bag
     shoot(&mut sim, 10);
-    tap(&mut sim, Key::Digit4, &mut shoot);
-    sim.press(Key::LeftShift);
-    tap(&mut sim, Key::Space, &mut shoot);
-    sim.release(Key::LeftShift);
-    shoot(&mut sim, 30);
+    click(&mut sim, Spot::Recipe(2), false, &mut shoot); // sand, sand, coal
+    click(&mut sim, Spot::Result, false, &mut shoot); // glass, on the pointer
+    click(&mut sim, Spot::Slot(16), false, &mut shoot); // put down in the bag
+    click(&mut sim, Spot::Recipe(5), false, &mut shoot); // gold and glass
+    click(&mut sim, Spot::Result, true, &mut shoot); // lamps
+    click(&mut sim, Spot::Recipe(1), false, &mut shoot); // three seeds
+    click(&mut sim, Spot::Result, true, &mut shoot); // bread
+    shoot(&mut sim, 20);
     tap(&mut sim, Key::E, &mut shoot);
 
     // Meet the three nearest ducklings: look at each and right-click.
@@ -991,7 +946,9 @@ fn showcase() {
             }
             let want = to.x.atan2(to.z);
             let game = sim.game_mut();
-            game.yaw += ((want - game.yaw + std::f32::consts::PI).rem_euclid(TAU) - std::f32::consts::PI).clamp(-0.08, 0.08);
+            game.yaw += ((want - game.yaw + std::f32::consts::PI).rem_euclid(TAU)
+                - std::f32::consts::PI)
+                .clamp(-0.08, 0.08);
             sim.press(Key::W);
             shoot(&mut sim, 1);
         }
@@ -1024,5 +981,595 @@ fn showcase() {
     shoot(&mut sim, 95);
     sim.release(Key::Right);
     shoot(&mut sim, 90);
-    eprintln!("SHOWCASE {} pictures, met {met} ducklings, crafted {}", frame / 2, sim.game().crafted);
+    eprintln!(
+        "SHOWCASE {} pictures, met {met} ducklings, crafted {}",
+        frame / 2,
+        sim.game().crafted
+    );
+}
+
+// ---- The inventory ----
+
+/// The arena with the inventory screen open (the pointer free).
+fn inventory_open(change: impl FnOnce(&mut DuckCraft)) -> DuckCraft {
+    let mut game = arena(|_| {});
+    game.screen = Some(inventory::Screen::default());
+    change(&mut game);
+    game
+}
+
+/// Clicks on spots, one every 4 frames from frame 2: (spot, "Left" or
+/// "Right", Shift held?). The book is shut unless `book` says.
+fn clicks(steps: &[(inventory::Spot, &str, bool)], book: bool) -> String {
+    let mut events = Vec::new();
+    for (n, &(spot, button, shift)) in steps.iter().enumerate() {
+        let frame = 2 + n * 4;
+        let r = inventory::spot_rect(spot, book);
+        let (x, y) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
+        events.push(format!(r#"{{"frame": {frame}, "mouse": [{x}, {y}]}}"#));
+        if shift {
+            events.push(format!(r#"{{"frame": {frame}, "press": "LeftShift"}}"#));
+        }
+        events.push(format!(
+            r#"{{"frame": {}, "mouse_press": "{button}"}}"#,
+            frame + 1
+        ));
+        events.push(format!(
+            r#"{{"frame": {}, "mouse_release": "{button}"}}"#,
+            frame + 2
+        ));
+        if shift {
+            events.push(format!(
+                r#"{{"frame": {}, "release": "LeftShift"}}"#,
+                frame + 2
+            ));
+        }
+    }
+    format!(r#"{{"events": [{}]}}"#, events.join(", "))
+}
+
+fn run_clicks(game: DuckCraft, steps: &[(inventory::Spot, &str, bool)], book: bool) -> DuckCraft {
+    let frames = 6 + steps.len() as u64 * 4;
+    let played = PlayTest::new(config(), game)
+        .script(&clicks(steps, book))
+        .frames(frames)
+        .run();
+    played.game().clone()
+}
+
+#[test]
+fn the_bag_fills_stacks_first_then_the_hotbar_then_the_backpack() {
+    let mut bag = Inventory::empty();
+    bag.slots[3] = Some(Stack::new(Item::Coal, 60));
+    assert_eq!(bag.add(Item::Coal, 10), 0);
+    assert_eq!(
+        bag.slots[3],
+        Some(Stack::new(Item::Coal, 64)),
+        "the stack topped up first"
+    );
+    assert_eq!(
+        bag.slots[0],
+        Some(Stack::new(Item::Coal, 6)),
+        "the rest in the first empty slot"
+    );
+    for i in 0..items::SLOTS {
+        if bag.slots[i].is_none() {
+            bag.slots[i] = Some(Stack::new(Item::Apple, 1));
+        }
+    }
+    assert_eq!(bag.add(Item::Bread, 5), 5, "a full bag takes nothing");
+    assert_eq!(bag.count(Item::Coal), 70);
+    assert_eq!(bag.take(Item::Coal, 65), 65);
+    assert_eq!(bag.count(Item::Coal), 5);
+    // Item numbers come back as the same items (the save file).
+    for item in [
+        Item::Block(Block::Lamp),
+        Item::Gold,
+        Item::Bread,
+        Item::Seeds,
+    ] {
+        assert_eq!(Item::from_id(item.id()), Some(item));
+    }
+}
+
+#[test]
+fn e_opens_the_inventory_and_lets_go_of_the_pointer_and_e_closes_it() {
+    let played = PlayTest::new(config(), arena(|_| {}))
+        .script(&tap("E"))
+        .frames(5)
+        .run();
+    assert!(played.game().screen.is_some());
+    let mut game = inventory_open(|g| {
+        let screen = g.screen.as_mut().unwrap();
+        screen.grid[2] = Some(Stack::new(Item::Coal, 3));
+        screen.held = Some(Stack::new(Item::Apple, 2));
+    });
+    game.inventory.set(Item::Coal, 0);
+    let played = PlayTest::new(config(), game)
+        .script(&tap("E"))
+        .frames(5)
+        .run();
+    let game = played.game();
+    assert!(game.screen.is_none());
+    assert_eq!(game.count(Item::Coal), 3, "the grid went back in the bag");
+    assert_eq!(
+        game.count(Item::Apple),
+        2,
+        "and so did the stack on the pointer"
+    );
+}
+
+#[test]
+fn clicks_pick_up_put_down_and_split_stacks() {
+    use inventory::Spot;
+    // Planks (32) are in hotbar slot 0: pick them up, put them in the backpack.
+    let game = run_clicks(
+        inventory_open(|_| {}),
+        &[
+            (Spot::Slot(0), "Left", false),
+            (Spot::Slot(20), "Left", false),
+        ],
+        false,
+    );
+    assert_eq!(game.inventory.slots[0], None);
+    assert_eq!(
+        game.inventory.slots[20],
+        Some(Stack::new(Item::Block(Block::Planks), 32))
+    );
+    // Right click takes half; right click on an empty slot puts down one.
+    let game = run_clicks(
+        inventory_open(|_| {}),
+        &[
+            (Spot::Slot(0), "Right", false),
+            (Spot::Slot(30), "Right", false),
+        ],
+        false,
+    );
+    assert_eq!(
+        game.inventory.slots[0],
+        Some(Stack::new(Item::Block(Block::Planks), 16))
+    );
+    assert_eq!(
+        game.inventory.slots[30],
+        Some(Stack::new(Item::Block(Block::Planks), 1))
+    );
+    assert_eq!(
+        game.screen.as_ref().unwrap().held,
+        Some(Stack::new(Item::Block(Block::Planks), 15))
+    );
+    // A different stack: they swap.
+    let game = run_clicks(
+        inventory_open(|_| {}),
+        &[
+            (Spot::Slot(0), "Left", false),
+            (Spot::Slot(2), "Left", false),
+        ],
+        false,
+    );
+    assert_eq!(
+        game.inventory.slots[2],
+        Some(Stack::new(Item::Block(Block::Planks), 32))
+    );
+    assert_eq!(
+        game.screen.as_ref().unwrap().held,
+        Some(Stack::new(Item::Block(Block::Brick), 32))
+    );
+}
+
+#[test]
+fn shift_click_sends_a_stack_across() {
+    use inventory::Spot;
+    let game = run_clicks(
+        inventory_open(|_| {}),
+        &[(Spot::Slot(1), "Left", true)],
+        false,
+    );
+    assert_eq!(game.inventory.slots[1], None);
+    assert_eq!(
+        game.inventory.slots[9],
+        Some(Stack::new(Item::Block(Block::Glass), 16)),
+        "to the backpack's first slot"
+    );
+    let game = run_clicks(
+        inventory_open(|g| {
+            g.inventory.slots[30] = Some(Stack::new(Item::Apple, 5));
+        }),
+        &[(Spot::Slot(30), "Left", true)],
+        false,
+    );
+    assert_eq!(
+        game.inventory.slots[5],
+        Some(Stack::new(Item::Apple, 5)),
+        "to the hotbar's first empty slot"
+    );
+}
+
+#[test]
+fn a_log_in_the_grid_makes_planks() {
+    use inventory::Spot;
+    let game = inventory_open(|g| {
+        g.inventory.slots[8] = Some(Stack::new(Item::Block(Block::Log), 2));
+    });
+    // Pick up the logs, put one in the grid (right click), the rest back,
+    // then take the planks.
+    let game = run_clicks(
+        game,
+        &[
+            (Spot::Slot(8), "Left", false),
+            (Spot::Grid(3), "Right", false),
+            (Spot::Slot(8), "Left", false),
+            (Spot::Result, "Left", false),
+        ],
+        false,
+    );
+    let screen = game.screen.as_ref().unwrap();
+    assert_eq!(screen.held, Some(Stack::new(Item::Block(Block::Planks), 4)));
+    assert_eq!(screen.grid[3], None, "the log was used");
+    assert_eq!(
+        game.inventory.slots[8],
+        Some(Stack::new(Item::Block(Block::Log), 1))
+    );
+    assert_eq!(game.crafted, 4);
+}
+
+#[test]
+fn the_recipe_book_fills_the_grid_and_shift_makes_all_it_can() {
+    use inventory::Spot;
+    let game = inventory_open(|g| {
+        g.inventory.set(Item::Block(Block::Sand), 7);
+        g.inventory.set(Item::Coal, 2);
+        g.screen.as_mut().unwrap().book_open = true;
+    });
+    let glass = game.count(Item::Block(Block::Glass));
+    // Sand, sand and coal (recipe 2) into the grid, then make glass.
+    let game = run_clicks(
+        game,
+        &[
+            (Spot::Recipe(2), "Left", false),
+            (Spot::Result, "Left", true),
+        ],
+        true,
+    );
+    assert_eq!(
+        game.count(Item::Block(Block::Glass)),
+        glass + 2,
+        "one lot: the grid had one of each"
+    );
+    // Again, keeping the grid's leftovers: fill it with two of each and
+    // shift-click: two lots.
+    let mut game = game;
+    game.screen.as_mut().unwrap().grid = [
+        Some(Stack::new(Item::Block(Block::Sand), 2)),
+        Some(Stack::new(Item::Block(Block::Sand), 2)),
+        Some(Stack::new(Item::Coal, 2)),
+        None,
+    ];
+    let glass = game.count(Item::Block(Block::Glass));
+    let game = run_clicks(game, &[(Spot::Result, "Left", true)], true);
+    assert_eq!(game.count(Item::Block(Block::Glass)), glass + 4);
+    assert!(
+        game.screen
+            .as_ref()
+            .unwrap()
+            .grid
+            .iter()
+            .all(|s| s.is_none())
+    );
+}
+
+#[test]
+fn recipes_match_in_any_order_and_only_exactly() {
+    use inventory::matching_recipe;
+    let s = |item| Some(Stack::new(item, 1));
+    let sand = Item::Block(Block::Sand);
+    let grid = [s(Item::Coal), None, s(sand), s(sand)];
+    assert_eq!(
+        matching_recipe(&grid).map(|r| r.makes.0),
+        Some(Item::Block(Block::Glass))
+    );
+    let grid = [s(Item::Coal), s(sand), s(sand), s(sand)];
+    assert!(
+        matching_recipe(&grid).is_none(),
+        "an extra sand matches nothing"
+    );
+    let grid = [s(Item::Seeds), s(Item::Seeds), s(Item::Seeds), None];
+    assert_eq!(
+        matching_recipe(&grid).map(|r| r.makes),
+        Some((Item::Bread, 1))
+    );
+}
+
+// ---- Health, hunger and air ----
+
+/// Runs the game for `seconds` with nothing pressed.
+fn wait(game: DuckCraft, seconds: f32) -> DuckCraft {
+    let played = PlayTest::new(config(), game)
+        .frames((seconds * 60.0) as u64)
+        .run();
+    played.game().clone()
+}
+
+#[test]
+fn a_long_fall_hurts_and_a_short_one_doesnt() {
+    // Six blocks: three past the safe three, so three points (a heart and a half).
+    let mut game = arena(|_| {});
+    game.position.y = FLOOR as f32 + 6.0;
+    let game = wait(game, 2.0);
+    assert_eq!(game.vitals.health, 17);
+    assert!(game.on_ground);
+    let mut game = arena(|_| {});
+    game.position.y = FLOOR as f32 + 3.0;
+    assert_eq!(wait(game, 2.0).vitals.health, 20);
+}
+
+#[test]
+fn falling_into_water_doesnt_hurt() {
+    let mut game = arena(|w| {
+        for y in FLOOR - 4..FLOOR {
+            w.set(8, y, 8, Block::Water);
+        }
+    });
+    game.position.y = FLOOR as f32 + 8.0;
+    let game = wait(game, 3.0);
+    assert_eq!(game.vitals.health, 20);
+}
+
+#[test]
+fn under_water_air_runs_out_then_it_hurts() {
+    // A deep pool: the duck at its bottom.
+    let mut game = arena(|w| {
+        for z in 6..11 {
+            for x in 6..11 {
+                for y in FLOOR - 6..FLOOR + 1 {
+                    w.set(x, y, z, Block::Water);
+                }
+            }
+        }
+    });
+    game.position.y = FLOOR as f32 - 6.0;
+    let game = wait(game, 10.0);
+    assert!(
+        game.vitals.air < health::MAX_AIR - 9.0,
+        "air going: {}",
+        game.vitals.air
+    );
+    assert_eq!(game.vitals.health, 20, "not yet");
+    let game = wait(game, 8.0);
+    assert_eq!(game.vitals.air, 0.0);
+    assert!(game.vitals.health < 20, "out of air, it hurts");
+}
+
+#[test]
+fn walking_makes_you_hungry() {
+    let mut game = arena(|_| {});
+    game.vitals.tiredness = 0.99;
+    let played = PlayTest::new(config(), game)
+        .script(&hold(&["W"], 60))
+        .frames(60)
+        .run();
+    assert_eq!(played.number("food"), 19.0);
+}
+
+#[test]
+fn eating_bread_fills_you_up() {
+    let mut game = arena(|_| {});
+    game.vitals.food = 10;
+    game.slot = 4; // the starting kit's bread
+    assert_eq!(game.holding().map(|s| s.item), Some(Item::Bread));
+    let played = PlayTest::new(config(), game)
+        .script(&hold(&["C"], 80))
+        .frames(80)
+        .run();
+    let game = played.game();
+    assert_eq!(game.vitals.food, 16);
+    assert_eq!(game.count(Item::Bread), 2);
+    assert_eq!(game.placed, 0, "bread isn't a block");
+    assert!(!played.sound_frames("munch").is_empty());
+    assert_eq!(played.sound_frames("gulp").len(), 1);
+}
+
+#[test]
+fn a_full_duck_cant_eat() {
+    let mut game = arena(|_| {});
+    game.slot = 4;
+    let played = PlayTest::new(config(), game)
+        .script(&hold(&["C"], 100))
+        .frames(100)
+        .run();
+    assert_eq!(played.game().count(Item::Bread), 3);
+    assert_eq!(played.text("message"), "You're full");
+}
+
+#[test]
+fn well_fed_heals_and_starving_hurts_but_not_to_fainting() {
+    let mut game = arena(|_| {});
+    game.vitals.health = 15;
+    let game = wait(game, 4.5);
+    assert_eq!(game.vitals.health, 16);
+    let mut game = arena(|_| {});
+    game.vitals.health = 3;
+    game.vitals.food = 0;
+    let game = wait(game, 30.0);
+    assert_eq!(game.vitals.health, 1, "starving stops at half a heart");
+    assert!(!game.vitals.fainted);
+}
+
+#[test]
+fn fainting_and_waking_at_the_spawn() {
+    let mut game = arena(|_| {});
+    game.vitals.health = 2;
+    game.position.y = FLOOR as f32 + 9.0;
+    let planks = game.count(Item::Block(Block::Planks));
+    let game = wait(game, 2.0);
+    assert!(game.vitals.fainted);
+    assert_eq!(game.fainted_because, "fell too far");
+    let played = PlayTest::new(config(), game)
+        .script(&tap("Space"))
+        .frames(6)
+        .run();
+    let game = played.game();
+    assert!(!game.vitals.fainted);
+    assert_eq!(game.vitals.health, health::MAX_HEALTH);
+    assert!(
+        game.position.distance(game.world.spawn) < 0.01,
+        "back at the spawn"
+    );
+    assert_eq!(
+        game.count(Item::Block(Block::Planks)),
+        planks,
+        "you keep your things"
+    );
+    assert_eq!(game.vitals.faints, 1);
+}
+
+// ---- Plants ----
+
+#[test]
+fn the_island_grows_tall_grass_and_flowers_on_grass() {
+    let world = World::generate();
+    let count = |kind| world.plants.values().filter(|&&p| p == kind).count();
+    assert!(
+        count(Plant::TallGrass) > 200,
+        "{} tall grass",
+        count(Plant::TallGrass)
+    );
+    for flower in [Plant::YellowFlower, Plant::RedFlower, Plant::WhiteFlower] {
+        assert!(count(flower) > 0, "no {flower:?}");
+    }
+    for &[x, y, z] in world.plants.keys() {
+        assert_eq!(world.get(x, y, z), Block::Air);
+        assert!(plants::grows_on(world.get(x, y - 1, z)));
+    }
+}
+
+/// The arena with a plant two blocks ahead, the duck looking down at it.
+fn plant_ahead(plant: Plant) -> DuckCraft {
+    let mut game = arena(|w| {
+        w.plants.insert([8, FLOOR, 10], plant);
+        w.set(8, FLOOR - 1, 10, Block::Grass);
+    });
+    game.pitch = -0.6;
+    game
+}
+
+#[test]
+fn a_plant_breaks_at_once_and_you_walk_through_plants() {
+    let played = PlayTest::new(config(), plant_ahead(Plant::RedFlower))
+        .script(&tap("X"))
+        .frames(5)
+        .run();
+    assert_eq!(played.number("picked"), 1.0);
+    assert!(played.game().world.plant(8, FLOOR, 10).is_none());
+    assert_eq!(played.sound_frames("snip").len(), 1);
+    // Walking: straight through tall grass.
+    let mut game = arena(|w| {
+        for z in 9..13 {
+            w.plants.insert([8, FLOOR, z], Plant::TallGrass);
+        }
+    });
+    game.pitch = 0.0;
+    let played = PlayTest::new(config(), game)
+        .script(&hold(&["W"], 60))
+        .frames(60)
+        .run();
+    assert!(played.number("z") > 12.0);
+}
+
+#[test]
+fn a_block_placed_on_a_plant_takes_its_place() {
+    let played = PlayTest::new(config(), plant_ahead(Plant::TallGrass))
+        .script(&tap("C"))
+        .frames(5)
+        .run();
+    let world = &played.game().world;
+    assert_eq!(world.get(8, FLOOR, 10), Block::Planks);
+    assert!(world.plant(8, FLOOR, 10).is_none());
+}
+
+#[test]
+fn digging_the_grass_under_a_plant_takes_the_plant_too() {
+    let mut game = plant_ahead(Plant::YellowFlower);
+    game.world.set(8, FLOOR - 1, 10, Block::Air);
+    assert!(game.world.plant(8, FLOOR, 10).is_none());
+    assert!(game.world.plants_changed);
+}
+
+#[test]
+fn saved_plants_stay_as_they_were() {
+    let mut game = new_game().unwrap();
+    let &[x, y, z] = game.world.plants.keys().next().unwrap();
+    game.world.remove_plant(x, y, z);
+    let plants = game.world.plants.len();
+    let loaded = DuckCraft::from_bytes(Rc::new(Art::load().unwrap()), &game.to_bytes()).unwrap();
+    assert_eq!(loaded.world.plants.len(), plants);
+    assert!(
+        loaded.world.plant(x, y, z).is_none(),
+        "the picked one didn't grow back"
+    );
+}
+
+/// Random clicks all over the inventory screen (the fuzzer only presses
+/// keys): nothing is ever lost or made from nothing except by crafting,
+/// and every stack holds 1 to 64.
+#[test]
+fn random_clicks_never_lose_or_copy_things() {
+    use inventory::{RECIPES, Spot};
+    let mut game = inventory_open(|g| {
+        g.inventory.set(Item::Block(Block::Log), 9);
+        g.inventory.set(Item::Block(Block::Sand), 70);
+        g.inventory.set(Item::Coal, 12);
+        g.inventory.set(Item::Gold, 3);
+        g.inventory.set(Item::Seeds, 10);
+        g.inventory.set(Item::Block(Block::Dirt), 64);
+    });
+    let mut seed: u64 = 12345;
+    let mut random = |n: usize| {
+        seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        ((seed >> 33) as usize) % n
+    };
+    // Everything there is, wherever it is.
+    let total = |g: &DuckCraft| {
+        let mut all: Vec<Stack> = g.inventory.slots.iter().flatten().copied().collect();
+        let screen = g.screen.as_ref().unwrap();
+        all.extend(screen.grid.iter().flatten().copied());
+        all.extend(screen.held);
+        let mut counts: Vec<(u8, u32)> = Vec::new();
+        for stack in &all {
+            assert!(
+                (1..=items::STACK).contains(&stack.count),
+                "a stack of {}",
+                stack.count
+            );
+            match counts.iter_mut().find(|(id, _)| *id == stack.item.id()) {
+                Some((_, n)) => *n += stack.count,
+                None => counts.push((stack.item.id(), stack.count)),
+            }
+        }
+        counts.sort();
+        counts
+    };
+    let mut before = total(&game);
+    for _ in 0..5000 {
+        let spot = match random(10) {
+            0 => Spot::Grid(random(4)),
+            1 => Spot::Result,
+            2 => Spot::Recipe(random(RECIPES.len())),
+            3 => Spot::Book,
+            _ => Spot::Slot(random(items::SLOTS)),
+        };
+        let crafting = matches!(spot, Spot::Result);
+        game.click_spot(spot, random(3) > 0, random(4) == 0);
+        let after = total(&game);
+        if !crafting {
+            assert_eq!(before, after, "a click on {spot:?} changed what there is");
+        }
+        before = after;
+    }
+    // Closing puts everything back in the bag, and nothing goes missing.
+    let everything = total(&game);
+    game.close_inventory();
+    game.screen = Some(inventory::Screen::default());
+    assert_eq!(total(&game), everything);
 }

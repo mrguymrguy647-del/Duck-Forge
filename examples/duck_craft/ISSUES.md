@@ -139,8 +139,42 @@ game; the tool still has the gap.
     failed because of it before I saw why; the comment is fixed and the
     tests that need a release write it out.
 
+## Found while making it more like Minecraft (inventory, health, plants)
+
+22. **The fuzzer never uses the mouse.** It found the inventory screen (E)
+    but never clicked in it, so `held` stayed "nothing" in every run. The
+    game's own `random_clicks_never_lose_or_copy_things` test does 5,000
+    random clicks instead. A `--fuzz-mouse` (random moves, clicks and
+    drags, within the canvas) would cover mouse-driven screens.
+23. **No way to draw 3D into part of the screen.** The duck in the
+    inventory is drawn with `draw_mesh_in_view` at a depth worked out so
+    it lands in its box (`draw_duck_preview`); the box can't clip it.
+    A `canvas.draw_mesh_in_rect(mesh, transform, rect)` (its own little
+    camera and viewport) would make previews, item spinners and
+    character screens easy.
+24. **`draw_mesh_in_view` is lit by the scene's light**, so the preview
+    duck is dark at night unless the game swaps the light just before
+    drawing it (it does). Fine, but worth a sentence in its docs.
+25. **No way to ask the canvas for an atlas tile's texture points
+    without the `Tileset`.** The plants keep their own copy of
+    `atlas.uv_rect(tile)` for each kind, taken when the art loads.
+    `BlockPalette` could hand them out, since it has the atlas.
+26. **The engine has no "plant" (crossed pictures) block shape.**
+    `BlockWorld` draws only cubes, so tall grass and flowers live in
+    their own map and their own mesh (`plants.rs`), rebuilt whole when
+    one changes. A `BlockKind::crossed()` shape would let them sit in the
+    grid like any other block, chunk by chunk.
+27. **The windowed game shows the system's pointer, recorded videos
+    don't.** The showcase draws its own arrow (`draw_pointer`), off in
+    the real game. A video option to draw the pointer would help every
+    game with menus.
+
 ## Duck Quill
 
+0. **(This round) More than 52 colours in one pixel script.** The atlas
+   now has 63 colours, and `pixels` rows use one character a colour, so
+   `make_blocks.py` ran out of letters and uses digits and symbols too.
+   A `colors` map of short names (two characters) would read better.
 1. **First build is slow (about 8 minutes)**, because `cargo build
    --release -p quill-cli` also builds the app's GUI crates. A leaner
    CLI-only build (or a prebuilt binary in the release zip) would help

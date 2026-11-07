@@ -13,7 +13,10 @@ use super::*;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
-const MAGIC: &[u8; 10] = b"DUCKCRAFT1";
+/// The file's first bytes. Version 2 keeps stacks in slots; version 1 (a
+/// count of each block, gold and coal) still loads.
+const MAGIC: &[u8; 10] = b"DUCKCRAFT2";
+const MAGIC_V1: &[u8; 10] = b"DUCKCRAFT1";
 pub const SAVE_FILE: &str = "duck_craft_save.dat";
 /// Seconds between saves while you play.
 pub const AUTOSAVE_SECONDS: f32 = 30.0;
@@ -86,18 +89,32 @@ impl DuckCraft {
             w.u8(block);
             i += run;
         }
-        for &count in &self.carried {
-            w.u32(count);
+        for slot in &self.inventory.slots {
+            match slot {
+                Some(stack) => {
+                    w.u8(stack.item.id());
+                    w.u32(stack.count);
+                }
+                None => {
+                    w.u8(0);
+                    w.u32(0);
+                }
+            }
         }
-        for v in [
-            self.gold,
-            self.coal,
-            self.dug,
-            self.placed,
-            self.crafted,
-            self.imprints,
-        ] {
+        for v in [self.dug, self.placed, self.crafted, self.imprints] {
             w.u32(v);
+        }
+        w.u32(self.vitals.health);
+        w.u32(self.vitals.food);
+        w.f32(self.vitals.air);
+        let mut plants: Vec<(&[i32; 3], &Plant)> = self.world.plants.iter().collect();
+        plants.sort();
+        w.u32(plants.len() as u32);
+        for (&[x, y, z], &plant) in plants {
+            w.u8(x as u8);
+            w.u8(y as u8);
+            w.u8(z as u8);
+            w.u8(plant.id());
         }
         w.vec3(self.position);
         w.f32(self.yaw);
@@ -117,9 +134,11 @@ impl DuckCraft {
     /// A game from bytes `to_bytes` made.
     pub fn from_bytes(art: Rc<Art>, bytes: &[u8]) -> io::Result<DuckCraft> {
         let mut r = Reader(bytes);
-        if r.take(MAGIC.len())? != MAGIC {
-            return Err(bad("not a Duck Craft save (or an older kind)"));
-        }
+        let version = match r.take(MAGIC.len())? {
+            m if m == MAGIC => 2,
+            m if m == MAGIC_V1 => 1,
+            _ => return Err(bad("not a Duck Craft save")),
+        };
         // The island's blocks, over a freshly grown one (for its spawn).
         let mut world = World::generate();
         let total = SIZE * TALL * SIZE;
@@ -150,20 +169,65 @@ impl DuckCraft {
             }
         }
         let mut game = DuckCraft::new(art, world);
-        for count in game.carried.iter_mut() {
-            *count = r.u32()?;
+        game.inventory = Inventory::empty();
+        if version == 1 {
+            // A count of each kind of block, then gold and coal.
+            for block in Block::ALL {
+                let count = r.u32()?;
+                if block != Block::Air {
+                    game.inventory.add(Item::Block(block), count);
+                }
+            }
+            let gold = r.u32()?;
+            game.inventory.add(Item::Gold, gold);
+            let coal = r.u32()?;
+            game.inventory.add(Item::Coal, coal);
+        } else {
+            for slot in game.inventory.slots.iter_mut() {
+                let (id, count) = (r.u8()?, r.u32()?);
+                *slot = Item::from_id(id)
+                    .filter(|_| count > 0)
+                    .map(|item| Stack::new(item, count.min(items::STACK)));
+            }
         }
-        game.gold = r.u32()?;
-        game.coal = r.u32()?;
         game.dug = r.u32()?;
         game.placed = r.u32()?;
         game.crafted = r.u32()?;
         game.imprints = r.u32()?;
+        if version >= 2 {
+            game.vitals.health = r.u32()?.clamp(1, health::MAX_HEALTH);
+            game.vitals.food = r.u32()?.min(health::MAX_FOOD);
+            game.vitals.air = r.f32()?.clamp(0.0, health::MAX_AIR);
+            let count = r.u32()?;
+            game.world.plants.clear();
+            for _ in 0..count {
+                let (x, y, z, id) = (r.u8()? as i32, r.u8()? as i32, r.u8()? as i32, r.u8()?);
+                if let Some(plant) = Plant::from_id(id) {
+                    game.world.plants.insert([x, y, z], plant);
+                }
+            }
+        } else {
+            // An old save has no plants: keep the freshly grown ones that
+            // still have room (air, on grass).
+            let world = &game.world;
+            let gone: Vec<[i32; 3]> = world
+                .plants
+                .keys()
+                .filter(|&&[x, y, z]| {
+                    world.get(x, y, z) != Block::Air || !plants::grows_on(world.get(x, y - 1, z))
+                })
+                .copied()
+                .collect();
+            for [x, y, z] in gone {
+                game.world.remove_plant(x, y, z);
+            }
+        }
+        game.world.plants_changed = true;
         game.position = r.vec3()?;
         game.yaw = r.f32()?;
         game.pitch = r.f32()?;
         game.time = r.f32()?;
-        game.slot = (r.u8()? as usize).min(HOTBAR.len() - 1);
+        game.slot = (r.u8()? as usize).min(HOTBAR_SLOTS - 1);
         game.behind_view = r.u8()? != 0;
         let count = r.u8()? as usize;
         game.ducklings.clear();
@@ -180,6 +244,7 @@ impl DuckCraft {
         if game.body_hits(game.position) {
             game.position = game.world.spawn;
         }
+        game.update_chunks();
         game.show_help = false;
         game.last_save = game.time;
         Ok(game)

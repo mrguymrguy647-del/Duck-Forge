@@ -34,11 +34,15 @@ PALETTE = {
     "crack": "#1E1E22",
     "cloud": "#FFFFFF", "cloud_shade": "#E6EEF6",
     "lamp": "#FFD45A", "lamp_light": "#FFF6C8", "lamp_frame": "#9A6A1C",
+    "stem": "#3C7A2C", "petal_yellow": "#FFD43A", "petal_red": "#E0383A",
+    "petal_white": "#F4F0E8", "apple": "#D8322C", "apple_dark": "#A01E1E",
+    "seed": "#D8B868", "seed_dark": "#9A7838", "crust": "#B86E2C",
+    "crumb": "#F0D490", "gold_dark": "#B88A10",
 }
 
 # One letter per palette colour, for the pixel rows.
 LETTERS = {}
-for name, letter in zip(PALETTE, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"):
+for name, letter in zip(PALETTE, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#$%&*+"):
     LETTERS[name] = letter
 
 
@@ -227,6 +231,154 @@ def lamp():
     return grid
 
 
+def picture(rows, legend):
+    """A tile drawn by hand: one character per pixel, `legend` names each
+    character's colour ('.' is see-through)."""
+    assert len(rows) == N and all(len(r) == N for r in rows), rows
+    return [["." if ch == "." else legend[ch] for ch in row] for row in rows]
+
+
+def tall_grass():
+    """Blades of grass, for a plant drawn as two crossed pictures."""
+    grid = blank()
+    for blade in range(9):
+        x = 1 + blade * 14 / 8
+        height = rng.randrange(7, 15)
+        lean = rng.uniform(-0.25, 0.25)
+        colour = rng.choice(["grass", "grass_dark", "grass_light", "grass"])
+        for i in range(height):
+            px = int(x + lean * i) % N
+            grid[N - 1 - i][px] = colour
+    return grid
+
+
+def flower(petal, middle):
+    rows = [
+        "................",
+        "................",
+        "................",
+        "......pp........",
+        ".....pmmp.......",
+        "....pmmmmp......",
+        ".....pmmp.......",
+        "......pp........",
+        ".......s........",
+        ".......s..ll....",
+        ".......s.lll....",
+        "...ll..sll......",
+        "...llls.........",
+        ".....ls.........",
+        ".......s........",
+        ".......s........",
+    ]
+    return picture(rows, {"p": petal, "m": middle, "s": "stem", "l": "leaf_light"})
+
+
+def apple():
+    return picture([
+        "................",
+        "........s.......",
+        ".......s..ll....",
+        ".......sll......",
+        "....aaasaaa.....",
+        "...aaaaaaaaa....",
+        "..aawaaaaaaaa...",
+        "..awwaaaaaaad...",
+        "..aaaaaaaaaad...",
+        "..aaaaaaaaaad...",
+        "..aaaaaaaaadd...",
+        "...aaaaaaaadd...",
+        "...daaaaaaddd...",
+        "....ddaddddd....",
+        ".....dd..dd.....",
+        "................",
+    ], {"a": "apple", "d": "apple_dark", "w": "shine", "s": "bark", "l": "leaf_light"})
+
+
+def seeds():
+    return picture([
+        "................",
+        "................",
+        "................",
+        ".........sd.....",
+        "....sd....dd....",
+        "....dd..........",
+        "........sd......",
+        "..sd.....d...sd.",
+        "...d.........dd.",
+        "......sd........",
+        "......dd...sd...",
+        "...sd.......d...",
+        "....d..sd.......",
+        ".........d......",
+        "................",
+        "................",
+    ], {"s": "seed", "d": "seed_dark"})
+
+
+def bread():
+    return picture([
+        "................",
+        "................",
+        "................",
+        "................",
+        ".....cccccc.....",
+        "...ccmcccmccc...",
+        "..ccmcccmcccmc..",
+        ".cccccccccccccc.",
+        ".cccccccccccccc.",
+        ".kccccccccccccck",
+        ".kkccccccccccckk",
+        "..kkkkkkkkkkkk..",
+        "................",
+        "................",
+        "................",
+        "................",
+    ], {"c": "crust", "m": "crumb", "k": "bark"})
+
+
+def gold_nugget():
+    return picture([
+        "................",
+        "................",
+        "................",
+        "................",
+        "......gggg......",
+        "....ggwwgggg....",
+        "...gwwgggggdg...",
+        "...ggggggggddg..",
+        "..gggggggggddd..",
+        "..dggggggggddd..",
+        "...ddggggdddd...",
+        "....dddddddd....",
+        "................",
+        "................",
+        "................",
+        "................",
+    ], {"g": "gold", "w": "gold_light", "d": "gold_dark"})
+
+
+def coal_lump():
+    return picture([
+        "................",
+        "................",
+        "................",
+        "................",
+        ".......kk.......",
+        ".....kkkkkk.....",
+        "....kkskkkkk....",
+        "...kksskkkkkk...",
+        "...kkkkkkkkskk..",
+        "..kkkkkkkkkkkk..",
+        "...kkkkkskkkk...",
+        "....kkkkkkkk....",
+        "......kkkk......",
+        "................",
+        "................",
+        "................",
+    ], {"k": "coal", "s": "stone_dark"})
+
+
 def cloud():
     return noise("cloud", [("cloud_shade", 0.1)])
 
@@ -283,6 +435,15 @@ TILES = [
     ("bedrock", bedrock()),
     ("cloud", cloud()),
     ("lamp", lamp()),
+    ("tall_grass", tall_grass()),
+    ("flower_yellow", flower("petal_yellow", "crust")),
+    ("flower_red", flower("petal_red", "petal_yellow")),
+    ("flower_white", flower("petal_white", "petal_yellow")),
+    ("apple", apple()),
+    ("seeds", seeds()),
+    ("bread", bread()),
+    ("gold_nugget", gold_nugget()),
+    ("coal_lump", coal_lump()),
 ]
 for i, stage in enumerate(cracks()):
     TILES.append((f"crack_{i + 1}", stage))

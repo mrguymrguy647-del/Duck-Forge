@@ -49,8 +49,8 @@ fn record_playthrough() {
     assert_eq!(sim.game().dug, 2, "the bot should dig two blocks");
     sim.run(20);
 
-    // Planks (slot 3), and fill the hole back in.
-    tap(&mut sim, Key::Digit3);
+    // Planks (slot 1), and fill the hole back in.
+    tap(&mut sim, Key::Digit1);
     for _ in 0..2 {
         tap(&mut sim, Key::C);
         sim.run(10);
@@ -58,14 +58,14 @@ fn record_playthrough() {
     sim.run(20);
 
     // A lamp on top of the filled hole, then planks again.
-    tap(&mut sim, Key::Digit9);
+    tap(&mut sim, Key::Digit4);
     tap(&mut sim, Key::C);
     assert_eq!(
-        sim.game().carried[Block::Lamp as usize],
+        sim.game().count(Item::Block(Block::Lamp)),
         7,
         "the lamp is placed"
     );
-    tap(&mut sim, Key::Digit3);
+    tap(&mut sim, Key::Digit1);
     sim.run(20);
 
     // A pillar: look straight down, jump, and place a block under the duck
