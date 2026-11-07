@@ -29,8 +29,11 @@ impl Game for Hello {
         self.position += direction * SPEED * ctx.dt();
 
         // Clicking teleports the square so its center is under the mouse.
-        if ctx.input.was_mouse_pressed(MouseButton::Left) {
-            self.position = ctx.input.mouse_position() - vec2(SIZE / 2.0, SIZE / 2.0);
+        // (`mouse_position` is `None` until the mouse has been over the window.)
+        if let Some(mouse) = ctx.input.mouse_position() {
+            if ctx.input.was_mouse_pressed(MouseButton::Left) {
+                self.position = mouse - vec2(SIZE / 2.0, SIZE / 2.0);
+            }
         }
 
         // Keep the square on the screen.

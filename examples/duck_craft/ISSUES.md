@@ -42,7 +42,10 @@ game; the tool still has the gap.
    50 runs now walk (x 11 to 43), dig, build and pick every block.
 6. **`mouse_position()` is (0, 0) when there is no mouse**, the same as the
    top-left corner, so a game can't tell "no mouse" from "mouse at the
-   corner". The game tracks its own `mouse_used` flag instead.
+   corner". The game tracks its own `mouse_used` flag instead. **Fixed in
+   the engine:** `mouse_position()` gives `Option<Vec2>`, `None` until
+   there's a mouse (and Duck Craft doesn't need the flag any more: it
+   locks the pointer).
 7. **`cargo test` doesn't rebuild the example binary.** Twice a replay ran
    an old `target/release/examples/duck_craft` and seemed to break
    repeatability. `tools/verify.sh` is safe (it builds first); running

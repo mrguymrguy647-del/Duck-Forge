@@ -330,10 +330,21 @@ impl Input {
     // ---- Mouse ----
 
     /// Where the mouse pointer is, in canvas pixels (the same coordinates you
-    /// draw with). It can be outside the canvas if the pointer is outside the
-    /// game area.
-    pub fn mouse_position(&self) -> Vec2 {
-        self.mouse_position.unwrap_or(Vec2::ZERO)
+    /// draw with), or `None` if there's no mouse yet: the pointer hasn't
+    /// been over the window, or a headless run's script hasn't moved it.
+    /// Once known it stays known, and can be outside the canvas if the
+    /// pointer is outside the game area.
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// # fn update(ctx: &mut Context) {
+    /// if let Some(mouse) = ctx.input.mouse_position() {
+    ///     // aim at `mouse`
+    /// }
+    /// # }
+    /// ```
+    pub fn mouse_position(&self) -> Option<Vec2> {
+        self.mouse_position
     }
 
     /// How far the mouse moved since last frame, in canvas pixels (right
@@ -404,10 +415,13 @@ mod tests {
     #[test]
     fn mouse_clicks_and_movement() {
         let mut input = Input::new();
+        assert_eq!(input.mouse_position(), None, "no mouse yet: not (0, 0)");
+        input.update_mouse(None, Vec2::ZERO, [], 0.0);
+        assert_eq!(input.mouse_position(), None);
 
         // The first known position doesn't count as movement.
         input.update_mouse(Some(vec2(10.0, 20.0)), Vec2::ZERO, [MouseButton::Left], 0.0);
-        assert_eq!(input.mouse_position(), vec2(10.0, 20.0));
+        assert_eq!(input.mouse_position(), Some(vec2(10.0, 20.0)));
         assert_eq!(input.mouse_delta(), Vec2::ZERO);
         assert!(input.was_mouse_pressed(MouseButton::Left));
 
@@ -419,13 +433,13 @@ mod tests {
 
         // Pointer left the window: keep the last position, no movement.
         input.update_mouse(None, Vec2::ZERO, [], 0.0);
-        assert_eq!(input.mouse_position(), vec2(15.0, 18.0));
+        assert_eq!(input.mouse_position(), Some(vec2(15.0, 18.0)));
         assert_eq!(input.mouse_delta(), Vec2::ZERO);
         assert!(input.was_mouse_released(MouseButton::Left));
 
         // A locked pointer: movement with no position. The position stays put.
         input.update_mouse(None, vec2(30.0, -4.0), [], 0.0);
-        assert_eq!(input.mouse_position(), vec2(15.0, 18.0));
+        assert_eq!(input.mouse_position(), Some(vec2(15.0, 18.0)));
         assert_eq!(input.mouse_delta(), vec2(30.0, -4.0));
     }
 

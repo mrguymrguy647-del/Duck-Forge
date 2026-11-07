@@ -787,7 +787,9 @@ for first-person mouse look: read `mouse_delta()`, which keeps counting;
 
 **`ctx.input`**: `is_down(key)`, `was_pressed(key)` (one frame per
 press), `was_released(key)`, `axis(Key::Left, Key::Right)` (-1, 0 or 1),
-`mouse_position()`, `mouse_delta()` (canvas pixels moved this frame, right
+`mouse_position()` (an `Option<Vec2>`: `None` until the mouse has been over
+the window or a script moved it; `if let Some(mouse) = ...`),
+`mouse_delta()` (canvas pixels moved this frame, right
 and down positive; the one for mouse look), `is_mouse_down(button)`,
 `was_mouse_pressed(button)`, `was_mouse_released(button)`, `scroll()`.
 `MouseButton::Left`, `Right` or `Middle`.
@@ -875,7 +877,7 @@ world = screen. Fields `position` (world point at screen center), `zoom`
 (0.0 snaps, 0.2 smooth), `camera.shake(pixels, seconds)` then
 `camera.update(ctx)` every update (uses `ctx.rng`, so replays match),
 `is_shaking()`, `screen_to_world(p)` (the mouse: pass
-`ctx.input.mouse_position()`), `world_to_screen(p)`, `visible_area()`.
+a point from `ctx.input.mouse_position()`), `world_to_screen(p)`, `visible_area()`.
 In `draw`: `canvas.push_camera(&self.camera)`, draw the world,
 `canvas.pop_camera()`, then draw the HUD in screen pixels.
 `canvas.push_offset(v)` / `pop_offset()` shift a group of drawings.

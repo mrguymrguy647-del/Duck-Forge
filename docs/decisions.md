@@ -2680,3 +2680,17 @@ The cost is the practice runs, a few seconds before the real ones (they
 run one after another, since each depends on the last). Duck Craft's
 coverage went from standing still to `x 11 to 43`, every block in the
 hotbar held, digging and building.
+
+## Fix 5: `mouse_position()` gives an `Option`
+
+`mouse_position()` gave (0, 0) until the mouse had been over the window,
+which is also the top-left corner, so a game couldn't tell them apart.
+It now gives `Option<Vec2>`: `None` until the pointer has been over the
+window (or a script moved it), then `Some` from then on, even when the
+pointer is outside the game area. This changes the public API, so every
+caller changed with it: `hello` (`if let Some(mouse)`), `physics` (drops
+things only where there's a mouse inside the walls), the debug overlay
+(`MOUSE -` with no mouse), the cheat sheet, the guide and the tutorial.
+A separate `mouse_known()` next to the old function was the other choice;
+it keeps old code compiling, but nothing makes a game check it, and the
+whole point was that (0, 0) was easy to use by mistake.

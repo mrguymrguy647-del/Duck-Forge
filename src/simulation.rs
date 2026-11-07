@@ -1083,7 +1083,7 @@ mod tests {
                 self.held_frames += 1;
             }
             if ctx.input.was_mouse_pressed(MouseButton::Left) {
-                self.clicks.push(ctx.input.mouse_position());
+                self.clicks.extend(ctx.input.mouse_position());
             }
             if ctx.input.scroll() != 0.0 {
                 self.scrolls.push(ctx.input.scroll());
@@ -1207,8 +1207,8 @@ mod tests {
         assert_eq!(sim.game().locked, [true; 4]);
         assert_eq!(
             sim.context().input.mouse_position(),
-            Vec2::ZERO,
-            "the pointer stays put"
+            None,
+            "moving by an amount says nothing about where the pointer is"
         );
 
         let script = InputScript::parse(&sim.recording().to_json()).unwrap();

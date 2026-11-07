@@ -156,7 +156,7 @@ impl Camera2D {
     }
 
     /// Which world point is under the screen point `screen`. Use it for the
-    /// mouse: `camera.screen_to_world(ctx.input.mouse_position())`.
+    /// mouse: `ctx.input.mouse_position().map(|m| camera.screen_to_world(m))`.
     pub fn screen_to_world(&self, screen: Vec2) -> Vec2 {
         (screen - self.screen_size * 0.5 - self.shake_offset) * (1.0 / self.safe_zoom())
             + self.position

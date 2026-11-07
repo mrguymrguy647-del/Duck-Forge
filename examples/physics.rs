@@ -120,9 +120,8 @@ impl Game for Sandbox {
         }
 
         // Drop things where the mouse is (if it's inside the walls).
-        let mouse = ctx.input.mouse_position();
         let inside = Rect::new(16.0, 16.0, WIDTH - 32.0, HEIGHT - 40.0);
-        if inside.contains(mouse) {
+        if let Some(mouse) = ctx.input.mouse_position().filter(|&m| inside.contains(m)) {
             if ctx.input.was_mouse_pressed(MouseButton::Left) {
                 self.drop_ball(mouse, &mut ctx.rng);
             }

@@ -103,7 +103,8 @@ impl Game for Everything {
             assert!(self.camera.is_shaking());
         }
         self.camera.update(ctx);
-        let world = self.camera.screen_to_world(ctx.input.mouse_position());
+        let mouse = ctx.input.mouse_position().unwrap_or(Vec2::ZERO);
+        let world = self.camera.screen_to_world(mouse);
         let _ = (
             self.camera.world_to_screen(world),
             self.camera.visible_area(),

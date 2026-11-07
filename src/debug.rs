@@ -142,20 +142,22 @@ pub(crate) fn draw_overlay(
 /// is given in world coordinates when there's a camera.
 fn info_text(ctx: &Context, camera: Option<&Camera2D>) -> String {
     let first = format!("FRAME {} FPS {:.0}", ctx.frame(), ctx.fps());
-    let mouse = ctx.input.mouse_position();
+    // In world coordinates under a camera; "-" when there's no mouse.
+    let mouse = ctx
+        .input
+        .mouse_position()
+        .map_or(String::from("-"), |mouse| {
+            let at = camera.map_or(mouse, |c| c.screen_to_world(mouse));
+            format!("{:.0},{:.0}", at.x, at.y)
+        });
     let second = match camera {
-        Some(c) => {
-            let world = c.screen_to_world(mouse);
-            format!(
-                "CAM {:.0},{:.0} X{} MOUSE {:.0},{:.0}",
-                c.position.x,
-                c.position.y,
-                short_number(c.zoom),
-                world.x,
-                world.y
-            )
-        }
-        None => format!("MOUSE {:.0},{:.0}", mouse.x, mouse.y),
+        Some(c) => format!(
+            "CAM {:.0},{:.0} X{} MOUSE {mouse}",
+            c.position.x,
+            c.position.y,
+            short_number(c.zoom),
+        ),
+        None => format!("MOUSE {mouse}"),
     };
     format!("{first}\n{second}")
 }
@@ -342,6 +344,10 @@ mod tests {
         camera.zoom = 1.5;
         let mut ctx = Context::new(320, 240, 1);
         ctx.begin_frame(1.0 / 60.0, []);
+        // No mouse yet.
+        assert_eq!(super::info_text(&ctx, None), "FRAME 1 FPS 0\nMOUSE -");
+        ctx.input
+            .update_mouse(Some(vec2(0.0, 0.0)), vec2(0.0, 0.0), [], 0.0);
         let text = super::info_text(&ctx, Some(&camera));
         assert_eq!(text, "FRAME 1 FPS 0\nCAM 685,600 X1.5 MOUSE 578,520");
         assert_eq!(super::info_text(&ctx, None), "FRAME 1 FPS 0\nMOUSE 0,0");

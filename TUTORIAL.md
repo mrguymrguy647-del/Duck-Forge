@@ -1895,6 +1895,14 @@ The mouse works the same way: `is_mouse_down`, `was_mouse_pressed` and
 `mouse_delta()` (how far it moved this frame, which the 3D camera uses to
 look around) and `scroll()`.
 
+`mouse_position()` gives an `Option<Vec2>`: `None` until the pointer has
+been over the window (or, in a headless run, until the script moves it).
+It used to give (0, 0) then, but that's also the top-left corner, so a
+game couldn't tell "no mouse" from "mouse in the corner". Now the type
+says it: `if let Some(mouse) = ctx.input.mouse_position() { ... }`.
+`ctx.lock_pointer(true)` hides the pointer and holds it in the window for
+mouse look; then only `mouse_delta()` changes.
+
 The tricky part is the position. The OS reports the pointer in *window*
 pixels, but games draw in *canvas* pixels. The canvas is scaled up to fit
 the window and centered, with black bars if their shapes don't match:
@@ -4225,8 +4233,8 @@ Three more camera tricks:
 - `camera.shake(4.0, 0.3)` shakes the screen by up to 4 pixels, fading
   out over 0.3 seconds. Call `camera.update(ctx)` once per update to make
   it happen.
-- `camera.screen_to_world(ctx.input.mouse_position())` tells you which
-  world point the mouse is over (and `world_to_screen` goes the other way).
+- `ctx.input.mouse_position().map(|m| camera.screen_to_world(m))` tells
+  you which world point the mouse is over (and `world_to_screen` goes the other way).
 
 There's also `canvas.push_offset(vec2(x, y))` / `pop_offset()`, which just
 shifts everything drawn in between, handy for drawing a group of shapes
@@ -5053,7 +5061,8 @@ messages are unusually helpful, and often include the fix.
    `update`, and draw the bricks, ball and paddle between `push_camera`
    and `pop_camera`, but the score after.
 10. **Mouse paddle.** Let Breakout's paddle follow
-    `ctx.input.mouse_position().x`, and keep the keyboard working too.
+    the mouse's x (`if let Some(mouse) = ctx.input.mouse_position()`), and
+    keep the keyboard working too.
 11. **Sprites.** Draw space invaders with `Sprite::from_ascii` (chapter
     29), two frames each, and make them step between the frames twice a
     second with an `Animation`:
