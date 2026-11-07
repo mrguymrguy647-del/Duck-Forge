@@ -2611,3 +2611,52 @@ Tested here under Xvfb with xdotool: the window opens, shows the canvas
 stretched with black bars, replays a playthrough at 60 frames per second,
 and Duck Craft turns with the mouse, frees the pointer on Escape and takes
 it back on a click. Not tested here: a real Windows or macOS desktop.
+
+## Fix 2: `merge` keeps texture points
+
+`Mesh::merge` copied a part's texture points only if the part already had
+its texture, so `head.merge(&beak, ..)` then `.with_texture(skin)` left the
+beak plain white, with no warning. Now the points always come along. The
+one case that still drops them is on purpose: a plain part merged into a
+mesh that already has a texture stays plain, as it was drawn before
+(otherwise a red cube merged into a chunk would suddenly be painted with
+the atlas). Both cases are in `merge`'s docs.
+
+## Fix 3: `BlockWorld`, and where atlas tiles are
+
+The guide said to `merge` whole blocks into chunks. That keeps every face
+between two blocks (hidden, but drawn), which is fine for a few thousand
+blocks and far too many triangles for a world you can dig. Duck Craft cut
+`Mesh::block`'s cube into faces itself and copied only the visible ones,
+and needed `Sprite::in_sheet`, which was private.
+
+`src/blocks.rs` now does that for every block game, in two parts:
+
+- **`BlockPalette`**: how each kind looks (three tiles from one atlas,
+  see-through or not, faces between two of its own kind or not, glowing
+  or not). Blocks are numbered from 1 in the order given (`AIR` is 0), so
+  a game's own `enum Block` can be `block as BlockId`.
+- **`BlockWorld`**: the grid (one byte a cell) and a mesh per chunk. `set`
+  marks the block's chunk, and the next chunk when the block is on its
+  edge; `update_meshes` rebuilds just those. `draw` draws them, each chunk
+  skipped whole when it's out of view.
+
+They're apart so a world can be made and tested with no pictures loaded
+(Duck Craft's world tests don't load art). Chunks are columns the world's
+full height, like Duck Craft's; `with_chunk_size` changes the width. A
+face shows next to air or a see-through block, except between two of the
+same see-through kind (glass, water), unless the kind has `inner_faces`
+(leaves). `update_meshes_shaded` takes a brightness for each face from
+the cell it looks into, which is how Duck Craft keeps its darker caves.
+Glowing blocks go in a second mesh per chunk, because a mesh glows or it
+doesn't (fix 9 changes that).
+
+Atlas positions are public now: `Sprite::whole_picture()`,
+`Sprite::place_in_picture()` (`[left, top, width, height]` in pixels) and
+`Tileset::uv_rect(name)` (the same as texture points).
+
+Duck Craft's `World` keeps its blocks in a `BlockWorld`; its own
+`faces_of`, `face_shows`, `build_chunk` and `rebuild_around` (about 120
+lines) are gone, and the playthrough's last picture is the same to the
+pixel. Not done: a block raycast (Duck Craft keeps its own), and a light
+model in the engine (a closure is simpler and lets each game choose).

@@ -854,7 +854,10 @@ sheet, one animation per tile, named like the legend's tiles),
 `Tileset::from_sheet(&sheet)`, `Tileset::grid(&sprite, 16, 16, &["grass", "", "plank"])`
 (cut left to right, top to bottom; `""` skips one), or `Tileset::new()`
 then `tiles.insert("lava", animation)`. `tiles.get(name)`, `names()`,
-`frame(name, seconds)`.
+`frame(name, seconds)`, `tiles.uv_rect(name)` (where the tile is in the
+atlas picture, as texture points from 0 to 1, for your own meshes). Any
+sprite: `sprite.whole_picture()` (the atlas it was cut from) and
+`sprite.place_in_picture()` (`[left, top, width, height]` in pixels).
 
 **Backgrounds**: `let sky = Background::new(sprite).parallax(0.2);`
 (0 stays on the screen, 1 moves with the world; both directions),
@@ -970,7 +973,16 @@ segments)`, `Mesh::pyramid(color)`, `Mesh::cylinder(color, segments)`,
 `Mesh::cone(color, segments)`, `Mesh::quad(width, height)` (standing,
 facing -z), `Mesh::checkerboard(tiles, tile_size, a, b)`,
 `Mesh::block(&atlas, ["grass_top", "grass_side", "dirt"])` (top, sides,
-bottom from one `Tileset`). Build your own with `add_vertex`,
+bottom from one `Tileset`). Block worlds: `BlockPalette::new(&atlas,
+&[BlockKind::new("stone", ["stone"; 3]), BlockKind::new("glass",
+["glass"; 3]).see_through(), BlockKind::new("leaves", ["leaves";
+3]).inner_faces(), BlockKind::new("lamp", ["lamp"; 3]).glowing()])`
+(blocks numbered from 1; `AIR` is 0), `palette.id("stone")`,
+`BlockWorld::new(width, height, depth)` (chunks of 16 x 16 columns),
+`world.set(x, y, z, id)`, `world.get(x, y, z)`, `world.set_below(id)`,
+`world.update_meshes(&palette)` in `update` (builds only the chunks that
+changed; `update_meshes_shaded(&palette, |world, x, y, z| light)` darkens
+faces), `world.draw(canvas, &camera)`, `world.chunk_mesh(cx, cz)`. Build your own with `add_vertex`,
 `add_triangle`, `add_quad`, `add_triangle_uv(a, b, c, [uv; 3], color)`,
 `add_quad_uv(a, b, c, d, [uv; 4], color)` (corners clockwise seen from
 the front). `.with_texture(sprite)` (colours times the texture; white
@@ -1302,24 +1314,41 @@ one 16 x 16 animation per tile (`quill export blocks.json --sheet`),
 loaded with `Tileset::load`. `Mesh::block(&atlas, [top, sides, bottom])`
 makes a block from three tiles of it.
 
-**Block worlds: merge into chunks.** Drawing 10,000 blocks one by one is
-slow on both renderers. Merge them in chunks (say 16 x 16 blocks, all
-from one atlas) and draw one mesh per chunk:
+**Block worlds: `BlockWorld`.** Drawing 10,000 blocks one by one is slow
+on both renderers, and most of their faces are hidden by the next block.
+`BlockWorld` keeps a grid of blocks and draws it as one mesh per chunk
+(16 x 16 columns, the world's full height) with only the faces next to
+air or a see-through block. Say how each kind looks once, with tiles from
+one atlas:
 
 ```rust
-let mut chunk = Mesh::new();
-for (x, y, z, block) in blocks_in_this_chunk {
-    chunk.merge(&self.blocks[block], &Transform::at(vec3(x as f32, y as f32, z as f32)));
-}
+// Art, made once (blocks are numbered from 1 in this order; AIR is 0):
+let palette = BlockPalette::new(&atlas, &[
+    BlockKind::new("grass", ["grass_top", "grass_side", "dirt"]),
+    BlockKind::new("glass", ["glass"; 3]).see_through(),
+]);
+let grass = palette.id("grass");
+// The world, which needs no art (tests can build one without pictures):
+let mut world = BlockWorld::new(64, 32, 64);
+world.set(x, y, z, grass);
+// In update, after digging or building (only the changed chunks are rebuilt):
+world.update_meshes(&palette);
+// In draw:
+world.draw(canvas, &camera);
 ```
 
-Keep the chunks separate rather than merging the whole world into one
-mesh: before drawing a mesh, the engine checks a ball around it against
-the edges of the view and skips it if it's entirely outside (*frustum
-culling*), so chunks behind the camera cost nothing, but one world-sized
-mesh is always "on screen". Rebuild only the chunk that changes when a
-block is placed or broken. (Measured: 4,096 textured blocks in 16 chunks
-take about 5 ms a frame on the CPU at 320 x 240.)
+`set` marks the block's chunk, and the chunk next door when it's on the
+edge, so `update_meshes` rebuilds one or two chunks after a dig. Chunks
+are kept separate rather than one world-sized mesh: before drawing a
+mesh, the engine checks a ball around it against the edges of the view
+and skips it if it's entirely outside (*frustum culling*), so chunks
+behind the camera cost nothing. `update_meshes_shaded(&palette, |world,
+x, y, z| brightness)` darkens each face by the cell it looks into (Duck
+Craft makes caves darker this way). To build your own meshes from the
+atlas instead, `tiles.uv_rect(name)` says where a tile is, and
+`chunk.merge(&Mesh::block(..), &transform)` still works for small things.
+(Measured: 4,096 textured blocks in 16 chunks take about 5 ms a frame on
+the CPU at 320 x 240.)
 
 **Light.** `canvas.set_lighting(Lighting { sun_direction: vec3(-0.5, 1.0,
 -0.3), sun_color: Color::from_hex(0xfff0d8), sun_strength: 1.0, ambient:

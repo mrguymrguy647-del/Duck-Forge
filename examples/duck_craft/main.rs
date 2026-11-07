@@ -21,10 +21,11 @@
 //! - The world is a grid of blocks (`World`), 64 x 44 x 64, grown by
 //!   `World::generate` from value noise with a fixed seed.
 //! - The pictures are one Duck Quill atlas (`art/blocks.json`, written by
-//!   `art/make_blocks.py`). Each 16 x 16 column of the world is one mesh
-//!   (one draw), built face by face: only faces next to air (or water,
-//!   glass, leaves) are kept, so a chunk is a few thousand triangles, not
-//!   hundreds of thousands. Digging or building rebuilds only that chunk.
+//!   `art/make_blocks.py`). The engine's `BlockWorld` holds the blocks and
+//!   draws each 16 x 16 column of the world as one mesh (one draw), built
+//!   face by face: only faces next to air (or water, glass, leaves) are
+//!   kept, so a chunk is a few thousand triangles, not hundreds of
+//!   thousands. Digging or building rebuilds only that chunk.
 //! - Faces in caves and under overhangs are drawn darker: a cheap "no sky
 //!   above" shadow.
 //! - The duck is a blocky character with a skin, like a Minecraft player
@@ -278,7 +279,8 @@ const DIRECTIONS: [(i32, i32, i32); 6] = [
 /// to (x + 1, y + 1, z + 1); y is up.
 #[derive(Clone)]
 struct World {
-    blocks: Vec<Block>,
+    /// The blocks, and the meshes that draw them (one per chunk).
+    grid: BlockWorld,
     /// For each column, the lowest y with nothing above it that casts a
     /// shadow: air there and above is under the open sky.
     sky: Vec<i32>,
@@ -288,10 +290,6 @@ struct World {
 }
 
 impl World {
-    fn index(x: i32, y: i32, z: i32) -> usize {
-        (y as usize * SIZE + z as usize) * SIZE + x as usize
-    }
-
     fn inside(x: i32, y: i32, z: i32) -> bool {
         (0..SIZE as i32).contains(&x)
             && (0..TALL as i32).contains(&y)
@@ -301,20 +299,23 @@ impl World {
     /// The block at (x, y, z): bedrock below the world, air everywhere
     /// else outside it.
     fn get(&self, x: i32, y: i32, z: i32) -> Block {
-        if y < 0 {
-            Block::Bedrock
-        } else if World::inside(x, y, z) {
-            self.blocks[World::index(x, y, z)]
-        } else {
-            Block::Air
+        Block::ALL[self.grid.get(x, y, z) as usize]
+    }
+
+    /// Changes a block. Its chunk is built again at the next `update_chunks`.
+    fn set(&mut self, x: i32, y: i32, z: i32, block: Block) {
+        if World::inside(x, y, z) {
+            self.grid.set(x, y, z, block as BlockId);
+            self.update_sky(x, z);
         }
     }
 
-    fn set(&mut self, x: i32, y: i32, z: i32, block: Block) {
-        if World::inside(x, y, z) {
-            self.blocks[World::index(x, y, z)] = block;
-            self.update_sky(x, z);
-        }
+    /// Builds again the chunks that changed, shading each face by the light
+    /// in the cell it looks into.
+    fn update_chunks(&mut self, palette: &BlockPalette) {
+        let sky = &self.sky;
+        self.grid
+            .update_meshes_shaded(palette, |grid, x, y, z| light(grid, sky, x, y, z));
     }
 
     /// Whether the duck can't be in this cell: solid blocks, and the
@@ -336,22 +337,6 @@ impl World {
         self.sky[z as usize * SIZE + x as usize] = sky;
     }
 
-    /// How bright a face next to this cell is: 1 under the open sky, less
-    /// in caves and under trees and overhangs.
-    fn light(&self, x: i32, y: i32, z: i32) -> f32 {
-        if !World::inside(x, y, z) {
-            return 1.0;
-        }
-        let sky = self.sky[z as usize * SIZE + x as usize];
-        if y >= sky {
-            1.0
-        } else if y >= sky - 3 && !self.get(x, sky - 1, z).opaque() {
-            0.8 // under leaves
-        } else {
-            0.55
-        }
-    }
-
     /// The height of the ground at column (x, z), before trees.
     fn ground_height(x: i32, z: i32) -> i32 {
         let (fx, fz) = (x as f32, z as f32);
@@ -371,11 +356,13 @@ impl World {
     /// Grows the island.
     fn generate() -> World {
         let mut world = World {
-            blocks: vec![Block::Air; SIZE * TALL * SIZE],
+            grid: BlockWorld::with_chunk_size(SIZE, TALL, SIZE, CHUNK),
             sky: vec![0; SIZE * SIZE],
             spawn: Vec3::ZERO,
             spawn_yaw: 0.0,
         };
+        // Bedrock all the way down: the bottom layer's undersides aren't drawn.
+        world.grid.set_below(Block::Bedrock as BlockId);
         let heights: Vec<i32> = (0..SIZE * SIZE)
             .map(|i| World::ground_height((i % SIZE) as i32, (i / SIZE) as i32))
             .collect();
@@ -403,10 +390,10 @@ impl World {
                             Block::Stone
                         }
                     };
-                    world.blocks[World::index(x, y, z)] = block;
+                    world.grid.set(x, y, z, block as BlockId);
                 }
                 for y in h + 1..=SEA {
-                    world.blocks[World::index(x, y, z)] = Block::Water;
+                    world.grid.set(x, y, z, Block::Water as BlockId);
                 }
             }
         }
@@ -421,7 +408,7 @@ impl World {
                 for y in 2..=h - 2 {
                     let n = noise3(x as f32 / 8.0, y as f32 / 5.0, z as f32 / 8.0, SEED + 5);
                     if n > 0.7 {
-                        world.blocks[World::index(x, y, z)] = Block::Air;
+                        world.grid.set(x, y, z, Block::Air as BlockId);
                     }
                 }
             }
@@ -521,13 +508,13 @@ impl World {
                     }
                     if World::inside(x + dx, y, z + dz) && self.get(x + dx, y, z + dz) == Block::Air
                     {
-                        self.blocks[World::index(x + dx, y, z + dz)] = Block::Leaves;
+                        self.grid.set(x + dx, y, z + dz, Block::Leaves as BlockId);
                     }
                 }
             }
         }
         for y in base..=top {
-            self.blocks[World::index(x, y, z)] = Block::Log;
+            self.grid.set(x, y, z, Block::Log as BlockId);
         }
     }
 
@@ -584,6 +571,22 @@ impl World {
     }
 }
 
+/// How bright a face next to this cell is: 1 under the open sky, less
+/// in caves and under trees and overhangs.
+fn light(grid: &BlockWorld, sky: &[i32], x: i32, y: i32, z: i32) -> f32 {
+    if !World::inside(x, y, z) {
+        return 1.0;
+    }
+    let top = sky[z as usize * SIZE + x as usize];
+    if y >= top {
+        1.0
+    } else if y >= top - 3 && !Block::ALL[grid.get(x, top - 1, z) as usize].opaque() {
+        0.8 // under leaves
+    } else {
+        0.55
+    }
+}
+
 /// Where a ray hit a block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct RayHit {
@@ -593,64 +596,7 @@ struct RayHit {
     block: Block,
 }
 
-/// Whether the face of `block` turned towards `neighbour` can be seen.
-fn face_shows(block: Block, neighbour: Block) -> bool {
-    match (block, neighbour) {
-        (_, Block::Air) => true,
-        (Block::Water, _) => false, // water only shows its faces to the air
-        (_, Block::Water) => true,
-        (Block::Glass, Block::Glass) => false, // glass next to glass is one window
-        (_, n) => !n.opaque(),
-    }
-}
-
 // ---- Art ----
-
-/// One face of a block, ready to copy into a chunk: four corners round
-/// (0, 0, 0), two triangles, and where each corner is in the atlas.
-#[derive(Clone, Default)]
-struct Face {
-    corners: Vec<Vec3>,
-    triangles: Vec<[usize; 3]>,
-    uvs: Vec<[Vec2; 3]>,
-}
-
-/// Splits `Mesh::block`'s cube into its six faces, in `DIRECTIONS` order.
-fn faces_of(cube: &Mesh) -> [Face; 6] {
-    let mut faces: [Face; 6] = Default::default();
-    for (i, triangle) in cube.triangles.iter().enumerate() {
-        let points = triangle.corners.map(|c| cube.vertices[c]);
-        let middle = (points[0] + points[1] + points[2]) * (1.0 / 3.0);
-        let direction = if middle.x > 0.49 {
-            0
-        } else if middle.x < -0.49 {
-            1
-        } else if middle.y > 0.49 {
-            2
-        } else if middle.y < -0.49 {
-            3
-        } else if middle.z > 0.49 {
-            4
-        } else {
-            5
-        };
-        let face = &mut faces[direction];
-        let corners =
-            points.map(
-                |p| match face.corners.iter().position(|c| c.distance(p) < 1e-4) {
-                    Some(index) => index,
-                    None => {
-                        face.corners.push(p);
-                        face.corners.len() - 1
-                    }
-                },
-            );
-        face.triangles.push(corners);
-        face.uvs
-            .push(cube.uvs[i].expect("Mesh::block gives every triangle texture points"));
-    }
-    faces
-}
 
 /// A 16 x 16 tile copied out of the atlas, as a picture of its own (for
 /// textures that repeat, like the sea, and for the hotbar).
@@ -667,10 +613,8 @@ fn tile_picture(atlas: &Tileset, name: &str) -> Sprite {
 
 /// Pictures, meshes and sounds, made once and shared.
 struct Art {
-    /// The atlas, the texture every chunk shares.
-    atlas_picture: Sprite,
-    /// Each kind of block's six faces (`None` for air).
-    faces: Vec<Option<[Face; 6]>>,
+    /// How each kind of block looks, for the world's chunks.
+    palette: BlockPalette,
     /// Each kind of block as a whole cube (for flying crumbs).
     cubes: Vec<Option<Mesh>>,
     /// The four stages of cracks, drawn over a block being dug.
@@ -687,16 +631,22 @@ struct Art {
 impl Art {
     fn load() -> Result<Art, LoadError> {
         let atlas = Tileset::load(format!("{ASSETS}/blocks.json"))?;
-        let mut faces = Vec::new();
+        let mut kinds = Vec::new();
         let mut cubes = Vec::new();
         let mut icons = Vec::new();
-        let mut atlas_picture = None;
         for block in Block::ALL {
             match block.tiles() {
                 Some(tiles) => {
+                    // In `Block::ALL`'s order, so a block's number in the
+                    // palette is `block as BlockId` (air is 0).
+                    let kind = BlockKind::new(block.name(), tiles);
+                    kinds.push(match block {
+                        Block::Water | Block::Glass => kind.see_through(),
+                        Block::Leaves => kind.inner_faces(),
+                        Block::Lamp => kind.glowing(),
+                        _ => kind,
+                    });
                     let mut cube = Mesh::block(&atlas, tiles);
-                    atlas_picture = cube.texture.clone();
-                    faces.push(Some(faces_of(&cube)));
                     if block == Block::Lamp {
                         cube = cube.glowing();
                     }
@@ -704,7 +654,6 @@ impl Art {
                     icons.push(Some(tile_picture(&atlas, tiles[1])));
                 }
                 None => {
-                    faces.push(None);
                     cubes.push(None);
                     icons.push(None);
                 }
@@ -717,8 +666,7 @@ impl Art {
             })
             .collect();
         Ok(Art {
-            atlas_picture: atlas_picture.expect("blocks have tiles"),
-            faces,
+            palette: BlockPalette::new(&atlas, &kinds),
             cubes,
             cracks,
             icons,
@@ -727,47 +675,6 @@ impl Art {
             duck: Duck::load(Sprite::load_png(format!("{ASSETS}/skin.png"))?),
             wind: Wav::load(format!("{ASSETS}/hum.wav"))?,
         })
-    }
-
-    /// One chunk's meshes: everything but lamps, and the lamps (they glow,
-    /// and a mesh glows or it doesn't).
-    fn build_chunk(&self, world: &World, cx: usize, cz: usize) -> (Mesh, Mesh) {
-        let mut solid = Mesh::new().with_texture(self.atlas_picture.clone());
-        let mut glowing = Mesh::new()
-            .with_texture(self.atlas_picture.clone())
-            .glowing();
-        for y in 0..TALL as i32 {
-            for z in (cz * CHUNK) as i32..((cz + 1) * CHUNK) as i32 {
-                for x in (cx * CHUNK) as i32..((cx + 1) * CHUNK) as i32 {
-                    let block = world.get(x, y, z);
-                    let Some(faces) = &self.faces[block as usize] else {
-                        continue;
-                    };
-                    let mesh = if block == Block::Lamp {
-                        &mut glowing
-                    } else {
-                        &mut solid
-                    };
-                    let place = vec3(x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5);
-                    for (face, &(dx, dy, dz)) in faces.iter().zip(&DIRECTIONS) {
-                        if !face_shows(block, world.get(x + dx, y + dy, z + dz)) {
-                            continue;
-                        }
-                        let shade = (255.0 * world.light(x + dx, y + dy, z + dz)) as u8;
-                        let color = Color::rgb(shade, shade, shade);
-                        let first = mesh.vertices.len();
-                        for &corner in &face.corners {
-                            mesh.add_vertex(corner + place);
-                        }
-                        for (corners, uvs) in face.triangles.iter().zip(&face.uvs) {
-                            let [a, b, c] = corners.map(|i| first + i);
-                            mesh.add_triangle_uv(a, b, c, *uvs, color);
-                        }
-                    }
-                }
-            }
-        }
-        (solid, glowing)
     }
 }
 
@@ -1031,7 +938,6 @@ struct DuckCraft {
     art: Rc<Art>,
     world: World,
     /// Per chunk (z * across + x): the solid mesh and the glowing one.
-    chunks: Vec<(Mesh, Mesh)>,
 
     /// The duck's feet, in the middle of its body.
     position: Vec3,
@@ -1077,11 +983,8 @@ struct DuckCraft {
 }
 
 impl DuckCraft {
-    fn new(art: Rc<Art>, world: World) -> DuckCraft {
-        let across = SIZE / CHUNK;
-        let chunks = (0..across * across)
-            .map(|i| art.build_chunk(&world, i % across, i / across))
-            .collect();
+    fn new(art: Rc<Art>, mut world: World) -> DuckCraft {
+        world.update_chunks(&art.palette);
         let mut carried = [0; BLOCK_KINDS];
         carried[Block::Planks as usize] = 32;
         carried[Block::Glass as usize] = 16;
@@ -1092,7 +995,6 @@ impl DuckCraft {
             position: world.spawn,
             yaw: world.spawn_yaw,
             world,
-            chunks,
             velocity: Vec3::ZERO,
             pitch: -0.25,
             on_ground: false,
@@ -1202,23 +1104,9 @@ impl DuckCraft {
         HOTBAR[self.slot]
     }
 
-    /// Rebuilds the chunk with block (x, z) in it, and the one next door if
-    /// the block is on its edge (its faces there may have changed).
-    fn rebuild_around(&mut self, x: i32, z: i32) {
-        let across = SIZE / CHUNK;
-        let mut touched = vec![(x as usize / CHUNK, z as usize / CHUNK)];
-        for (dx, dz) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
-            let (nx, nz) = (x + dx, z + dz);
-            if (0..SIZE as i32).contains(&nx) && (0..SIZE as i32).contains(&nz) {
-                let chunk = (nx as usize / CHUNK, nz as usize / CHUNK);
-                if !touched.contains(&chunk) {
-                    touched.push(chunk);
-                }
-            }
-        }
-        for (cx, cz) in touched {
-            self.chunks[cz * across + cx] = self.art.build_chunk(&self.world, cx, cz);
-        }
+    /// Builds again the chunks the last dig or build changed.
+    fn update_chunks(&mut self) {
+        self.world.update_chunks(&self.art.palette);
     }
 
     fn walk(&mut self, ctx: &mut Context) {
@@ -1432,7 +1320,7 @@ impl DuckCraft {
         if wet {
             self.world.set(x, y, z, Block::Water);
         }
-        self.rebuild_around(x, z);
+        self.update_chunks();
         self.digging = None;
         self.dig_seconds = 0.0;
         self.dug += 1;
@@ -1526,7 +1414,7 @@ impl DuckCraft {
         self.world.set(x, y, z, block);
         self.carried[block as usize] -= 1;
         self.placed += 1;
-        self.rebuild_around(x, z);
+        self.update_chunks();
         ctx.play(Sound {
             name: "place",
             wave: Wave::Square,
@@ -1735,12 +1623,7 @@ impl Game for DuckCraft {
 
         let still = Transform::default();
         canvas.draw_mesh(&art.ocean, &still, &camera);
-        for (solid, glowing) in &self.chunks {
-            canvas.draw_mesh(solid, &still, &camera);
-            if !glowing.triangles.is_empty() {
-                canvas.draw_mesh(glowing, &still, &camera);
-            }
-        }
+        self.world.grid.draw(canvas, &camera);
         // Clouds glow (so their undersides aren't grey), dimmed for the night.
         let drift = (self.time * 0.8).rem_euclid(CLOUD_PERIOD);
         let shade = (90.0 + 165.0 * daylight) as u8;

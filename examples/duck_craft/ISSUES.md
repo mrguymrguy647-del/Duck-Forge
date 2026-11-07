@@ -22,7 +22,11 @@ game; the tool still has the gap.
    uses (`Sprite::in_sheet`) are private, so the game cuts the cube from
    `Mesh::block` into its six faces (`faces_of`) and copies only the faces
    next to air. A `Chunk`/`BlockWorld` helper in the engine would save
-   every block game this work.
+   every block game this work. **Fixed in the engine:** `BlockWorld` and
+   `BlockPalette` (only visible faces, tiles from one atlas, rebuilds just
+   the changed chunks), and `Tileset::uv_rect`,
+   `Sprite::place_in_picture` and `whole_picture` say where tiles are.
+   Duck Craft's world now uses them (the same pictures, to the pixel).
 3. **A tile from an atlas can't be used as a repeating texture.** The sea
    and clouds needed a tile copied pixel by pixel into its own `Sprite`
    (`tile_picture`), because texture points beyond 1 repeat the whole

@@ -49,7 +49,10 @@ fn tap(key: &str) -> String {
 #[test]
 fn the_island_has_land_sea_trees_ores_and_caves() {
     let world = World::generate();
-    let count = |kind: Block| world.blocks.iter().filter(|&&b| b == kind).count();
+    let count = |kind: Block| {
+        let blocks = world.grid.blocks().iter();
+        blocks.filter(|&&b| b == kind as BlockId).count()
+    };
     for kind in [
         Block::Grass,
         Block::Sand,
@@ -85,18 +88,21 @@ fn the_island_has_land_sea_trees_ores_and_caves() {
 #[test]
 fn chunks_keep_only_faces_you_can_see() {
     let game = new_game().unwrap();
-    assert_eq!(game.chunks.len(), (SIZE / CHUNK).pow(2));
-    let triangles: usize = game
-        .chunks
-        .iter()
-        .map(|(solid, _)| solid.triangles.len())
-        .sum();
+    let grid = &game.world.grid;
+    let across = SIZE / CHUNK;
+    assert_eq!(grid.chunks(), (across, across));
+    let mut triangles = 0;
+    for cz in 0..across {
+        for cx in 0..across {
+            triangles += grid.chunk_mesh(cx, cz).triangles.len();
+        }
+    }
     // Every block drawn whole would be millions of triangles; the faces
     // next to air are a few tens of thousands.
     assert!(triangles < 120_000, "{triangles} triangles");
     // A buried block adds nothing: the arena's floor is one layer of faces.
     let flat = arena(|_| {});
-    let (floor, _) = &flat.chunks[0];
+    let floor = flat.world.grid.chunk_mesh(0, 0);
     assert!(
         floor.triangles.len() <= 16 * 16 * 2 + 16 * 4 * 2 * 20,
         "{}",

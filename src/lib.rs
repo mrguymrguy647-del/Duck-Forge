@@ -30,6 +30,7 @@
 //! ```
 
 pub mod background;
+pub mod blocks;
 pub mod camera;
 pub mod canvas;
 mod cli;
@@ -84,6 +85,7 @@ pub use simulation::Simulation;
 /// `use duckforge::prelude::*;`
 pub mod prelude {
     pub use crate::background::Background;
+    pub use crate::blocks::{AIR, BlockId, BlockKind, BlockPalette, BlockWorld};
     pub use crate::camera::Camera2D;
     pub use crate::canvas::Canvas;
     pub use crate::color::Color;

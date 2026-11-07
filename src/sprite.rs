@@ -259,6 +259,22 @@ impl Sprite {
         }
     }
 
+    /// The whole picture this sprite was cut from (an atlas or sprite
+    /// sheet), or the sprite itself if it wasn't cut from anything. Nothing
+    /// is copied.
+    pub fn whole_picture(&self) -> Sprite {
+        self.in_sheet().0
+    }
+
+    /// Where this sprite is in its [`whole_picture`](Sprite::whole_picture):
+    /// `[left, top, width, height]`, in pixels. A tile of a Duck Quill
+    /// atlas says where it is with this, so a game can put it on its own
+    /// meshes ([`Tileset::uv_rect`](crate::tileset::Tileset::uv_rect)
+    /// gives it as texture points).
+    pub fn place_in_picture(&self) -> [usize; 4] {
+        self.in_sheet().1
+    }
+
     /// Cuts a sprite sheet into frames of `frame_width` x `frame_height`,
     /// left to right, then top to bottom. Frames that would stick out past
     /// the edge are left out. Nothing is copied.

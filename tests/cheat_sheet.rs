@@ -623,6 +623,28 @@ fn three_d_textures_light_and_billboards() -> Result<(), LoadError> {
         chunk.bounds(),
         (vec3(-0.5, -0.5, -0.5), vec3(3.5, 0.5, 0.5))
     );
+    assert_eq!(atlas.uv_rect("dirt"), Rect::new(0.5, 0.0, 0.5, 1.0));
+    let dirt = atlas.frame("dirt", 0.0);
+    assert_eq!(dirt.place_in_picture(), [16, 0, 16, 16]);
+    assert_eq!(dirt.whole_picture().width(), 32);
+    let palette = BlockPalette::new(
+        &atlas,
+        &[
+            BlockKind::new("stone", ["dirt"; 3]),
+            BlockKind::new("glass", ["grass_top"; 3]).see_through(),
+            BlockKind::new("leaves", ["grass_top"; 3]).inner_faces(),
+            BlockKind::new("lamp", ["dirt"; 3]).glowing(),
+        ],
+    );
+    let stone = palette.id("stone");
+    let mut world = BlockWorld::new(8, 4, 8);
+    world.set_below(stone);
+    world.set(1, 0, 1, stone);
+    assert_eq!(world.get(1, 0, 1), stone);
+    assert_eq!(world.get(1, 1, 1), AIR);
+    world.update_meshes(&palette);
+    world.update_meshes_shaded(&palette, |_, _, y, _| if y > 0 { 1.0 } else { 0.5 });
+    assert_eq!(world.chunk_mesh(0, 0).triangles.len(), 10);
 
     canvas.set_lighting(Lighting {
         sun_direction: vec3(0.0, 0.3, -1.0),
@@ -641,6 +663,7 @@ fn three_d_textures_light_and_billboards() -> Result<(), LoadError> {
         canvas.draw_mesh(mesh, &at, &camera);
     }
     canvas.draw_mesh(&chunk, &Transform::at(vec3(-1.5, -1.0, 1.0)), &camera);
+    world.draw(&mut canvas, &camera);
     let duck = SpriteSheet::load("tests/fixtures/quill/scale1/duck.json")?;
     let frame = duck.animation("idle").frame_at(0.0);
     canvas.draw_billboard(frame, vec3(0.0, 0.0, -1.0), 1.0, &camera);

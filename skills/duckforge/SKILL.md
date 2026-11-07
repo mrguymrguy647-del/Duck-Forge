@@ -66,8 +66,10 @@ Details: the guide's section 7 (cheat sheet) and section 11 (3D).
 - **3D**: `Mesh::block(&atlas, [top, sides, bottom])`, `mesh.with_texture(sprite)`,
   `canvas.set_lighting(...)`, `.glowing()` for lava and signs,
   `canvas.draw_billboard(&frame, at, 1.0, &camera)` for 2D characters
-  that hide behind blocks, `chunk.merge(&block, &transform)` to build
-  block worlds in 16 x 16 chunks, `camera.project(point, canvas)` for labels.
+  that hide behind blocks, `BlockWorld` + `BlockPalette` for block worlds
+  (only visible faces, one mesh per 16 x 16 chunk, `world.set` then
+  `world.update_meshes(&palette)` rebuilds just the changed chunks),
+  `camera.project(point, canvas)` for labels.
   Mouse look: `ctx.lock_pointer(true)` (the window hides and holds the
   pointer; Escape should free it) and turn by `ctx.input.mouse_delta()`;
   tests move it with `sim.move_mouse_by(vec2(dx, dy))`.

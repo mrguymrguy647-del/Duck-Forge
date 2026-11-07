@@ -17,6 +17,7 @@
 use std::path::Path;
 
 use crate::error::LoadError;
+use crate::math::Rect;
 use crate::sprite::{Animation, Sprite};
 use crate::spritesheet::SpriteSheet;
 
@@ -103,6 +104,26 @@ impl Tileset {
             ),
         }
     }
+
+    /// Where tile `name` is in the atlas picture
+    /// ([`whole_picture`](Sprite::whole_picture)), as texture points: the
+    /// rectangle's corner and size are fractions (0 to 1) of the picture.
+    /// The point `(u, v)` of the tile (each 0 to 1) is at
+    /// `(rect.x + u * rect.w, rect.y + v * rect.h)`, for a mesh textured
+    /// with the whole picture. Panics like [`frame`](Tileset::frame).
+    #[track_caller]
+    pub fn uv_rect(&self, name: &str) -> Rect {
+        let tile = self.frame(name, 0.0);
+        let picture = tile.whole_picture();
+        let [left, top, width, height] = tile.place_in_picture();
+        let (w, h) = (picture.width() as f32, picture.height() as f32);
+        Rect::new(
+            left as f32 / w,
+            top as f32 / h,
+            width as f32 / w,
+            height as f32 / h,
+        )
+    }
 }
 
 #[cfg(test)]
@@ -126,6 +147,19 @@ mod tests {
             Some(Color::GREEN)
         );
         assert!(tiles.get("lava").is_none());
+    }
+
+    #[test]
+    fn a_tile_says_where_it_is_in_the_atlas() {
+        let sheet = Sprite::from_pixels(64, 32, vec![Color::GREEN; 64 * 32]);
+        let tiles = Tileset::grid(&sheet, 16, 16, &["a", "b", "", "", "", "c"]);
+        let c = tiles.frame("c", 0.0);
+        assert_eq!(c.place_in_picture(), [16, 16, 16, 16]);
+        assert_eq!(c.whole_picture().width(), 64);
+        assert_eq!(tiles.uv_rect("b"), Rect::new(0.25, 0.0, 0.25, 0.5));
+        assert_eq!(tiles.uv_rect("c"), Rect::new(0.25, 0.5, 0.25, 0.5));
+        // A sprite that wasn't cut is its own whole picture.
+        assert_eq!(sheet.place_in_picture(), [0, 0, 64, 32]);
     }
 
     #[test]
