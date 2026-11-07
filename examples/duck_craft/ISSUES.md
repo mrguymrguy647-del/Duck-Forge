@@ -57,10 +57,12 @@ game; the tool still has the gap.
    an old `target/release/examples/duck_craft` and seemed to break
    repeatability. `tools/verify.sh` is safe (it builds first); running
    the binary by hand after `cargo test` isn't. A note in the skill would
-   help.
+   help. **Fixed in the docs:** the skill and the guide (play tests) say
+   so, and a test keeps the skill saying it.
 8. **Snapshots can't be saved from a test without a canvas copy.**
    `Canvas::save_png` exists and works (used by the `views` test); the
-   skill doesn't mention it.
+   skill doesn't mention it. **Fixed in the docs:** the skill, the guide's
+   cheat sheet and play tests section show `sim.picture().save_png(..)`.
 
 9. **`Mesh::merge` silently drops texture points from a mesh that has
    no texture yet.** The beak was merged into the head before
@@ -72,6 +74,11 @@ game; the tool still has the gap.
     .rotate_x(a)` goes to `-z` for positive `a`; I guessed `+z` and the
     first-person arm pointed behind the camera. One line in section 11
     ("positive x rotation tips +z up") would do; the same for y and z.
+    **Fixed in the docs:** section 11 says which way each turns (with this
+    very example), and a test checks the words against the maths. One
+    correction to the note above: a positive `rotate_x` sends `-y` to
+    `+z` (z becomes `sin a`), so the `+z` guess was right and the arm
+    pointed behind for some other reason. The docs and test now settle it.
 11. **No way to draw a mesh in "view space".** A first-person hand has to
     be placed in the world every frame from the camera's position, yaw
     and pitch (`draw_hand`). A `canvas.draw_mesh_in_view(mesh, transform)`

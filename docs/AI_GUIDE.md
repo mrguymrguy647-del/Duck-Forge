@@ -716,6 +716,14 @@ mod tests {
 
 Run them with `cargo test --no-default-features --example mygame`.
 
+**`cargo test` doesn't rebuild the game.** It builds a test program;
+the game's own program in `target/.../examples/mygame` stays as it was,
+so running that file by hand after `cargo test` runs old code (and a
+replay can seem to stop repeating). Use `tools/verify.sh mygame` or
+`cargo run --example mygame -- ...`, which build first. To keep a
+picture from a test, `sim.picture().save_png("out/look.png")?` (or any
+`Canvas`'s `save_png`).
+
 - `.inputs("playthroughs/x.json")` replays a file (paths start from the
   project folder), and `.script(json)` replays a string.
 - `.frames(n)` and `.seed(n)` change the run. Without `.frames`, a script
@@ -805,8 +813,9 @@ and down positive; the one for mouse look), `is_mouse_down(button)`,
 `draw_text_centered(text, y, scale, color)`,
 `Canvas::text_width(text, scale)` (widest line), `Canvas::text_height(scale)`
 (a capital's height), `Canvas::line_height(scale)` (from one line's top to
-the next; `'\n'` in `draw_text` uses it), `width()`, `height()`. Any color with
-alpha below 255 is drawn see-through (`clear` ignores alpha).
+the next; `'\n'` in `draw_text` uses it), `width()`, `height()`,
+`canvas.save_png("out/look.png")?` (in a test: `sim.picture().save_png(..)`).
+Any color with alpha below 255 is drawn see-through (`clear` ignores alpha).
 
 **Sprites**: `Sprite::from_ascii(&["..yy", "yyyo"], &[('y', Color::YELLOW), ('o', Color::ORANGE)])`
 (one character per pixel, `'.'` see-through; draw small art straight in
@@ -1309,6 +1318,21 @@ meshes are 1 unit big and centred on (0, 0, 0), so `Transform::at(p)
 game, choose what feels right (the runner starter uses 18 with a jump
 speed of 6: one unit high).
 
+**Which way rotations turn.** Angles are in radians, and a positive angle
+turns:
+
+- `rotate_y(a)`: forward (+z) towards right (+x). Seen from above, it
+  turns right, like a camera's yaw.
+- `rotate_x(a)`: forward (+z) towards up (+y), so the front tips up, and
+  a point below (-y) swings forward (+z): `vec3(0.0, -1.0, 0.0).rotate_x(0.5)`
+  has a positive z. An arm hanging down, turned by `+x`, reaches forward.
+- `rotate_z(a)`: right (+x) towards up (+y): seen from behind (looking
+  along +z), it rolls anticlockwise.
+
+`Transform::rotated(vec3(x, y, z))` turns by x first, then y, then z, and
+`Camera3D`'s `pitch` (positive looks up) and `yaw` (positive turns right)
+agree with these.
+
 **The camera.** `Camera3D::looking_at(position, target)` is usually all
 you need: to follow a player from behind and above, set it every frame
 from the player's position (`starter_runner3d`'s `camera()`).
@@ -1325,7 +1349,9 @@ triangle is one flat colour times the light (flat shading).
 it, where its texture coordinates say (every built-in shape has them: a
 cube shows the whole picture on each face, a checkerboard on each
 square). Points beyond 1 repeat the picture: a long road is one quad
-whose coordinates go from 0 to 40 along it. Pixels stay sharp squares;
+whose coordinates go from 0 to 40 along it. A tile from an atlas,
+`atlas.tile("water")`, repeats on its own (the sea, clouds); the whole
+atlas picture repeats as a whole. Pixels stay sharp squares;
 see-through pixels aren't drawn (a fence has holes). **A mesh has one
 texture**, so put many pictures in one *atlas*: a Duck Quill sheet with
 one 16 x 16 animation per tile (`quill export blocks.json --sheet`),

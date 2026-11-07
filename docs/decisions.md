@@ -2823,3 +2823,23 @@ glowing and plain parts both ways, fog amounts and exact fogged colours,
 a GPU picture with glow levels and fog matching the CPU's, `BlockWorld`
 with a lamp and a half-lit face, and Duck Craft's lamp lighting the floor
 round it (and going out when dug).
+
+## Fix 10: The docs Duck Craft wished for
+
+- **Which way rotations turn**, in the guide's section 11: `rotate_y`
+  turns forward towards right, `rotate_x` forward towards up (so a point
+  below swings forward), `rotate_z` right towards up, and the camera's
+  yaw and pitch agree. A test reads those sentences from the guide and
+  checks each against the maths, so the words can't drift from the code.
+  (Duck Craft's log said `vec3(0, -1, 0).rotate_x(a)` goes to `-z`; it goes
+  to `+z`. The log now says so too.)
+- **`Canvas::save_png`** is in the skill, the cheat sheet (and its test)
+  and the guide's play-test section, as `sim.picture().save_png(..)`.
+- **`cargo test` doesn't rebuild the game's own program**: running
+  `target/.../examples/x` by hand after `cargo test` runs old code. The
+  skill and the guide say to use `tools/verify.sh` or `cargo run`, and a
+  skill test keeps the warning there. The skill had to stay within 150
+  lines, so its 3D and mistakes sections were tightened to fit.
+- The tutorial's 3D chapter has a short section on what a block game
+  needed (visible faces only, hands in view space, see-through, glow and
+  fog, mouse look), and the quick start lists the new features.

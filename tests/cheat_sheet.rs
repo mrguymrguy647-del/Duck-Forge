@@ -681,6 +681,9 @@ fn three_d_textures_light_and_billboards() -> Result<(), LoadError> {
     canvas.draw_mesh(&chunk, &Transform::at(vec3(-1.5, -1.0, 1.0)), &camera);
     world.draw(&mut canvas, &camera);
     canvas.set_fog(None);
+    let picture = std::env::temp_dir().join(format!("cheat-sheet-{}.png", std::process::id()));
+    canvas.save_png(&picture).expect("the picture is saved");
+    let _ = std::fs::remove_file(&picture);
     let ghost = Color::rgba(160, 200, 255, 100);
     canvas.draw_mesh_tinted(
         &Mesh::cube(Color::WHITE),
@@ -706,6 +709,40 @@ fn three_d_textures_light_and_billboards() -> Result<(), LoadError> {
     let gpu = Simulation::with_renderer(config(), Everything::new(), Renderer::Gpu);
     assert_eq!(gpu.context().frame(), 0);
     Ok(())
+}
+
+/// The guide says which way each rotation turns (Duck Craft's arm first
+/// pointed behind the camera for want of it). Keep the words and the
+/// maths together.
+#[test]
+fn the_guide_says_which_way_rotations_turn_and_it_is_true() {
+    let guide = include_str!("../docs/AI_GUIDE.md");
+    for sentence in [
+        "`rotate_y(a)`: forward (+z) towards right (+x)",
+        "`rotate_x(a)`: forward (+z) towards up (+y)",
+        "`rotate_z(a)`: right (+x) towards up (+y)",
+        "`vec3(0.0, -1.0, 0.0).rotate_x(0.5)`",
+        "has a positive z",
+    ] {
+        assert!(guide.contains(sentence), "the guide should say: {sentence}");
+    }
+    let forward = vec3(0.0, 0.0, 1.0);
+    assert!(forward.rotate_y(0.5).x > 0.0, "y: forward turns right");
+    assert!(forward.rotate_x(0.5).y > 0.0, "x: forward tips up");
+    assert!(
+        vec3(0.0, -1.0, 0.0).rotate_x(0.5).z > 0.0,
+        "x: below swings forward"
+    );
+    assert!(
+        vec3(1.0, 0.0, 0.0).rotate_z(0.5).y > 0.0,
+        "z: right rolls up"
+    );
+    // The camera agrees: positive yaw looks right, positive pitch looks up.
+    let mut camera = Camera3D::new(Vec3::ZERO);
+    camera.yaw = 0.5;
+    assert!(camera.forward().x > 0.0);
+    camera.pitch = 0.5;
+    assert!(camera.forward().y > 0.0);
 }
 
 /// The function names the cheat sheet mentions: every `name(` inside a

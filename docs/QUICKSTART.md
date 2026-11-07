@@ -74,7 +74,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 Bigger starts: `tools/new_game.sh mygame topdown` makes `examples/mygame/` from
 a starter (`platformer`, `topdown`, `shooter`, `runner3d` for 3D, or `tiny`) and
 verifies it. Built in (guide sections 7 and 11): tile maps from text, scrolling
-backgrounds, Duck Quill sprite sheets, looping music, 3D textures and billboards.
+backgrounds, Duck Quill sprite sheets, looping music, 3D textures and billboards,
+block worlds (`BlockWorld`), first-person hands, see-through meshes, glow, fog
+and mouse look (`ctx.lock_pointer(true)`).
 
 ## The loop
 

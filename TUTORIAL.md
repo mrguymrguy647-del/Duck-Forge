@@ -2456,6 +2456,35 @@ It also uses two classic cheap tricks:
   screen, and everything below it is painted grass-colored before the
   checkerboard is drawn. So the world doesn't seem to end in mid-air.
 
+### What a block game needed
+
+Making a Minecraft-style game (`examples/duck_craft/`) showed what was
+missing, and each fix is a small idea worth knowing:
+
+- **Only the faces you can see.** A block world is mostly hidden faces:
+  two blocks side by side hide each other's touching faces. `BlockWorld`
+  (in `src/blocks.rs`) keeps a grid of block numbers and builds one mesh
+  per chunk of 16 x 16 columns, adding a block's face only when the cell
+  next to it is air or see-through. Changing a block marks just its chunk
+  (and the next one, if it's on the edge) to be built again.
+- **A hand that stays on screen.** `draw_mesh_in_view` draws a mesh with
+  a pretend camera at (0, 0, 0) looking along +z, so the mesh's own
+  position *is* where it is in the view. Before the first one, the depth
+  buffer is emptied, so a hand is in front of every wall.
+- **See-through meshes.** `draw_mesh_tinted` mixes each pixel with what's
+  already there (`color::blend`), and doesn't write the depth buffer, so
+  it hides nothing drawn after it. That's why see-through things are
+  drawn last, the same rule real engines follow.
+- **Glow and fog.** A triangle's glow level is a floor under its light
+  (`max(light, glow)`), so a lamp can light the floor round it at night
+  without making anything brighter than white by day. Fog mixes each pixel
+  towards the fog's colour by its distance, which the depth buffer already
+  knows (it holds `1 / z`).
+- **Mouse look.** Turning by where the pointer *is* stops at the window's
+  edge; turning by how far the mouse *moved* doesn't. With
+  `ctx.lock_pointer(true)` the window hides the pointer and keeps it in
+  place, and `mouse_delta()` reports the movement, straight from the mouse.
+
 ### What about the graphics card?
 
 Real 3D engines send triangles to the GPU, which runs these same steps

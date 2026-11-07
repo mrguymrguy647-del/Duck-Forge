@@ -80,7 +80,7 @@ fn its_commands_exist() {
             }
         }
         if pair[0] == "cargo" || pair[0] == "`cargo" {
-            let sub = pair[1];
+            let sub = pair[1].trim_matches(|c: char| c == '`' || c.is_ascii_punctuation());
             assert!(
                 ["build", "run", "test"].contains(&sub),
                 "SKILL.md uses `cargo {sub}`: only build, run and test are needed"
@@ -129,4 +129,15 @@ fn every_function_it_calls_is_in_the_cheat_sheet_test() {
             "SKILL.md calls {call}(), which tests/cheat_sheet.rs never does: check the name"
         );
     }
+}
+
+/// The two things Duck Craft's maker wished the skill had said.
+#[test]
+fn it_says_how_to_save_a_picture_and_that_cargo_test_doesnt_rebuild_the_game() {
+    assert!(SKILL.contains("save_png"), "Canvas::save_png, for tests");
+    assert!(
+        SKILL.contains("`cargo test` doesn't rebuild the game's own program"),
+        "the old-binary trap"
+    );
+    assert!(SKILL.contains("tools/verify.sh"));
 }

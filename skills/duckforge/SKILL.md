@@ -133,13 +133,13 @@ When `verify` says `changed`, add `--accept` to keep the new ending, or re-recor
 ## 9. Common mistakes (and the quick start's five)
 
 - Report the player's position, not only the score, or `--fuzz` calls
-  moving a freeze.
-- `draw` has no `ctx`: report, play sounds and `ctx.check` in `update`.
+  moving a freeze. `draw` has no `ctx`: report, play sounds and check in `update`.
 - Randomness not from `ctx.rng` breaks repeatable runs; effects get their
-  own `Rng::new(1)`.
-- Bullets moving more than their size per frame pass through things:
-  `swept_aabb` (see the shooter starter).
+  own `Rng::new(1)`. Fast bullets pass through things: `swept_aabb`.
 - Without `test = true` in `Cargo.toml` the play tests never run.
+- `cargo test` doesn't rebuild the game's own program: after it, running
+  `target/.../examples/mygame` runs old code. Use `tools/verify.sh` or
+  `cargo run`. A test keeps a picture with `sim.picture().save_png("out/x.png")?`.
 
 ## 10. Show your work
 
