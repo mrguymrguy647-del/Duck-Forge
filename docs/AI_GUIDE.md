@@ -976,7 +976,9 @@ bottom from one `Tileset`). Build your own with `add_vertex`,
 the front). `.with_texture(sprite)` (colours times the texture; white
 shows it as painted), `.glowing()` (ignores the light),
 `.with_color(color)`. `chunk.merge(&mesh, &transform)` (many meshes in
-one; two different textures panic: use one atlas), `mesh.bounds()`
+one; two different textures panic: use one atlas; texture points come
+along, so merging parts first and calling `.with_texture` once works;
+a plain part merged into a textured mesh stays plain), `mesh.bounds()`
 (lowest and highest corner).
 `Transform::at(position).rotated(vec3(x, y, z)).scaled(vec3(x, y, z))`
 or `.sized(scale)`. In `draw`: `canvas.draw_mesh(&mesh, &transform,

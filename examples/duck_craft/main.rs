@@ -948,15 +948,11 @@ impl Duck {
     const SHOULDER: f32 = 19.0 * SKIN_PIXEL;
 
     fn load(skin: Sprite) -> Duck {
-        // Both textured before merging: `merge` keeps texture points only
-        // from a mesh that already has its texture.
-        let mut head =
-            skin_box([8.0, 8.0, 8.0], [-4.0, 0.0, -4.0], 0.0, 0.0).with_texture(skin.clone());
-        let beak =
-            skin_box([4.0, 2.0, 3.0], [-2.0, 2.0, 4.0], 32.0, 0.0).with_texture(skin.clone());
+        let mut head = skin_box([8.0, 8.0, 8.0], [-4.0, 0.0, -4.0], 0.0, 0.0);
+        let beak = skin_box([4.0, 2.0, 3.0], [-2.0, 2.0, 4.0], 32.0, 0.0);
         head.merge(&beak, &Transform::default());
         Duck {
-            head,
+            head: head.with_texture(skin.clone()),
             body: skin_box([8.0, 10.0, 4.0], [-4.0, 0.0, -2.0], 0.0, 16.0)
                 .with_texture(skin.clone()),
             arm: skin_box([4.0, 10.0, 4.0], [-2.0, -10.0, -2.0], 24.0, 16.0)

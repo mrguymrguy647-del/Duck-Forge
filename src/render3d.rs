@@ -873,6 +873,11 @@ impl Mesh {
     /// each chunk (say 16 x 16) into one mesh per chunk: far fewer draws,
     /// and chunks off screen are still skipped whole.
     ///
+    /// Texture coordinates come along, so parts merged before the texture
+    /// is given (`head.merge(&beak, ..)`, then `.with_texture(skin)`) are
+    /// all painted. The one exception: a part with no texture merged into
+    /// a mesh that has one stays plain (its colour), as it was drawn before.
+    ///
     /// # Panics
     ///
     /// If both meshes have textures and they're different pictures (a mesh
@@ -880,6 +885,9 @@ impl Mesh {
     /// [`Mesh::block`]), or one glows and the other doesn't.
     #[track_caller]
     pub fn merge(&mut self, other: &Mesh, transform: &Transform) {
+        // A plain part joining a textured mesh: don't let it pick up the
+        // texture through texture coordinates it was never drawn with.
+        let stays_plain = self.texture.is_some() && other.texture.is_none();
         match (&self.texture, &other.texture) {
             (Some(mine), Some(theirs)) => assert!(
                 mine.same_pixels(theirs),
@@ -913,7 +921,8 @@ impl Mesh {
             }));
         self.uvs.resize(first, None);
         for index in 0..other.triangles.len() {
-            self.uvs.push(other.uvs_of(index));
+            let points = other.uvs.get(index).copied().flatten();
+            self.uvs.push(if stays_plain { None } else { points });
         }
     }
 
@@ -1393,6 +1402,27 @@ mod tests {
             &Transform::at(vec3(2.0, 0.0, 0.0)),
         );
         assert!(plain.uvs_of(0).is_none() && plain.uvs_of(12).is_some());
+    }
+
+    /// Duck Craft's beak: parts merged before the texture is given keep
+    /// their texture points, so the texture paints all of them.
+    #[test]
+    fn merging_before_the_texture_keeps_the_texture_points() {
+        let skin = Sprite::from_pixels(2, 1, vec![Color::RED, Color::BLUE]);
+        let mut head = Mesh::cube(Color::WHITE);
+        let mut beak = Mesh::cube(Color::WHITE);
+        beak.set_uvs(0, [vec2(0.5, 0.0), vec2(1.0, 0.0), vec2(1.0, 1.0)]);
+        head.merge(&beak, &Transform::at(vec3(0.0, 0.0, 0.6)));
+        let head = head.with_texture(skin);
+        assert!(
+            (0..24).all(|i| head.uvs_of(i).is_some()),
+            "every triangle is painted"
+        );
+        assert_eq!(
+            head.uvs_of(12),
+            Some([vec2(0.5, 0.0), vec2(1.0, 0.0), vec2(1.0, 1.0)]),
+            "the beak's own points"
+        );
     }
 
     #[test]

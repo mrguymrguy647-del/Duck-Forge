@@ -50,7 +50,8 @@ game; the tool still has the gap.
    no texture yet.** The beak was merged into the head before
    `.with_texture(skin)` and came out plain white (`uvs_of` returns `None`
    without a texture). Either keep the points, or panic/warn. Cost: half
-   an hour.
+   an hour. **Fixed in the engine:** `merge` keeps the points; the duck
+   now merges the beak first and paints the head once.
 10. **`rotate_x`'s direction isn't in the guide.** `vec3(0, -1, 0)
     .rotate_x(a)` goes to `-z` for positive `a`; I guessed `+z` and the
     first-person arm pointed behind the camera. One line in section 11
