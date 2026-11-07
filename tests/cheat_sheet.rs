@@ -72,6 +72,10 @@ impl Game for Everything {
             ctx.idle_ok(); // waiting on purpose (a pause screen, say)
         }
         ctx.report("frame", ctx.frame());
+        if ctx.frame() == 1 {
+            ctx.lock_pointer(true);
+        }
+        ctx.report("locked", ctx.pointer_locked());
         ctx.report("state", format!("{:?}", Timestep::RealTime));
         // Input
         let input = &ctx.input;
@@ -208,6 +212,7 @@ fn the_game_parts_of_the_cheat_sheet_work() {
     sim.step();
     sim.release(Key::Right);
     sim.move_mouse(vec2(10.0, 10.0));
+    sim.move_mouse_by(vec2(3.0, -1.0));
     sim.press_mouse(MouseButton::Left);
     sim.release_mouse(MouseButton::Left);
     sim.scroll(1.0);

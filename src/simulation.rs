@@ -73,6 +73,8 @@ pub struct Simulation<G> {
     /// `None` until the mouse is first moved.
     mouse_position: Option<Vec2>,
     mouse_buttons_down: Vec<MouseButton>,
+    /// Mouse movement without a position (a locked pointer), waiting for the next step.
+    mouse_motion: Vec2,
     /// Scrolling waiting for the next step.
     scroll: f32,
     /// The frame the canvas shows a picture of, if it holds a clean one.
@@ -169,6 +171,7 @@ impl<G: Game> Simulation<G> {
             keys_down: Vec::new(),
             mouse_position: None,
             mouse_buttons_down: Vec::new(),
+            mouse_motion: Vec2::ZERO,
             scroll: 0.0,
             drawn_frame: None,
             updates_per_second: match config.timestep {
@@ -226,8 +229,9 @@ impl<G: Game> Simulation<G> {
         let buttons = self.mouse_buttons_down.iter().copied();
         self.ctx
             .input
-            .update_mouse(self.mouse_position, buttons, self.scroll);
+            .update_mouse(self.mouse_position, self.mouse_motion, buttons, self.scroll);
         self.scroll = 0.0;
+        self.mouse_motion = Vec2::ZERO;
         self.game.update(&mut self.ctx);
         let reported = self.ctx.take_reports();
         self.reports.record(self.ctx.frame(), reported);
@@ -342,6 +346,14 @@ impl<G: Game> Simulation<G> {
         self.apply(InputAction::MouseMove(position));
     }
 
+    /// Moves the mouse by `amount`, in canvas pixels, without moving the
+    /// pointer: what a player does with the pointer locked
+    /// ([`Context::lock_pointer`]). The game sees it in `mouse_delta()` at
+    /// the next step. Several moves before one step add up.
+    pub fn move_mouse_by(&mut self, amount: Vec2) {
+        self.apply(InputAction::MouseMotion(amount));
+    }
+
     /// Holds a mouse button down until [`release_mouse`](Simulation::release_mouse).
     pub fn press_mouse(&mut self, button: MouseButton) {
         self.apply(InputAction::MousePress(button));
@@ -382,6 +394,10 @@ impl<G: Game> Simulation<G> {
                 let moved = self.mouse_position != Some(position);
                 self.mouse_position = Some(position);
                 moved
+            }
+            InputAction::MouseMotion(amount) => {
+                self.mouse_motion += amount;
+                amount != Vec2::ZERO
             }
             InputAction::MousePress(button) => {
                 let new = !self.mouse_buttons_down.contains(&button);
@@ -1155,6 +1171,57 @@ mod tests {
         sim.step(); // the scroll only lasts one step
         assert_eq!(sim.game().clicks, [vec2(3.0, 4.0)]);
         assert_eq!(sim.game().scrolls, [-1.0]);
+    }
+
+    /// Mouse look with a locked pointer: the game sees the movement in
+    /// `mouse_delta`, and it's recorded and replays exactly.
+    #[test]
+    fn a_locked_pointer_moves_by_amounts_and_replays() {
+        #[derive(Default)]
+        struct Look {
+            turns: Vec<Vec2>,
+            locked: Vec<bool>,
+        }
+        impl Game for Look {
+            fn update(&mut self, ctx: &mut Context) {
+                if ctx.frame() == 1 {
+                    ctx.lock_pointer(true);
+                }
+                self.turns.push(ctx.input.mouse_delta());
+                self.locked.push(ctx.pointer_locked());
+            }
+            fn draw(&self, canvas: &mut Canvas) {
+                canvas.clear(Color::BLACK);
+            }
+        }
+        let mut sim = Simulation::new(config(), Look::default());
+        sim.step();
+        sim.move_mouse_by(vec2(3.0, 1.0));
+        sim.move_mouse_by(vec2(2.0, -1.0)); // two moves before one step add up
+        sim.step();
+        sim.step(); // and only last one step
+        sim.move_mouse_by(vec2(-7.5, 0.0));
+        sim.step();
+        let turns = [Vec2::ZERO, vec2(5.0, 0.0), Vec2::ZERO, vec2(-7.5, 0.0)];
+        assert_eq!(sim.game().turns, turns);
+        assert_eq!(sim.game().locked, [true; 4]);
+        assert_eq!(
+            sim.context().input.mouse_position(),
+            Vec2::ZERO,
+            "the pointer stays put"
+        );
+
+        let script = InputScript::parse(&sim.recording().to_json()).unwrap();
+        assert!(
+            script
+                .events
+                .iter()
+                .all(|event| matches!(event.action, InputAction::MouseMotion(_)))
+        );
+        let mut replay = Simulation::new(config(), Look::default());
+        replay.follow(script);
+        replay.run(4);
+        assert_eq!(replay.game().turns, turns);
     }
 
     #[test]

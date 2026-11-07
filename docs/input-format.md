@@ -54,6 +54,7 @@ Every event is an object with a `"frame"` and exactly **one** action:
 | `"press"` | `{"frame": 10, "press": "Space"}` | Starts holding a key. |
 | `"release"` | `{"frame": 11, "release": "Space"}` | Lets go of a key. |
 | `"mouse"` | `{"frame": 10, "mouse": [160, 120]}` | Moves the pointer to `[x, y]` in canvas pixels (the same coordinates the game draws with; fractions are fine). |
+| `"mouse_motion"` | `{"frame": 10, "mouse_motion": [4, -1]}` | Moves the mouse by `[x, y]` canvas pixels without moving the pointer (right and down are positive). It's what a locked pointer records (`ctx.lock_pointer(true)`, for mouse look); the game sees it in `mouse_delta()`. |
 | `"mouse_press"` | `{"frame": 10, "mouse_press": "Left"}` | Starts holding a mouse button: `"Left"`, `"Right"` or `"Middle"`. |
 | `"mouse_release"` | `{"frame": 12, "mouse_release": "Left"}` | Lets go of a mouse button. |
 | `"scroll"` | `{"frame": 10, "scroll": 1}` | Rolls the wheel for one frame: positive is up (away from you), negative is down. |

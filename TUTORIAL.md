@@ -99,7 +99,8 @@ cargo run --release --example stress3d   # thousands of 3D shapes: how fast is i
 ```
 
 The first build takes a few minutes because Cargo downloads and compiles
-minifb, wgpu (the graphics card library), tinyaudio (sound, on Windows)
+winit and softbuffer (the window), wgpu (the graphics card library),
+tinyaudio (sound, on Windows)
 and the crates they depend on.
 After that, builds are fast. Adding
 `--release` gives fully optimized builds, but the project is set up so
@@ -129,7 +130,7 @@ src/
   lib.rs            the front door: lists the modules, defines the prelude
   engine.rs         the Game trait, Config, Context, and run()
   simulation.rs     runs a game one update at a time, with no window or clock
-  window.rs         the window and the real-time game loop (the only file that uses minifb)
+  window.rs         the window and the real-time game loop (the only file that uses winit)
   headless.rs       running a game without a window, saving pictures
   cli.rs            the command-line options every game understands
   script.rs         input scripts: recording and replaying what a player does
@@ -187,12 +188,13 @@ description = "A small game engine (2D, 3D and physics), written for learning Ru
 
 [features]
 default = ["window", "gpu", "audio"]
-window = ["dep:minifb"]
+window = ["dep:winit", "dep:softbuffer"]
 gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 audio = ["dep:tinyaudio", "dep:libc"]
 
 [dependencies]
-minifb = { version = "0.28", optional = true }
+winit = { version = "0.30", optional = true, default-features = false, features = [...] }
+softbuffer = { version = "0.4", optional = true, default-features = false, features = [...] }
 gif = "0.14"
 png = "0.18"
 serde_json = "1"
@@ -217,8 +219,8 @@ opt-level = 1
   Rust improve without breaking old code. `rust-version` is the oldest
   compiler that can build the project.
 - `[dependencies]` lists other crates to download from
-  [crates.io](https://crates.io). **minifb** opens a window, shows pixels
-  and reports key presses. **png** reads and saves pictures as PNG files
+  [crates.io](https://crates.io). **winit** opens a window and reports
+  key presses and the mouse; **softbuffer** shows our pixels in it. **png** reads and saves pictures as PNG files
   ([chapter 23](#23-running-without-a-screen)), **gif** saves animated
   GIFs and **serde_json** reads and writes JSON files (chapters 24 and 25).
   Three are only for the GPU renderer
@@ -228,7 +230,7 @@ opt-level = 1
   that's the point of the exercise.
 - `[features]` are optional parts of a crate. `gpu` switches on the three
   `optional = true` dependencies (`dep:wgpu` means "the wgpu dependency"),
-  `window` switches on minifb, and `audio` plays sounds out loud
+  `window` switches on winit and softbuffer, and `audio` plays sounds out loud
   ([chapter 31](#31-sound)): with tinyaudio on Windows and macOS, and with
   libc on Linux, where the engine loads the system's sound library when a
   game starts. The `[target...]` sections list dependencies only for some
@@ -621,19 +623,20 @@ To deliberately ignore the rest, use the `_` wildcard. `convert_key` in
 (like Num Lock):
 
 ```rust
-use minifb::Key as K;
+use KeyCode as K;
 
-let key = match key {
-    K::A => Key::A,
-    K::B => Key::B,
+let key = match code {
+    K::KeyA => Key::A,
+    K::KeyB => Key::B,
     // ...
     _ => return None,
 };
 ```
 
-(`use minifb::Key as K;` imports minifb's `Key` under a short nickname,
-because our own type is *also* called `Key`. Without it, every one of the
-~65 lines would start with `minifb::Key::`.)
+(`use KeyCode as K;` gives winit's `KeyCode` a short nickname, so each of
+the ~65 lines is shorter. Our own type is called `Key`, and winit's
+`KeyCode` names the key's *place* on the keyboard, so W A S D stay under
+the left hand on a French keyboard too.)
 
 `match` is also an expression that returns a value. From `draw_hud`:
 
@@ -1538,7 +1541,7 @@ you fix a bug, try writing a test that would have caught it.
 |  engine.rs    run(), Game, Context, Config                     |
 |  simulation.rs  runs the game: update, draw (window or not)    |
 |  window.rs    the real-time game loop in a window              |
-|               <- the ONLY file that knows minifb exists        |
+|               <- the ONLY file that knows winit exists         |
 |  headless.rs  runs a game with no window, saves PNG pictures   |
 |  script.rs    input scripts: recordings you can replay         |
 |  report.rs    ctx.report: values a game shares about itself    |
@@ -1555,7 +1558,8 @@ you fix a bug, try writing a test that would have caught it.
 +----------------------------------------------------------------+
             |
             v
-        minifb     (opens the window, shows pixels, reports keys and mouse)
+        winit      (opens the window, reports keys and mouse, locks the pointer)
+        softbuffer (shows our pixels in the window)
             |
             v
      Windows / macOS / Linux
@@ -1566,8 +1570,10 @@ Four design decisions shape everything:
 1. **A trait is the contract between engine and game.** The engine calls
    `update` and `draw`; the game never has to know how windows work.
 2. **Only one file touches the window library.** Games use our own `Key`
-   type, not minifb's. To switch to another library (like SDL2 or winit),
-   you'd rewrite `window.rs` and nothing else. Leaving it out entirely
+   type, not winit's. To switch to another library (like SDL2), you'd
+   rewrite `window.rs` and nothing else. (That happened once: the engine
+   started on minifb and moved to winit, because minifb can't hold the
+   mouse pointer for mouse look. No game had to change.) Leaving it out entirely
    works too ([chapter 23](#23-running-without-a-screen)).
 3. **Everything ends up in one `Vec<u32>` of pixels.** 2D is always drawn
    by our own code. 3D is drawn either by our own code on the CPU (so you can
@@ -1717,9 +1723,10 @@ pub const fn to_u32(self) -> u32 {
 `<<` shifts bits left, and `|` combines them.
 
 **Scaling:** the canvas is 320x240 but the window opens at 960x720 (`scale:
-3`). minifb stretches the small image to fill the window, which gives the
-chunky pixel-art look for free. The window keeps the right shape if you
-resize it (`ScaleMode::AspectRatioStretch`). With `Config { resizable:
+3`). `stretch` in `window.rs` scales the small image up to fill the
+window, copying each canvas pixel into a square of window pixels, which
+gives the chunky pixel-art look. It keeps the picture's shape if you
+resize the window, with black bars filling the rest. With `Config { resizable:
 true, .. }` the canvas grows with the window instead
 ([chapter 33](#33-collisions-and-small-helpers)).
 
@@ -2484,7 +2491,7 @@ average frame *times* rather than FPS values) came with a test.
 
 ### The plan: draw offscreen, copy back
 
-The window library (minifb) shows a block of pixels in memory. So the GPU
+The window library (softbuffer) shows a block of pixels in memory. So the GPU
 renderer draws 3D into an image *on the graphics card*, then copies the
 finished image back into the canvas's pixels:
 
@@ -2756,7 +2763,8 @@ higher. Run the benchmark on your own computer to see the real difference.
   canvas bigger in `Config` (with a smaller `scale`).
 - Copying the picture back each frame costs a little time, and makes the CPU
   wait for the GPU. The next big step would be to let wgpu draw straight
-  into the window, which means replacing minifb with a library like winit.
+  into the window (winit's window would allow it; softbuffer only copies
+pixels).
 
 ---
 
@@ -3033,20 +3041,21 @@ window is a feature too (and, since chapter 31, so is sound playback):
 ```toml
 [features]
 default = ["window", "gpu", "audio"]
-window = ["dep:minifb"]
+window = ["dep:winit", "dep:softbuffer"]
 gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 audio = ["dep:tinyaudio", "dep:libc"]
 
 [dependencies]
-minifb = { version = "0.28", optional = true }
+winit = { version = "0.30", optional = true, default-features = false, features = [...] }
+softbuffer = { version = "0.4", optional = true, default-features = false, features = [...] }
 ```
 
-`optional = true` means minifb is only downloaded and built when a feature
+`optional = true` means winit and softbuffer are only downloaded and built when a feature
 asks for it, and `--no-default-features` turns all the features off.
 
 Inside the code, `#[cfg(...)]` decides what gets compiled. Everything that
-uses minifb moved from `engine.rs` into a new file, `src/window.rs`, and
-`lib.rs` only includes that file when the feature is on:
+used the window library (then minifb) moved from `engine.rs` into a new
+file, `src/window.rs`, and `lib.rs` only includes that file when the feature is on:
 
 ```rust
 #[cfg(feature = "window")]
@@ -3078,7 +3087,7 @@ The `_` parameters say "I take these arguments but don't use them".
 
 How do we know the window really is gone? Two commands check it.
 `cargo tree --no-default-features` lists every crate the build uses: no
-minifb, nothing about X11. And on Linux, `ldd` lists the system libraries a
+winit, nothing about X11. And on Linux, `ldd` lists the system libraries a
 program needs when it starts:
 
 ```text

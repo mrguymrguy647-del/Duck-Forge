@@ -13,6 +13,9 @@ game; the tool still has the gap.
    "edge turning" (`edge_turn` in `main.rs`): resting the pointer near an
    edge keeps turning. A real fix needs the engine to lock the pointer
    (minifb can't; it may need another window library or raw input).
+   **Fixed in the engine:** `ctx.lock_pointer(true)` and `mouse_delta()`
+   (the window moved to winit). The game now holds the pointer; Escape
+   frees it and a click takes it back.
 2. **No block-world builder.** The guide says to `merge` whole blocks into
    chunks, which keeps every hidden face between neighbours: far too many
    triangles once the player can dig. The atlas positions `Mesh::block`
@@ -59,6 +62,18 @@ game; the tool still has the gap.
 12. **Meshes can't be drawn with a per-draw tint or transparency**, so a
     shadow blob under the duck or a see-through selection box isn't
     possible; the selection is 12 `draw_line`s instead.
+
+## Found while fixing the engine
+
+13. **On X11, a grabbed pointer reports every mouse movement twice.** With
+    winit's `Confined` grab, each raw movement arrived twice (Xvfb and
+    xdotool: 10 pixels became 20). The engine doesn't grab on Linux; it
+    hides the pointer and puts it back in the middle every frame.
+14. **winit panics instead of returning an error when `libxkbcommon-x11`
+    is missing** (a bare Linux server). The engine catches it and says
+    what to install, and to use `--headless`.
+15. **winit can make only one event loop per program**, so
+    `duckforge::run` can open one window per program. No game needs two.
 
 ## Duck Quill
 

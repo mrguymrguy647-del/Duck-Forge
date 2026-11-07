@@ -231,6 +231,8 @@ pub struct Context {
     width: usize,
     height: usize,
     quit_requested: bool,
+    /// Whether the game wants the mouse pointer hidden and held in the window.
+    pointer_locked: bool,
     /// What the game reported during this update.
     reports: Vec<(String, ReportValue)>,
     /// The sounds the game played during this update.
@@ -274,6 +276,7 @@ impl Context {
             width,
             height,
             quit_requested: false,
+            pointer_locked: false,
             reports: Vec::new(),
             sounds: Vec::new(),
             loop_commands: Vec::new(),
@@ -348,6 +351,28 @@ impl Context {
     /// Ask the engine to close the window at the end of this frame.
     pub fn quit(&mut self) {
         self.quit_requested = true;
+    }
+
+    /// Hides the mouse pointer and holds it inside the window (`true`), or
+    /// gives it back (`false`). This is *pointer lock*, for first-person
+    /// mouse look: while it's on, the pointer can't hit the edge of the
+    /// window or the screen, so read the movement with
+    /// [`input.mouse_delta()`](Input::mouse_delta), which keeps counting
+    /// however far the mouse goes. `mouse_position()` stays where it was.
+    ///
+    /// The window lets go of the pointer while it isn't the active window
+    /// (say, after Alt+Tab) and takes it again when the player comes back.
+    /// Give the player a way out, like Escape to unlock and a click to lock
+    /// again. Without a window (`--headless`, tests) nothing is hidden, but
+    /// [`pointer_locked`](Context::pointer_locked) still says what the game asked for.
+    pub fn lock_pointer(&mut self, locked: bool) {
+        self.pointer_locked = locked;
+    }
+
+    /// Whether the game asked for the pointer to be locked, with
+    /// [`lock_pointer`](Context::lock_pointer).
+    pub fn pointer_locked(&self) -> bool {
+        self.pointer_locked
     }
 
     /// Shares a value about the game, like `ctx.report("score", self.score)`.

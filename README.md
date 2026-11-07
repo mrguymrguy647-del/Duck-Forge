@@ -4,7 +4,9 @@ A small game engine written in Rust, covering **2D graphics, 3D graphics
 (on the graphics card, or on the CPU), sprites, a camera, sound and
 physics**, plus a dozen example programs. It was written to be read:
 about 13,000 lines of commented engine code, and over 250 tests.
-[minifb](https://crates.io/crates/minifb) opens the window,
+[winit](https://crates.io/crates/winit) opens the window (and can hold
+the mouse pointer for mouse look),
+[softbuffer](https://crates.io/crates/softbuffer) shows its pixels,
 [wgpu](https://wgpu.rs) talks to the graphics card,
 [png](https://crates.io/crates/png) reads and saves pictures and
 [tinyaudio](https://crates.io/crates/tinyaudio) plays sound on Windows and
@@ -658,7 +660,7 @@ To build without wgpu (faster to compile, CPU only), use
 `cargo build --no-default-features --features window,audio`.
 
 The three features, all on by default: `window` (play in a window, with
-minifb), `gpu` (draw 3D on the graphics card, with wgpu) and `audio` (play
+winit and softbuffer), `gpu` (draw 3D on the graphics card, with wgpu) and `audio` (play
 sounds out loud: tinyaudio on Windows and macOS; on Linux the engine loads
 the system's ALSA library when the game starts, so no extra packages are
 needed to build, and a computer with no sound card just plays silently).
@@ -763,5 +765,6 @@ On a computer with one (in PowerShell or cmd, in the project folder):
 | `examples/`       | `hello`, `shapes`, `template`, `starter_topdown`, `starter_shooter`, `pollen_run`, `breakout`, `dodge`, `duckling_parade`, `door_short`, `door_show_3d`, `physics`, `world3d` and `stress3d` |
 | `test.bat`        | Runs every test on Windows with a double-click                       |
 
-Only `src/window.rs` knows minifb exists, so the window library could be
-swapped out by rewriting one file.
+Only `src/window.rs` knows winit and softbuffer exist, so the window
+library could be swapped out by rewriting one file. (It was: the engine
+started on minifb, and moved to winit when Duck Craft needed pointer lock.)

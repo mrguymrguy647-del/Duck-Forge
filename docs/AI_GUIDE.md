@@ -79,7 +79,7 @@ then `. "$HOME/.cargo/env"`.)
 
 Build and run **without the window, GPU and sound playback code**, with
 `--no-default-features`. Without it, Cargo also builds the window library
-(minifb), the GPU library (wgpu) and the speaker code: a first build of
+(winit and softbuffer), the GPU library (wgpu) and the speaker code: a first build of
 about a minute instead of about 11 seconds (on 4 cores), and a window
 can't open on a server anyway. Sounds still work: headless runs save
 them in `audio.wav`. After the first build, changing a line in your game
@@ -777,11 +777,16 @@ window, or `sim.resize(w, h)` in a test).
 
 **`Context`** (`ctx`): `ctx.dt()` (seconds per update), `ctx.time()`,
 `ctx.frame()`, `ctx.width()` / `ctx.height()` (as `f32`), `ctx.quit()`,
-`ctx.report(name, value)`, `ctx.input`, `ctx.rng`.
+`ctx.report(name, value)`, `ctx.input`, `ctx.rng`,
+`ctx.lock_pointer(true)` (hide the mouse pointer and hold it in the window,
+for first-person mouse look: read `mouse_delta()`, which keeps counting;
+`false` gives it back; give the player a way out, like Escape),
+`ctx.pointer_locked()`.
 
 **`ctx.input`**: `is_down(key)`, `was_pressed(key)` (one frame per
 press), `was_released(key)`, `axis(Key::Left, Key::Right)` (-1, 0 or 1),
-`mouse_position()`, `mouse_delta()`, `is_mouse_down(button)`,
+`mouse_position()`, `mouse_delta()` (canvas pixels moved this frame, right
+and down positive; the one for mouse look), `is_mouse_down(button)`,
 `was_mouse_pressed(button)`, `was_mouse_released(button)`, `scroll()`.
 `MouseButton::Left`, `Right` or `Middle`.
 
@@ -986,7 +991,8 @@ pivot: Some(sheet.pivot()), flip_x, face_camera, })`. Headless runs draw
 
 **Headless from code**: `duckforge::run_headless(config, game, &HeadlessOptions { frames, out, inputs, sheet, gif, ..Default::default() })`,
 and `Simulation::new(config, game)` with `press`, `release`,
-`move_mouse`, `press_mouse`, `release_mouse`, `scroll`, `step`,
+`move_mouse`, `move_mouse_by(vec2(dx, dy))` (a locked pointer's movement),
+`press_mouse`, `release_mouse`, `scroll`, `step`,
 `run(frames)`, `game()`, `picture()`, `recording()`, `follow(script)`,
 `resize(w, h)`. Scripts: `InputScript::load(path)` or its other name
 `InputScript::from_file(path)`; `InputScript::parse(text)` or

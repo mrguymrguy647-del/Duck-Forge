@@ -14,6 +14,7 @@
 //!     {"frame": 1, "press": "Space"},
 //!     {"frame": 2, "release": "Space"},
 //!     {"frame": 30, "mouse": [160, 120]},
+//!     {"frame": 30, "mouse_motion": [4, -1]},
 //!     {"frame": 31, "mouse_press": "Left"},
 //!     {"frame": 33, "mouse_release": "Left"},
 //!     {"frame": 40, "scroll": -1}
@@ -44,6 +45,11 @@ pub enum InputAction {
     Release(Key),
     /// Move the mouse pointer to this point, in canvas pixels.
     MouseMove(Vec2),
+    /// Move the mouse by this much, in canvas pixels, without saying where
+    /// the pointer is. This is what a locked pointer
+    /// ([`Context::lock_pointer`](crate::engine::Context::lock_pointer))
+    /// records: the game sees it in `mouse_delta()`.
+    MouseMotion(Vec2),
     /// Start holding a mouse button.
     MousePress(MouseButton),
     /// Let go of a mouse button.
@@ -365,6 +371,10 @@ fn event_json(event: &InputEvent) -> String {
         InputAction::Press(key) => ("press", quoted(key.name())),
         InputAction::Release(key) => ("release", quoted(key.name())),
         InputAction::MouseMove(p) => ("mouse", format!("[{}, {}]", number(p.x), number(p.y))),
+        InputAction::MouseMotion(d) => (
+            "mouse_motion",
+            format!("[{}, {}]", number(d.x), number(d.y)),
+        ),
         InputAction::MousePress(button) => ("mouse_press", quoted(button.name())),
         InputAction::MouseRelease(button) => ("mouse_release", quoted(button.name())),
         InputAction::Scroll(amount) => ("scroll", number(amount)),
@@ -392,10 +402,11 @@ fn number(x: f32) -> String {
     }
 }
 
-const ACTIONS: [&str; 6] = [
+const ACTIONS: [&str; 7] = [
     "press",
     "release",
     "mouse",
+    "mouse_motion",
     "mouse_press",
     "mouse_release",
     "scroll",
@@ -434,7 +445,11 @@ fn parse_event(event: &Value) -> Result<InputEvent, String> {
     let action = match name {
         "press" => InputAction::Press(key(value)?),
         "release" => InputAction::Release(key(value)?),
-        "mouse" => InputAction::MouseMove(point(value)?),
+        "mouse" => InputAction::MouseMove(point(value, "a position [x, y] in canvas pixels")?),
+        "mouse_motion" => InputAction::MouseMotion(point(
+            value,
+            "a movement [x, y] in canvas pixels (right and down are positive)",
+        )?),
         "mouse_press" => InputAction::MousePress(button(value)?),
         "mouse_release" => InputAction::MouseRelease(button(value)?),
         "scroll" => InputAction::Scroll(
@@ -489,15 +504,13 @@ fn button(value: &Value) -> Result<MouseButton, String> {
     })
 }
 
-fn point(value: &Value) -> Result<Vec2, String> {
+fn point(value: &Value, wanted: &str) -> Result<Vec2, String> {
     let numbers: Option<Vec<f64>> = value
         .as_array()
         .map(|items| items.iter().filter_map(Value::as_f64).collect());
     match numbers.as_deref() {
         Some(&[x, y]) => Ok(vec2(x as f32, y as f32)),
-        _ => Err(format!(
-            "\"mouse\" needs a position [x, y] in canvas pixels, not {value}"
-        )),
+        _ => Err(format!("it needs {wanted}, not {value}")),
     }
 }
 
@@ -616,6 +629,10 @@ mod tests {
                     action: InputAction::MouseMove(vec2(1.0 / 3.0, 200.0)),
                 },
                 InputEvent {
+                    frame: 6,
+                    action: InputAction::MouseMotion(vec2(-4.0, 2.5)),
+                },
+                InputEvent {
                     frame: 9,
                     action: InputAction::Scroll(1.0),
                 },
@@ -627,6 +644,10 @@ mod tests {
             "{json}"
         );
         assert!(json.contains("[0.33333334, 200]"), "{json}");
+        assert!(
+            json.contains("{\"frame\": 6, \"mouse_motion\": [-4, 2.5]}"),
+            "{json}"
+        );
         assert_eq!(InputScript::parse(&json).unwrap(), script);
 
         let empty = InputScript::default();
@@ -653,6 +674,7 @@ mod tests {
         assert!(event(r#"{"frame": 1, "press": "A", "release": "A"}"#).contains("exactly one"));
         assert!(event(r#"{"frame": 1, "preess": "A"}"#).contains("unknown field \"preess\""));
         assert!(event(r#"{"frame": 1, "mouse": [1]}"#).contains("[x, y]"));
+        assert!(event(r#"{"frame": 1, "mouse_motion": 3}"#).contains("movement [x, y]"));
         assert!(event(r#"{"frame": 1, "mouse_press": "Back"}"#).contains("mouse button"));
         assert!(event(r#"{"frame": 1, "scroll": "up"}"#).contains("number"));
     }

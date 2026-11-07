@@ -9,12 +9,12 @@
 //!     cargo run --release --example duck_craft
 //!
 //! - **W A S D** walk, **Shift** run, **Space** jump (and swim up)
-//! - **mouse** or **arrow keys** look (rest the pointer near the window's
-//!   edge to keep turning: the window can't hold on to the pointer yet)
+//! - **mouse** or **arrow keys** look (the window holds on to the pointer;
+//!   **Escape** lets go of it and a click takes it back)
 //! - **left click** or **X** (hold) digs the block you look at;
 //!   **right click** or **C** places the block in your hand
 //! - **1 to 9** or the **mouse wheel** pick a block; **middle click** picks the one you look at
-//! - **V** first person / behind the duck, **H** hides the help, **Escape** quits
+//! - **V** first person / behind the duck, **H** hides the help, **Escape** twice quits
 //!
 //! How it's made:
 //!
@@ -929,6 +929,17 @@ struct Duck {
     leg: Mesh,
 }
 
+/// How the duck stands: turned to `yaw`, its head tilted by `pitch`, limbs
+/// swung by `swing` (radians, legs one way and arms the other) and its arms
+/// raised by `lift`.
+#[derive(Debug, Clone, Copy)]
+struct Pose {
+    yaw: f32,
+    pitch: f32,
+    swing: f32,
+    lift: f32,
+}
+
 impl Duck {
     /// 1 pixel = 1/16 block: legs 10, body 10, head 8: 28 pixels, 1.75
     /// blocks tall.
@@ -954,19 +965,14 @@ impl Duck {
         }
     }
 
-    /// Draws the duck standing at `feet`, turned to `yaw`, its head tilted
-    /// by `pitch`, limbs swung by `swing` (radians, legs one way and arms
-    /// the other) and the arms raised by `lift`.
-    fn draw(
-        &self,
-        canvas: &mut Canvas,
-        camera: &Camera3D,
-        feet: Vec3,
-        yaw: f32,
-        pitch: f32,
-        swing: f32,
-        lift: f32,
-    ) {
+    /// Draws the duck standing at `feet`, in `pose`.
+    fn draw(&self, canvas: &mut Canvas, camera: &Camera3D, feet: Vec3, pose: Pose) {
+        let Pose {
+            yaw,
+            pitch,
+            swing,
+            lift,
+        } = pose;
         // A part's pivot in the world: its place on the body, turned.
         let at = |local: Vec3| feet + local.rotate_y(yaw);
         let part = |pivot: Vec3, rotation: Vec3| {
@@ -1042,8 +1048,10 @@ struct DuckCraft {
     walking: bool,
     behind_view: bool,
     show_help: bool,
-    /// The mouse has moved: from now on it looks round.
-    mouse_used: bool,
+    /// The left button took the pointer back: it doesn't dig until it's let go.
+    left_click_locked: bool,
+    /// Escape gave the pointer back: the picture says how to carry on.
+    pointer_free: bool,
     /// For tests and pictures: in the behind view, look at the duck from
     /// this angle round it (radians; 0 is from the front) instead of from behind.
     orbit: Option<f32>,
@@ -1096,7 +1104,8 @@ impl DuckCraft {
             walking: false,
             behind_view: false,
             show_help: true,
-            mouse_used: false,
+            left_click_locked: false,
+            pointer_free: false,
             orbit: None,
             slot: 2,
             carried,
@@ -1220,25 +1229,14 @@ impl DuckCraft {
         let dt = ctx.dt();
         let input = &ctx.input;
 
-        // Look: the mouse, or the arrow keys.
-        let mouse = input.mouse_delta();
-        let mouse = if mouse.length() > 60.0 {
+        // Look: the mouse (while the window holds the pointer), or the arrow keys.
+        let mouse = if ctx.pointer_locked() {
+            input.mouse_delta()
+        } else {
             Vec2::ZERO
-        } else {
-            mouse
-        }; // a jump, not a move
-        if mouse.length() > 0.0 {
-            self.mouse_used = true;
-        }
-        let (edge_x, edge_y) = if self.mouse_used {
-            edge_turn(input.mouse_position())
-        } else {
-            (0.0, 0.0)
         };
-        self.yaw +=
-            mouse.x * MOUSE_LOOK + (input.axis(Key::Left, Key::Right) + edge_x) * TURN_SPEED * dt;
-        self.pitch +=
-            -mouse.y * MOUSE_LOOK + (input.axis(Key::Down, Key::Up) + edge_y) * TURN_SPEED * dt;
+        self.yaw += mouse.x * MOUSE_LOOK + input.axis(Key::Left, Key::Right) * TURN_SPEED * dt;
+        self.pitch += -mouse.y * MOUSE_LOOK + input.axis(Key::Down, Key::Up) * TURN_SPEED * dt;
         self.pitch = self.pitch.clamp(-1.55, 1.55);
         self.yaw = self.yaw.rem_euclid(TAU);
 
@@ -1388,7 +1386,10 @@ impl DuckCraft {
     }
 
     fn dig(&mut self, ctx: &mut Context) {
-        let held = ctx.input.is_mouse_down(MouseButton::Left) || ctx.input.is_down(Key::X);
+        // The click that took the pointer back doesn't dig.
+        let left = ctx.pointer_locked() && !self.left_click_locked;
+        let held =
+            (left && ctx.input.is_mouse_down(MouseButton::Left)) || ctx.input.is_down(Key::X);
         let Some(hit) = self.target.filter(|_| held) else {
             self.digging = None;
             self.dig_seconds = 0.0;
@@ -1399,7 +1400,9 @@ impl DuckCraft {
             self.dig_seconds = 0.0;
         }
         let Some(needed) = hit.block.dig_time() else {
-            if ctx.input.was_mouse_pressed(MouseButton::Left) || ctx.input.was_pressed(Key::X) {
+            if (left && ctx.input.was_mouse_pressed(MouseButton::Left))
+                || ctx.input.was_pressed(Key::X)
+            {
                 self.say("Bedrock can't be broken");
             }
             return;
@@ -1580,9 +1583,25 @@ impl DuckCraft {
 
 impl Game for DuckCraft {
     fn update(&mut self, ctx: &mut Context) {
-        if ctx.input.was_pressed(Key::Escape) {
-            ctx.quit();
+        // The window holds the mouse pointer, for looking round. Escape lets
+        // go of it (and quits if it's already free); a click takes it back.
+        if ctx.frame() == 1 {
+            ctx.lock_pointer(true);
         }
+        if ctx.input.was_pressed(Key::Escape) {
+            if ctx.pointer_locked() {
+                ctx.lock_pointer(false);
+            } else {
+                ctx.quit();
+            }
+        } else if !ctx.pointer_locked() && ctx.input.was_mouse_pressed(MouseButton::Left) {
+            ctx.lock_pointer(true);
+            self.left_click_locked = true;
+        }
+        if !ctx.input.is_mouse_down(MouseButton::Left) {
+            self.left_click_locked = false;
+        }
+        self.pointer_free = !ctx.pointer_locked();
         let dt = ctx.dt();
         self.time += dt;
         if self.wind.is_none() {
@@ -1773,15 +1792,13 @@ impl Game for DuckCraft {
             } else {
                 0.0
             };
-            art.duck.draw(
-                canvas,
-                &camera,
-                self.position,
-                self.yaw,
-                self.pitch,
+            let pose = Pose {
+                yaw: self.yaw,
+                pitch: self.pitch,
                 swing,
                 lift,
-            );
+            };
+            art.duck.draw(canvas, &camera, self.position, pose);
             if let Some(rect) = screen_box(&camera, canvas, self.position, 1.0, 1.75) {
                 canvas.label("player", rect);
             }
@@ -1974,11 +1991,19 @@ impl DuckCraft {
             );
         }
 
+        if self.pointer_free {
+            let text = "Click to play    Esc again: quit";
+            let w = Canvas::text_width(text, 1) + 8.0;
+            let panel = Rect::new((WIDTH - w) / 2.0, HEIGHT / 2.0 + 14.0, w, 13.0);
+            canvas.fill_rect(panel, Color::rgba(0, 0, 0, 170));
+            canvas.draw_text_centered(text, panel.y + 3.0, 1, Color::WHITE);
+        }
+
         if self.show_help {
             let lines = [
                 "DUCK CRAFT",
                 "WASD walk   Shift run   Space jump",
-                "Mouse or arrows: look",
+                "Mouse or arrows: look   Esc: free the mouse",
                 "Click / X: dig    Right click / C: build",
                 "1-9 or wheel: pick a block",
                 "V: view   H: hide this",
@@ -1995,31 +2020,6 @@ impl DuckCraft {
             }
         }
     }
-}
-
-/// How much to keep turning (-1 to 1, sideways and up/down) with the mouse
-/// pointer near an edge of the game. The window can't hold on to the
-/// pointer, so it stops at the window's edge; resting it near the edge
-/// keeps you turning, like a joystick. The last 2 pixels don't count, so a
-/// pointer that left the window doesn't spin you round.
-fn edge_turn(mouse: Vec2) -> (f32, f32) {
-    const ZONE: f32 = 26.0;
-    let push = |at: f32, size: f32| {
-        if !(2.0..size - 2.0).contains(&at) {
-            0.0
-        } else if at < ZONE {
-            -(ZONE - at) / ZONE
-        } else if at > size - ZONE {
-            (at - (size - ZONE)) / ZONE
-        } else {
-            0.0
-        }
-    };
-    let inside = (0.0..WIDTH).contains(&mouse.x) && (0.0..HEIGHT).contains(&mouse.y);
-    if !inside {
-        return (0.0, 0.0);
-    }
-    (push(mouse.x, WIDTH), -push(mouse.y, HEIGHT))
 }
 
 /// The screen rectangle of something `width` wide and `height` tall

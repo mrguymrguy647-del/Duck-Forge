@@ -258,17 +258,20 @@ impl Input {
 
     /// Called by the engine once per frame with the mouse's state.
     /// `position` is in canvas pixels, or `None` if it isn't known.
+    /// `motion` is movement that has no position (from a locked pointer).
     pub(crate) fn update_mouse(
         &mut self,
         position: Option<Vec2>,
+        motion: Vec2,
         buttons_down: impl IntoIterator<Item = MouseButton>,
         scroll: f32,
     ) {
         self.mouse_buttons.begin_frame(buttons_down);
-        self.mouse_delta = match (self.mouse_position, position) {
+        let moved_to = match (self.mouse_position, position) {
             (Some(old), Some(new)) => new - old,
             _ => Vec2::ZERO, // no movement until we know two positions
         };
+        self.mouse_delta = moved_to + motion;
         if position.is_some() {
             self.mouse_position = position;
         }
@@ -333,7 +336,12 @@ impl Input {
         self.mouse_position.unwrap_or(Vec2::ZERO)
     }
 
-    /// How far the mouse moved since last frame, in canvas pixels.
+    /// How far the mouse moved since last frame, in canvas pixels (right
+    /// and down are positive).
+    ///
+    /// It keeps counting while the pointer is locked
+    /// ([`Context::lock_pointer`](crate::engine::Context::lock_pointer)), when
+    /// the pointer itself doesn't move, so it's the one to use for mouse look.
     pub fn mouse_delta(&self) -> Vec2 {
         self.mouse_delta
     }
@@ -398,22 +406,27 @@ mod tests {
         let mut input = Input::new();
 
         // The first known position doesn't count as movement.
-        input.update_mouse(Some(vec2(10.0, 20.0)), [MouseButton::Left], 0.0);
+        input.update_mouse(Some(vec2(10.0, 20.0)), Vec2::ZERO, [MouseButton::Left], 0.0);
         assert_eq!(input.mouse_position(), vec2(10.0, 20.0));
         assert_eq!(input.mouse_delta(), Vec2::ZERO);
         assert!(input.was_mouse_pressed(MouseButton::Left));
 
-        input.update_mouse(Some(vec2(15.0, 18.0)), [MouseButton::Left], 1.0);
+        input.update_mouse(Some(vec2(15.0, 18.0)), Vec2::ZERO, [MouseButton::Left], 1.0);
         assert_eq!(input.mouse_delta(), vec2(5.0, -2.0));
         assert!(input.is_mouse_down(MouseButton::Left));
         assert!(!input.was_mouse_pressed(MouseButton::Left));
         assert_eq!(input.scroll(), 1.0);
 
         // Pointer left the window: keep the last position, no movement.
-        input.update_mouse(None, [], 0.0);
+        input.update_mouse(None, Vec2::ZERO, [], 0.0);
         assert_eq!(input.mouse_position(), vec2(15.0, 18.0));
         assert_eq!(input.mouse_delta(), Vec2::ZERO);
         assert!(input.was_mouse_released(MouseButton::Left));
+
+        // A locked pointer: movement with no position. The position stays put.
+        input.update_mouse(None, vec2(30.0, -4.0), [], 0.0);
+        assert_eq!(input.mouse_position(), vec2(15.0, 18.0));
+        assert_eq!(input.mouse_delta(), vec2(30.0, -4.0));
     }
 
     #[test]

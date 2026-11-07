@@ -209,6 +209,53 @@ fn digging_grass_takes_a_moment_and_gives_dirt() {
 }
 
 #[test]
+fn the_mouse_looks_round_while_the_window_holds_the_pointer() {
+    // A grass block ahead, to check that the click taking the pointer back doesn't dig it.
+    let mut sim = Simulation::new(config(), arena(|w| w.set(8, FLOOR + 1, 10, Block::Grass)));
+    sim.step();
+    assert!(sim.context().pointer_locked(), "held from the start");
+
+    // Moving the mouse right turns right, however far it goes.
+    sim.move_mouse_by(vec2(50.0, 0.0));
+    sim.step();
+    let yaw = sim.game().yaw;
+    assert!((yaw - 50.0 * MOUSE_LOOK).abs() < 1e-5, "{yaw}");
+    sim.move_mouse_by(vec2(-50.0, 0.0)); // and back, to look at the grass again
+    sim.step();
+
+    // Escape lets go of the pointer: now the mouse doesn't turn.
+    sim.press(Key::Escape);
+    sim.step();
+    sim.release(Key::Escape);
+    assert!(!sim.context().pointer_locked());
+    assert!(sim.game().pointer_free);
+    sim.move_mouse_by(vec2(80.0, 0.0));
+    sim.step();
+    assert!(sim.game().yaw.abs() < 1e-5);
+
+    // A click takes it back, and holding that click doesn't dig.
+    sim.press_mouse(MouseButton::Left);
+    sim.run(40);
+    assert!(sim.context().pointer_locked());
+    assert_eq!(sim.game().world.get(8, FLOOR + 1, 10), Block::Grass);
+    // The next click does.
+    sim.release_mouse(MouseButton::Left);
+    sim.step();
+    sim.press_mouse(MouseButton::Left);
+    sim.run(40);
+    assert_eq!(sim.game().world.get(8, FLOOR + 1, 10), Block::Air);
+
+    // Escape twice quits.
+    for _ in 0..2 {
+        sim.press(Key::Escape);
+        sim.step();
+        sim.release(Key::Escape);
+        sim.step();
+    }
+    assert!(sim.quit_requested());
+}
+
+#[test]
 fn bedrock_cant_be_dug() {
     let game = arena(|w| w.set(8, FLOOR + 1, 10, Block::Bedrock));
     let played = PlayTest::new(config(), game)

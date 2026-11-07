@@ -7,10 +7,11 @@ description = "A small game engine (2D, 3D and physics), written for learning Ru
 
 [features]
 default = ["window", "gpu", "audio"]
-# Open a window to play in (with minifb). Without it, the engine builds on
-# a machine with no screen and no window libraries, and games run with
-# `--headless`. `--no-default-features` turns off all three features.
-window = ["dep:minifb"]
+# Open a window to play in (winit opens it and reads the keyboard and mouse,
+# softbuffer shows the pixels). Without it, the engine builds on a machine
+# with no screen and no window libraries, and games run with `--headless`.
+# `--no-default-features` turns off all three features.
+window = ["dep:winit", "dep:softbuffer"]
 # Draw 3D on the graphics card with wgpu. Without it, the engine is smaller,
 # compiles faster and draws everything on the CPU.
 gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
@@ -21,7 +22,18 @@ gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 audio = ["dep:tinyaudio", "dep:libc"]
 
 [dependencies]
-minifb = { version = "0.28", optional = true }
+# Only the parts we use. On Linux that's X11, loaded when the game starts,
+# so building needs no extra packages; Wayland desktops run X11 windows too
+# (through XWayland), and leaving Wayland out keeps the first build about
+# 17 seconds shorter (see docs/decisions.md). Windows and macOS need no choices.
+winit = { version = "0.30", optional = true, default-features = false, features = [
+    "rwh_06",
+    "x11",
+] }
+softbuffer = { version = "0.4", optional = true, default-features = false, features = [
+    "x11",
+    "x11-dlopen",
+] }
 gif = "0.14"
 png = "0.18"
 serde_json = "1"

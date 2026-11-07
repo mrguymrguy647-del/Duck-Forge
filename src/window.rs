@@ -1,17 +1,27 @@
 //! The window: opening it, the real-time game loop, and reading the
 //! keyboard and mouse from it.
 //!
-//! This is the only file that talks to the window library (`minifb`), and
-//! it's only built with the `window` feature (on by default). Everything
-//! else in the engine is plain Rust, so switching to a different window
-//! library would mean rewriting just this file, and the engine also builds
-//! on a machine with no screen at all.
+//! This is the only file that talks to the window libraries, and it's only
+//! built with the `window` feature (on by default). `winit` opens the
+//! window and reports the keyboard and mouse (and can lock the pointer for
+//! mouse look); `softbuffer` puts our pixels on the screen. Everything else
+//! in the engine is plain Rust, so switching to a different window library
+//! would mean rewriting just this file, and the engine also builds on a
+//! machine with no screen at all.
 
 use std::error::Error;
+use std::num::NonZeroU32;
 use std::path::PathBuf;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::rc::Rc;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use minifb::{MouseMode, ScaleMode, Window, WindowOptions};
+use winit::application::ApplicationHandler;
+use winit::dpi::{LogicalSize, PhysicalPosition};
+use winit::event::{DeviceEvent, DeviceId, ElementState, MouseScrollDelta, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::keyboard::{KeyCode, PhysicalKey};
+use winit::platform::pump_events::{EventLoopExtPumpEvents, PumpStatus};
+use winit::window::{CursorGrabMode, Window, WindowId};
 
 use crate::canvas::Canvas;
 use crate::cli::Options;
@@ -138,25 +148,39 @@ pub(crate) fn run<G: Game>(
             .or(config.seed)
             .unwrap_or_else(rng::seed_from_clock),
     );
-    let window_options = WindowOptions {
-        resize: true,
-        scale_mode: ScaleMode::AspectRatioStretch,
-        ..WindowOptions::default()
-    };
-    let mut window = Window::new(
-        &config.title,
-        config.width * config.scale,
-        config.height * config.scale,
-        window_options,
-    )
-    .map_err(|err| {
+    let no_window = |problem: String| {
         EngineError(format!(
-            "could not open a window ({err}).\n\
+            "could not open a window ({problem}).\n\
              On a computer without a screen, run the game with --headless instead."
         ))
-    })?;
-    // minifb waits inside `update_with_buffer` so we don't run faster than this.
-    window.set_target_fps(config.target_fps);
+    };
+    let mut event_loop = new_event_loop().map_err(no_window)?;
+    let mut screen = Screen::new(
+        &config.title,
+        LogicalSize::new(
+            (config.width * config.scale) as f64,
+            (config.height * config.scale) as f64,
+        ),
+    );
+    // The window is made during the first few events (winit says when it's ready).
+    let opening = Instant::now();
+    while screen.window.is_none() && screen.problem.is_none() {
+        if let PumpStatus::Exit(_) =
+            event_loop.pump_app_events(Some(Duration::from_millis(10)), &mut screen)
+        {
+            break;
+        }
+        if opening.elapsed() > Duration::from_secs(10) {
+            screen.problem = Some(String::from("the system never said the window was ready"));
+        }
+    }
+    if let Some(problem) = screen.problem.take() {
+        return Err(no_window(problem).into());
+    }
+    let frame_budget = match config.target_fps {
+        0 => Duration::ZERO, // no limit
+        fps => Duration::from_secs_f64(1.0 / fps as f64),
+    };
 
     let renderer = crate::render3d::renderer_from_env().unwrap_or(config.renderer);
     let tunes = crate::tune::Tunes::for_run(
@@ -183,7 +207,7 @@ pub(crate) fn run<G: Game>(
         file: options.record.clone(),
         on: options.record.is_some(),
     };
-    let mut title = String::new();
+    let mut title = config.title.clone();
     let mut was_replaying = sim.is_replaying();
     let mut pacer = Pacer::new(config.timestep);
     let mut show_fps = config.show_fps;
@@ -196,7 +220,15 @@ pub(crate) fn run<G: Game>(
 
     let frames = options.frames.unwrap_or(u64::MAX);
 
-    while window.is_open() && !sim.quit_requested() && sim.context().frame() < frames {
+    while !screen.closed && !sim.quit_requested() && sim.context().frame() < frames {
+        // Collect what happened since last frame: keys, mouse, resizing, closing.
+        if let PumpStatus::Exit(_) = event_loop.pump_app_events(Some(Duration::ZERO), &mut screen) {
+            break;
+        }
+        if screen.closed {
+            break;
+        }
+
         // 1. Time.
         let now = Instant::now();
         let frame_time = now.duration_since(last_frame).as_secs_f64();
@@ -206,25 +238,29 @@ pub(crate) fn run<G: Game>(
 
         // A resizable canvas follows the window's size (but not down to
         // nothing while the window is minimized).
-        let (window_w, window_h) = window.get_size();
+        let (window_w, window_h) = screen.logical_size();
         if config.resizable && window_w > 0 && window_h > 0 {
             sim.resize(window_w / config.scale, window_h / config.scale);
         }
 
-        // 2. Input: translate the window library's keys and buttons into our
-        // own types. During a replay, the script plays instead of the player.
-        let keys: Vec<Key> = window
-            .get_keys()
-            .into_iter()
-            .filter_map(convert_key)
-            .collect();
+        // 2. Input, already in our own types. During a replay, the script
+        // plays instead of the player.
+        let canvas_size = (
+            sim.context().width() as usize,
+            sim.context().height() as usize,
+        );
+        let input = screen.take_input(canvas_size);
         if !sim.is_replaying() {
-            sim.hold_keys(&keys);
-            let canvas_size = (
-                sim.context().width() as usize,
-                sim.context().height() as usize,
-            );
-            read_mouse(&window, canvas_size, &mut sim);
+            sim.hold_keys(&input.keys);
+            match input.mouse {
+                MouseInput::At(position) => sim.move_mouse(position),
+                MouseInput::Moved(amount) => sim.move_mouse_by(amount),
+                MouseInput::Nothing => {}
+            }
+            sim.hold_mouse_buttons(&input.buttons);
+            if input.scroll != 0.0 {
+                sim.scroll(input.scroll);
+            }
         }
 
         // 3. The game's turn to update, as many times as are due. On a
@@ -235,6 +271,8 @@ pub(crate) fn run<G: Game>(
                 break;
             }
         }
+        // The game may have asked to lock or free the pointer.
+        screen.hold_pointer(sim.context().pointer_locked());
 
         // A check that just failed for the first time gets a line in the console.
         for failed in &sim.failed_checks()[checks_reported..] {
@@ -265,6 +303,7 @@ pub(crate) fn run<G: Game>(
 
         // 4. The game's turn to draw.
         let fps = sim.context().fps();
+        let keys = input.keys;
         let pressed = |key| keys.contains(&key) && !keys_last_frame.contains(&key);
         if pressed(Key::F1) {
             show_debug = !show_debug;
@@ -282,8 +321,8 @@ pub(crate) fn run<G: Game>(
         }
         let toggle_recording = pressed(Key::F10);
 
-        // 5. Show the frame. This also collects new keyboard and mouse events from the OS.
-        window.update_with_buffer(canvas.pixels(), canvas.width(), canvas.height())?;
+        // 5. Show the frame.
+        screen.show(canvas)?;
         keys_last_frame = keys;
 
         if toggle_recording {
@@ -299,7 +338,7 @@ pub(crate) fn run<G: Game>(
             (false, false) => config.title.clone(),
         };
         if wanted != title {
-            window.set_title(&wanted);
+            screen.set_title(&wanted);
             title = wanted;
         }
 
@@ -312,7 +351,13 @@ pub(crate) fn run<G: Game>(
                 None => {}
             }
         }
+
+        // Don't run faster than `target_fps`: wait out the rest of the frame.
+        if let Some(spare) = frame_budget.checked_sub(now.elapsed()) {
+            std::thread::sleep(spare);
+        }
     }
+    screen.hold_pointer(false);
 
     // Closing the window doesn't lose a recording.
     if recorder.on {
@@ -326,6 +371,341 @@ pub(crate) fn run<G: Game>(
         println!("duckforge: wrote the tune values to {}", path.display());
     }
     Ok(())
+}
+
+/// Connects to the system's windows. On Linux, winit stops the program
+/// (panics) instead of returning an error when a system library is
+/// missing, so we catch that and turn it into a message.
+fn new_event_loop() -> Result<EventLoop<()>, String> {
+    let usual = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {})); // we print our own message
+    let made = std::panic::catch_unwind(EventLoop::new);
+    std::panic::set_hook(usual);
+    match made {
+        Ok(Ok(event_loop)) => Ok(event_loop),
+        Ok(Err(err)) => Err(err.to_string()),
+        Err(panic) => {
+            let text = panic
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| panic.downcast_ref::<&str>().map(|text| text.to_string()))
+                .unwrap_or_else(|| String::from("the window library stopped"));
+            let hint = if text.contains("xkbcommon") {
+                "; on Ubuntu or Debian, `sudo apt install libxkbcommon-x11-0` adds it"
+            } else {
+                ""
+            };
+            Err(format!("{text}{hint}"))
+        }
+    }
+}
+
+/// What the mouse did since last frame, ready for the game.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum MouseInput {
+    /// The pointer is here, in canvas pixels.
+    At(Vec2),
+    /// The pointer is locked, and the mouse moved this much, in canvas pixels.
+    Moved(Vec2),
+    /// Nothing new.
+    Nothing,
+}
+
+/// Everything the player did since last frame, in our own types.
+struct PlayerInput {
+    /// Keys held, and keys tapped since last frame even if already let go.
+    keys: Vec<Key>,
+    mouse: MouseInput,
+    buttons: Vec<MouseButton>,
+    scroll: f32,
+}
+
+/// The window, and what winit has told us about the keyboard and mouse.
+///
+/// winit reports *events* ("A went down", "the mouse moved 3 pixels").
+/// The game wants *state* once per frame ("is A held?"), so `Screen` keeps
+/// the state up to date as events arrive, and the game loop reads it with
+/// [`take_input`](Screen::take_input).
+struct Screen {
+    title: String,
+    size: LogicalSize<f64>,
+    window: Option<Rc<Window>>,
+    /// Where our pixels go. It needs the window twice: once to know which
+    /// screen (the "display") and once for the window itself.
+    surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
+    /// Why the window couldn't open.
+    problem: Option<String>,
+    closed: bool,
+    focused: bool,
+    keys_held: Vec<Key>,
+    /// Pressed since the last frame, so a tap shorter than a frame still counts.
+    keys_tapped: Vec<Key>,
+    buttons_held: Vec<MouseButton>,
+    buttons_tapped: Vec<MouseButton>,
+    /// The pointer, in window pixels, once it has been over the window.
+    cursor: Option<PhysicalPosition<f64>>,
+    cursor_moved: bool,
+    /// Mouse movement since last frame straight from the mouse, which keeps
+    /// coming when the pointer is stuck at an edge (roughly window pixels).
+    motion: (f64, f64),
+    scroll: f32,
+    /// How the pointer is held: `None` when it's free, `Some(None)` when
+    /// it's only hidden and brought back to the middle every frame.
+    grab: Option<CursorGrabMode>,
+}
+
+impl Screen {
+    fn new(title: &str, size: LogicalSize<f64>) -> Self {
+        Self {
+            title: title.to_string(),
+            size,
+            window: None,
+            surface: None,
+            problem: None,
+            closed: false,
+            focused: true,
+            keys_held: Vec::new(),
+            keys_tapped: Vec::new(),
+            buttons_held: Vec::new(),
+            buttons_tapped: Vec::new(),
+            cursor: None,
+            cursor_moved: false,
+            motion: (0.0, 0.0),
+            scroll: 0.0,
+            grab: None,
+        }
+    }
+
+    /// The window's inside size in physical pixels (0 while minimized).
+    fn physical_size(&self) -> (usize, usize) {
+        match &self.window {
+            Some(window) => {
+                let size = window.inner_size();
+                (size.width as usize, size.height as usize)
+            }
+            None => (0, 0),
+        }
+    }
+
+    /// The window's inside size in logical pixels: physical pixels divided
+    /// by the system's display scaling (150% on many laptops), the units
+    /// the window was opened in.
+    fn logical_size(&self) -> (usize, usize) {
+        match &self.window {
+            Some(window) => {
+                let size: LogicalSize<f64> = window.inner_size().to_logical(window.scale_factor());
+                (size.width as usize, size.height as usize)
+            }
+            None => (0, 0),
+        }
+    }
+
+    fn set_title(&self, title: &str) {
+        if let Some(window) = &self.window {
+            window.set_title(title);
+        }
+    }
+
+    /// What the player did since last time, with the mouse in canvas pixels.
+    fn take_input(&mut self, canvas_size: (usize, usize)) -> PlayerInput {
+        let mut keys = self.keys_held.clone();
+        keys.extend(
+            self.keys_tapped
+                .drain(..)
+                .filter(|key| !self.keys_held.contains(key)),
+        );
+        let mut buttons = self.buttons_held.clone();
+        buttons.extend(
+            self.buttons_tapped
+                .drain(..)
+                .filter(|button| !self.buttons_held.contains(button)),
+        );
+        let window_size = self.physical_size();
+        let mouse = if self.grab.is_some() {
+            match motion_to_canvas(self.motion, window_size, canvas_size) {
+                Some(amount) if amount != Vec2::ZERO => MouseInput::Moved(amount),
+                _ => MouseInput::Nothing,
+            }
+        } else {
+            match self.cursor {
+                Some(cursor) if self.cursor_moved => {
+                    window_to_canvas((cursor.x as f32, cursor.y as f32), window_size, canvas_size)
+                        .map_or(MouseInput::Nothing, MouseInput::At)
+                }
+                _ => MouseInput::Nothing,
+            }
+        };
+        self.motion = (0.0, 0.0);
+        self.cursor_moved = false;
+        PlayerInput {
+            keys,
+            mouse,
+            buttons,
+            scroll: std::mem::take(&mut self.scroll),
+        }
+    }
+
+    /// Locks the pointer (hidden, held in the window) or frees it. It's
+    /// only locked while the window is the active one, so Alt+Tab still
+    /// gives the pointer back.
+    fn hold_pointer(&mut self, wanted: bool) {
+        let Some(window) = self.window.clone() else {
+            return;
+        };
+        let wanted = wanted && self.focused;
+        if wanted && self.grab.is_none() {
+            // `Locked` keeps the pointer in one place (macOS, Wayland). Where
+            // it isn't there, the pointer is hidden and put back in the
+            // middle of the window every frame (below), so it never rests
+            // on an edge. Windows also gets `Confined`, so the pointer can't
+            // leave the window between frames. (X11 can confine too, but
+            // then it reports every mouse movement twice.)
+            let modes: &[CursorGrabMode] = if cfg!(target_os = "linux") {
+                &[CursorGrabMode::Locked]
+            } else {
+                &[CursorGrabMode::Locked, CursorGrabMode::Confined]
+            };
+            let mode = modes
+                .iter()
+                .copied()
+                .find(|&mode| window.set_cursor_grab(mode).is_ok());
+            window.set_cursor_visible(false);
+            self.grab = Some(mode.unwrap_or(CursorGrabMode::None));
+            self.motion = (0.0, 0.0); // movement from before the lock doesn't count
+        } else if !wanted && self.grab.is_some() {
+            let _ = window.set_cursor_grab(CursorGrabMode::None);
+            window.set_cursor_visible(true);
+            self.grab = None;
+            self.cursor_moved = false; // the old position is stale: wait for a real one
+        }
+        if self.grab != Some(CursorGrabMode::Locked) && self.grab.is_some() {
+            let size = window.inner_size();
+            let middle = PhysicalPosition::new(size.width as f64 / 2.0, size.height as f64 / 2.0);
+            let _ = window.set_cursor_position(middle);
+        }
+    }
+
+    /// Puts the canvas on the screen, stretched to fill the window while
+    /// keeping its shape (black bars fill the rest).
+    fn show(&mut self, canvas: &Canvas) -> Result<(), Box<dyn Error>> {
+        let (width, height) = self.physical_size();
+        let (Some(surface), Some(w), Some(h)) = (
+            self.surface.as_mut(),
+            NonZeroU32::new(width as u32),
+            NonZeroU32::new(height as u32),
+        ) else {
+            return Ok(()); // minimized: nothing to show
+        };
+        surface.resize(w, h)?;
+        let mut buffer = surface.buffer_mut()?;
+        stretch(
+            canvas.pixels(),
+            (canvas.width(), canvas.height()),
+            &mut buffer,
+            (width, height),
+        );
+        buffer.present()?;
+        Ok(())
+    }
+}
+
+/// winit calls these as things happen.
+impl ApplicationHandler for Screen {
+    /// The system is ready for a window (once, at the start).
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_some() {
+            return;
+        }
+        let attributes = Window::default_attributes()
+            .with_title(self.title.clone())
+            .with_inner_size(self.size);
+        let window = match event_loop.create_window(attributes) {
+            Ok(window) => Rc::new(window),
+            Err(err) => {
+                self.problem = Some(err.to_string());
+                return;
+            }
+        };
+        let surface = softbuffer::Context::new(window.clone())
+            .and_then(|context| softbuffer::Surface::new(&context, window.clone()));
+        match surface {
+            Ok(surface) => self.surface = Some(surface),
+            Err(err) => self.problem = Some(format!("can't draw in it: {err}")),
+        }
+        self.window = Some(window);
+    }
+
+    fn window_event(&mut self, _: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested => self.closed = true,
+            WindowEvent::Focused(focused) => {
+                self.focused = focused;
+                if !focused {
+                    // Keys let go while another window had the keyboard never
+                    // reach us, so forget them all rather than leave one stuck.
+                    self.keys_held.clear();
+                    self.buttons_held.clear();
+                }
+            }
+            WindowEvent::KeyboardInput { event, .. } => {
+                let PhysicalKey::Code(code) = event.physical_key else {
+                    return;
+                };
+                let Some(key) = convert_key(code) else {
+                    return;
+                };
+                match event.state {
+                    ElementState::Pressed if !self.keys_held.contains(&key) => {
+                        self.keys_held.push(key);
+                        self.keys_tapped.push(key);
+                    }
+                    ElementState::Pressed => {} // the keyboard repeating a held key
+                    ElementState::Released => self.keys_held.retain(|&held| held != key),
+                }
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                let button = match button {
+                    winit::event::MouseButton::Left => MouseButton::Left,
+                    winit::event::MouseButton::Right => MouseButton::Right,
+                    winit::event::MouseButton::Middle => MouseButton::Middle,
+                    _ => return,
+                };
+                match state {
+                    ElementState::Pressed if !self.buttons_held.contains(&button) => {
+                        self.buttons_held.push(button);
+                        self.buttons_tapped.push(button);
+                    }
+                    ElementState::Pressed => {}
+                    ElementState::Released => self.buttons_held.retain(|&held| held != button),
+                }
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                self.cursor = Some(position);
+                self.cursor_moved = true;
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                // Different systems report different amounts per wheel
+                // "click", so `signum` boils it down to the direction: 1 or -1.
+                let y = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => y,
+                    MouseScrollDelta::PixelDelta(pixels) => pixels.y as f32,
+                };
+                if y != 0.0 {
+                    self.scroll = y.signum();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Events straight from the mouse, not tied to the pointer. Only these
+    /// keep counting when the pointer is locked.
+    fn device_event(&mut self, _: &ActiveEventLoop, _: DeviceId, event: DeviceEvent) {
+        if let DeviceEvent::MouseMotion { delta } = event {
+            self.motion.0 += delta.0;
+            self.motion.1 += delta.1;
+        }
+    }
 }
 
 /// Whether F10 (or `--record`) is recording, and where to save it.
@@ -369,32 +749,60 @@ fn next_recording_file() -> PathBuf {
         .expect("there is always a free number")
 }
 
-/// Passes the mouse's position, buttons and scroll wheel on to the game.
-fn read_mouse<G: Game>(window: &Window, canvas_size: (usize, usize), sim: &mut Simulation<G>) {
-    let position = window
-        .get_mouse_pos(MouseMode::Pass)
-        .and_then(|mouse| window_to_canvas(mouse, window.get_size(), canvas_size));
-    if let Some(position) = position {
-        sim.move_mouse(position);
+/// How many window pixels one canvas pixel covers, when the canvas is
+/// scaled up as much as fits while keeping its shape. `None` if either has
+/// no size.
+fn display_scale(window_size: (usize, usize), canvas_size: (usize, usize)) -> Option<f32> {
+    let (window_w, window_h) = (window_size.0 as f32, window_size.1 as f32);
+    let (canvas_w, canvas_h) = (canvas_size.0 as f32, canvas_size.1 as f32);
+    if canvas_w == 0.0 || canvas_h == 0.0 {
+        return None; // nothing to point at
     }
+    let scale = (window_w / canvas_w).min(window_h / canvas_h);
+    (scale > 0.0).then_some(scale) // 0 while minimized
+}
 
-    let buttons = [
-        (minifb::MouseButton::Left, MouseButton::Left),
-        (minifb::MouseButton::Right, MouseButton::Right),
-        (minifb::MouseButton::Middle, MouseButton::Middle),
-    ];
-    let held: Vec<MouseButton> = buttons
-        .into_iter()
-        .filter(|&(theirs, _)| window.get_mouse_down(theirs))
-        .map(|(_, ours)| ours)
+/// Converts mouse movement in window pixels into canvas pixels, so moving
+/// the mouse across the game area moves `mouse_delta()` by the canvas's
+/// width, locked or not.
+fn motion_to_canvas(
+    motion: (f64, f64),
+    window_size: (usize, usize),
+    canvas_size: (usize, usize),
+) -> Option<Vec2> {
+    let scale = display_scale(window_size, canvas_size)?;
+    Some(vec2(motion.0 as f32 / scale, motion.1 as f32 / scale))
+}
+
+/// Copies the canvas into the window's pixels, scaled up as much as fits
+/// while keeping its shape and centered, with black bars around it. Each
+/// window pixel takes the color of the canvas pixel under it ("nearest
+/// neighbour"), so pixel art stays sharp.
+fn stretch(
+    canvas: &[u32],
+    (canvas_w, canvas_h): (usize, usize),
+    window: &mut [u32],
+    (window_w, window_h): (usize, usize),
+) {
+    window.fill(0); // the black bars
+    let Some(scale) = display_scale((window_w, window_h), (canvas_w, canvas_h)) else {
+        return;
+    };
+    // The picture's size and where it starts, in window pixels.
+    let shown_w = ((canvas_w as f32 * scale).round() as usize).min(window_w);
+    let shown_h = ((canvas_h as f32 * scale).round() as usize).min(window_h);
+    let left = (window_w - shown_w) / 2;
+    let top = (window_h - shown_h) / 2;
+    // Which canvas column each window column shows, worked out once.
+    let columns: Vec<usize> = (0..shown_w)
+        .map(|x| ((x as f32 / scale) as usize).min(canvas_w - 1))
         .collect();
-    sim.hold_mouse_buttons(&held);
-
-    // Different systems report different amounts per wheel "click", so
-    // `signum` boils it down to just the direction: 1.0 or -1.0.
-    if let Some((_, y)) = window.get_scroll_wheel() {
-        if y != 0.0 {
-            sim.scroll(y.signum());
+    for y in 0..shown_h {
+        let source_row = ((y as f32 / scale) as usize).min(canvas_h - 1) * canvas_w;
+        let start = (top + y) * window_w + left;
+        let row = &mut window[start..start + shown_w];
+        for (pixel, &column) in row.iter_mut().zip(&columns) {
+            *pixel = canvas[source_row + column];
         }
     }
 }
@@ -409,17 +817,9 @@ fn window_to_canvas(
     window_size: (usize, usize),
     canvas_size: (usize, usize),
 ) -> Option<Vec2> {
-    let (window_w, window_h) = (window_size.0 as f32, window_size.1 as f32);
-    let (canvas_w, canvas_h) = (canvas_size.0 as f32, canvas_size.1 as f32);
-    if canvas_w == 0.0 || canvas_h == 0.0 {
-        return None; // nothing to point at
-    }
-    let scale = (window_w / canvas_w).min(window_h / canvas_h);
-    if scale <= 0.0 {
-        return None; // minimized
-    }
-    let offset_x = (window_w - canvas_w * scale) / 2.0;
-    let offset_y = (window_h - canvas_h * scale) / 2.0;
+    let scale = display_scale(window_size, canvas_size)?;
+    let offset_x = (window_size.0 as f32 - canvas_size.0 as f32 * scale) / 2.0;
+    let offset_y = (window_size.1 as f32 - canvas_size.1 as f32 * scale) / 2.0;
     Some(vec2(
         (mouse.0 - offset_x) / scale,
         (mouse.1 - offset_y) / scale,
@@ -449,62 +849,64 @@ fn save_screenshot(canvas: &Canvas) {
     }
 }
 
-/// Maps a `minifb` key to our own [`Key`], or `None` for keys games can't ask about.
-fn convert_key(key: minifb::Key) -> Option<Key> {
-    use minifb::Key as K;
+/// Maps a key from winit to our own [`Key`], or `None` for keys games can't
+/// ask about. winit's `KeyCode` names the key's *place* on the keyboard, so
+/// WASD stays under the left hand on a French (AZERTY) keyboard too.
+fn convert_key(code: KeyCode) -> Option<Key> {
+    use KeyCode as K;
 
-    let key = match key {
-        K::A => Key::A,
-        K::B => Key::B,
-        K::C => Key::C,
-        K::D => Key::D,
-        K::E => Key::E,
-        K::F => Key::F,
-        K::G => Key::G,
-        K::H => Key::H,
-        K::I => Key::I,
-        K::J => Key::J,
-        K::K => Key::K,
-        K::L => Key::L,
-        K::M => Key::M,
-        K::N => Key::N,
-        K::O => Key::O,
-        K::P => Key::P,
-        K::Q => Key::Q,
-        K::R => Key::R,
-        K::S => Key::S,
-        K::T => Key::T,
-        K::U => Key::U,
-        K::V => Key::V,
-        K::W => Key::W,
-        K::X => Key::X,
-        K::Y => Key::Y,
-        K::Z => Key::Z,
-        K::Key0 => Key::Digit0,
-        K::Key1 => Key::Digit1,
-        K::Key2 => Key::Digit2,
-        K::Key3 => Key::Digit3,
-        K::Key4 => Key::Digit4,
-        K::Key5 => Key::Digit5,
-        K::Key6 => Key::Digit6,
-        K::Key7 => Key::Digit7,
-        K::Key8 => Key::Digit8,
-        K::Key9 => Key::Digit9,
-        K::Left => Key::Left,
-        K::Right => Key::Right,
-        K::Up => Key::Up,
-        K::Down => Key::Down,
+    let key = match code {
+        K::KeyA => Key::A,
+        K::KeyB => Key::B,
+        K::KeyC => Key::C,
+        K::KeyD => Key::D,
+        K::KeyE => Key::E,
+        K::KeyF => Key::F,
+        K::KeyG => Key::G,
+        K::KeyH => Key::H,
+        K::KeyI => Key::I,
+        K::KeyJ => Key::J,
+        K::KeyK => Key::K,
+        K::KeyL => Key::L,
+        K::KeyM => Key::M,
+        K::KeyN => Key::N,
+        K::KeyO => Key::O,
+        K::KeyP => Key::P,
+        K::KeyQ => Key::Q,
+        K::KeyR => Key::R,
+        K::KeyS => Key::S,
+        K::KeyT => Key::T,
+        K::KeyU => Key::U,
+        K::KeyV => Key::V,
+        K::KeyW => Key::W,
+        K::KeyX => Key::X,
+        K::KeyY => Key::Y,
+        K::KeyZ => Key::Z,
+        K::Digit0 => Key::Digit0,
+        K::Digit1 => Key::Digit1,
+        K::Digit2 => Key::Digit2,
+        K::Digit3 => Key::Digit3,
+        K::Digit4 => Key::Digit4,
+        K::Digit5 => Key::Digit5,
+        K::Digit6 => Key::Digit6,
+        K::Digit7 => Key::Digit7,
+        K::Digit8 => Key::Digit8,
+        K::Digit9 => Key::Digit9,
+        K::ArrowLeft => Key::Left,
+        K::ArrowRight => Key::Right,
+        K::ArrowUp => Key::Up,
+        K::ArrowDown => Key::Down,
         K::Space => Key::Space,
-        K::Enter => Key::Enter,
+        K::Enter | K::NumpadEnter => Key::Enter,
         K::Escape => Key::Escape,
         K::Tab => Key::Tab,
         K::Backspace => Key::Backspace,
-        K::LeftShift => Key::LeftShift,
-        K::RightShift => Key::RightShift,
-        K::LeftCtrl => Key::LeftCtrl,
-        K::RightCtrl => Key::RightCtrl,
-        K::LeftAlt => Key::LeftAlt,
-        K::RightAlt => Key::RightAlt,
+        K::ShiftLeft => Key::LeftShift,
+        K::ShiftRight => Key::RightShift,
+        K::ControlLeft => Key::LeftCtrl,
+        K::ControlRight => Key::RightCtrl,
+        K::AltLeft => Key::LeftAlt,
+        K::AltRight => Key::RightAlt,
         K::F1 => Key::F1,
         K::F2 => Key::F2,
         K::F3 => Key::F3,
@@ -587,10 +989,80 @@ mod tests {
 
     #[test]
     fn keys_are_converted() {
-        assert_eq!(convert_key(minifb::Key::Space), Some(Key::Space));
-        assert_eq!(convert_key(minifb::Key::Key7), Some(Key::Digit7));
-        assert_eq!(convert_key(minifb::Key::Q), Some(Key::Q));
-        assert_eq!(convert_key(minifb::Key::NumLock), None);
+        assert_eq!(convert_key(KeyCode::Space), Some(Key::Space));
+        assert_eq!(convert_key(KeyCode::Digit7), Some(Key::Digit7));
+        assert_eq!(convert_key(KeyCode::KeyQ), Some(Key::Q));
+        assert_eq!(convert_key(KeyCode::ArrowLeft), Some(Key::Left));
+        assert_eq!(convert_key(KeyCode::NumLock), None);
+        // Every one of our keys can be typed.
+        let all = [
+            KeyCode::KeyA,
+            KeyCode::KeyB,
+            KeyCode::KeyC,
+            KeyCode::KeyD,
+            KeyCode::KeyE,
+            KeyCode::KeyF,
+            KeyCode::KeyG,
+            KeyCode::KeyH,
+            KeyCode::KeyI,
+            KeyCode::KeyJ,
+            KeyCode::KeyK,
+            KeyCode::KeyL,
+            KeyCode::KeyM,
+            KeyCode::KeyN,
+            KeyCode::KeyO,
+            KeyCode::KeyP,
+            KeyCode::KeyQ,
+            KeyCode::KeyR,
+            KeyCode::KeyS,
+            KeyCode::KeyT,
+            KeyCode::KeyU,
+            KeyCode::KeyV,
+            KeyCode::KeyW,
+            KeyCode::KeyX,
+            KeyCode::KeyY,
+            KeyCode::KeyZ,
+            KeyCode::Digit0,
+            KeyCode::Digit1,
+            KeyCode::Digit2,
+            KeyCode::Digit3,
+            KeyCode::Digit4,
+            KeyCode::Digit5,
+            KeyCode::Digit6,
+            KeyCode::Digit7,
+            KeyCode::Digit8,
+            KeyCode::Digit9,
+            KeyCode::ArrowLeft,
+            KeyCode::ArrowRight,
+            KeyCode::ArrowUp,
+            KeyCode::ArrowDown,
+            KeyCode::Space,
+            KeyCode::Enter,
+            KeyCode::Escape,
+            KeyCode::Tab,
+            KeyCode::Backspace,
+            KeyCode::ShiftLeft,
+            KeyCode::ShiftRight,
+            KeyCode::ControlLeft,
+            KeyCode::ControlRight,
+            KeyCode::AltLeft,
+            KeyCode::AltRight,
+            KeyCode::F1,
+            KeyCode::F2,
+            KeyCode::F3,
+            KeyCode::F4,
+            KeyCode::F5,
+            KeyCode::F6,
+            KeyCode::F7,
+            KeyCode::F8,
+            KeyCode::F9,
+            KeyCode::F10,
+            KeyCode::F11,
+            KeyCode::F12,
+        ];
+        let reached: std::collections::HashSet<Key> =
+            all.into_iter().filter_map(convert_key).collect();
+        assert_eq!(reached.len(), Key::ALL.len());
     }
 
     #[test]
@@ -605,6 +1077,43 @@ mod tests {
 
         // A minimized window has no size.
         assert_eq!(window_to_canvas((5.0, 5.0), (0, 0), (320, 240)), None);
+    }
+
+    #[test]
+    fn locked_mouse_movement_is_measured_in_canvas_pixels() {
+        // 3 window pixels per canvas pixel.
+        let moved = motion_to_canvas((30.0, -6.0), (960, 720), (320, 240));
+        assert_eq!(moved, Some(vec2(10.0, -2.0)));
+        // A minimized window can't say.
+        assert_eq!(motion_to_canvas((30.0, -6.0), (0, 0), (320, 240)), None);
+    }
+
+    #[test]
+    fn the_canvas_is_stretched_to_fill_the_window_keeping_its_shape() {
+        // A 2x1 canvas (red, blue) in a 4x4 window: 2x bigger, with a black
+        // bar above and below.
+        let (red, blue) = (0x00FF_0000, 0x0000_00FF);
+        let mut window = vec![0x00AB_CDEF; 16]; // old junk must go
+        stretch(&[red, blue], (2, 1), &mut window, (4, 4));
+        #[rustfmt::skip]
+        let wanted = [
+            0, 0, 0, 0,
+            red, red, blue, blue,
+            red, red, blue, blue,
+            0, 0, 0, 0,
+        ];
+        assert_eq!(window, wanted);
+
+        // Not a whole number of times bigger: every window pixel still
+        // shows the canvas pixel under it.
+        let mut window = vec![0; 15];
+        stretch(&[red, blue], (2, 1), &mut window, (5, 3)); // 2.5x
+        assert_eq!(window[..5], [red, red, red, blue, blue]);
+        assert_eq!(window[10..], [red, red, red, blue, blue]);
+
+        // A minimized window, or an empty canvas: nothing breaks.
+        stretch(&[], (0, 0), &mut window, (5, 1));
+        stretch(&[red], (1, 1), &mut [], (0, 0));
     }
 
     #[test]

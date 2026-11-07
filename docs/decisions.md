@@ -2539,3 +2539,75 @@ differently and can't be compared). The engine's `src/` grew by about
 loops, textures, lighting, billboards, culling, and their tests and
 comments), with no new dependencies. Still to check on a real graphics
 card: the README's five-step list.
+
+---
+
+# Fixing what Duck Craft found
+
+Duck Craft (a bigger Minecraft-style game, `examples/duck_craft/`) kept a
+log of everything the engine made hard: `examples/duck_craft/ISSUES.md`.
+These are the fixes.
+
+## Fix 1: Pointer lock, and a new window library
+
+First-person mouse look needs the window to hide the mouse pointer and hold
+on to it, so the mouse can keep turning you round after the pointer would
+have reached the edge of the screen. minifb can't do that, so Duck Craft
+turned you while the pointer rested near the window's edge, like a joystick.
+
+**The window moved from minifb to winit** (to open the window, read the
+keyboard and mouse, and hold the pointer) **and softbuffer** (to put our
+pixels in it). winit is what most Rust games and wgpu's own examples use,
+and it reports movement straight from the mouse (`DeviceEvent::MouseMotion`),
+which keeps coming when the pointer can't move. softbuffer is the small
+library that goes with it for "here is a block of pixels, show it", which
+is all minifb did for us. Other choices:
+
+- *Keep minifb and add raw mouse input ourselves*: three versions of
+  system code (Windows, X11, macOS), all unsafe, each to test on its own
+  computer. winit already is that code, tested by many projects.
+- *SDL2*: does everything, but it's a C library to install or build, and
+  the engine has avoided anything a beginner can't get with `cargo build`.
+
+Only `src/window.rs` changed: games use our own `Key` and `MouseButton`,
+so not one example needed a change for the move. winit reports events ("A
+went down"), so `window.rs` keeps the state (what's held, what was tapped
+since the last frame, how far the mouse moved) and hands it to the
+`Simulation` once per frame, as before. A key tapped and let go between
+two frames now still counts as a press (minifb only told us what was held
+at that moment). The canvas is stretched to the window by a 20-line
+`stretch` (minifb's `AspectRatioStretch` did it before), and the window
+waits out the rest of each frame to keep to `target_fps`.
+
+**The game's side** is one call, `ctx.lock_pointer(true)`, and the
+movement is read with `ctx.input.mouse_delta()`, in canvas pixels like
+everything else (right and down are positive). The lock is game state,
+like `quit`: a headless run or a test sees the same `pointer_locked()`, and
+a recording holds the movement as `"mouse_motion": [dx, dy]` events
+(`Simulation::move_mouse_by` in tests), so a replay turns exactly the same
+way. The window takes the pointer only while it's the active window, so
+Alt+Tab always gives it back.
+
+How the pointer is held depends on the system: winit's `Locked` (the
+pointer stays put) on macOS; `Confined` (it can't leave the window) on
+Windows, where the window also puts it back in the middle every frame. On
+Linux (X11) it's only hidden and put back in the middle every frame: an X11
+grab makes the X server report each mouse movement **twice** (seen with
+xdotool on Xvfb: 10 pixels of movement arrived as two 10s). A very fast
+flick could leave the window between two frames there, but the movement
+still counts, and the next frame brings it back.
+
+**Costs.** A first build with the window (the default) took 61 s with
+minifb and takes 67 s now, on 4 cores. winit's Wayland support would add
+another 17 s (84 s), so it's left out: Wayland desktops run X11 windows
+through XWayland. Headless builds don't build the window at all, so they
+are unchanged (11 s). On Linux, winit needs `libxkbcommon-x11` (part of
+every desktop; on a bare server the window says to install it, instead of
+crashing, and `--headless` still works). `EventLoop` can only be made once
+per program, so `duckforge::run` can open one window per program (no game
+did more).
+
+Tested here under Xvfb with xdotool: the window opens, shows the canvas
+stretched with black bars, replays a playthrough at 60 frames per second,
+and Duck Craft turns with the mouse, frees the pointer on Escape and takes
+it back on a click. Not tested here: a real Windows or macOS desktop.
