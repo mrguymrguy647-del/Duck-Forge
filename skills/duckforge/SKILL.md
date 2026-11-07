@@ -120,7 +120,7 @@ broken rules and freezes with a shrunk, replayable script
 (`--inputs fuzz/seed-14.json --sheet --debug`), then `coverage:` lines: what
 the runs reached. Judge "no problems found" by them: random runs rarely
 reach a level's end. Call `ctx.idle_ok()` on waiting screens;
-`--fuzz-keys Left,Right,Space` picks the keys.
+it presses the keys the game reads (`--fuzz-keys Left,Right,Space` picks others).
 
 ## 8. Playthroughs
 

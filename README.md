@@ -306,7 +306,7 @@ after `--` goes to the game, not to Cargo):
 | `--grid-world N` | Like `--grid`, but every N world units through the game's camera, numbered in world coordinates |
 | `--diff OLD NEW` | Compare two headless runs' folders: pictures (pixels changed, with highlighted copies in `NEW/diff/`), labels that moved, final reports. The game isn't run |
 | `--fuzz N` | Play N headless runs (seeds 1 to N) with random but realistic key presses, and report crashes, failed `ctx.check` rules and freezes, with each failing run's inputs saved (and one per problem shrunk) as a replayable script |
-| `--fuzz-keys K` | The keys `--fuzz` presses, like `Left,Right,Up,Space` (default: arrows, Space, Z, X) |
+| `--fuzz-keys K` | The keys `--fuzz` presses, like `Left,Right,Up,Space` (default: the keys the game reads, found by a few practice runs; never Escape) |
 | `--freeze-seconds S` | How long nothing may change while keys are pressed before `--fuzz` calls it a freeze (default 10) |
 | `--quiet` | After a headless run, print only problems (failed checks, warnings), or nothing; `summary.txt` still has everything |
 | `--json` | After a headless run, print the summary as one line of JSON, for programs |

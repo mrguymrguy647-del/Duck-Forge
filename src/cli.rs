@@ -126,7 +126,7 @@ const OPTIONS: &[OptionInfo] = &[
     OptionInfo {
         name: "--fuzz-keys",
         value: Some("KEYS"),
-        help: "the keys --fuzz presses, like Left,Right,Up,Space (default: arrows, Space, Z, X)",
+        help: "the keys --fuzz presses, like Left,Right,Up,Space (default: the keys the game reads)",
     },
     OptionInfo {
         name: "--freeze-seconds",

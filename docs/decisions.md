@@ -2660,3 +2660,23 @@ Duck Craft's `World` keeps its blocks in a `BlockWorld`; its own
 lines) are gone, and the playthrough's last picture is the same to the
 pixel. Not done: a block raycast (Duck Craft keeps its own), and a light
 model in the engine (a closure is simpler and lets each game choose).
+
+## Fix 4: The fuzzer presses the keys the game reads
+
+`--fuzz` pressed the arrows, Space, Z and X unless told otherwise, so
+Duck Craft's 50 runs stood still (`x always 32.5`): it walks with W A S D.
+The engine already noted every key a game asks about (`keys_read` in
+`log.json`, used to tell a freeze from presses the game ignores), so the
+fuzzer now learns from it. Before the runs, a practice run presses the old
+default keys plus Enter; each next practice run presses the keys found so
+far, until no new key turns up (at most 4, each at most 15 seconds). A
+game that reads Enter on its title screen and W A S D once playing is
+found in two. Escape is never learned (it usually quits, ending a run
+early), and nor are the engine's F keys. A game that reads no key gets the
+old defaults. The keys are sorted in `Key::ALL`'s order, so the runs are
+the same every time; the summary line says they were learned.
+
+The cost is the practice runs, a few seconds before the real ones (they
+run one after another, since each depends on the last). Duck Craft's
+coverage went from standing still to `x 11 to 43`, every block in the
+hotbar held, digging and building.

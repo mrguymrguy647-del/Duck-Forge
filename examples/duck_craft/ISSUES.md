@@ -37,7 +37,9 @@ game; the tool still has the gap.
 5. **The default fuzz keys don't include W/A/S/D or the game's own keys**,
    so `verify`'s 50 runs stood still (`x always 32.5`). Passing
    `--fuzz-keys W,A,S,D,Space,X,C,...` found real coverage. The fuzzer
-   could learn the keys from `was_pressed`/`is_down` calls.
+   could learn the keys from `was_pressed`/`is_down` calls. **Fixed in the
+   engine:** `--fuzz` learns them with a few practice runs; Duck Craft's
+   50 runs now walk (x 11 to 43), dig, build and pick every block.
 6. **`mouse_position()` is (0, 0) when there is no mouse**, the same as the
    top-left corner, so a game can't tell "no mouse" from "mouse at the
    corner". The game tracks its own `mouse_used` flag instead.

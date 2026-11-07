@@ -531,12 +531,14 @@ cargo run --release --no-default-features --example mygame -- --fuzz 200
 ```text
 duckforge: seed 14: PANIC on frame 192: index out of bounds: the len is 0 but the index is 3 (examples/mygame.rs:20:22) -- replay: --inputs fuzz/seed-14.json (3 key presses, 193 frames); also seeds 30, 43, 49
 duckforge: seed 2: CHECK "player on screen" failed on frame 336 -- replay: --inputs fuzz/seed-2.json (1 key press, 337 frames)
-duckforge: fuzzed 200 runs of 30 s (seeds 1 to 200, keys Left,Right,Up,Down,Space,Z,X) on 4 cores in 2.1 s: 2 different problems in 41 of the runs; scripts saved in fuzz
+duckforge: fuzzed 200 runs of 30 s (seeds 1 to 200, keys Left,Right,Space, the ones the game reads) on 4 cores in 2.1 s: 2 different problems in 41 of the runs; scripts saved in fuzz
 ```
 
-Each run uses the next seed and random taps and holds of the fuzz keys
-(arrows, Space, Z and X unless `--fuzz-keys` says otherwise; include the
-game's start key). It reports, once per different problem, the first
+Each run uses the next seed and random taps and holds of the keys the
+game reads: first, a few short practice runs press the keys found so far
+and note every key the game asks about (`is_down`, `was_pressed`,
+`axis`...), until no new one turns up (Escape and the engine's F keys are
+left out). `--fuzz-keys Left,Right,Space` picks them instead. It reports, once per different problem, the first
 seed and frame of: a **panic** (with the message and line), a **failed
 check**, or a **freeze**: no reported value changed for 10 seconds
 (`--freeze-seconds`) while keys the game reads were pressed (presses of
@@ -1022,8 +1024,8 @@ the overlay's box goes; bottom-right by default), `--tune FILE`,
 `--set NAME=N` (repeatable), `--write-tune`, `--accept` (with
 `--inputs FILE`: store this ending as the file's `"expect"`), `--record FILE` (window
 only), `--diff OLD_DIR NEW_DIR` (compare two runs; any example runs it,
-the game isn't started), `--fuzz N` (with `--fuzz-keys Left,Right,Space`
-and `--freeze-seconds S`; see section 4), `--help`.
+the game isn't started), `--fuzz N` (presses the keys the game reads, or
+`--fuzz-keys Left,Right,Space`; `--freeze-seconds S`; see section 4), `--help`.
 They go after `--` with `cargo run`: `cargo run --example x -- --headless`.
 
 **Labels and scenes**: in `draw`, `canvas.label("name", rect)` (draws

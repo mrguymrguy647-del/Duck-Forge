@@ -21,6 +21,13 @@
 //! presses are removed while the problem still happens, leaving the
 //! shortest script that shows it.
 //!
+//! The keys pressed are the ones the game reads. Before the runs, a few
+//! short practice runs press the keys found so far and note every key the
+//! game asks about (`is_down`, `was_pressed`...), until no new one turns
+//! up. Escape is left out (it usually quits, which ends a run early), and
+//! so are the engine's own F1, F3, F10 and F12. `--fuzz-keys` picks the
+//! keys instead.
+//!
 //! "No problems found" only means something if the random player got
 //! somewhere, so the end also prints the **coverage**: the lowest and
 //! highest of every reported number across all runs, the text values
@@ -44,8 +51,9 @@ use crate::report::ReportValue;
 use crate::rng::Rng;
 use crate::script::{InputAction, InputEvent, InputScript};
 
-/// The keys pressed when `--fuzz-keys` isn't given.
-pub(crate) const DEFAULT_KEYS: [Key; 7] = [
+/// The keys the first practice run presses, to find the keys a game
+/// reads (and the keys used if a game reads none).
+pub(crate) const DEFAULT_KEYS: [Key; 8] = [
     Key::Left,
     Key::Right,
     Key::Up,
@@ -53,7 +61,15 @@ pub(crate) const DEFAULT_KEYS: [Key; 7] = [
     Key::Space,
     Key::Z,
     Key::X,
+    Key::Enter,
 ];
+/// Keys the fuzzer never learns: Escape usually quits, and the F keys are
+/// the engine's.
+const NEVER_LEARNED: [Key; 5] = [Key::Escape, Key::F1, Key::F3, Key::F10, Key::F12];
+/// At most this many practice runs to learn the keys.
+const PRACTICE_RUNS: u32 = 4;
+/// And each lasts at most this many frames (15 seconds at 60 per second).
+const PRACTICE_FRAMES: u64 = 900;
 /// How long each run lasts when `--frames` isn't given: 30 seconds at 60
 /// updates per second.
 const DEFAULT_FRAMES: u64 = 1800;
@@ -101,6 +117,7 @@ impl Problem {
 }
 
 /// The settings for one fuzzing session.
+#[derive(Debug, Clone)]
 struct Fuzz {
     exe: PathBuf,
     /// Words passed on to every run: the game's own options, and tuning.
@@ -130,7 +147,7 @@ pub(crate) fn run(config: &Config, options: &Options) -> Result<(), String> {
     let updates_per_second = 1.0 / f64::from(config.step_time());
     let freeze_seconds = options.freeze_seconds.unwrap_or(10.0);
     let out = options.out.clone().unwrap_or_else(|| PathBuf::from("fuzz"));
-    let fuzz = Fuzz {
+    let mut fuzz = Fuzz {
         exe,
         pass_on,
         keys: options
@@ -151,6 +168,12 @@ pub(crate) fn run(config: &Config, options: &Options) -> Result<(), String> {
     remove_old_scripts(&fuzz.out);
 
     let started = Instant::now();
+    let learned = options.fuzz_keys.is_none();
+    if learned {
+        fuzz.keys = fuzz.learn_keys().inspect_err(|_| {
+            let _ = fs::remove_dir_all(&fuzz.work);
+        })?;
+    }
     let cores = std::thread::available_parallelism()
         .map_or(1, |n| n.get())
         .min(runs as usize);
@@ -244,13 +267,18 @@ pub(crate) fn run(config: &Config, options: &Options) -> Result<(), String> {
     }
     let _ = fs::remove_dir_all(&fuzz.work);
     let summary = format!(
-        "duckforge: fuzzed {runs} runs of {:.0} s (seeds 1 to {runs}, keys {}) on {cores} cores in {:.1} s: ",
+        "duckforge: fuzzed {runs} runs of {:.0} s (seeds 1 to {runs}, keys {}{}) on {cores} cores in {:.1} s: ",
         fuzz.frames as f64 / fuzz.updates_per_second,
         fuzz.keys
             .iter()
             .map(|k| k.name())
             .collect::<Vec<_>>()
             .join(","),
+        if learned {
+            ", the ones the game reads"
+        } else {
+            ""
+        },
         started.elapsed().as_secs_f32()
     );
     if order.is_empty() {
@@ -279,6 +307,8 @@ struct Coverage {
     texts: BTreeMap<String, BTreeSet<String>>,
     /// How many frames each run lasted.
     lengths: Vec<u64>,
+    /// Every key the game asked about.
+    keys_read: BTreeSet<String>,
 }
 
 impl Coverage {
@@ -302,6 +332,8 @@ impl Coverage {
             }
         }
         coverage.lengths.push(log["frames"].as_u64().unwrap_or(0));
+        let keys = log["keys_read"].as_array().into_iter().flatten();
+        coverage.keys_read = keys.filter_map(Value::as_str).map(String::from).collect();
         coverage
     }
 
@@ -321,6 +353,7 @@ impl Coverage {
             self.texts.entry(name).or_default().extend(values);
         }
         self.lengths.extend(other.lengths);
+        self.keys_read.extend(other.keys_read);
     }
 
     /// The coverage lines: numbers, then text values and how long runs
@@ -433,6 +466,45 @@ impl Fuzz {
     /// went wrong, if anything: every failed check and a freeze, or the
     /// panic that ended it. An error means the run couldn't happen at all
     /// (a bad option, say), which would be the same for every run.
+    /// The keys this game reads, found by practice runs: the first presses
+    /// [`DEFAULT_KEYS`], each next one the keys found so far, until no new
+    /// key turns up. [`DEFAULT_KEYS`] if the game reads none.
+    fn learn_keys(&self) -> Result<Vec<Key>, String> {
+        self.learn_keys_by(|practice, script, name| Ok(practice.play(script, name)?.1))
+    }
+
+    /// [`learn_keys`](Fuzz::learn_keys), with `play` running a practice
+    /// run and giving its coverage (a test gives a pretend game).
+    fn learn_keys_by(
+        &self,
+        mut play: impl FnMut(&Fuzz, &InputScript, &str) -> Result<Coverage, String>,
+    ) -> Result<Vec<Key>, String> {
+        let mut found: Vec<Key> = Vec::new();
+        for round in 1..=PRACTICE_RUNS {
+            let mut practice = self.clone();
+            practice.frames = self.frames.min(PRACTICE_FRAMES);
+            practice.keys = if found.is_empty() {
+                DEFAULT_KEYS.to_vec()
+            } else {
+                found.clone()
+            };
+            let script = random_script(round, &practice);
+            let coverage = play(&practice, &script, &format!("practice-{round}"))?;
+            let new = learnable(&coverage.keys_read, &found);
+            if new.is_empty() {
+                break;
+            }
+            found.extend(new);
+            // Always in the same order, so the runs are the same every time.
+            found.sort_by_key(|key| Key::ALL.iter().position(|k| k == key));
+        }
+        Ok(if found.is_empty() {
+            DEFAULT_KEYS.to_vec()
+        } else {
+            found
+        })
+    }
+
     fn play(&self, script: &InputScript, name: &str) -> Result<(Vec<Problem>, Coverage), String> {
         let script_path = self.work.join(format!("{name}.json"));
         let out = self.work.join(name);
@@ -722,6 +794,15 @@ fn remove_old_scripts(folder: &Path) {
     }
 }
 
+/// The keys in `read` (names from `log.json`) worth pressing that aren't
+/// in `known` yet.
+fn learnable(read: &BTreeSet<String>, known: &[Key]) -> Vec<Key> {
+    read.iter()
+        .filter_map(|name| Key::from_name(name))
+        .filter(|key| !NEVER_LEARNED.contains(key) && !known.contains(key))
+        .collect()
+}
+
 /// Reads `--fuzz-keys Left,Right,Space`.
 pub(crate) fn parse_keys(text: &str) -> Result<Vec<Key>, String> {
     let keys: Result<Vec<Key>, String> = text
@@ -806,6 +887,51 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A pretend game: on its title screen it reads Enter (and Escape, to
+    /// quit); once Enter is pressed it reads W A S D; once W is pressed,
+    /// Left Shift too (to run).
+    #[test]
+    fn the_keys_pressed_are_learned_from_the_game() {
+        let fuzz = settings(1800);
+        let mut practice_runs = 0;
+        let keys = fuzz
+            .learn_keys_by(|practice, script, _| {
+                practice_runs += 1;
+                assert!(script.frames.unwrap() <= PRACTICE_FRAMES);
+                let pressed = |key| {
+                    practice.keys.contains(&key)
+                        && script
+                            .events
+                            .iter()
+                            .any(|e| e.action == InputAction::Press(key))
+                };
+                let mut read = vec!["Enter", "Escape"];
+                if pressed(Key::Enter) {
+                    read.extend(["W", "A", "S", "D"]);
+                }
+                if pressed(Key::W) {
+                    read.push("LeftShift");
+                }
+                Ok(Coverage {
+                    keys_read: read.into_iter().map(String::from).collect(),
+                    ..Coverage::default()
+                })
+            })
+            .unwrap();
+        // Not Escape (it quits), in the order of `Key::ALL`.
+        assert_eq!(
+            keys,
+            [Key::A, Key::D, Key::S, Key::W, Key::Enter, Key::LeftShift]
+        );
+        assert!(practice_runs <= PRACTICE_RUNS);
+
+        // A game that reads no keys at all gets the usual ones.
+        let none = fuzz
+            .learn_keys_by(|_, _, _| Ok(Coverage::default()))
+            .unwrap();
+        assert_eq!(none, DEFAULT_KEYS);
     }
 
     #[test]
