@@ -62,6 +62,7 @@ Install Rust from <https://rustup.rs> (1.87 or newer), then:
 
 ```sh
 cargo run --example world3d    # 3D world with physics: fly around, throw balls
+cargo run --release --example duck_craft   # a Minecraft-style island: dig, build, day and night
 cargo run --release --example stress3d   # thousands of spinning 3D shapes
 cargo run --example physics    # 2D physics sandbox: click to drop balls and boxes
 cargo run --example breakout   # the classic game

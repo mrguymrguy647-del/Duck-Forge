@@ -1,0 +1,1950 @@
+{
+ "title": "Duck Craft's block atlas: one 16 x 16 tile per animation, for Mesh::block",
+ "palette": {
+  "grass": "#5BB043",
+  "grass_dark": "#4A9638",
+  "grass_light": "#74C658",
+  "dirt": "#8A5A35",
+  "dirt_dark": "#6E4426",
+  "dirt_light": "#A06C42",
+  "stone": "#8A8E96",
+  "stone_dark": "#6E727A",
+  "stone_light": "#A2A6AE",
+  "mortar_dark": "#55585E",
+  "sand": "#E6D69A",
+  "sand_dark": "#D2BE7E",
+  "sand_light": "#F2E6B4",
+  "bark_dark": "#4A321C",
+  "bark": "#6E4E2C",
+  "ring": "#A67C4A",
+  "ring_light": "#C29A62",
+  "leaf": "#3E8A34",
+  "leaf_dark": "#2E6A28",
+  "leaf_light": "#56A846",
+  "plank": "#B88A52",
+  "plank_dark": "#94683A",
+  "plank_light": "#CFA36A",
+  "glass": "#CFEFFF",
+  "shine": "#FFFFFF",
+  "glass_dark": "#9CCBE0",
+  "brick": "#A84A3A",
+  "brick_dark": "#8A3A2E",
+  "mortar": "#C8BEB0",
+  "coal": "#222226",
+  "gold": "#F2C230",
+  "gold_light": "#FFF4B0",
+  "water": "#3A70D0",
+  "water_light": "#5A90E8",
+  "water_dark": "#2E5CB0",
+  "bedrock": "#333338",
+  "bedrock_light": "#5A5A62",
+  "crack": "#1E1E22",
+  "cloud": "#FFFFFF",
+  "cloud_shade": "#E6EEF6",
+  "lamp": "#FFD45A",
+  "lamp_light": "#FFF6C8",
+  "lamp_frame": "#9A6A1C"
+ },
+ "commands": [
+  {
+   "cmd": "canvas",
+   "width": 16,
+   "height": 16,
+   "pixel": true
+  },
+  {
+   "cmd": "define",
+   "name": "grass_top",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "grass",
+      "b": "grass_dark",
+      "c": "grass_light",
+      "d": "dirt",
+      "e": "dirt_dark",
+      "f": "dirt_light",
+      "g": "stone",
+      "h": "stone_dark",
+      "i": "stone_light",
+      "j": "mortar_dark",
+      "k": "sand",
+      "l": "sand_dark",
+      "m": "sand_light",
+      "n": "bark_dark",
+      "o": "bark",
+      "p": "ring",
+      "q": "ring_light",
+      "r": "leaf",
+      "s": "leaf_dark",
+      "t": "leaf_light",
+      "u": "plank",
+      "v": "plank_dark",
+      "w": "plank_light",
+      "x": "glass",
+      "y": "shine",
+      "z": "glass_dark",
+      "A": "brick",
+      "B": "brick_dark",
+      "C": "mortar",
+      "D": "coal",
+      "E": "gold",
+      "F": "gold_light",
+      "G": "water",
+      "H": "water_light",
+      "I": "water_dark",
+      "J": "bedrock",
+      "K": "bedrock_light",
+      "L": "crack",
+      "M": "cloud",
+      "N": "cloud_shade",
+      "O": "lamp",
+      "P": "lamp_light",
+      "Q": "lamp_frame"
+     },
+     "rows": [
+      "acabbcabaacacaba",
+      "cbaaaabaacabbaaa",
+      "aaabaaabcbbabaab",
+      "aabbabaaacaaabcb",
+      "cbbbabaaacaabaca",
+      "abbaaaaabcbbaaab",
+      "baaabaabaaaababa",
+      "acaaaabbbbaaaaca",
+      "bbaaabbaaaaaaaaa",
+      "aabbbabaabaababc",
+      "abababbbaabacaba",
+      "bbaababbaaaccabc",
+      "aaaaaaabbbbaaabb",
+      "abababbbcaaaaaaa",
+      "baabaaaacbbaacaa",
+      "cabaaaaacbacbaaa"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "grass_side",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "grass",
+      "b": "grass_dark",
+      "c": "grass_light",
+      "d": "dirt",
+      "e": "dirt_dark",
+      "f": "dirt_light",
+      "g": "stone",
+      "h": "stone_dark",
+      "i": "stone_light",
+      "j": "mortar_dark",
+      "k": "sand",
+      "l": "sand_dark",
+      "m": "sand_light",
+      "n": "bark_dark",
+      "o": "bark",
+      "p": "ring",
+      "q": "ring_light",
+      "r": "leaf",
+      "s": "leaf_dark",
+      "t": "leaf_light",
+      "u": "plank",
+      "v": "plank_dark",
+      "w": "plank_light",
+      "x": "glass",
+      "y": "shine",
+      "z": "glass_dark",
+      "A": "brick",
+      "B": "brick_dark",
+      "C": "mortar",
+      "D": "coal",
+      "E": "gold",
+      "F": "gold_light",
+      "G": "water",
+      "H": "water_light",
+      "I": "water_dark",
+      "J": "bedrock",
+      "K": "bedrock_light",
+      "L": "crack",
+      "M": "cloud",
+      "N": "cloud_shade",
+      "O": "lamp",
+      "P": "lamp_light",
+      "Q": "lamp_frame"
+     },
+     "rows": [
+      "aaabbbababaaaabb",
+      "aaaaaaabababaaab",
+      "bbaaababbabbbaba",
+      "baaeadddebabdadf",
+      "edfdddeddddeeded",
+      "fddfdddedfdddfdd",
+      "ddddeddedeefeddd",
+      "efddfdddddedefdf",
+      "fddddddedfeddddd",
+      "dddfefeddfededdd",
+      "dddeedddddddeedd",
+      "ddddeeddedddedfe",
+      "dddddddedddedede",
+      "dededfddddddeded",
+      "efddddddeddddeef",
+      "fdfddddedddedddd"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "dirt",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "grass",
+      "b": "grass_dark",
+      "c": "grass_light",
+      "d": "dirt",
+      "e": "dirt_dark",
+      "f": "dirt_light",
+      "g": "stone",
+      "h": "stone_dark",
+      "i": "stone_light",
+      "j": "mortar_dark",
+      "k": "sand",
+      "l": "sand_dark",
+      "m": "sand_light",
+      "n": "bark_dark",
+      "o": "bark",
+      "p": "ring",
+      "q": "ring_light",
+      "r": "leaf",
+      "s": "leaf_dark",
+      "t": "leaf_light",
+      "u": "plank",
+      "v": "plank_dark",
+      "w": "plank_light",
+      "x": "glass",
+      "y": "shine",
+      "z": "glass_dark",
+      "A": "brick",
+      "B": "brick_dark",
+      "C": "mortar",
+      "D": "coal",
+      "E": "gold",
+      "F": "gold_light",
+      "G": "water",
+      "H": "water_light",
+      "I": "water_dark",
+      "J": "bedrock",
+      "K": "bedrock_light",
+      "L": "crack",
+      "M": "cloud",
+      "N": "cloud_shade",
+      "O": "lamp",
+      "P": "lamp_light",
+      "Q": "lamp_frame"
+     },
+     "rows": [
+      "ededddededdefddd",
+      "ddddfddddedddddd",
+      "eefedfddeddedefd",
+      "ddfddeddddedddfd",
+      "edededdddeedddff",
+      "eddedddedededede",
+      "edddeeddeefddded",
+      "ddddddddeddddded",
+      "deededdddedefded",
+      "dedededdeddddddd",
+      "dedddddedefedeed",
+      "dedddedddefddded",
+      "ddfdedddfddddedd",
+      "dddddddedeeddddd",
+      "dddfdddddddeedde",
+      "ddddfeeefddedfdd"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "stone",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "grass",
+      "b": "grass_dark",
+      "c": "grass_light",
+      "d": "dirt",
+      "e": "dirt_dark",
+      "f": "dirt_light",
+      "g": "stone",
+      "h": "stone_dark",
+      "i": "stone_light",
+      "j": "mortar_dark",
+      "k": "sand",
+      "l": "sand_dark",
+      "m": "sand_light",
+      "n": "bark_dark",
+      "o": "bark",
+      "p": "ring",
+      "q": "ring_light",
+      "r": "leaf",
+      "s": "leaf_dark",
+      "t": "leaf_light",
+      "u": "plank",
+      "v": "plank_dark",
+      "w": "plank_light",
+      "x": "glass",
+      "y": "shine",
+      "z": "glass_dark",
+      "A": "brick",
+      "B": "brick_dark",
+      "C": "mortar",
+      "D": "coal",
+      "E": "gold",
+      "F": "gold_light",
+      "G": "water",
+      "H": "water_light",
+      "I": "water_dark",
+      "J": "bedrock",
+      "K": "bedrock_light",
+      "L": "crack",
+      "M": "cloud",
+      "N": "cloud_shade",
+      "O": "lamp",
+      "P": "lamp_light",
+      "Q": "lamp_frame"
+     },
+     "rows": [
+      "gihiggiggggggggh",
+      "gggggggghgghgggg",
+      "iggggggghggggggg",
+      "gighggihgggggigi",
+      "ggighgggggighhgg",
+      "hggghgggighggghg",
+      "gggiggggggghhggg",
+      "gghhgigiggggggig",
+      "gggigiggiggggghg",
+      "gggghggigigighgi",
+      "ghgggggggggggggg",
+      "hhgggighgggighhh",
+      "gggggggggghggggg",
+      "ggghggggighghggg",
+      "ggggggigggghhggg",
+      "ggggiggggigggggg"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "cobblestone",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "grass",
+      "b": "grass_dark",
+      "c": "grass_light",
+      "d": "dirt",
+      "e": "dirt_dark",
+      "f": "dirt_light",
+      "g": "stone",
+      "h": "stone_dark",
+      "i": "stone_light",
+      "j": "mortar_dark",
+      "k": "sand",
+      "l": "sand_dark",
+      "m": "sand_light",
+      "n": "bark_dark",
+      "o": "bark",
+      "p": "ring",
+      "q": "ring_light",
+      "r": "leaf",
+      "s": "leaf_dark",
+      "t": "leaf_light",
+      "u": "plank",
+      "v": "plank_dark",
+      "w": "plank_light",
+      "x": "glass",
+      "y": "shine",
+      "z": "glass_dark",
+      "A": "brick",
+      "B": "brick_dark",
+      "C": "mortar",
+      "D": "coal",
+      "E": "gold",
+      "F": "gold_light",
+      "G": "water",
+      "H": "water_light",
+      "I": "water_dark",
+      "J": "bedrock",
+      "K": "bedrock_light",
+      "L": "crack",
+      "M": "cloud",
+      "N": "cloud_shade",
+      "O": "lamp",
+      "P": "lamp_light",
+      "Q": "lamp_frame"
+     },
+     "rows": [
+      "jjjjhhgighjhgggj",
+      "jjhhjggiigjjgggh",
+      "jjhijjiigghjhhjj",
+      "jjhihjhggghjjjhh",
+      "hjiiihjggghjjhhi",
+      "hjiiiijjjhhjjjhg",
+      "jjhiijjhjjjjjjjj",
+      "jjjhjjggggjjhhhh",
+      "hhjjjgigghjjjjhi",
+      "jjjjiggighjhhjjj",
+      "jjjhggiihjjhgggh",
+      "jjjjhhjjjhhjhghj",
+      "hhhjjjjhgigjjjjh",
+      "ggghjjhggihjjjhg",
+      "ggghjjhhghjhghjh",
+      "jhhjjjjjjjjigihj"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "sand",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "grass",
+      "b": "grass_dark",
+      "c": "grass_light",
+      "d": "dirt",
+      "e": "dirt_dark",
+      "f": "dirt_light",
+      "g": "stone",
+      "h": "stone_dark",
+      "i": "stone_light",
+      "j": "mortar_dark",
+      "k": "sand",
+      "l": "sand_dark",
+      "m": "sand_light",
+      "n": "bark_dark",
+      "o": "bark",
+      "p": "ring",
+      "q": "ring_light",
+      "r": "leaf",
+      "s": "leaf_dark",
+      "t": "leaf_light",
+      "u": "plank",
+      "v": "plank_dark",
+      "w": "plank_light",
+      "x": "glass",
+      "y": "shine",
+      "z": "glass_dark",
+      "A": "brick",
+      "B": "brick_dark",
+      "C": "mortar",
+      "D": "coal",
+      "E": "gold",
+      "F": "gold_light",
+      "G": "water",
+      "H": "water_light",
+      "I": "water_dark",
+      "J": "bedrock",
+      "K": "bedrock_light",
+      "L": "crack",
+      "M": "cloud",
+      "N": "cloud_shade",
+      "O": "lamp",
+      "P": "lamp_light",
+      "Q": "lamp_frame"
+     },
+     "rows": [
+      "llkkkkkkkmklkkkk",
+      "kkkkkkkklmkmmlkk",
+      "mkkmkkkkklkmkkmk",
+      "kkkkkkkkkklkkkmk",
+      "kkkkkkkkkkkkkklk",
+      "kmmkkllmkklklkkl",
+      "lmklkmkkkkkkmkkm",
+      "mmkkmkkkmkmlkmkk",
+      "kllkkklkmlmllmkk",
+      "kkkklkkkmkkkmkkk",
+      "kkkklkkkkkmkkkkk",
+      "kmkmlkmmklkkmkkk",
+      "kkmkklkmkkkkkklk",
+      "llkkkkkklkkkkkkk",
+      "mmkklklklkmlkkkk",
+      "kkkkkkkklkklkkkk"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "log_side",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "grass",
+      "b": "grass_dark",
+      "c": "grass_light",
+      "d": "dirt",
+      "e": "dirt_dark",
+      "f": "dirt_light",
+      "g": "stone",
+      "h": "stone_dark",
+      "i": "stone_light",
+      "j": "mortar_dark",
+      "k": "sand",
+      "l": "sand_dark",
+      "m": "sand_light",
+      "n": "bark_dark",
+      "o": "bark",
+      "p": "ring",
+      "q": "ring_light",
+      "r": "leaf",
+      "s": "leaf_dark",
+      "t": "leaf_light",
+      "u": "plank",
+      "v": "plank_dark",
+      "w": "plank_light",
+      "x": "glass",
+      "y": "shine",
+      "z": "glass_dark",
+      "A": "brick",
+      "B": "brick_dark",
+      "C": "mortar",
+      "D": "coal",
+      "E": "gold",
+      "F": "gold_light",
+      "G": "water",
+      "H": "water_light",
+      "I": "water_dark",
+      "J": "bedrock",
+      "K": "bedrock_light",
+      "L": "crack",
+      "M": "cloud",
+      "N": "cloud_shade",
+      "O": "lamp",
+      "P": "lamp_light",
+      "Q": "lamp_frame"
+     },
+     "rows": [
+      "oooooonoonoonooo",
+      "oooooonoonnonooo",
+      "ooonoonnonoonooo",
+      "oooooonoonoonooo",
+      "ooooonnoonoonono",
+      "nooooonoononnooo",
+      "oooooononnoonooo",
+      "oooooonoonoonooo",
+      "oooooonoonoonooo",
+      "oooooonnonnonooo",
+      "oooooonnononnooo",
+      "nooooonoonoonooo",
+      "oooooonoonnonoon",
+      "oooooonoonoonooo",
+      "onoooonoonoonnoo",
+      "oooononoonoonooo"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "log_top",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "grass",
+      "b": "grass_dark",
+      "c": "grass_light",
+      "d": "dirt",
+      "e": "dirt_dark",
+      "f": "dirt_light",
+      "g": "stone",
+      "h": "stone_dark",
+      "i": "stone_light",
+      "j": "mortar_dark",
+      "k": "sand",
+      "l": "sand_dark",
+      "m": "sand_light",
+      "n": "bark_dark",
+      "o": "bark",
+      "p": "ring",
+      "q": "ring_light",
+      "r": "leaf",
+      "s": "leaf_dark",
+      "t": "leaf_light",
+      "u": "plank",
+      "v": "plank_dark",
+      "w": "plank_light",
+      "x": "glass",
+      "y": "shine",
+      "z": "glass_dark",
+      "A": "brick",
+      "B": "brick_dark",
+      "C": "mortar",
+      "D": "coal",
+      "E": "gold",
+      "F": "gold_light",
+      "G": "water",
+      "H": "water_light",
+      "I": "water_dark",
+      "J": "bedrock",
+      "K": "bedrock_light",
+      "L": "crack",
+      "M": "cloud",
+      "N": "cloud_shade",
+      "O": "lamp",
+      "P": "lamp_light",
+      "Q": "lamp_frame"
+     },
+     "rows": [
+      "oooooooooooooooo",
+      "oqqqqqqqqqqqqqqo",
+      "oqppppppppppppqo",
+      "oqpqqqqqqqqqqpqo",
+      "oqpqppppppppqpqo",
+      "oqpqpqqqqqqpqpqo",
+      "oqpqpqppppqpqpqo",
+      "oqpqpqpqqpqpqpqo",
+      "oqpqpqpqqpqpqpqo",
+      "oqpqpqppppqpqpqo",
+      "oqpqpqqqqqqpqpqo",
+      "oqpqppppppppqpqo",
+      "oqpqqqqqqqqqqpqo",
+      "oqppppppppppppqo",
+      "oqqqqqqqqqqqqqqo",
+      "oooooooooooooooo"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "leaves",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "grass",
+      "b": "grass_dark",
+      "c": "grass_light",
+      "d": "dirt",
+      "e": "dirt_dark",
+      "f": "dirt_light",
+      "g": "stone",
+      "h": "stone_dark",
+      "i": "stone_light",
+      "j": "mortar_dark",
+      "k": "sand",
+      "l": "sand_dark",
+      "m": "sand_light",
+      "n": "bark_dark",
+      "o": "bark",
+      "p": "ring",
+      "q": "ring_light",
+      "r": "leaf",
+      "s": "leaf_dark",
+      "t": "leaf_light",
+      "u": "plank",
+      "v": "plank_dark",
+      "w": "plank_light",
+      "x": "glass",
+      "y": "shine",
+      "z": "glass_dark",
+      "A": "brick",
+      "B": "brick_dark",
+      "C": "mortar",
+      "D": "coal",
+      "E": "gold",
+      "F": "gold_light",
+      "G": "water",
+      "H": "water_light",
+      "I": "water_dark",
+      "J": "bedrock",
+      "K": "bedrock_light",
+      "L": "crack",
+      "M": "cloud",
+      "N": "cloud_shade",
+      "O": "lamp",
+      "P": "lamp_light",
+      "Q": "lamp_frame"
+     },
+     "rows": [
+      "r.r.sr.tr.rsrrtr",
+      "tssrtrrrtrrrtssr",
+      ".trsrtr.rrrrrrtr",
+      "rr.rrrrrrtrrsst.",
+      "srsrrtrssrrrs.rt",
+      "rrrr.srrss.rrstt",
+      "rrrrstrtrrsrss.r",
+      ".rrrtrssrttr.srt",
+      "rrtsrt.rtrs.ttrr",
+      "s.srrsr.tt.s.r.t",
+      "sr.r.sssrtrrtstr",
+      ".r.rt.rtsrrrrrsr",
+      "srr.r.rrrrrtrssr",
+      "rrrrrtrrrstrrr.r",
+      ".rrsssrsrr.rrtsr",
+      "...rrsrrrr..srrr"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "planks",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "grass",
+      "b": "grass_dark",
+      "c": "grass_light",
+      "d": "dirt",
+      "e": "dirt_dark",
+      "f": "dirt_light",
+      "g": "stone",
+      "h": "stone_dark",
+      "i": "stone_light",
+      "j": "mortar_dark",
+      "k": "sand",
+      "l": "sand_dark",
+      "m": "sand_light",
+      "n": "bark_dark",
+      "o": "bark",
+      "p": "ring",
+      "q": "ring_light",
+      "r": "leaf",
+      "s": "leaf_dark",
+      "t": "leaf_light",
+      "u": "plank",
+      "v": "plank_dark",
+      "w": "plank_light",
+      "x": "glass",
+      "y": "shine",
+      "z": "glass_dark",
+      "A": "brick",
+      "B": "brick_dark",
+      "C": "mortar",
+      "D": "coal",
+      "E": "gold",
+      "F": "gold_light",
+      "G": "water",
+      "H": "water_light",
+      "I": "water_dark",
+      "J": "bedrock",
+      "K": "bedrock_light",
+      "L": "crack",
+      "M": "cloud",
+      "N": "cloud_shade",
+      "O": "lamp",
+      "P": "lamp_light",
+      "Q": "lamp_frame"
+     },
+     "rows": [
+      "wuuuuvuuuuuwuuuw",
+      "uuuwuvvvuuuuuvvu",
+      "wuuuuvuuuwuwuuuu",
+      "vvvvvvvvvvvvvvvv",
+      "wwuuwwuuuuuuvuuw",
+      "vwuuvuuuwvuuvuuu",
+      "uuuuwwuuuwuwvuuu",
+      "vvvvvvvvvvvvvvvv",
+      "uuuwwvuuuuuuuuuu",
+      "uuuwuvuvuuuvuvuu",
+      "wuuuuvuuuuuuwuuu",
+      "vvvvvvvvvvvvvvvv",
+      "uuuuuuwuuuwuvuuu",
+      "vvuuuuvvuuuuvuuu",
+      "uwwwuuwuuuuuvwuu",
+      "vvvvvvvvvvvvvvvv"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "glass",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "grass",
+      "b": "grass_dark",
+      "c": "grass_light",
+      "d": "dirt",
+      "e": "dirt_dark",
+      "f": "dirt_light",
+      "g": "stone",
+      "h": "stone_dark",
+      "i": "stone_light",
+      "j": "mortar_dark",
+      "k": "sand",
+      "l": "sand_dark",
+      "m": "sand_light",
+      "n": "bark_dark",
+      "o": "bark",
+      "p": "ring",
+      "q": "ring_light",
+      "r": "leaf",
+      "s": "leaf_dark",
+      "t": "leaf_light",
+      "u": "plank",
+      "v": "plank_dark",
+      "w": "plank_light",
+      "x": "glass",
+      "y": "shine",
+      "z": "glass_dark",
+      "A": "brick",
+      "B": "brick_dark",
+      "C": "mortar",
+      "D": "coal",
+      "E": "gold",
+      "F": "gold_light",
+      "G": "water",
+      "H": "water_light",
+      "I": "water_dark",
+      "J": "bedrock",
+      "K": "bedrock_light",
+      "L": "crack",
+      "M": "cloud",
+      "N": "cloud_shade",
+      "O": "lamp",
+      "P": "lamp_light",
+      "Q": "lamp_frame"
+     },
+     "rows": [
+      "zxxxxzxxxxzxxxxz",
+      "x..............x",
+      "x..............x",
+      "x...y..........x",
+      "x..y...........x",
+      "z.yy...........z",
+      "x..............x",
+      "x..............x",
+      "x..............x",
+      "x...........y..x",
+      "z..........y...z",
+      "x.........y....x",
+      "x..............x",
+      "x..............x",
+      "x..............x",
+      "zxxxxzxxxxzxxxxz"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "brick",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "grass",
+      "b": "grass_dark",
+      "c": "grass_light",
+      "d": "dirt",
+      "e": "dirt_dark",
+      "f": "dirt_light",
+      "g": "stone",
+      "h": "stone_dark",
+      "i": "stone_light",
+      "j": "mortar_dark",
+      "k": "sand",
+      "l": "sand_dark",
+      "m": "sand_light",
+      "n": "bark_dark",
+      "o": "bark",
+      "p": "ring",
+      "q": "ring_light",
+      "r": "leaf",
+      "s": "leaf_dark",
+      "t": "leaf_light",
+      "u": "plank",
+      "v": "plank_dark",
+      "w": "plank_light",
+      "x": "glass",
+      "y": "shine",
+      "z": "glass_dark",
+      "A": "brick",
+      "B": "brick_dark",
+      "C": "mortar",
+      "D": "coal",
+      "E": "gold",
+      "F": "gold_light",
+      "G": "water",
+      "H": "water_light",
+      "I": "water_dark",
+      "J": "bedrock",
+      "K": "bedrock_light",
+      "L": "crack",
+      "M": "cloud",
+      "N": "cloud_shade",
+      "O": "lamp",
+      "P": "lamp_light",
+      "Q": "lamp_frame"
+     },
+     "rows": [
+      "AAABAAACBAABAAAC",
+      "ABAAAAACBAABBAAC",
+      "BAAAAAACABAAAAAC",
+      "CCCCCCCCCCCCCCCC",
+      "AAACAABABABCAAAA",
+      "AABCAAAAAAACAAAA",
+      "AAACAAAAABACBABA",
+      "CCCCCCCCCCCCCCCC",
+      "AAAABABCABBAAABC",
+      "ABAAAAACAAAAABAC",
+      "BBAAAAACAAAAABAC",
+      "CCCCCCCCCCCCCCCC",
+      "AAACAAABAAACAAAA",
+      "AABCAAAAABACAAAA",
+      "AAACAAAAAAACAAAA",
+      "CCCCCCCCCCCCCCCC"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "coal_ore",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "grass",
+      "b": "grass_dark",
+      "c": "grass_light",
+      "d": "dirt",
+      "e": "dirt_dark",
+      "f": "dirt_light",
+      "g": "stone",
+      "h": "stone_dark",
+      "i": "stone_light",
+      "j": "mortar_dark",
+      "k": "sand",
+      "l": "sand_dark",
+      "m": "sand_light",
+      "n": "bark_dark",
+      "o": "bark",
+      "p": "ring",
+      "q": "ring_light",
+      "r": "leaf",
+      "s": "leaf_dark",
+      "t": "leaf_light",
+      "u": "plank",
+      "v": "plank_dark",
+      "w": "plank_light",
+      "x": "glass",
+      "y": "shine",
+      "z": "glass_dark",
+      "A": "brick",
+      "B": "brick_dark",
+      "C": "mortar",
+      "D": "coal",
+      "E": "gold",
+      "F": "gold_light",
+      "G": "water",
+      "H": "water_light",
+      "I": "water_dark",
+      "J": "bedrock",
+      "K": "bedrock_light",
+      "L": "crack",
+      "M": "cloud",
+      "N": "cloud_shade",
+      "O": "lamp",
+      "P": "lamp_light",
+      "Q": "lamp_frame"
+     },
+     "rows": [
+      "gghghgggiggggggg",
+      "ggghgihhhhhggggi",
+      "iggggghgggDhgigg",
+      "iggDhDgggggDDggh",
+      "ighDDggihggggggi",
+      "gihhDhghhhgigggg",
+      "gigDDDggghgggggg",
+      "gghDhDggDggggggg",
+      "gggDDDgDhDgggiig",
+      "iggggggDiggggggg",
+      "hgiggggggggggggg",
+      "ggggiggggggggihg",
+      "hhgggggigigggggh",
+      "gghggggggigggggi",
+      "gggggggggggighgg",
+      "gggggggggghhghgg"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "gold_ore",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "grass",
+      "b": "grass_dark",
+      "c": "grass_light",
+      "d": "dirt",
+      "e": "dirt_dark",
+      "f": "dirt_light",
+      "g": "stone",
+      "h": "stone_dark",
+      "i": "stone_light",
+      "j": "mortar_dark",
+      "k": "sand",
+      "l": "sand_dark",
+      "m": "sand_light",
+      "n": "bark_dark",
+      "o": "bark",
+      "p": "ring",
+      "q": "ring_light",
+      "r": "leaf",
+      "s": "leaf_dark",
+      "t": "leaf_light",
+      "u": "plank",
+      "v": "plank_dark",
+      "w": "plank_light",
+      "x": "glass",
+      "y": "shine",
+      "z": "glass_dark",
+      "A": "brick",
+      "B": "brick_dark",
+      "C": "mortar",
+      "D": "coal",
+      "E": "gold",
+      "F": "gold_light",
+      "G": "water",
+      "H": "water_light",
+      "I": "water_dark",
+      "J": "bedrock",
+      "K": "bedrock_light",
+      "L": "crack",
+      "M": "cloud",
+      "N": "cloud_shade",
+      "O": "lamp",
+      "P": "lamp_light",
+      "Q": "lamp_frame"
+     },
+     "rows": [
+      "ggghghgggggggggg",
+      "gggiggggiiiggghg",
+      "ggggggEigigggghh",
+      "igggggFEgggggggh",
+      "gggggEEEgggggggg",
+      "hggEgggEhhhgiggg",
+      "ihEFEgEFEgggighg",
+      "ggEEEgEgEgggiggg",
+      "hgggggihhgEggggh",
+      "gghigggiiEFEgggg",
+      "hghgggggEEEhiigg",
+      "ggihggigiggggggg",
+      "ghhhgggggggggggg",
+      "gggggiigggiggggg",
+      "hggggggghgghiggh",
+      "hggggigghhhhggig"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "water",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "grass",
+      "b": "grass_dark",
+      "c": "grass_light",
+      "d": "dirt",
+      "e": "dirt_dark",
+      "f": "dirt_light",
+      "g": "stone",
+      "h": "stone_dark",
+      "i": "stone_light",
+      "j": "mortar_dark",
+      "k": "sand",
+      "l": "sand_dark",
+      "m": "sand_light",
+      "n": "bark_dark",
+      "o": "bark",
+      "p": "ring",
+      "q": "ring_light",
+      "r": "leaf",
+      "s": "leaf_dark",
+      "t": "leaf_light",
+      "u": "plank",
+      "v": "plank_dark",
+      "w": "plank_light",
+      "x": "glass",
+      "y": "shine",
+      "z": "glass_dark",
+      "A": "brick",
+      "B": "brick_dark",
+      "C": "mortar",
+      "D": "coal",
+      "E": "gold",
+      "F": "gold_light",
+      "G": "water",
+      "H": "water_light",
+      "I": "water_dark",
+      "J": "bedrock",
+      "K": "bedrock_light",
+      "L": "crack",
+      "M": "cloud",
+      "N": "cloud_shade",
+      "O": "lamp",
+      "P": "lamp_light",
+      "Q": "lamp_frame"
+     },
+     "rows": [
+      "GGGGGIIGGGHHGGGG",
+      "HHHGGIIGGGGGGGGG",
+      "HHHGGGGGGGGIIIGG",
+      "GGGGGGGHHGGIIIGG",
+      "GGIIIGGHHGGGGGGG",
+      "GGIIIGGGGGGGGGHH",
+      "GGGGGGGGGIIGGGHH",
+      "GGGGGHHGGIIIGGGG",
+      "IIGGGHHGGGGGGGGG",
+      "IIIGGGGGGGGHHGGG",
+      "GGGGGGGIIGGHHHGG",
+      "GGHHGGIIIGGGGGGG",
+      "GGHHHGGGGGGGGIIG",
+      "GGGGGGGGGHHGGIII",
+      "GGGGIIGGGHHGGGGG",
+      "HGGGIIIGGGGGGGGG"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "bedrock",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "grass",
+      "b": "grass_dark",
+      "c": "grass_light",
+      "d": "dirt",
+      "e": "dirt_dark",
+      "f": "dirt_light",
+      "g": "stone",
+      "h": "stone_dark",
+      "i": "stone_light",
+      "j": "mortar_dark",
+      "k": "sand",
+      "l": "sand_dark",
+      "m": "sand_light",
+      "n": "bark_dark",
+      "o": "bark",
+      "p": "ring",
+      "q": "ring_light",
+      "r": "leaf",
+      "s": "leaf_dark",
+      "t": "leaf_light",
+      "u": "plank",
+      "v": "plank_dark",
+      "w": "plank_light",
+      "x": "glass",
+      "y": "shine",
+      "z": "glass_dark",
+      "A": "brick",
+      "B": "brick_dark",
+      "C": "mortar",
+      "D": "coal",
+      "E": "gold",
+      "F": "gold_light",
+      "G": "water",
+      "H": "water_light",
+      "I": "water_dark",
+      "J": "bedrock",
+      "K": "bedrock_light",
+      "L": "crack",
+      "M": "cloud",
+      "N": "cloud_shade",
+      "O": "lamp",
+      "P": "lamp_light",
+      "Q": "lamp_frame"
+     },
+     "rows": [
+      "DDJKKJKKDJKKJKKJ",
+      "JJJDKKJJJKJDDJJK",
+      "KDJKJKJKDDJKKJJD",
+      "KJJJJJJKDDKJKJJJ",
+      "JJJKKJJKKJKJDJJK",
+      "KJJJKJJDJKKDJJDJ",
+      "JJKKJKJKJKJDJKJD",
+      "JDKKJKJJJJJJKJJK",
+      "JKJKJJKKJJDDKJKJ",
+      "JJJDJDJKJJJJJJJD",
+      "KDKJJDJJJDKJJKJJ",
+      "JJJDJKJKKKJKKKKK",
+      "JJJJDDDKJJKKKJJJ",
+      "KJKJDJDKKKJJJJJK",
+      "JJKJJKJKJDJKJDJK",
+      "KJJJKJKKJKKDJKJK"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "cloud",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "grass",
+      "b": "grass_dark",
+      "c": "grass_light",
+      "d": "dirt",
+      "e": "dirt_dark",
+      "f": "dirt_light",
+      "g": "stone",
+      "h": "stone_dark",
+      "i": "stone_light",
+      "j": "mortar_dark",
+      "k": "sand",
+      "l": "sand_dark",
+      "m": "sand_light",
+      "n": "bark_dark",
+      "o": "bark",
+      "p": "ring",
+      "q": "ring_light",
+      "r": "leaf",
+      "s": "leaf_dark",
+      "t": "leaf_light",
+      "u": "plank",
+      "v": "plank_dark",
+      "w": "plank_light",
+      "x": "glass",
+      "y": "shine",
+      "z": "glass_dark",
+      "A": "brick",
+      "B": "brick_dark",
+      "C": "mortar",
+      "D": "coal",
+      "E": "gold",
+      "F": "gold_light",
+      "G": "water",
+      "H": "water_light",
+      "I": "water_dark",
+      "J": "bedrock",
+      "K": "bedrock_light",
+      "L": "crack",
+      "M": "cloud",
+      "N": "cloud_shade",
+      "O": "lamp",
+      "P": "lamp_light",
+      "Q": "lamp_frame"
+     },
+     "rows": [
+      "MMMMMMMMMMMMMMMM",
+      "MMMNMMNMNNMMMNMM",
+      "NMMMMNMNNMMMMNMM",
+      "MMMMNMMMMMMMMMNM",
+      "MMMNMMMMMMMMMNMM",
+      "MMMMMNMMMMMMMMMM",
+      "MMMMMNMMMMMMMMMM",
+      "MMMMMMMMMMMMMMMM",
+      "MMMMMMNMMNMMMMNM",
+      "MMNMMMMMMMMMMMNM",
+      "MMMMMMMMMMMMMMMM",
+      "MMMMMMNMMMNMMMMM",
+      "MMNMMMMNMMMMNMMM",
+      "MMMMMMMMMNMMMMMM",
+      "MMMMNMNMMMMMMMMM",
+      "NMMMMMMMNMMMMMMM"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "lamp",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "grass",
+      "b": "grass_dark",
+      "c": "grass_light",
+      "d": "dirt",
+      "e": "dirt_dark",
+      "f": "dirt_light",
+      "g": "stone",
+      "h": "stone_dark",
+      "i": "stone_light",
+      "j": "mortar_dark",
+      "k": "sand",
+      "l": "sand_dark",
+      "m": "sand_light",
+      "n": "bark_dark",
+      "o": "bark",
+      "p": "ring",
+      "q": "ring_light",
+      "r": "leaf",
+      "s": "leaf_dark",
+      "t": "leaf_light",
+      "u": "plank",
+      "v": "plank_dark",
+      "w": "plank_light",
+      "x": "glass",
+      "y": "shine",
+      "z": "glass_dark",
+      "A": "brick",
+      "B": "brick_dark",
+      "C": "mortar",
+      "D": "coal",
+      "E": "gold",
+      "F": "gold_light",
+      "G": "water",
+      "H": "water_light",
+      "I": "water_dark",
+      "J": "bedrock",
+      "K": "bedrock_light",
+      "L": "crack",
+      "M": "cloud",
+      "N": "cloud_shade",
+      "O": "lamp",
+      "P": "lamp_light",
+      "Q": "lamp_frame"
+     },
+     "rows": [
+      "QQQQQQQQQQQQQQQQ",
+      "QOOOOQOOOOQPOOOQ",
+      "QOOOOQOPOOQOOPOQ",
+      "QOOOOQOOOOQOOOPQ",
+      "QOOOOQOOOOQOOOOQ",
+      "QQQQQQQQQQQQQQQQ",
+      "QOOPOQPPPPQOOOPQ",
+      "QOPOOQPPPPQOOOPQ",
+      "QOOOPQPPPPQOOOOQ",
+      "QPOOPQPPPPQPOOOQ",
+      "QQQQQQQQQQQQQQQQ",
+      "QOOOOQOOOOQOOPOQ",
+      "QOOPOQOOOOQOOOOQ",
+      "QPOOOQOOOOQOOOOQ",
+      "QOOOPQOOOOQOOOOQ",
+      "QQQQQQQQQQQQQQQQ"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "crack_1",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "grass",
+      "b": "grass_dark",
+      "c": "grass_light",
+      "d": "dirt",
+      "e": "dirt_dark",
+      "f": "dirt_light",
+      "g": "stone",
+      "h": "stone_dark",
+      "i": "stone_light",
+      "j": "mortar_dark",
+      "k": "sand",
+      "l": "sand_dark",
+      "m": "sand_light",
+      "n": "bark_dark",
+      "o": "bark",
+      "p": "ring",
+      "q": "ring_light",
+      "r": "leaf",
+      "s": "leaf_dark",
+      "t": "leaf_light",
+      "u": "plank",
+      "v": "plank_dark",
+      "w": "plank_light",
+      "x": "glass",
+      "y": "shine",
+      "z": "glass_dark",
+      "A": "brick",
+      "B": "brick_dark",
+      "C": "mortar",
+      "D": "coal",
+      "E": "gold",
+      "F": "gold_light",
+      "G": "water",
+      "H": "water_light",
+      "I": "water_dark",
+      "J": "bedrock",
+      "K": "bedrock_light",
+      "L": "crack",
+      "M": "cloud",
+      "N": "cloud_shade",
+      "O": "lamp",
+      "P": "lamp_light",
+      "Q": "lamp_frame"
+     },
+     "rows": [
+      "................",
+      "................",
+      "....L...........",
+      "....L...........",
+      "....L...........",
+      "....L...........",
+      ".....L..........",
+      "................",
+      "...LLLLL........",
+      "................",
+      "................",
+      "................",
+      "................",
+      "................",
+      "................",
+      "................"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "crack_2",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "grass",
+      "b": "grass_dark",
+      "c": "grass_light",
+      "d": "dirt",
+      "e": "dirt_dark",
+      "f": "dirt_light",
+      "g": "stone",
+      "h": "stone_dark",
+      "i": "stone_light",
+      "j": "mortar_dark",
+      "k": "sand",
+      "l": "sand_dark",
+      "m": "sand_light",
+      "n": "bark_dark",
+      "o": "bark",
+      "p": "ring",
+      "q": "ring_light",
+      "r": "leaf",
+      "s": "leaf_dark",
+      "t": "leaf_light",
+      "u": "plank",
+      "v": "plank_dark",
+      "w": "plank_light",
+      "x": "glass",
+      "y": "shine",
+      "z": "glass_dark",
+      "A": "brick",
+      "B": "brick_dark",
+      "C": "mortar",
+      "D": "coal",
+      "E": "gold",
+      "F": "gold_light",
+      "G": "water",
+      "H": "water_light",
+      "I": "water_dark",
+      "J": "bedrock",
+      "K": "bedrock_light",
+      "L": "crack",
+      "M": "cloud",
+      "N": "cloud_shade",
+      "O": "lamp",
+      "P": "lamp_light",
+      "Q": "lamp_frame"
+     },
+     "rows": [
+      "................",
+      "................",
+      "....L...........",
+      "....L...........",
+      "....L...L.......",
+      "....L.L.L.......",
+      ".....L...L......",
+      "....L...L.......",
+      "...LLLLLL.......",
+      "....L...........",
+      ".....LLLL.......",
+      ".........LL.....",
+      "..........L.....",
+      "................",
+      "................",
+      "................"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "crack_3",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "grass",
+      "b": "grass_dark",
+      "c": "grass_light",
+      "d": "dirt",
+      "e": "dirt_dark",
+      "f": "dirt_light",
+      "g": "stone",
+      "h": "stone_dark",
+      "i": "stone_light",
+      "j": "mortar_dark",
+      "k": "sand",
+      "l": "sand_dark",
+      "m": "sand_light",
+      "n": "bark_dark",
+      "o": "bark",
+      "p": "ring",
+      "q": "ring_light",
+      "r": "leaf",
+      "s": "leaf_dark",
+      "t": "leaf_light",
+      "u": "plank",
+      "v": "plank_dark",
+      "w": "plank_light",
+      "x": "glass",
+      "y": "shine",
+      "z": "glass_dark",
+      "A": "brick",
+      "B": "brick_dark",
+      "C": "mortar",
+      "D": "coal",
+      "E": "gold",
+      "F": "gold_light",
+      "G": "water",
+      "H": "water_light",
+      "I": "water_dark",
+      "J": "bedrock",
+      "K": "bedrock_light",
+      "L": "crack",
+      "M": "cloud",
+      "N": "cloud_shade",
+      "O": "lamp",
+      "P": "lamp_light",
+      "Q": "lamp_frame"
+     },
+     "rows": [
+      "................",
+      "................",
+      "....L...........",
+      "....L...........",
+      "....L..LL.......",
+      "....L.LLL.......",
+      ".....LLL.L......",
+      "...LL..LLL......",
+      "...LLLLLLL......",
+      "...LL....L......",
+      "..L..LLLLL......",
+      ".........LL.....",
+      "..........L.....",
+      "................",
+      "................",
+      "................"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "crack_4",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "grass",
+      "b": "grass_dark",
+      "c": "grass_light",
+      "d": "dirt",
+      "e": "dirt_dark",
+      "f": "dirt_light",
+      "g": "stone",
+      "h": "stone_dark",
+      "i": "stone_light",
+      "j": "mortar_dark",
+      "k": "sand",
+      "l": "sand_dark",
+      "m": "sand_light",
+      "n": "bark_dark",
+      "o": "bark",
+      "p": "ring",
+      "q": "ring_light",
+      "r": "leaf",
+      "s": "leaf_dark",
+      "t": "leaf_light",
+      "u": "plank",
+      "v": "plank_dark",
+      "w": "plank_light",
+      "x": "glass",
+      "y": "shine",
+      "z": "glass_dark",
+      "A": "brick",
+      "B": "brick_dark",
+      "C": "mortar",
+      "D": "coal",
+      "E": "gold",
+      "F": "gold_light",
+      "G": "water",
+      "H": "water_light",
+      "I": "water_dark",
+      "J": "bedrock",
+      "K": "bedrock_light",
+      "L": "crack",
+      "M": "cloud",
+      "N": "cloud_shade",
+      "O": "lamp",
+      "P": "lamp_light",
+      "Q": "lamp_frame"
+     },
+     "rows": [
+      "................",
+      "................",
+      "....L...........",
+      "....L...........",
+      "..LLL..LL.......",
+      "....LLLLL.......",
+      ".....LLL.L......",
+      "...LL..LLL.L....",
+      "...LLLLLLLL.....",
+      "...LLLLLLL.LL...",
+      "..L.LLLLLL..L...",
+      "....L....LL.....",
+      "....L.....LL....",
+      ".....L..........",
+      "................",
+      "................"
+     ]
+    }
+   ]
+  }
+ ],
+ "animations": {
+  "grass_top": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "grass_top"
+    }
+   ]
+  },
+  "grass_side": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "grass_side"
+    }
+   ]
+  },
+  "dirt": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "dirt"
+    }
+   ]
+  },
+  "stone": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "stone"
+    }
+   ]
+  },
+  "cobblestone": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "cobblestone"
+    }
+   ]
+  },
+  "sand": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "sand"
+    }
+   ]
+  },
+  "log_side": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "log_side"
+    }
+   ]
+  },
+  "log_top": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "log_top"
+    }
+   ]
+  },
+  "leaves": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "leaves"
+    }
+   ]
+  },
+  "planks": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "planks"
+    }
+   ]
+  },
+  "glass": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "glass"
+    }
+   ]
+  },
+  "brick": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "brick"
+    }
+   ]
+  },
+  "coal_ore": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "coal_ore"
+    }
+   ]
+  },
+  "gold_ore": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "gold_ore"
+    }
+   ]
+  },
+  "water": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "water"
+    }
+   ]
+  },
+  "bedrock": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "bedrock"
+    }
+   ]
+  },
+  "cloud": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "cloud"
+    }
+   ]
+  },
+  "lamp": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "lamp"
+    }
+   ]
+  },
+  "crack_1": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "crack_1"
+    }
+   ]
+  },
+  "crack_2": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "crack_2"
+    }
+   ]
+  },
+  "crack_3": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "crack_3"
+    }
+   ]
+  },
+  "crack_4": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "crack_4"
+    }
+   ]
+  }
+ }
+}

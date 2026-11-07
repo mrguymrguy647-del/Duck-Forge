@@ -1,0 +1,84 @@
+{
+ "title": "Duck Craft's duck skin: each body part's six faces unwrapped, like a Minecraft skin",
+ "palette": {
+  "yellow": "#F2C230",
+  "yellow_dark": "#D9A21E",
+  "yellow_light": "#FFE27A",
+  "orange": "#F08020",
+  "orange_dark": "#C86010",
+  "ink": "#201C18",
+  "white": "#FFFFFF",
+  "navy": "#2A3450",
+  "navy_dark": "#1C2438",
+  "navy_light": "#3A4868",
+  "red": "#C83030",
+  "red_dark": "#982020",
+  "shirt": "#F4F4F8",
+  "shirt_shade": "#D8D8E0"
+ },
+ "commands": [
+  {
+   "cmd": "canvas",
+   "width": 64,
+   "height": 32,
+   "pixel": true
+  },
+  {
+   "cmd": "pixels",
+   "at": [
+    0,
+    0
+   ],
+   "colors": {
+    "a": "yellow",
+    "b": "yellow_dark",
+    "c": "yellow_light",
+    "d": "orange",
+    "e": "orange_dark",
+    "f": "ink",
+    "g": "white",
+    "h": "navy",
+    "i": "navy_dark",
+    "j": "navy_light",
+    "k": "red",
+    "l": "red_dark",
+    "m": "shirt",
+    "n": "shirt_shade"
+   },
+   "rows": [
+    "........ccccccccaaaaaaaa...........ddddeeee.....................",
+    "........ccccccccaaaaaaaa...........deedeeee.....................",
+    "........ccccccccaaaaaaaa...........ddddeeee.....................",
+    "........ccccccccaaaaaaaa........dddddddddddddd..................",
+    "........ccccccccaaaaaaaa........dddeeeeddddddd..................",
+    "........ccccccccaaaaaaaa........................................",
+    "........ccccccccaaaaaaaa........................................",
+    "........ccccccccaaaaaaaa........................................",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa................................",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa................................",
+    "aaaaaafaagfaagfaafaaaaaaaaaaaaaa................................",
+    "aaaaaafaaffaaffaafaaaaaaaaaaaaaa................................",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa................................",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa................................",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa................................",
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb................................",
+    "....jjjjjjjjiiiiiiii........jjjjaaaa........iiiieeee............",
+    "....jjjjjjjjiiiiiiii........jjjjaaaa........iiiieeee............",
+    "....jjjjjjjjiiiiiiii........jjjjaaaa........iiiieeee............",
+    "....jjjjjjjjiiiiiiii........jjjjaaaa........iiiieeee............",
+    "hhhhhjmllmjhhhhhhhhhihhhhhhhhhhhhhhhhhhhhhhhhihhhhhhhhhh........",
+    "hhhhhjmlkmjhhhhhhhhhihhhhhhhhhhhhhhhhhhhhhhhhihhhhhhhhhh........",
+    "hhhhhhjlkjhhhhhhhhhhihhhhhhhhjjhhhhhhhhhhhhhhihhhhhhhhhh........",
+    "hhhhhhjlkjhhhhhhhhhhihhhhhhhhhhhhhhhhhhhhhhhhihhhhhhhhhh........",
+    "hhhhhhjlkjhhhhhhhhhhihhhhhhhhhhhhhhhhhhhhhhhhihhhhhhhhhh........",
+    "hhhhhhhlkhhhhhhhhhhhihhhhhhhhhhhhhhhhhhhhhhhhihhhhhhhhhh........",
+    "hhhhhhhlkhhhhhhhhhhhihhhhhhhhhhhhhhhhhhhhhhhhihhhhhhhhhh........",
+    "hhhhhhhlkhhhhhhhhhhhihhhmmmmmmmmmmmmmmmmhhhhhihhhhhhhhhh........",
+    "hhhhhhhhbhhhhhhhhhhhihhhaaaaaaaaaaaaaaaadddddeeddddddddd........",
+    "hhhhhhhhbhhhhhhhhhhhihhhaaaaaaaaaaaaaaaadddddddddddddddd........",
+    "................................................................",
+    "................................................................"
+   ]
+  }
+ ]
+}
