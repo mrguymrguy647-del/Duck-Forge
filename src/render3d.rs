@@ -1260,6 +1260,40 @@ fn clip_near_uv(triangle: [Vec3; 3], uvs: [Vec2; 3]) -> ([(Vec3, Vec2); 4], usiz
     (out, count)
 }
 
+/// A floor 6 x 6 blocks wide painted with the "red" tile of a two-tile
+/// atlas (red, then blue), repeated once a block: texture points 0 to 6.
+#[cfg(test)]
+pub(crate) fn draw_repeated_tile_floor(canvas: &mut crate::canvas::Canvas) {
+    use crate::math::vec2;
+    let mut pixels = Vec::new();
+    for _ in 0..4 {
+        pixels.extend([Color::RED; 4]);
+        pixels.extend([Color::BLUE; 4]);
+    }
+    let atlas =
+        crate::tileset::Tileset::grid(&Sprite::from_pixels(8, 4, pixels), 4, 4, &["red", "blue"]);
+    let mut floor = Mesh::new().with_texture(atlas.tile("red"));
+    let corners = [
+        vec3(-3.0, 0.0, 0.0),
+        vec3(-3.0, 0.0, 6.0),
+        vec3(3.0, 0.0, 6.0),
+        vec3(3.0, 0.0, 0.0),
+    ];
+    let [a, b, c, d] = corners.map(|corner| floor.add_vertex(corner));
+    let uv = [
+        vec2(0.0, 0.0),
+        vec2(0.0, 6.0),
+        vec2(6.0, 6.0),
+        vec2(6.0, 0.0),
+    ];
+    floor.add_quad_uv(a, b, c, d, uv, Color::WHITE);
+    let floor = floor.glowing(); // exact colours, whatever the light
+    let mut camera = Camera3D::new(vec3(0.0, 2.0, -1.0));
+    camera.look_at(vec3(0.0, 0.0, 3.0));
+    canvas.clear(Color::BLACK);
+    canvas.draw_mesh(&floor, &Transform::default(), &camera);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1402,6 +1436,20 @@ mod tests {
             &Transform::at(vec3(2.0, 0.0, 0.0)),
         );
         assert!(plain.uvs_of(0).is_none() && plain.uvs_of(12).is_some());
+    }
+
+    /// One tile of an atlas repeats over a big floor, and the tile next to
+    /// it in the atlas never shows.
+    #[test]
+    fn an_atlas_tile_repeats_on_its_own() {
+        let mut canvas = crate::canvas::Canvas::new(80, 60);
+        draw_repeated_tile_floor(&mut canvas);
+        let count = |color: Color| {
+            let wanted = color.to_u32();
+            canvas.pixels().iter().filter(|&&p| p == wanted).count()
+        };
+        assert!(count(Color::RED) > 1500, "the floor is red");
+        assert_eq!(count(Color::BLUE), 0, "the blue tile never shows");
     }
 
     /// Duck Craft's beak: parts merged before the texture is given keep

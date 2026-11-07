@@ -625,6 +625,8 @@ fn three_d_textures_light_and_billboards() -> Result<(), LoadError> {
         (vec3(-0.5, -0.5, -0.5), vec3(3.5, 0.5, 0.5))
     );
     assert_eq!(atlas.uv_rect("dirt"), Rect::new(0.5, 0.0, 0.5, 1.0));
+    let floor = Mesh::quad(4.0, 4.0).with_texture(atlas.tile("dirt"));
+    assert!(floor.texture.is_some());
     let dirt = atlas.frame("dirt", 0.0);
     assert_eq!(dirt.place_in_picture(), [16, 0, 16, 16]);
     assert_eq!(dirt.whole_picture().width(), 32);

@@ -598,19 +598,6 @@ struct RayHit {
 
 // ---- Art ----
 
-/// A 16 x 16 tile copied out of the atlas, as a picture of its own (for
-/// textures that repeat, like the sea, and for the hotbar).
-fn tile_picture(atlas: &Tileset, name: &str) -> Sprite {
-    let tile = atlas.frame(name, 0.0);
-    let mut pixels = Vec::with_capacity(tile.width() * tile.height());
-    for y in 0..tile.height() {
-        for x in 0..tile.width() {
-            pixels.push(tile.get_pixel(x, y).unwrap_or(Color::rgba(0, 0, 0, 0)));
-        }
-    }
-    Sprite::from_pixels(tile.width(), tile.height(), pixels)
-}
-
 /// Pictures, meshes and sounds, made once and shared.
 struct Art {
     /// How each kind of block looks, for the world's chunks.
@@ -651,7 +638,7 @@ impl Art {
                         cube = cube.glowing();
                     }
                     cubes.push(Some(cube));
-                    icons.push(Some(tile_picture(&atlas, tiles[1])));
+                    icons.push(Some(atlas.tile(tiles[1])));
                 }
                 None => {
                     cubes.push(None);
@@ -670,8 +657,8 @@ impl Art {
             cubes,
             cracks,
             icons,
-            ocean: ocean(tile_picture(&atlas, "water")),
-            clouds: clouds(tile_picture(&atlas, "cloud")),
+            ocean: ocean(atlas.tile("water")),
+            clouds: clouds(atlas.tile("cloud")),
             duck: Duck::load(Sprite::load_png(format!("{ASSETS}/skin.png"))?),
             wind: Wav::load(format!("{ASSETS}/hum.wav"))?,
         })

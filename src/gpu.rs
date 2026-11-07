@@ -1069,6 +1069,22 @@ mod tests {
         assert!(share < 0.02, "{:.1}% of pixels differ", share * 100.0);
     }
 
+    /// A tile cut from an atlas repeats on its own on the GPU too.
+    #[test]
+    fn an_atlas_tile_repeats_on_its_own_like_the_cpu() {
+        let Some(mut gpu) = gpu_canvas(80, 60) else {
+            return;
+        };
+        let mut cpu = Canvas::new(80, 60);
+        crate::render3d::draw_repeated_tile_floor(&mut gpu);
+        crate::render3d::draw_repeated_tile_floor(&mut cpu);
+        gpu.flush_3d();
+        let blue = Color::BLUE.to_u32();
+        assert!(!gpu.pixels().contains(&blue), "the blue tile never shows");
+        let share = share_different(&gpu, &cpu);
+        assert!(share < 0.02, "{:.1}% of pixels differ", share * 100.0);
+    }
+
     /// Saves `out/cpu-vs-gpu.png`: the textured, lit test scene drawn by
     /// the CPU (left) and the GPU (right), and prints how many pixels
     /// differ. For checking a real graphics card by eye:

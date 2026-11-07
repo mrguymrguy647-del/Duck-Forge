@@ -2694,3 +2694,21 @@ things only where there's a mouse inside the walls), the debug overlay
 A separate `mouse_known()` next to the old function was the other choice;
 it keeps old code compiling, but nothing makes a game check it, and the
 whole point was that (0, 0) was easy to use by mistake.
+
+## Fix 6: One atlas tile repeating over a big surface
+
+Duck Craft copied the water and cloud tiles pixel by pixel into pictures
+of their own (`tile_picture`), because its sea, textured with the atlas,
+repeated the whole atlas. It turned out the engine could already do it: a
+sprite *cut from* a picture (a tile, a frame) repeats on its own as a
+texture, on the CPU (`wrap` stays inside the sprite's rectangle) and the
+GPU (each sprite gets its own texture, set to repeat). Only the whole
+atlas picture, which `Mesh::block` uses so blocks can share one texture,
+repeats as a whole. Nothing said so, and getting the tile took
+`atlas.frame(name, 0.0).clone()`. So the fix is a name and the docs:
+`Tileset::tile(name)` gives the tile's picture, sharing the atlas's
+pixels, and says it repeats on its own, with an example. Tests draw a
+floor with one tile repeated six times on the CPU and on the GPU
+(lavapipe here): the tile next to it in the atlas never shows, and the
+two pictures match. Duck Craft's sea, clouds and hotbar icons use it now,
+with the same picture to the pixel.

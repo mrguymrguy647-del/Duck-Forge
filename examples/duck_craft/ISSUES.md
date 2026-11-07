@@ -30,7 +30,10 @@ game; the tool still has the gap.
 3. **A tile from an atlas can't be used as a repeating texture.** The sea
    and clouds needed a tile copied pixel by pixel into its own `Sprite`
    (`tile_picture`), because texture points beyond 1 repeat the whole
-   atlas, not one tile.
+   atlas, not one tile. **Fixed in the engine:** a tile cut from the atlas
+   already repeated on its own (only the whole atlas picture, the one
+   `Mesh::block` uses, repeats as a whole); `atlas.tile("water")` now says
+   so, and Duck Craft uses it instead of copying pixels.
 4. **Glow is per mesh.** Lamps need their own mesh per chunk, and glowing
    blocks can't light their neighbours. No fog either, so the world ends
    with a hard edge at the sea.

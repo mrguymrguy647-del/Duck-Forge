@@ -858,7 +858,9 @@ sheet, one animation per tile, named like the legend's tiles),
 `Tileset::from_sheet(&sheet)`, `Tileset::grid(&sprite, 16, 16, &["grass", "", "plank"])`
 (cut left to right, top to bottom; `""` skips one), or `Tileset::new()`
 then `tiles.insert("lava", animation)`. `tiles.get(name)`, `names()`,
-`frame(name, seconds)`, `tiles.uv_rect(name)` (where the tile is in the
+`frame(name, seconds)`, `tiles.tile(name)` (the tile's picture, sharing
+the atlas's pixels: as a mesh texture it repeats on its own past texture
+point 1, for the sea, clouds or a floor), `tiles.uv_rect(name)` (where the tile is in the
 atlas picture, as texture points from 0 to 1, for your own meshes). Any
 sprite: `sprite.whole_picture()` (the atlas it was cut from) and
 `sprite.place_in_picture()` (`[left, top, width, height]` in pixels).

@@ -105,6 +105,29 @@ impl Tileset {
         }
     }
 
+    /// Tile `name`'s picture (its first frame), sharing the atlas's
+    /// pixels: nothing is copied. Use it as a texture that repeats over a
+    /// big surface (the sea, clouds, a floor): texture points past 1 start
+    /// the tile again, never showing the atlas tiles next to it, on the CPU
+    /// and the GPU. Also good for drawing the tile in 2D, like an icon.
+    /// Panics like [`frame`](Tileset::frame).
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// # let picture = Sprite::from_pixels(32, 16, vec![Color::BLUE; 32 * 16]);
+    /// # let atlas = Tileset::grid(&picture, 16, 16, &["water", "sand"]);
+    /// // A 40 x 40 square of sea, the water tile repeated once a block:
+    /// let mut sea = Mesh::new().with_texture(atlas.tile("water"));
+    /// let corners = [vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 40.0), vec3(40.0, 0.0, 40.0), vec3(40.0, 0.0, 0.0)];
+    /// let [a, b, c, d] = corners.map(|corner| sea.add_vertex(corner));
+    /// let uv = [vec2(0.0, 0.0), vec2(0.0, 40.0), vec2(40.0, 40.0), vec2(40.0, 0.0)];
+    /// sea.add_quad_uv(a, b, c, d, uv, Color::WHITE);
+    /// ```
+    #[track_caller]
+    pub fn tile(&self, name: &str) -> Sprite {
+        self.frame(name, 0.0).clone()
+    }
+
     /// Where tile `name` is in the atlas picture
     /// ([`whole_picture`](Sprite::whole_picture)), as texture points: the
     /// rectangle's corner and size are fractions (0 to 1) of the picture.
