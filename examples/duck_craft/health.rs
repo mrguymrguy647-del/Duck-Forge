@@ -237,7 +237,9 @@ impl DuckCraft {
                 faints,
                 ..Vitals::default()
             };
-            self.position = self.world.spawn;
+            // At the spawn, or the nearest place to it you fit (someone
+            // may have built there).
+            self.position = self.free_spot(self.world.spawn);
             self.velocity = Vec3::ZERO;
             self.yaw = self.world.spawn_yaw;
             self.pitch = -0.25;
@@ -294,15 +296,21 @@ impl DuckCraft {
         if self.vitals.fainted {
             canvas.fill_rect(
                 Rect::new(0.0, 0.0, WIDTH, HEIGHT),
-                Color::rgba(110, 10, 10, 150),
+                Color::rgba(40, 0, 0, 190),
             );
-            canvas.draw_text_centered("You fainted!", 80.0, 2, Color::WHITE);
-            let why = format!("The duck {}", self.fainted_because);
-            canvas.draw_text_centered(&why, 104.0, 1, Color::rgb(255, 210, 210));
-            let button = Rect::new(WIDTH / 2.0 - 60.0, 128.0, 120.0, 20.0);
-            canvas.fill_rect(button, Color::rgb(120, 120, 120));
-            canvas.draw_rect(button, Color::rgb(30, 30, 30));
-            canvas.draw_text_centered("Wake up (Space)", 134.0, 1, Color::WHITE);
+            canvas.draw_text_centered("You fainted.", 66.0, 2, Color::rgb(236, 230, 214));
+            canvas.draw_text_centered(
+                "The island kept going without you.",
+                90.0,
+                1,
+                Color::rgb(200, 180, 170),
+            );
+            let why = format!("(The duck {}.)", self.fainted_because);
+            canvas.draw_text_centered(&why, 104.0, 1, Color::rgb(150, 120, 115));
+            let button = Rect::new(WIDTH / 2.0 - 60.0, 128.0, 120.0, 18.0);
+            canvas.fill_rect(button, Color::rgba(70, 40, 38, 230));
+            canvas.draw_rect(button, Color::rgb(230, 224, 210));
+            canvas.draw_text_centered("Get up (Space)", 133.0, 1, Color::WHITE);
             canvas.label("wake_up", button);
         }
     }

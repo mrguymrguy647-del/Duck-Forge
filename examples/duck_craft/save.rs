@@ -10,12 +10,15 @@
 //! time of day, and the ducklings.
 
 use super::*;
+use menus::Mode;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
-/// The file's first bytes. Version 2 keeps stacks in slots; version 1 (a
-/// count of each block, gold and coal) still loads.
-const MAGIC: &[u8; 10] = b"DUCKCRAFT2";
+/// The file's first bytes. Version 3 adds the island's seed, the mode and
+/// the music setting; version 2 keeps stacks in slots; version 1 (a count
+/// of each block, gold and coal). All of them still load.
+const MAGIC: &[u8; 10] = b"DUCKCRAFT3";
+const MAGIC_V2: &[u8; 10] = b"DUCKCRAFT2";
 const MAGIC_V1: &[u8; 10] = b"DUCKCRAFT1";
 pub const SAVE_FILE: &str = "duck_craft_save.dat";
 /// Seconds between saves while you play.
@@ -76,8 +79,27 @@ impl DuckCraft {
     /// The game as bytes.
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut w = Writer(MAGIC.to_vec());
-        // Blocks, as runs: (how many, which).
-        let blocks = self.world.grid.blocks();
+        w.u32(self.world.seed);
+        w.u8(match self.mode {
+            Mode::Survival => 0,
+            Mode::Creative => 1,
+        });
+        w.u8(self.music_on as u8);
+        w.u32(self.kills);
+        // Blocks, as runs: (how many, which). Sand that's falling goes back
+        // where it is now (it falls again when the game loads).
+        let mut blocks = self.world.grid.blocks().to_vec();
+        for falling in &self.falling {
+            let mut y = (falling.y.floor() as i32).clamp(0, TALL as i32 - 1);
+            while y < TALL as i32 - 1 && self.world.get(falling.x, y, falling.z).solid() {
+                y += 1;
+            }
+            if World::inside(falling.x, y, falling.z) {
+                let i = (y as usize * SIZE + falling.z as usize) * SIZE + falling.x as usize;
+                blocks[i] = falling.block as BlockId;
+            }
+        }
+        let blocks = &blocks;
         let mut i = 0;
         while i < blocks.len() {
             let block = blocks[i];
@@ -89,7 +111,18 @@ impl DuckCraft {
             w.u8(block);
             i += run;
         }
-        for slot in &self.inventory.slots {
+        // What's on the pointer and in the crafting grid counts as carried
+        // (in the save; the game in hand is left alone).
+        let mut inventory = self.inventory.clone();
+        if let Some(screen) = &self.screen {
+            for stack in screen.grid.iter().chain([&screen.held]).flatten() {
+                inventory.add(stack.item, stack.count);
+            }
+        }
+        for stack in self.kept_grid.iter().flatten() {
+            inventory.add(stack.item, stack.count);
+        }
+        for slot in &inventory.slots {
             match slot {
                 Some(stack) => {
                     w.u8(stack.item.id());
@@ -104,9 +137,15 @@ impl DuckCraft {
         for v in [self.dug, self.placed, self.crafted, self.imprints] {
             w.u32(v);
         }
-        w.u32(self.vitals.health);
-        w.u32(self.vitals.food);
-        w.f32(self.vitals.air);
+        // Fainted: it's saved as woken, back at the spawn.
+        let vitals = if self.vitals.fainted {
+            health::Vitals::default()
+        } else {
+            self.vitals.clone()
+        };
+        w.u32(vitals.health);
+        w.u32(vitals.food);
+        w.f32(vitals.air);
         let mut plants: Vec<(&[i32; 3], &Plant)> = self.world.plants.iter().collect();
         plants.sort();
         w.u32(plants.len() as u32);
@@ -116,7 +155,11 @@ impl DuckCraft {
             w.u8(z as u8);
             w.u8(plant.id());
         }
-        w.vec3(self.position);
+        w.vec3(if self.vitals.fainted {
+            self.world.spawn
+        } else {
+            self.position
+        });
         w.f32(self.yaw);
         w.f32(self.pitch);
         w.f32(self.time);
@@ -135,12 +178,24 @@ impl DuckCraft {
     pub fn from_bytes(art: Rc<Art>, bytes: &[u8]) -> io::Result<DuckCraft> {
         let mut r = Reader(bytes);
         let version = match r.take(MAGIC.len())? {
-            m if m == MAGIC => 2,
+            m if m == MAGIC => 3,
+            m if m == MAGIC_V2 => 2,
             m if m == MAGIC_V1 => 1,
             _ => return Err(bad("not a Duck Craft save")),
         };
+        let (seed, mode, music_on, kills) = if version >= 3 {
+            let seed = r.u32()?;
+            let mode = if r.u8()? == 1 {
+                Mode::Creative
+            } else {
+                Mode::Survival
+            };
+            (seed, mode, r.u8()? != 0, r.u32()?)
+        } else {
+            (SEED, Mode::Survival, true, 0)
+        };
         // The island's blocks, over a freshly grown one (for its spawn).
-        let mut world = World::generate();
+        let mut world = World::generate(seed);
         let total = SIZE * TALL * SIZE;
         let mut cells = Vec::with_capacity(total);
         while cells.len() < total {
@@ -169,6 +224,9 @@ impl DuckCraft {
             }
         }
         let mut game = DuckCraft::new(art, world);
+        game.mode = mode;
+        game.music_on = music_on;
+        game.kills = kills;
         game.inventory = Inventory::empty();
         if version == 1 {
             // A count of each kind of block, then gold and coal.
@@ -187,7 +245,7 @@ impl DuckCraft {
                 let (id, count) = (r.u8()?, r.u32()?);
                 *slot = Item::from_id(id)
                     .filter(|_| count > 0)
-                    .map(|item| Stack::new(item, count.min(items::STACK)));
+                    .map(|item| Stack::new(item, count.min(item.max_stack())));
             }
         }
         game.dug = r.u32()?;
@@ -239,10 +297,36 @@ impl DuckCraft {
             duckling.follows = (follows > 0).then_some(follows);
             game.ducklings.push(duckling);
         }
-        // If the place you stood is now inside a block (an odd file),
-        // start at the spawn instead.
-        if game.body_hits(game.position) {
+        // Somewhere impossible (an odd file): the spawn. Inside a block:
+        // the nearest place you fit.
+        let p = game.position;
+        let sensible = [p.x, p.y, p.z].iter().all(|v| v.is_finite())
+            && (0.0..SIZE as f32).contains(&p.x)
+            && (0.0..SIZE as f32).contains(&p.z)
+            && (0.0..TALL as f32 + 8.0).contains(&p.y);
+        if !sensible {
             game.position = game.world.spawn;
+        }
+        game.position = game.free_spot(game.position);
+        if !game.time.is_finite() || game.time < 0.0 {
+            game.time = 0.0;
+        }
+        game.last_time_of_day = game.time_of_day();
+        game.ducklings.retain(|d| {
+            let q = d.position;
+            [q.x, q.y, q.z].iter().all(|v| v.is_finite())
+        });
+        // Sand with nothing under it (it was falling when saved) falls now.
+        for y in 1..TALL as i32 {
+            for z in 0..SIZE as i32 {
+                for x in 0..SIZE as i32 {
+                    if game.world.get(x, y, z) == Block::Sand
+                        && !game.world.get(x, y - 1, z).solid()
+                    {
+                        game.world.unsettled.push([x, y, z]);
+                    }
+                }
+            }
         }
         game.update_chunks();
         game.show_help = false;
@@ -286,10 +370,19 @@ impl DuckCraft {
 /// `None` for the path: a new island, never saved (headless runs).
 pub fn load_or_new(path: Option<PathBuf>) -> Result<DuckCraft, LoadError> {
     let art = Rc::new(Art::load()?);
+    // A new island: in a window, a different one each time; without one,
+    // always the same (so replays and tests repeat exactly).
+    let seed = if path.is_some() {
+        menus::clock_seed()
+    } else {
+        SEED
+    };
+    let mut has_save = false;
     let mut game = match path.as_deref().filter(|p| p.exists()) {
         Some(p) => match read(p).and_then(|bytes| DuckCraft::from_bytes(art.clone(), &bytes)) {
             Ok(game) => {
-                eprintln!("duck_craft: carried on from {}", p.display());
+                eprintln!("duck_craft: found the island in {}", p.display());
+                has_save = true;
                 game
             }
             Err(error) => {
@@ -297,12 +390,13 @@ pub fn load_or_new(path: Option<PathBuf>) -> Result<DuckCraft, LoadError> {
                     "duck_craft: couldn't load {} ({error}); a new island",
                     p.display()
                 );
-                DuckCraft::new(art, World::generate())
+                DuckCraft::new(art, World::generate(seed))
             }
         },
-        None => DuckCraft::new(art, World::generate()),
+        None => DuckCraft::new(art, World::generate(seed)),
     };
     game.save_path = path;
+    game.has_save = has_save;
     Ok(game)
 }
 

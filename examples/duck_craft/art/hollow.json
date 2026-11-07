@@ -1,0 +1,72 @@
+{
+ "title": "A Hollow: what's left of a duck. The duck's skin layout.",
+ "palette": {
+  "ash": "#8E8B86",
+  "ash_dark": "#6C6964",
+  "ash_light": "#A8A5A0",
+  "void": "#050506",
+  "rot": "#2E2F35",
+  "rot_dark": "#1C1D22",
+  "bone": "#C9C3B6",
+  "stain": "#4A3F3A"
+ },
+ "commands": [
+  {
+   "cmd": "canvas",
+   "width": 64,
+   "height": 32,
+   "pixel": true
+  },
+  {
+   "cmd": "pixels",
+   "at": [
+    0,
+    0
+   ],
+   "colors": {
+    "a": "ash",
+    "b": "ash_dark",
+    "c": "ash_light",
+    "d": "void",
+    "e": "rot",
+    "f": "rot_dark",
+    "g": "bone",
+    "h": "stain"
+   },
+   "rows": [
+    "........aaaabaaaaaaaaaaa...........bbbbbbbb.....................",
+    "........baaaaaacabaaaaba...........bbbbbbbb.....................",
+    "........acaaaaaacaaacaaa...........bbbbbbbb.....................",
+    "........aaaaaaacccaaaaaa........bbbgdggbbbbbbb..................",
+    "........aaacaacacaaaaaaa........bbbggdgbbbbbbb..................",
+    "........aaacaaaabaaaaaaa........................................",
+    "........caaaaabaaaaacaba........................................",
+    "........aaaaaaaaccaacabb........................................",
+    "aaabcaaaacaccaabaaaaaaaacaaacbaa................................",
+    "cbaaabaaaabaaaaacaaacaaaabaaccca................................",
+    "accaaadaaddaaddacdcaaaaaabaaaaaa................................",
+    "aaaaaadbaddaaddabdaaaaaaaaaaaaca................................",
+    "aaaacaaaadaaadaabbaacaaaaaaaaaaa................................",
+    "bcaaaaaaabcaabaababcaaaaaaaaaaaa................................",
+    "aaacaaabaaabbabaaaaaaababacaccaa................................",
+    "abaaaaaaaaaaaaaaaaaaacacaaaaaaac................................",
+    "....feeeeebbeeeeehee........eehhbbbb........ffffbbbb............",
+    "....eeeeebeeeeeeeeee........eefebbbb........ffffbbbb............",
+    "....beeeeebeeeeeeeee........eeeebbbb........fffebbbb............",
+    "....eehefeeeeeeeeeee........eeehbbbb........fffhbbbb............",
+    "eeeeeebbbbhbeeeeeeeeeeeeeefeeeeeefeeeeeefffffeffffffffff........",
+    "beeeaebbbbeeeebeeefeeeeefeeeeeeeeeeeeeeeffeffffffefeffff........",
+    "ebeeebebbeheeeeeeeebeeebeefeeeeheeeeeefehffffffffffffhee........",
+    "eeeeeeebbeeeheeeeeeefefeeeeheeeeeeeeeeeefhffffhfefffffff........",
+    "eebebaeabbfbeeeeeeebeheeeefeeeeeeefeeeeffffffefhffefffhf........",
+    "eeebeeeeaeffefeeeeeeeeeeeeeeeeefeefhhfeefheffffffffffhff........",
+    "efbheeeeeefeeeeeeeeeeeeeaaaaaaaaaaaaaaaaffeffffffehfffff........",
+    "eeeeeeeebeeeeeeeeeeeeeheaaaaaaaaaaaaaaaafeffhfffffffffff........",
+    "eeheebeeeeefeeebfeeeeeeeaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbb........",
+    "eeeeefeeeeabeeeeeeeeeeehgaaagaaagaaaaagabbbbbbbbbbbbbbbb........",
+    "................................................................",
+    "................................................................"
+   ]
+  }
+ ]
+}

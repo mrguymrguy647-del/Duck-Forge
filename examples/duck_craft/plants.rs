@@ -78,11 +78,12 @@ impl World {
                 if self.get(x, top, z) != Block::Grass {
                     continue;
                 }
-                let r = random01(x, 7, z, SEED + 30);
-                let patch = noise2(x as f32 / 6.0, z as f32 / 6.0, SEED + 31);
+                let r = random01(x, 7, z, self.seed + 30);
+                let patch = noise2(x as f32 / 6.0, z as f32 / 6.0, self.seed + 31);
                 let plant = if patch > 0.66 && r < 0.4 {
-                    let which = random01(x, 8, z, SEED + 32);
-                    let flower = (noise2(x as f32 / 9.0, z as f32 / 9.0, SEED + 33) * 3.0) as usize;
+                    let which = random01(x, 8, z, self.seed + 32);
+                    let flower =
+                        (noise2(x as f32 / 9.0, z as f32 / 9.0, self.seed + 33) * 3.0) as usize;
                     Some(if which < 0.25 {
                         Plant::TallGrass
                     } else {

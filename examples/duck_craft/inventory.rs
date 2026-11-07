@@ -16,6 +16,7 @@
 //! The window lets go of the mouse pointer while it's open.
 
 use super::*;
+use menus::Mode;
 
 /// Some of these, one in each grid slot (in any order), make that.
 pub struct Recipe {
@@ -27,7 +28,7 @@ const fn block(b: Block) -> Item {
     Item::Block(b)
 }
 
-pub const RECIPES: [Recipe; 7] = [
+pub const RECIPES: [Recipe; 8] = [
     Recipe {
         needs: &[block(Block::Log)],
         makes: (block(Block::Planks), 4),
@@ -55,6 +56,14 @@ pub const RECIPES: [Recipe; 7] = [
     Recipe {
         needs: &[Item::Gold, block(Block::Glass)],
         makes: (block(Block::Lamp), 2),
+    },
+    Recipe {
+        needs: &[
+            block(Block::Cobblestone),
+            block(Block::Cobblestone),
+            block(Block::Log),
+        ],
+        makes: (Item::Blade, 1),
     },
     Recipe {
         needs: &[
@@ -102,6 +111,8 @@ pub enum Spot {
     Book,
     /// A recipe in the book.
     Recipe(usize),
+    /// Creative: one of everything there is, in the panel where the book is.
+    Palette(usize),
 }
 
 // The layout, in canvas pixels. The panel is 176 x 166, in the middle of
@@ -140,6 +151,15 @@ pub fn spot_rect(spot: Spot, book_open: bool) -> Rect {
         Spot::Grid(i) => at(87.0 + (i % 2) as f32 * SLOT, 17.0 + (i / 2) as f32 * SLOT),
         Spot::Result => at(143.0, 26.0),
         Spot::Book => Rect::new(p.x + 87.0, p.y + 58.0, 20.0, 18.0),
+        Spot::Palette(i) => {
+            let b = book_panel(book_open);
+            Rect::new(
+                b.x + 2.0 + (i % 6) as f32 * SLOT,
+                b.y + 16.0 + (i / 6) as f32 * SLOT,
+                SLOT,
+                SLOT,
+            )
+        }
         Spot::Recipe(i) => {
             let b = book_panel(book_open);
             Rect::new(
@@ -158,18 +178,24 @@ fn preview_rect(book_open: bool) -> Rect {
     Rect::new(p.x + 7.0, p.y + 7.0, 72.0, 70.0)
 }
 
-/// Every spot, for finding the one under the pointer.
-fn spots(book_open: bool) -> impl Iterator<Item = Spot> {
-    let book = if book_open { RECIPES.len() } else { 0 };
+/// Every spot, for finding the one under the pointer. In creative the
+/// book's place holds the panel of everything.
+fn spots(book_open: bool, creative: bool) -> impl Iterator<Item = Spot> {
+    let (book, palette) = match (book_open, creative) {
+        (false, _) => (0, 0),
+        (true, false) => (RECIPES.len(), 0),
+        (true, true) => (0, Item::all().len()),
+    };
     (0..SLOTS)
         .map(Spot::Slot)
         .chain((0..4).map(Spot::Grid))
         .chain([Spot::Result, Spot::Book])
         .chain((0..book).map(Spot::Recipe))
+        .chain((0..palette).map(Spot::Palette))
 }
 
-pub fn spot_at(point: Vec2, book_open: bool) -> Option<Spot> {
-    spots(book_open).find(|&spot| spot_rect(spot, book_open).contains(point))
+pub fn spot_at(point: Vec2, book_open: bool, creative: bool) -> Option<Spot> {
+    spots(book_open, creative).find(|&spot| spot_rect(spot, book_open).contains(point))
 }
 
 impl DuckCraft {
@@ -178,7 +204,13 @@ impl DuckCraft {
         let input = &ctx.input;
         if self.screen.is_none() {
             if input.was_pressed(Key::E) && !self.vitals.fainted {
-                self.screen = Some(Screen::default());
+                // In creative the panel of everything is open from the start.
+                // What didn't fit in the bag last time is still in the grid.
+                self.screen = Some(Screen {
+                    book_open: self.mode == Mode::Creative,
+                    grid: std::mem::take(&mut self.kept_grid),
+                    ..Screen::default()
+                });
                 self.digging = None;
                 self.show_help = false;
                 ctx.lock_pointer(false);
@@ -212,6 +244,7 @@ impl DuckCraft {
         {
             if input.was_pressed(key) {
                 self.slot = i;
+                self.eating_seconds = 0.0;
             }
         }
         if !(left || right) {
@@ -221,7 +254,7 @@ impl DuckCraft {
             return;
         };
         let book_open = self.screen.as_ref().is_some_and(|s| s.book_open);
-        let Some(spot) = spot_at(point, book_open) else {
+        let Some(spot) = spot_at(point, book_open, self.mode == Mode::Creative) else {
             return;
         };
         let sound = self.click_spot(spot, left, shift);
@@ -242,6 +275,18 @@ impl DuckCraft {
             Spot::Recipe(i) => {
                 self.fill_grid(&mut screen, &RECIPES[i]);
                 Some(900.0)
+            }
+            Spot::Palette(i) => {
+                let item = Item::all()[i];
+                if screen.held.take().is_some() {
+                    Some(300.0) // what was held goes in the bin
+                } else if shift {
+                    self.inventory.add(item, item.max_stack());
+                    Some(900.0)
+                } else {
+                    screen.held = Some(Stack::new(item, item.max_stack()));
+                    Some(900.0)
+                }
             }
             Spot::Result => self.take_result(&mut screen, shift),
             Spot::Slot(i) if shift && left => {
@@ -295,7 +340,7 @@ impl DuckCraft {
             } else {
                 match &mut screen.held {
                     None => screen.held = Some(Stack::new(item, amount)),
-                    Some(held) if held.item == item && held.count + amount <= items::STACK => {
+                    Some(held) if held.item == item && held.count + amount <= item.max_stack() => {
                         held.count += amount;
                     }
                     Some(_) => break,
@@ -326,6 +371,18 @@ impl DuckCraft {
     /// The recipe book: empties the grid into the bag, then puts in one of
     /// each thing the recipe needs, if the bag has them.
     fn fill_grid(&mut self, screen: &mut Screen, recipe: &Recipe) {
+        // What's in the grid goes back in the bag first: only if it all fits
+        // (nothing is ever thrown away).
+        let mut trial = self.inventory.clone();
+        let fits = screen
+            .grid
+            .iter()
+            .flatten()
+            .all(|stack| trial.add(stack.item, stack.count) == 0);
+        if !fits {
+            self.say("Your bag is full");
+            return;
+        }
         for slot in screen.grid.iter_mut() {
             if let Some(stack) = slot.take() {
                 self.inventory.add(stack.item, stack.count);
@@ -351,16 +408,35 @@ impl DuckCraft {
     /// Closes the screen, putting the grid and the held stack back in the
     /// bag.
     pub fn close_inventory(&mut self) {
-        let Some(screen) = self.screen.take() else {
+        let Some(mut screen) = self.screen.take() else {
             return;
         };
-        let mut lost = 0;
-        for stack in screen.grid.into_iter().chain([screen.held]).flatten() {
-            lost += self.inventory.add(stack.item, stack.count);
+        // The grid goes back in the bag; what doesn't fit stays in the grid
+        // for next time.
+        for slot in screen.grid.iter_mut() {
+            if let Some(stack) = *slot {
+                let left = self.inventory.add(stack.item, stack.count);
+                *slot = (left > 0).then(|| Stack::new(stack.item, left));
+            }
         }
-        if lost > 0 {
-            self.say(format!("Your bag was full: {lost} things were lost"));
+        // The stack on the pointer: the bag, else the grid.
+        if let Some(held) = screen.held.take() {
+            let left = self.inventory.add(held.item, held.count);
+            if left > 0 {
+                let rest = add_into(&mut screen.grid, Stack::new(held.item, left));
+                if let Some(rest) = rest {
+                    self.say(format!(
+                        "Your bag is full: {} {} were lost",
+                        rest.count,
+                        rest.item.name()
+                    ));
+                }
+            }
         }
+        if screen.grid.iter().any(|s| s.is_some()) {
+            self.say("Your bag is full: some things wait in the crafting grid");
+        }
+        self.kept_grid = screen.grid;
     }
 
     pub fn draw_inventory(&self, canvas: &mut Canvas, camera: &Camera3D, mouse: Option<Vec2>) {
@@ -445,14 +521,20 @@ impl DuckCraft {
             Color::WHITE,
         );
 
-        if book {
+        let creative = self.mode == Mode::Creative;
+        if book && creative {
+            self.draw_palette(canvas);
+        } else if book {
             self.draw_book(canvas);
         }
 
         // The pointer: what's under it lights up; the held stack follows it.
         if let Some(point) = mouse {
-            if let Some(spot) = spot_at(point, book) {
-                if matches!(spot, Spot::Slot(_) | Spot::Grid(_) | Spot::Result) {
+            if let Some(spot) = spot_at(point, book, creative) {
+                if matches!(
+                    spot,
+                    Spot::Slot(_) | Spot::Grid(_) | Spot::Result | Spot::Palette(_)
+                ) {
                     let r = spot_rect(spot, book);
                     canvas.fill_rect(
                         Rect::new(r.x + 1.0, r.y + 1.0, 16.0, 16.0),
@@ -460,6 +542,7 @@ impl DuckCraft {
                     );
                 }
                 let under = match spot {
+                    Spot::Palette(i) => Some(Stack::new(Item::all()[i], 1)),
                     Spot::Slot(i) => self.inventory.slots[i],
                     Spot::Grid(i) => screen.grid[i],
                     Spot::Result => result,
@@ -490,6 +573,33 @@ impl DuckCraft {
         canvas.fill_rect(rect, Color::rgb(139, 139, 139));
         sunken(canvas, rect);
         self.draw_stack(canvas, stack, vec2(rect.x + 1.0, rect.y + 1.0));
+    }
+
+    /// Creative: one of everything, to take as many as you like.
+    fn draw_palette(&self, canvas: &mut Canvas) {
+        let b = book_panel(true);
+        raised(canvas, b);
+        canvas.draw_text(
+            "Everything",
+            vec2(b.x + 6.0, b.y + 5.0),
+            1,
+            Color::rgb(60, 60, 66),
+        );
+        for (i, item) in Item::all().into_iter().enumerate() {
+            let r = spot_rect(Spot::Palette(i), true);
+            canvas.fill_rect(r, Color::rgb(139, 139, 139));
+            sunken(canvas, r);
+            self.draw_stack(
+                canvas,
+                Some(Stack::new(item, 1)),
+                vec2(r.x + 1.0, r.y + 1.0),
+            );
+        }
+        let rows = Item::all().len().div_ceil(6) as f32;
+        for (n, note) in ["Click: a stack", "Holding: bin it"].iter().enumerate() {
+            let at = vec2(b.x + 5.0, b.y + 22.0 + rows * SLOT + n as f32 * 10.0);
+            canvas.draw_text(note, at, 1, Color::rgb(70, 70, 76));
+        }
     }
 
     fn draw_book(&self, canvas: &mut Canvas) {
@@ -584,8 +694,8 @@ impl DuckCraft {
 /// room first, then empty). Returns what didn't fit.
 fn add_into(slots: &mut [Option<Stack>], mut stack: Stack) -> Option<Stack> {
     for slot in slots.iter_mut().flatten() {
-        if slot.item == stack.item && slot.count < items::STACK {
-            let moved = stack.count.min(items::STACK - slot.count);
+        if slot.item == stack.item && slot.count < stack.item.max_stack() {
+            let moved = stack.count.min(stack.item.max_stack() - slot.count);
             slot.count += moved;
             stack.count -= moved;
         }
@@ -608,8 +718,8 @@ fn room_for(inventory: &Inventory, item: Item, count: u32) -> bool {
         .slots
         .iter()
         .map(|slot| match slot {
-            None => items::STACK,
-            Some(stack) if stack.item == item => items::STACK - stack.count,
+            None => item.max_stack(),
+            Some(stack) if stack.item == item => item.max_stack() - stack.count,
             Some(_) => 0,
         })
         .sum();
@@ -651,7 +761,7 @@ fn click_slot(slot: &mut Option<Stack>, held: &mut Option<Stack>, left: bool) ->
         }
         // The same thing: as much as fits (or one).
         (Some(stack), Some(h), _) if stack.item == h.item => {
-            let room = items::STACK - stack.count;
+            let room = stack.item.max_stack() - stack.count;
             let moved = if left { h.count.min(room) } else { 1.min(room) };
             if moved == 0 {
                 return None;

@@ -379,6 +379,28 @@ def coal_lump():
     ], {"k": "coal", "s": "stone_dark"})
 
 
+def stone_blade():
+    """A rough blade of knapped stone, bound to a stick with grass."""
+    return picture([
+        "................",
+        "............sl..",
+        "...........sls..",
+        "..........slsd..",
+        ".........slsd...",
+        "........slsd....",
+        ".......slsd.....",
+        "......slsd......",
+        ".....slsd.......",
+        "..gg.lsd........",
+        "...gggd.........",
+        "...bgg..........",
+        "..b..g..........",
+        ".b..............",
+        "b...............",
+        "................",
+    ], {"s": "stone", "l": "stone_light", "d": "stone_dark", "g": "grass_dark", "b": "bark"})
+
+
 def cloud():
     return noise("cloud", [("cloud_shade", 0.1)])
 
@@ -444,6 +466,7 @@ TILES = [
     ("bread", bread()),
     ("gold_nugget", gold_nugget()),
     ("coal_lump", coal_lump()),
+    ("stone_blade", stone_blade()),
 ]
 for i, stage in enumerate(cracks()):
     TILES.append((f"crack_{i + 1}", stage))

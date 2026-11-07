@@ -2,7 +2,7 @@
   "image": "blocks.png",
   "frame": { "width": 16, "height": 16 },
   "columns": 1,
-  "rows": 31,
+  "rows": 32,
   "scale": 1,
   "pivot": [8.0,16.0],
   "animations": {
@@ -33,9 +33,10 @@
     "bread": {"row":24,"frames":[24],"fps":1.0,"loop":false},
     "gold_nugget": {"row":25,"frames":[25],"fps":1.0,"loop":false},
     "coal_lump": {"row":26,"frames":[26],"fps":1.0,"loop":false},
-    "crack_1": {"row":27,"frames":[27],"fps":1.0,"loop":false},
-    "crack_2": {"row":28,"frames":[28],"fps":1.0,"loop":false},
-    "crack_3": {"row":29,"frames":[29],"fps":1.0,"loop":false},
-    "crack_4": {"row":30,"frames":[30],"fps":1.0,"loop":false}
+    "stone_blade": {"row":27,"frames":[27],"fps":1.0,"loop":false},
+    "crack_1": {"row":28,"frames":[28],"fps":1.0,"loop":false},
+    "crack_2": {"row":29,"frames":[29],"fps":1.0,"loop":false},
+    "crack_3": {"row":30,"frames":[30],"fps":1.0,"loop":false},
+    "crack_4": {"row":31,"frames":[31],"fps":1.0,"loop":false}
   }
 }

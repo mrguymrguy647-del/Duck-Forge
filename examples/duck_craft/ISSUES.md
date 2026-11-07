@@ -169,6 +169,64 @@ game; the tool still has the gap.
     the real game. A video option to draw the pointer would help every
     game with menus.
 
+## Found in the final update (modes, night, music)
+
+28. **`play_wav` has no volume.** A far-off Hollow should groan quietly,
+    but a `.wav` plays at one loudness; the game ships a second, quieter,
+    muffled file (`groan_far.wav`). `ctx.play_wav_at(&wav, volume)` (and
+    one day a position for stereo) would do.
+29. **A `Wav` can't be made from samples in code.** The music had to be
+    made in Python and shipped as files (5 MB of `.wav`), where a
+    `Wav::from_samples(&[f32], rate)` would let a game make sounds at
+    start. (The engine already resamples anything it loads, which made
+    16 kHz music files easy.)
+30. **Loading 5 MB of sound in every play test** (each `arena` loads the
+    art) took the tests from 0.5 s to about 4 s. A load cache in
+    `Wav::load` (or the engine sharing loaded files) would bring it back.
+31. **Replays don't apply the tune values they were recorded with.** The
+    night showcase starts at dusk (`start_time_of_day`); its recording
+    notes the value, but the replay needs `--set start_time_of_day=0.47`
+    again, or it plays a different game. An option to use the recorded
+    values (or a warning that blocks the run) would help.
+32. **Labels under a menu make `verify` fail.** The title and pause
+    screens are drawn over the world, and a duckling's label under a
+    button counts as "spawned on top of each other". The game labels
+    world things only while playing; a way to mark a menu as a layer
+    above the world would be cleaner.
+33. **No quit hook (still #17), and it matters more now:** the pause
+    menu saves when you quit from it, but the window's close button
+    still loses up to 30 s.
+34. **Fuzz runs all start at the same time of day.** The night (and the
+    Hollows) only got fuzzed by adding a tune value for the starting
+    time and fuzzing with `--set start_time_of_day=0.6`. That works well;
+    worth a line in the skill ("fuzz the hard parts with --set").
+35. **`set_loop_volume` every frame fills the log.** Fading five loops
+    for a whole run would write thousands of volume changes; the game
+    only sends a change when it's bigger than 0.004.
+36. **`Simulation` has no `frame()`;** `sim.context().frame()` works.
+
+### Bugs in the game, found by a second review and fixed
+
+A fresh review of the code (by another agent, reading it cold) found
+nine real bugs, each shown with a play test. All are fixed, each with a
+test in `tests.rs`:
+
+- a full bag destroyed what was in the crafting grid (recipe book, closing
+  the bag, fainting): now nothing is thrown away; what doesn't fit waits
+  in the grid
+- waking up (after fainting) inside blocks built at the spawn: now the
+  nearest place the duck fits
+- saving with the bag open lost the stack on the pointer and the grid
+- a block could be placed inside a duckling (and now a Hollow)
+- a save made while fainted loaded as alive with half a heart
+- sand falling under the sea left a pocket of air
+- switching slot mid-bite carried the bite over
+- sand mid-fall when the game saved was lost
+- a save with an impossible position (y = 10^9) froze the game
+
+And two of mine: the clouds were copied whole every frame to tint them
+(now tinted as drawn), and the Hollows' knockback threw them ten blocks.
+
 ## Duck Quill
 
 0. **(This round) More than 52 colours in one pixel script.** The atlas
@@ -197,5 +255,12 @@ game; the tool still has the gap.
 
 ## Duck Echo
 
-- Not used: it isn't built here. The wind loop is Mini Craft's; the dig,
-  break, place, step, splash and pick sounds are `Sound { .. }` in code.
+- Not used: it isn't ready. The music and the longer sounds come from
+  `audio/make_sounds.py` (numpy and scipy, written for this game); the
+  wind loop is Mini Craft's; short sounds (dig, place, step, quack,
+  click) are `Sound { .. }` in code. What it took, for Duck Echo's
+  sake: notes with harmonics and decays for a felt piano, inharmonic
+  partials for bells, band-passed saws for voices, a Schroeder reverb,
+  and loops made seamless by rendering three passes and keeping the
+  middle one (the drones tuned to whole cycles per loop, the wind made
+  periodic in the frequency domain).

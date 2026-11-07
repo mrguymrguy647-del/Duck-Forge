@@ -2414,6 +2414,93 @@
   },
   {
    "cmd": "define",
+   "name": "stone_blade",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "grass",
+      "b": "grass_dark",
+      "c": "grass_light",
+      "d": "dirt",
+      "e": "dirt_dark",
+      "f": "dirt_light",
+      "g": "stone",
+      "h": "stone_dark",
+      "i": "stone_light",
+      "j": "mortar_dark",
+      "k": "sand",
+      "l": "sand_dark",
+      "m": "sand_light",
+      "n": "bark_dark",
+      "o": "bark",
+      "p": "ring",
+      "q": "ring_light",
+      "r": "leaf",
+      "s": "leaf_dark",
+      "t": "leaf_light",
+      "u": "plank",
+      "v": "plank_dark",
+      "w": "plank_light",
+      "x": "glass",
+      "y": "shine",
+      "z": "glass_dark",
+      "A": "brick",
+      "B": "brick_dark",
+      "C": "mortar",
+      "D": "coal",
+      "E": "gold",
+      "F": "gold_light",
+      "G": "water",
+      "H": "water_light",
+      "I": "water_dark",
+      "J": "bedrock",
+      "K": "bedrock_light",
+      "L": "crack",
+      "M": "cloud",
+      "N": "cloud_shade",
+      "O": "lamp",
+      "P": "lamp_light",
+      "Q": "lamp_frame",
+      "R": "stem",
+      "S": "petal_yellow",
+      "T": "petal_red",
+      "U": "petal_white",
+      "V": "apple",
+      "W": "apple_dark",
+      "X": "seed",
+      "Y": "seed_dark",
+      "Z": "crust",
+      "0": "crumb",
+      "1": "gold_dark"
+     },
+     "rows": [
+      "................",
+      "............gi..",
+      "...........gig..",
+      "..........gigh..",
+      ".........gigh...",
+      "........gigh....",
+      ".......gigh.....",
+      "......gigh......",
+      ".....gigh.......",
+      "..bb.igh........",
+      "...bbbh.........",
+      "...obb..........",
+      "..o..b..........",
+      ".o..............",
+      "o...............",
+      "................"
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
    "name": "crack_1",
    "commands": [
     {
@@ -3029,6 +3116,16 @@
     {
      "cmd": "use",
      "name": "coal_lump"
+    }
+   ]
+  },
+  "stone_blade": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "stone_blade"
     }
    ]
   },

@@ -21,9 +21,11 @@ pub enum Item {
     Seeds,
     /// Food: the best there is.
     Bread,
+    /// Knapped stone on a stick: hits harder than wings. One to a slot.
+    Blade,
 }
 
-/// How many fit in one slot.
+/// How many fit in one slot, for most things (see `Item::max_stack`).
 pub const STACK: u32 = 64;
 /// All the slots: the hotbar (0 to 8), then the backpack (9 to 35).
 pub const SLOTS: usize = 36;
@@ -38,6 +40,15 @@ impl Item {
             Item::Apple => "Apple",
             Item::Seeds => "Seeds",
             Item::Bread => "Bread",
+            Item::Blade => "Stone blade",
+        }
+    }
+
+    /// How many fit in one slot.
+    pub fn max_stack(self) -> u32 {
+        match self {
+            Item::Blade => 1,
+            _ => STACK,
         }
     }
 
@@ -50,6 +61,7 @@ impl Item {
             Item::Apple => "apple",
             Item::Seeds => "seeds",
             Item::Bread => "bread",
+            Item::Blade => "stone_blade",
         }
     }
 
@@ -71,6 +83,24 @@ impl Item {
         }
     }
 
+    /// Everything there is to carry, for the creative panel.
+    pub fn all() -> Vec<Item> {
+        let blocks = Block::ALL
+            .into_iter()
+            .filter(|&b| b != Block::Air)
+            .map(Item::Block);
+        blocks
+            .chain([
+                Item::Gold,
+                Item::Coal,
+                Item::Apple,
+                Item::Seeds,
+                Item::Bread,
+                Item::Blade,
+            ])
+            .collect()
+    }
+
     /// A number for the save file (0 is "no item").
     pub fn id(self) -> u8 {
         match self {
@@ -80,6 +110,7 @@ impl Item {
             Item::Apple => 102,
             Item::Seeds => 103,
             Item::Bread => 104,
+            Item::Blade => 105,
         }
     }
 
@@ -90,6 +121,7 @@ impl Item {
             102 => Item::Apple,
             103 => Item::Seeds,
             104 => Item::Bread,
+            105 => Item::Blade,
             n if (1..BLOCK_KINDS as u8).contains(&n) => Item::Block(Block::ALL[n as usize]),
             _ => return None,
         })
@@ -140,8 +172,8 @@ impl Inventory {
             if count == 0 {
                 break;
             }
-            if slot.item == item && slot.count < STACK {
-                let moved = count.min(STACK - slot.count);
+            if slot.item == item && slot.count < item.max_stack() {
+                let moved = count.min(item.max_stack() - slot.count);
                 slot.count += moved;
                 count -= moved;
             }
@@ -151,7 +183,7 @@ impl Inventory {
                 break;
             }
             if slot.is_none() {
-                let moved = count.min(STACK);
+                let moved = count.min(item.max_stack());
                 *slot = Some(Stack::new(item, moved));
                 count -= moved;
             }
@@ -204,6 +236,29 @@ impl Inventory {
     pub fn hotbar_slot_of(&self, item: Item) -> Option<usize> {
         (0..HOTBAR_SLOTS).find(|&i| self.slots[i].is_some_and(|s| s.item == item))
     }
+}
+
+/// What you start with in creative: a hotbar of building blocks (they
+/// never run out).
+pub fn creative_kit() -> Inventory {
+    let mut inventory = Inventory::empty();
+    for (i, block) in [
+        Block::Grass,
+        Block::Cobblestone,
+        Block::Planks,
+        Block::Log,
+        Block::Glass,
+        Block::Brick,
+        Block::Lamp,
+        Block::Leaves,
+        Block::Sand,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        inventory.slots[i] = Some(Stack::new(Item::Block(block), STACK));
+    }
+    inventory
 }
 
 /// What you start with: building blocks, lamps for the night, and bread.

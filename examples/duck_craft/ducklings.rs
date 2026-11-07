@@ -8,6 +8,7 @@
 //! Left-click one and it hops and quacks; nothing hurts them.
 
 use super::*;
+use menus::Stage;
 use std::f32::consts::PI;
 
 /// How many ducklings the island starts with.
@@ -89,8 +90,8 @@ pub fn hatch(world: &World) -> Vec<Duckling> {
     let mut tries = 0;
     while ducklings.len() < DUCKLINGS && tries < 400 {
         tries += 1;
-        let angle = random01(tries, 0, 0, SEED + 20) * TAU;
-        let distance = 5.0 + random01(tries, 1, 0, SEED + 20) * 9.0;
+        let angle = random01(tries, 0, 0, world.seed + 20) * TAU;
+        let distance = 5.0 + random01(tries, 1, 0, world.seed + 20) * 9.0;
         let (x, z) = (
             sx + (angle.sin() * distance) as i32,
             sz + (angle.cos() * distance) as i32,
@@ -410,7 +411,11 @@ impl DuckCraft {
                 let (low, high) = duckling.bounds();
                 draw_box_edges(canvas, camera, low, high, Color::rgba(20, 20, 24, 200));
             }
-            if let Some(rect) = screen_box(camera, canvas, duckling.position, 0.5, 0.6) {
+            // (Labels only while playing: a menu over the world has its own.)
+            if let (Stage::Playing, Some(rect)) = (
+                &self.stage,
+                screen_box(camera, canvas, duckling.position, 0.5, 0.6),
+            ) {
                 canvas.label("duckling", rect);
             }
         }

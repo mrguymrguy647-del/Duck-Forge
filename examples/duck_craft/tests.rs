@@ -4,6 +4,7 @@
 //! on the island's hills.
 
 use super::*;
+use menus::{Mode, Stage};
 use std::f32::consts::PI;
 
 /// The top of the arena's floor: the duck's feet stand at this height.
@@ -12,7 +13,7 @@ const FLOOR: i32 = 20;
 /// The island with its first chunk (x and z 0 to 15) cleared to a flat
 /// stone floor, the duck in its middle looking along +z, level.
 fn arena(change: impl FnOnce(&mut World)) -> DuckCraft {
-    let mut world = World::generate();
+    let mut world = World::generate(SEED);
     for z in 0..CHUNK as i32 {
         for x in 0..CHUNK as i32 {
             for y in 1..TALL as i32 {
@@ -51,7 +52,7 @@ fn tap(key: &str) -> String {
 
 #[test]
 fn the_island_has_land_sea_trees_ores_and_caves() {
-    let world = World::generate();
+    let world = World::generate(SEED);
     let count = |kind: Block| {
         let blocks = world.grid.blocks().iter();
         blocks.filter(|&&b| b == kind as BlockId).count()
@@ -75,7 +76,7 @@ fn the_island_has_land_sea_trees_ores_and_caves() {
     // Caves: air below the ground somewhere.
     let caves = (0..SIZE as i32).any(|z| {
         (0..SIZE as i32).any(|x| {
-            let h = World::ground_height(x, z);
+            let h = World::ground_height(x, z, SEED);
             (1..h - 2).any(|y| world.get(x, y, z) == Block::Air)
         })
     });
@@ -232,19 +233,26 @@ fn the_mouse_looks_round_while_the_window_holds_the_pointer() {
     sim.move_mouse_by(vec2(-50.0, 0.0)); // and back, to look at the grass again
     sim.step();
 
-    // Escape lets go of the pointer: now the mouse doesn't turn.
+    // Escape pauses and lets go of the pointer: now the mouse doesn't turn.
     sim.press(Key::Escape);
     sim.step();
     sim.release(Key::Escape);
     assert!(!sim.context().pointer_locked());
-    assert!(sim.game().pointer_free);
+    assert!(matches!(sim.game().stage, Stage::Paused { .. }));
     sim.move_mouse_by(vec2(80.0, 0.0));
     sim.step();
     assert!(sim.game().yaw.abs() < 1e-5);
+    let time = sim.game().time;
+    sim.run(30);
+    assert_eq!(sim.game().time, time, "the island waits while paused");
 
-    // A click takes it back, and holding that click doesn't dig.
+    // Clicking "Back to the island" takes the pointer back, and holding
+    // that click doesn't dig.
+    let back = menus::button_rect(0, 82.0);
+    sim.move_mouse(vec2(back.x + 10.0, back.y + 9.0));
     sim.press_mouse(MouseButton::Left);
     sim.run(40);
+    assert_eq!(sim.game().stage, Stage::Playing);
     assert!(sim.context().pointer_locked());
     assert_eq!(sim.game().world.get(8, FLOOR + 1, 10), Block::Grass);
     // The next click does.
@@ -252,13 +260,14 @@ fn the_mouse_looks_round_while_the_window_holds_the_pointer() {
     sim.step();
     sim.press_mouse(MouseButton::Left);
     sim.run(40);
+    sim.release_mouse(MouseButton::Left);
     assert_eq!(sim.game().world.get(8, FLOOR + 1, 10), Block::Air);
 
-    // Escape twice quits.
-    for _ in 0..2 {
-        sim.press(Key::Escape);
+    // Escape, then the last button (quit).
+    for key in [Key::Escape, Key::S, Key::S, Key::S, Key::Enter] {
+        sim.press(key);
         sim.step();
-        sim.release(Key::Escape);
+        sim.release(key);
         sim.step();
     }
     assert!(sim.quit_requested());
@@ -383,7 +392,7 @@ fn picking_a_slot_changes_the_block_in_hand() {
 
 #[test]
 fn the_playthrough_digs_builds_and_ends_behind_the_duck() {
-    let played = PlayTest::new(config(), new_game().unwrap())
+    let played = PlayTest::new(config(), title_game(None).unwrap())
         .inputs("playthroughs/duck_craft.json")
         .run();
     assert_eq!(played.number("dug"), 2.0);
@@ -395,7 +404,7 @@ fn the_playthrough_digs_builds_and_ends_behind_the_duck() {
 #[test]
 #[ignore]
 fn print_map() {
-    let world = World::generate();
+    let world = World::generate(SEED);
     for z in (0..SIZE as i32).rev() {
         let row: String = (0..SIZE as i32)
             .map(|x| {
@@ -488,6 +497,99 @@ fn views() {
         sim.release(Key::Left);
         sim.run(30);
         sim.picture().save_png("out/views/parade.png").unwrap();
+    }
+    // The night: Hollows close, by a lamp, the Watcher far off; the pause
+    // menu; the faint screen; creative's panel.
+    {
+        let night = at_time_of_day(0.78);
+        // Three Hollows coming, seen by lamplight.
+        let mut game = new_game().unwrap();
+        game.time = night;
+        game.last_time_of_day = game.time_of_day();
+        game.spawn_wait = 1000.0;
+        let s = game.world.spawn;
+        let ahead = vec3(game.yaw.sin(), 0.0, game.yaw.cos());
+        let side = vec3(game.yaw.cos(), 0.0, -game.yaw.sin());
+        for (i, (f, r)) in [(4.0, -1.2), (6.5, 1.6), (9.0, -0.4)].iter().enumerate() {
+            let at = game.free_spot(s + ahead * *f + side * *r);
+            let mut h = Hollow::new(at, game.yaw + PI);
+            h.chasing = i < 2;
+            game.hollows.push(h);
+        }
+        let lamp = s + side * -2.0 + ahead * 1.0;
+        game.world
+            .set(lamp.x as i32, lamp.y as i32, lamp.z as i32, Block::Lamp);
+        game.update_chunks();
+        game.show_help = false;
+        game.pitch = -0.05;
+        let mut sim = Simulation::new(config(), game);
+        sim.step();
+        sim.picture().save_png("out/views/hollows.png").unwrap();
+        // One Hollow, close, from behind the duck.
+        let mut game = hollow_ahead(3.0);
+        game.behind_view = true;
+        game.hollows[0].chasing = true;
+        game.world.set(6, FLOOR, 10, Block::Lamp);
+        game.update_chunks();
+        game.show_help = false;
+        game.orbit = Some(2.5);
+        let mut sim = Simulation::new(config(), game);
+        sim.step();
+        sim.picture()
+            .save_png("out/views/hollow_close.png")
+            .unwrap();
+        // The Watcher, far off, off to one side.
+        let mut game = new_game().unwrap();
+        game.time = night;
+        game.last_time_of_day = game.time_of_day();
+        game.spawn_wait = 1000.0;
+        game.watcher_night = game.day_number();
+        game.show_help = false;
+        let mut sim = Simulation::new(config(), game);
+        sim.step();
+        let mut ctx_game = sim.game().clone();
+        let at = ctx_game.free_spot(
+            ctx_game.world.spawn + vec3(ctx_game.yaw.sin() + 0.6, 0.0, ctx_game.yaw.cos()) * 20.0,
+        );
+        ctx_game.watcher = Some(Watcher::new(at, ctx_game.yaw + PI));
+        ctx_game.pitch = 0.05;
+        let mut sim = Simulation::new(config(), ctx_game);
+        sim.step();
+        sim.picture().save_png("out/views/watcher.png").unwrap();
+        // The pause menu, and fainted.
+        let mut game = new_game().unwrap();
+        game.stage = Stage::Paused { selected: 1 };
+        let mut sim = Simulation::new(config(), game);
+        sim.step();
+        sim.picture().save_png("out/views/pause.png").unwrap();
+        let mut game = arena(|_| {});
+        game.vitals.health = 0;
+        game.vitals.fainted = true;
+        game.fainted_because = String::from("was caught by a Hollow");
+        let mut sim = Simulation::new(config(), game);
+        sim.step();
+        sim.picture().save_png("out/views/fainted.png").unwrap();
+        // Creative's inventory.
+        let mut game = creative(|_| {});
+        game.screen = Some(inventory::Screen {
+            book_open: true,
+            ..Default::default()
+        });
+        game.show_help = false;
+        let mut sim = Simulation::new(config(), game);
+        sim.step();
+        sim.picture()
+            .save_png("out/views/creative_inventory.png")
+            .unwrap();
+        // Badly hurt at night: the dark closing in.
+        let mut game = new_game().unwrap();
+        game.time = night;
+        game.last_time_of_day = game.time_of_day();
+        game.vitals.health = 3;
+        game.show_help = false;
+        let mut sim = Simulation::new(config(), game);
+        sim.step();
+        sim.picture().save_png("out/views/hurt_night.png").unwrap();
     }
     // The inventory: with a log in the grid, a stack on the pointer, and
     // the recipe book open.
@@ -1426,7 +1528,7 @@ fn fainting_and_waking_at_the_spawn() {
 
 #[test]
 fn the_island_grows_tall_grass_and_flowers_on_grass() {
-    let world = World::generate();
+    let world = World::generate(SEED);
     let count = |kind| world.plants.values().filter(|&&p| p == kind).count();
     assert!(
         count(Plant::TallGrass) > 200,
@@ -1538,7 +1640,7 @@ fn random_clicks_never_lose_or_copy_things() {
         let mut counts: Vec<(u8, u32)> = Vec::new();
         for stack in &all {
             assert!(
-                (1..=items::STACK).contains(&stack.count),
+                (1..=stack.item.max_stack()).contains(&stack.count),
                 "a stack of {}",
                 stack.count
             );
@@ -1572,4 +1674,514 @@ fn random_clicks_never_lose_or_copy_things() {
     game.close_inventory();
     game.screen = Some(inventory::Screen::default());
     assert_eq!(total(&game), everything);
+}
+
+// ---- Menus and modes ----
+
+/// The time (in seconds) at a time of day (0 sunrise, 0.5 sunset, 0.75 midnight).
+fn at_time_of_day(tod: f32) -> f32 {
+    (tod - menus::DAY_START).rem_euclid(1.0) * DAY_SECONDS
+}
+
+#[test]
+fn the_game_opens_on_the_title_and_enter_starts_a_survival_island() {
+    let played = PlayTest::new(config(), title_game(None).unwrap())
+        .frames(30)
+        .run();
+    assert_eq!(played.text("stage"), "title 0");
+    assert_eq!(played.game().time, 0.0, "the island waits on the title");
+    let headless = title_game(None).unwrap();
+    assert!(
+        !headless.title_choices().contains(&menus::TitleChoice::Quit),
+        "no quitting a headless run from a menu"
+    );
+    let played = PlayTest::new(config(), title_game(None).unwrap())
+        .script(&tap("Enter"))
+        .frames(10)
+        .run();
+    assert_eq!(played.text("stage"), "playing");
+    assert_eq!(played.text("mode"), "Survival");
+    assert_eq!(
+        played.game().world.seed,
+        SEED,
+        "headless islands are always the same"
+    );
+}
+
+#[test]
+fn the_second_choice_is_a_creative_island() {
+    let script = r#"{"events": [
+        {"frame": 2, "press": "S"}, {"frame": 3, "release": "S"},
+        {"frame": 5, "press": "Enter"}, {"frame": 6, "release": "Enter"}
+    ], "frames": 12}"#;
+    let played = PlayTest::new(config(), title_game(None).unwrap())
+        .script(script)
+        .run();
+    let game = played.game();
+    assert_eq!(game.mode, Mode::Creative);
+    assert_eq!(
+        game.holding().map(|s| s.item),
+        Some(Item::Block(Block::Grass))
+    );
+}
+
+#[test]
+fn a_new_island_over_a_saved_one_asks_first() {
+    let mut game = title_game(None).unwrap();
+    game.has_save = true; // as if there were one
+    game.time = 500.0;
+    // "Carry on" is first; the second is a new survival island.
+    let script = r#"{"events": [
+        {"frame": 2, "press": "S"}, {"frame": 3, "release": "S"},
+        {"frame": 5, "press": "Enter"}, {"frame": 6, "release": "Enter"}
+    ], "frames": 10}"#;
+    let played = PlayTest::new(config(), game).script(script).run();
+    let game = played.game().clone();
+    assert!(
+        matches!(game.stage, Stage::Title { confirm: true, .. }),
+        "it asks"
+    );
+    assert_eq!(game.time, 500.0);
+    let played = PlayTest::new(config(), game)
+        .script(&tap("Enter"))
+        .frames(6)
+        .run();
+    let game = played.game();
+    assert_eq!(game.stage, Stage::Playing);
+    assert!(game.time < 1.0, "a fresh island");
+}
+
+#[test]
+fn the_pause_menu_switches_mode_and_music() {
+    let mut game = arena(|_| {});
+    game.stage = Stage::Paused { selected: 0 };
+    let script = r#"{"events": [
+        {"frame": 2, "press": "S"}, {"frame": 3, "release": "S"},
+        {"frame": 4, "press": "Enter"}, {"frame": 5, "release": "Enter"},
+        {"frame": 6, "press": "S"}, {"frame": 7, "release": "S"},
+        {"frame": 8, "press": "Enter"}, {"frame": 9, "release": "Enter"},
+        {"frame": 10, "press": "Escape"}, {"frame": 11, "release": "Escape"}
+    ], "frames": 14}"#;
+    let played = PlayTest::new(config(), game).script(script).run();
+    let game = played.game();
+    assert_eq!(game.mode, Mode::Creative);
+    assert!(!game.music_on);
+    assert_eq!(game.stage, Stage::Playing, "Escape went back to the island");
+}
+
+#[test]
+fn music_starts_and_fades_with_the_light() {
+    let played = PlayTest::new(config(), arena(|_| {})).frames(240).run();
+    let loops = played.loops();
+    let volume = |name: &str| {
+        loops
+            .iter()
+            .find(|l| l.name == name)
+            .and_then(|l| l.volumes.last())
+            .map_or(0.0, |&(_, v)| v)
+    };
+    assert!(
+        volume("music_day") > 0.3,
+        "morning: the day's music, {}",
+        volume("music_day")
+    );
+    assert!(volume("music_night") < 0.05);
+    let mut game = arena(|_| {});
+    game.time = at_time_of_day(0.75);
+    let played = PlayTest::new(config(), game).frames(240).run();
+    let loops = played.loops();
+    let night = loops
+        .iter()
+        .find(|l| l.name == "music_night")
+        .unwrap()
+        .volumes
+        .last()
+        .unwrap()
+        .1;
+    assert!(night > 0.4, "midnight: the night's music, {night}");
+}
+
+#[test]
+fn dusk_rings_a_bell_and_says_a_line_and_dawn_counts_the_day() {
+    let mut game = arena(|_| {});
+    game.time = at_time_of_day(0.499);
+    game.last_time_of_day = 0.499;
+    let played = PlayTest::new(config(), game).frames(60).run();
+    assert_eq!(played.sound_frames("bell_dusk").len(), 1);
+    assert_eq!(played.game().announcement.as_ref().unwrap().0, "Night");
+    let mut game = arena(|_| {});
+    game.time = DAY_SECONDS * 2.0 - menus::DAY_START * DAY_SECONDS - 0.2; // just before the third sunrise
+    game.last_time_of_day = game.time_of_day();
+    let played = PlayTest::new(config(), game).frames(60).run();
+    assert_eq!(played.sound_frames("bell_dawn").len(), 1);
+    assert_eq!(played.game().announcement.as_ref().unwrap().0, "Day 3");
+}
+
+// ---- Creative ----
+
+fn creative(change: impl FnOnce(&mut World)) -> DuckCraft {
+    let mut game = arena(change);
+    game.set_mode(Mode::Creative);
+    game
+}
+
+#[test]
+fn creative_flies_on_a_double_space_and_lands_on_the_ground() {
+    let script = r#"{"events": [
+        {"frame": 2, "press": "Space"}, {"frame": 3, "release": "Space"},
+        {"frame": 6, "press": "Space"}, {"frame": 50, "release": "Space"}
+    ], "frames": 120}"#;
+    let played = PlayTest::new(config(), creative(|_| {}))
+        .script(script)
+        .run();
+    let game = played.game();
+    assert!(game.flying, "still up there");
+    assert!(game.position.y > FLOOR as f32 + 3.0, "{}", game.position.y);
+    let script = r#"{"events": [{"frame": 2, "press": "LeftShift"}], "frames": 200}"#;
+    let played = PlayTest::new(config(), game.clone()).script(script).run();
+    assert!(
+        !played.game().flying,
+        "Shift brought it down, and the ground ended the flight"
+    );
+    assert_eq!(
+        played.game().vitals.health,
+        20,
+        "no fall damage in creative"
+    );
+}
+
+#[test]
+fn creative_breaks_at_once_drops_nothing_and_never_runs_out() {
+    let game = creative(|w| w.set(8, FLOOR + 1, 10, Block::Stone));
+    let cobble = game.count(Item::Block(Block::Cobblestone));
+    let played = PlayTest::new(config(), game)
+        .script(&tap("X"))
+        .frames(5)
+        .run();
+    let game = played.game();
+    assert_eq!(game.world.get(8, FLOOR + 1, 10), Block::Air);
+    assert_eq!(game.count(Item::Block(Block::Cobblestone)), cobble);
+    let mut game = game.clone();
+    game.pitch = -0.6;
+    let grass = game.count(Item::Block(Block::Grass));
+    let played = PlayTest::new(config(), game)
+        .script(&tap("C"))
+        .frames(5)
+        .run();
+    assert_eq!(played.number("placed"), 1.0);
+    assert_eq!(played.game().count(Item::Block(Block::Grass)), grass);
+}
+
+#[test]
+fn the_creative_panel_hands_out_full_stacks_and_bins_what_you_hold() {
+    use inventory::Spot;
+    let mut game = creative(|_| {});
+    game.screen = Some(inventory::Screen {
+        book_open: true,
+        ..Default::default()
+    });
+    let blade = Item::all().iter().position(|&i| i == Item::Blade).unwrap();
+    let gold = Item::all().iter().position(|&i| i == Item::Gold).unwrap();
+    game.click_spot(Spot::Palette(gold), true, false);
+    assert_eq!(
+        game.screen.as_ref().unwrap().held,
+        Some(Stack::new(Item::Gold, 64))
+    );
+    game.click_spot(Spot::Palette(blade), true, false);
+    assert_eq!(game.screen.as_ref().unwrap().held, None, "binned");
+    game.click_spot(Spot::Palette(blade), true, true);
+    assert_eq!(
+        game.count(Item::Blade),
+        1,
+        "shift: into the bag, one (blades don't stack)"
+    );
+}
+
+// ---- The night's shapes ----
+
+/// The arena at midnight, with a Hollow `ahead` blocks in front of the duck.
+fn hollow_ahead(ahead: f32) -> DuckCraft {
+    let mut game = arena(|_| {});
+    game.time = at_time_of_day(0.75);
+    game.last_time_of_day = game.time_of_day();
+    game.spawn_wait = 1000.0; // no others
+    game.hollows = vec![Hollow::new(vec3(8.5, FLOOR as f32, 8.5 + ahead), PI)];
+    game
+}
+
+#[test]
+fn a_hollow_walks_up_and_hits_hard() {
+    let played = PlayTest::new(config(), hollow_ahead(5.0)).frames(240).run();
+    let game = played.game();
+    assert!(
+        game.vitals.health <= 20 - night::HOLLOW_DAMAGE,
+        "health {}",
+        game.vitals.health
+    );
+    assert!(!played.sound_frames("hurt").is_empty());
+}
+
+#[test]
+fn a_hollow_wont_come_near_a_lamp() {
+    let mut game = hollow_ahead(9.0);
+    game.world.set(8, FLOOR, 9, Block::Lamp);
+    game.update_chunks();
+    let played = PlayTest::new(config(), game).frames(360).run();
+    let game = played.game();
+    assert_eq!(game.vitals.health, 20);
+    let hollow = &game.hollows[0];
+    let lamp = vec2(8.5, 9.5);
+    assert!(vec2(hollow.position.x, hollow.position.z).distance(lamp) > night::LAMP_FEAR - 0.8);
+}
+
+#[test]
+fn a_hollow_comes_apart_in_the_morning_but_not_in_a_cave() {
+    let mut game = hollow_ahead(6.0);
+    game.time = 0.0; // morning
+    let played = PlayTest::new(config(), game).frames(150).run();
+    assert!(played.game().hollows.is_empty(), "gone to ash");
+    // Under a roof, it stays.
+    let mut game = hollow_ahead(6.0);
+    game.time = 0.0;
+    for z in 12..17 {
+        for x in 6..11 {
+            game.world.set(x, FLOOR + 3, z, Block::Stone);
+        }
+    }
+    let played = PlayTest::new(config(), game).frames(150).run();
+    assert_eq!(played.game().hollows.len(), 1);
+}
+
+#[test]
+fn two_blows_of_a_blade_or_six_of_wings_put_a_hollow_down() {
+    for (blade, frames) in [(true, 60), (false, 300)] {
+        let mut game = hollow_ahead(2.2);
+        game.hollows[0].position.y = FLOOR as f32;
+        game.vitals.health = 20;
+        if blade {
+            game.inventory.slots[0] = Some(Stack::new(Item::Blade, 1));
+        }
+        let played = PlayTest::new(config(), game)
+            .script(&hold(&["X"], frames))
+            .frames(frames)
+            .run();
+        assert_eq!(played.number("kills"), 1.0, "blade {blade}");
+        assert!(!played.sound_frames("hollow_die").is_empty());
+    }
+}
+
+#[test]
+fn in_creative_hollows_leave_you_alone() {
+    let mut game = hollow_ahead(3.0);
+    game.set_mode(Mode::Creative);
+    let played = PlayTest::new(config(), game).frames(240).run();
+    assert_eq!(played.game().vitals.health, 20);
+    assert!(!played.game().hollows[0].chasing);
+}
+
+#[test]
+fn hollows_come_up_in_the_dark_but_not_by_day() {
+    let mut game = new_game().unwrap();
+    game.time = at_time_of_day(0.75);
+    game.last_time_of_day = game.time_of_day();
+    game.spawn_wait = 0.0;
+    let played = PlayTest::new(config(), game).frames(600).run();
+    assert!(
+        played.number("hollows") >= 2.0,
+        "{}",
+        played.number("hollows")
+    );
+    let mut game = new_game().unwrap();
+    game.time = at_time_of_day(0.2); // noon
+    let played = PlayTest::new(config(), game).frames(600).run();
+    assert_eq!(played.number("hollows"), 0.0);
+}
+
+#[test]
+fn the_watcher_goes_when_you_look_at_it() {
+    let mut game = arena(|_| {});
+    game.time = at_time_of_day(0.75);
+    game.last_time_of_day = game.time_of_day();
+    game.spawn_wait = 1000.0;
+    game.watcher_night = game.day_number(); // no other one
+    let at = vec3(8.5, FLOOR as f32, 8.5 + 26.0);
+    game.watcher = Some(Watcher::new(at, PI));
+    // Off to the side: it stays.
+    game.yaw = 0.9;
+    let played = PlayTest::new(config(), game.clone()).frames(60).run();
+    assert!(played.game().watcher.is_some());
+    // Straight at its head: gone, with a sting.
+    let head = at + vec3(0.0, 1.6 * night::WATCHER_SIZE, 0.0) - game.eye();
+    game.yaw = head.x.atan2(head.z);
+    game.pitch = (head.y / vec2(head.x, head.z).length()).atan();
+    let played = PlayTest::new(config(), game).frames(30).run();
+    assert!(played.game().watcher.is_none());
+    assert_eq!(played.sound_frames("sting").len(), 1);
+}
+
+// ---- Bugs found in review (each was real) ----
+
+#[test]
+fn a_full_bag_never_destroys_what_is_in_the_grid() {
+    use inventory::Spot;
+    let mut game = inventory_open(|g| {
+        for i in 0..items::SLOTS {
+            g.inventory.slots[i] = Some(Stack::new(Item::Block(Block::Brick), 64));
+        }
+        g.screen.as_mut().unwrap().grid[0] = Some(Stack::new(Item::Block(Block::Log), 61));
+        g.screen.as_mut().unwrap().book_open = true;
+    });
+    game.click_spot(Spot::Recipe(2), true, false);
+    assert_eq!(
+        game.screen.as_ref().unwrap().grid[0],
+        Some(Stack::new(Item::Block(Block::Log), 61)),
+        "not thrown away"
+    );
+    game.close_inventory();
+    assert_eq!(
+        game.kept_grid[0],
+        Some(Stack::new(Item::Block(Block::Log), 61)),
+        "kept for next time"
+    );
+    game.screen = Some(inventory::Screen {
+        grid: std::mem::take(&mut game.kept_grid),
+        ..Default::default()
+    });
+    assert_eq!(game.screen.as_ref().unwrap().grid[0].unwrap().count, 61);
+}
+
+#[test]
+fn waking_up_never_puts_the_duck_inside_blocks_built_at_the_spawn() {
+    let mut game = new_game().unwrap();
+    let s = game.world.spawn;
+    for dy in 0..3 {
+        for dz in -1..=1 {
+            for dx in -1..=1 {
+                game.world.set(
+                    s.x as i32 + dx,
+                    s.y as i32 + dy,
+                    s.z as i32 + dz,
+                    Block::Brick,
+                );
+            }
+        }
+    }
+    game.position = s + vec3(0.0, 3.0, 0.0); // standing on top of the pile
+    game.vitals.health = 0;
+    game.vitals.fainted = true;
+    let played = PlayTest::new(config(), game)
+        .script(&tap("Space"))
+        .frames(10)
+        .run();
+    let game = played.game();
+    assert!(!game.vitals.fainted);
+    assert!(
+        !game.body_hits(game.position),
+        "standing somewhere it fits: {:?}",
+        game.position
+    );
+}
+
+#[test]
+fn saving_keeps_what_is_on_the_pointer_and_in_the_grid_and_falling_sand() {
+    let mut game = inventory_open(|g| {
+        g.inventory.set(Item::Gold, 0);
+        g.inventory.set(Item::Coal, 0);
+        let screen = g.screen.as_mut().unwrap();
+        screen.held = Some(Stack::new(Item::Gold, 10));
+        screen.grid[1] = Some(Stack::new(Item::Coal, 5));
+    });
+    game.falling.push(FallingBlock {
+        x: 3,
+        z: 3,
+        y: FLOOR as f32 + 4.3,
+        speed: 2.0,
+        block: Block::Sand,
+    });
+    let loaded = DuckCraft::from_bytes(game.art.clone(), &game.to_bytes()).unwrap();
+    assert_eq!(loaded.count(Item::Gold), 10);
+    assert_eq!(loaded.count(Item::Coal), 5);
+    assert_eq!(
+        loaded.world.get(3, FLOOR + 4, 3),
+        Block::Sand,
+        "back in the world"
+    );
+    assert!(
+        loaded.world.unsettled.contains(&[3, FLOOR + 4, 3]),
+        "and it falls again"
+    );
+}
+
+#[test]
+fn a_save_made_while_fainted_wakes_at_the_spawn() {
+    let mut game = new_game().unwrap();
+    game.position = vec3(20.5, 30.0, 20.5);
+    game.vitals.health = 0;
+    game.vitals.fainted = true;
+    let loaded = DuckCraft::from_bytes(game.art.clone(), &game.to_bytes()).unwrap();
+    assert_eq!(loaded.vitals.health, health::MAX_HEALTH);
+    assert!(loaded.position.distance(loaded.world.spawn) < 0.01);
+}
+
+#[test]
+fn an_impossible_place_in_a_save_starts_at_the_spawn() {
+    let mut game = new_game().unwrap();
+    game.position = vec3(8.5, 1.0e9, 8.5);
+    let loaded = DuckCraft::from_bytes(game.art.clone(), &game.to_bytes()).unwrap();
+    assert!(loaded.position.distance(loaded.world.spawn) < 0.01);
+}
+
+#[test]
+fn sand_falling_under_the_sea_leaves_water_not_air() {
+    let mut game = arena(|w| {
+        w.set(4, FLOOR + 2, 4, Block::Water);
+        w.set(4, FLOOR + 1, 4, Block::Sand);
+        w.set(4, FLOOR, 4, Block::Dirt);
+    });
+    game.world.unsettled.clear();
+    game.world.set(4, FLOOR, 4, Block::Air);
+    let game = wait(game, 1.0);
+    assert_eq!(game.world.get(4, FLOOR, 4), Block::Sand);
+    assert_eq!(game.world.get(4, FLOOR + 1, 4), Block::Water);
+}
+
+#[test]
+fn changing_slot_mid_bite_starts_a_new_bite() {
+    let mut game = arena(|_| {});
+    game.vitals.food = 10;
+    game.slot = 4; // bread
+    game.inventory.slots[5] = Some(Stack::new(Item::Apple, 3));
+    // Eat bread for 1.1 s (not quite a bite), then switch to the apple.
+    let script = r#"{"events": [
+        {"frame": 1, "press": "C"},
+        {"frame": 66, "press": "Digit6"}, {"frame": 67, "release": "Digit6"}
+    ], "frames": 80}"#;
+    let played = PlayTest::new(config(), game).script(script).run();
+    assert_eq!(
+        played.game().count(Item::Apple),
+        3,
+        "no apple eaten 0.1 s after switching"
+    );
+}
+
+#[test]
+fn the_watcher_comes_on_some_nights_and_finds_somewhere_to_stand() {
+    // On the test island it comes on the first night: from most ways the
+    // duck can face, it finds ground at the edge of the view.
+    let mut found = 0;
+    for i in 0..16 {
+        let mut game = new_game().unwrap();
+        game.time = at_time_of_day(0.7);
+        game.last_time_of_day = game.time_of_day();
+        game.spawn_wait = 1000.0;
+        game.yaw = i as f32 * TAU / 16.0;
+        game.pitch = -0.6; // looking at the ground, not at it
+        let mut sim = Simulation::new(config(), game);
+        sim.step();
+        found += sim.game().watcher.is_some() as i32;
+    }
+    assert!(
+        found >= 8,
+        "it found somewhere to stand {found} times in 16"
+    );
 }
