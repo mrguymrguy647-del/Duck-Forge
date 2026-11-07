@@ -63,20 +63,16 @@ Details: the guide's section 7 (cheat sheet) and section 11 (3D).
   `canvas.draw_background(&sky, &camera)` before `push_camera`; no seams.
 - **Music and hums**: a Duck Echo `.wav` with `ctx.play_loop(&music, 0.6)`;
   `ctx.stop_loop(id)`.
-- **3D**: `Mesh::block(&atlas, [top, sides, bottom])`, `mesh.with_texture(sprite)`,
-  `canvas.set_lighting(...)`, `.glowing()` for lava and signs,
-  `canvas.draw_billboard(&frame, at, 1.0, &camera)` for 2D characters
-  that hide behind blocks, `BlockWorld` + `BlockPalette` for block worlds
-  (only visible faces, one mesh per 16 x 16 chunk, `world.set` then
-  `world.update_meshes(&palette)` rebuilds just the changed chunks),
-  `camera.project(point, canvas)` for labels.
-  `canvas.draw_mesh_in_view(&hand, &Transform::at(vec3(0.3, -0.3, 0.6)), &camera)`
-  for first-person hands and held items (after the world);
-  `canvas.draw_mesh_tinted(&mesh, &at, &camera, Color::rgba(0, 0, 0, 90))`
-  for tints, ghosts, shadows and glassy boxes (see-through ones last).
-  Mouse look: `ctx.lock_pointer(true)` (the window hides and holds the
-  pointer; Escape should free it) and turn by `ctx.input.mouse_delta()`;
-  tests move it with `sim.move_mouse_by(vec2(dx, dy))`.
+- **3D**: `Mesh::block(&atlas, [top, sides, bottom])`, `.with_texture(sprite)`,
+  `canvas.set_lighting(..)`, `.glowing()` / `mesh.set_glow(triangle, 1.0)`,
+  `canvas.set_fog(Some(Fog { color: sky, near, far }))`, billboards for 2D
+  characters, `camera.project(point, canvas)` for labels. Block worlds:
+  `BlockWorld` + `BlockPalette` (visible faces only; `world.set` then
+  `world.update_meshes(&palette)` rebuilds the changed chunks). Hands:
+  `canvas.draw_mesh_in_view(..)` after the world; shadows, ghosts, glass:
+  `canvas.draw_mesh_tinted(.., Color::rgba(0, 0, 0, 90))`, last. Mouse look:
+  `ctx.lock_pointer(true)`, turn by `ctx.input.mouse_delta()` (Escape should
+  free it; tests: `sim.move_mouse_by(vec2(dx, dy))`).
 
 ## 4. The loop
 

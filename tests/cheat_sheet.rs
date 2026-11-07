@@ -647,6 +647,19 @@ fn three_d_textures_light_and_billboards() -> Result<(), LoadError> {
     assert_eq!(world.get(1, 1, 1), AIR);
     world.update_meshes(&palette);
     world.update_meshes_shaded(&palette, |_, _, y, _| if y > 0 { 1.0 } else { 0.5 });
+    world.update_meshes_shaded(&palette, |_, x, _, _| FaceLight {
+        shade: 1.0,
+        glow: if x == 2 { 0.6 } else { 0.0 },
+    });
+    let mut glowing_corner = Mesh::cube(Color::GRAY);
+    glowing_corner.set_glow(0, 1.0);
+    assert_eq!(glowing_corner.glow_of(0), 1.0);
+    canvas.set_fog(Some(Fog {
+        color: Color::from_hex(0x86c4f2),
+        near: 40.0,
+        far: 120.0,
+    }));
+    assert!(canvas.fog().is_some());
     assert_eq!(world.chunk_mesh(0, 0).triangles.len(), 10);
 
     canvas.set_lighting(Lighting {
@@ -667,6 +680,7 @@ fn three_d_textures_light_and_billboards() -> Result<(), LoadError> {
     }
     canvas.draw_mesh(&chunk, &Transform::at(vec3(-1.5, -1.0, 1.0)), &camera);
     world.draw(&mut canvas, &camera);
+    canvas.set_fog(None);
     let ghost = Color::rgba(160, 200, 255, 100);
     canvas.draw_mesh_tinted(
         &Mesh::cube(Color::WHITE),

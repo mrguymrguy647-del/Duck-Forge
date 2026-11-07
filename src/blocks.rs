@@ -67,6 +67,23 @@ pub const FACE_DIRECTIONS: [(i32, i32, i32); 6] = [
     (0, 0, -1),
 ];
 
+/// How a face of a block is lit, from
+/// [`update_meshes_shaded`](BlockWorld::update_meshes_shaded): `shade`
+/// darkens it (1 as it is, 0.5 half as bright: a cave), and `glow` keeps it
+/// at least that bright whatever the sun does (0 to 1: the light from a
+/// lamp nearby, at night). A plain number is a shade with no glow.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FaceLight {
+    pub shade: f32,
+    pub glow: f32,
+}
+
+impl From<f32> for FaceLight {
+    fn from(shade: f32) -> FaceLight {
+        FaceLight { shade, glow: 0.0 }
+    }
+}
+
 /// How one kind of block looks. See the [module docs](self).
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlockKind {
@@ -241,8 +258,8 @@ pub struct BlockWorld {
     blocks: Vec<BlockId>,
     /// What [`get`](BlockWorld::get) gives below the world.
     below: BlockId,
-    /// Each chunk's meshes: the plain blocks, and the glowing ones.
-    meshes: Vec<[Mesh; 2]>,
+    /// Each chunk's mesh.
+    meshes: Vec<Mesh>,
     /// Which chunks need building again.
     changed: Vec<bool>,
 }
@@ -285,7 +302,7 @@ impl BlockWorld {
             chunks_z,
             blocks: vec![AIR; width * height * depth],
             below: AIR,
-            meshes: vec![[Mesh::new(), Mesh::new()]; chunks_x * chunks_z],
+            meshes: vec![Mesh::new(); chunks_x * chunks_z],
             changed: vec![true; chunks_x * chunks_z],
         }
     }
@@ -381,14 +398,15 @@ impl BlockWorld {
         self.update_meshes_shaded(palette, |_, _, _, _| 1.0)
     }
 
-    /// The same, with each face's brightness (0 to 1) from `shade`: it's
-    /// given the world and the cell the face looks into (say, darker in a
-    /// cave). The scene's [`Lighting`](crate::render3d::Lighting) still
+    /// The same, with each face lit by `shade`: it's given the world and
+    /// the cell the face looks into, and gives a brightness from 0 to 1
+    /// (darker in a cave), or a [`FaceLight`] with a glow too (lit by a
+    /// lamp). The scene's [`Lighting`](crate::render3d::Lighting) still
     /// shades by direction on top.
-    pub fn update_meshes_shaded(
+    pub fn update_meshes_shaded<L: Into<FaceLight>>(
         &mut self,
         palette: &BlockPalette,
-        shade: impl Fn(&BlockWorld, i32, i32, i32) -> f32,
+        shade: impl Fn(&BlockWorld, i32, i32, i32) -> L,
     ) -> usize {
         let mut built = 0;
         for cz in 0..self.chunks_z {
@@ -404,17 +422,15 @@ impl BlockWorld {
         built
     }
 
-    /// One chunk's two meshes: plain blocks and glowing ones.
-    fn build_chunk(
+    /// One chunk's mesh. Glowing blocks glow triangle by triangle.
+    fn build_chunk<L: Into<FaceLight>>(
         &self,
         palette: &BlockPalette,
         cx: usize,
         cz: usize,
-        shade: &impl Fn(&BlockWorld, i32, i32, i32) -> f32,
-    ) -> [Mesh; 2] {
-        let texture = palette.texture.clone();
-        let mut plain = Mesh::new().with_texture(texture.clone());
-        let mut glowing = Mesh::new().with_texture(texture).glowing();
+        shade: &impl Fn(&BlockWorld, i32, i32, i32) -> L,
+    ) -> Mesh {
+        let mut mesh = Mesh::new().with_texture(palette.texture.clone());
         let n = self.chunk_size;
         let [w, h, d] = self.size;
         for y in 0..h as i32 {
@@ -424,15 +440,16 @@ impl BlockWorld {
                     let Some(Some((kind, faces))) = palette.kinds.get(block as usize) else {
                         continue; // air, or a number the palette doesn't have
                     };
-                    let mesh = if kind.glows { &mut glowing } else { &mut plain };
                     let middle = vec3(x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5);
                     for (face, &(dx, dy, dz)) in faces.iter().zip(&FACE_DIRECTIONS) {
                         let (nx, ny, nz) = (x + dx, y + dy, z + dz);
                         if !palette.face_shows(block, self.get(nx, ny, nz)) {
                             continue;
                         }
-                        let bright = (shade(self, nx, ny, nz).clamp(0.0, 1.0) * 255.0) as u8;
+                        let light: FaceLight = shade(self, nx, ny, nz).into();
+                        let bright = (light.shade.clamp(0.0, 1.0) * 255.0) as u8;
                         let color = Color::rgb(bright, bright, bright);
+                        let glow = if kind.glows { 1.0 } else { light.glow };
                         let first = mesh.vertices.len();
                         for &corner in &face.corners {
                             mesh.add_vertex(corner + middle);
@@ -440,27 +457,26 @@ impl BlockWorld {
                         for (corners, uvs) in face.triangles.iter().zip(&face.uvs) {
                             let [a, b, c] = corners.map(|i| first + i);
                             mesh.add_triangle_uv(a, b, c, *uvs, color);
+                            if glow > 0.0 {
+                                mesh.set_glow(mesh.triangles.len() - 1, glow);
+                            }
                         }
                     }
                 }
             }
         }
-        [plain, glowing]
+        mesh
     }
 
-    /// The mesh of chunk (cx, cz)'s plain blocks, as last built (by
-    /// [`update_meshes`](BlockWorld::update_meshes)).
+    /// The mesh of chunk (cx, cz), as last built (by
+    /// [`update_meshes`](BlockWorld::update_meshes)). Glowing blocks glow
+    /// triangle by triangle ([`Mesh::glow_of`]).
     ///
     /// # Panics
     ///
     /// If there's no such chunk.
     pub fn chunk_mesh(&self, cx: usize, cz: usize) -> &Mesh {
-        &self.meshes[self.chunk_index(cx, cz)][0]
-    }
-
-    /// The mesh of chunk (cx, cz)'s glowing blocks.
-    pub fn chunk_glow_mesh(&self, cx: usize, cz: usize) -> &Mesh {
-        &self.meshes[self.chunk_index(cx, cz)][1]
+        &self.meshes[self.chunk_index(cx, cz)]
     }
 
     #[track_caller]
@@ -482,11 +498,9 @@ impl BlockWorld {
     /// Draws every chunk as last built. Chunks out of the camera's view
     /// are skipped whole.
     pub fn draw(&self, canvas: &mut Canvas, camera: &Camera3D) {
-        for meshes in &self.meshes {
-            for mesh in meshes {
-                if !mesh.triangles.is_empty() {
-                    canvas.draw_mesh(mesh, &Transform::default(), camera);
-                }
+        for mesh in &self.meshes {
+            if !mesh.triangles.is_empty() {
+                canvas.draw_mesh(mesh, &Transform::default(), camera);
             }
         }
     }
@@ -675,19 +689,29 @@ mod tests {
         world.set_below(palette.id("stone"));
         // Darker under y = 1 (the sides), full light above.
         world.update_meshes_shaded(&palette, |_, _, y, _| if y >= 1 { 1.0 } else { 0.5 });
-        let glow = world.chunk_glow_mesh(0, 0);
-        assert!(glow.glowing);
+        let mesh = world.chunk_mesh(0, 0);
         assert_eq!(
-            glow.triangles.len(),
-            10,
-            "no underside: there's stone below"
+            mesh.triangles.len(),
+            20,
+            "no undersides: there's stone below"
         );
-        let plain = world.chunk_mesh(0, 0);
-        assert!(!plain.glowing);
-        assert_eq!(plain.triangles.len(), 10);
-        let colors: Vec<Color> = plain.triangles.iter().map(|t| t.color).collect();
+        assert!(!mesh.glowing);
+        let glowing = (0..20).filter(|&t| mesh.glow_of(t) == 1.0).count();
+        assert_eq!(glowing, 10, "the lamp's triangles, and only those");
+        let colors: Vec<Color> = mesh.triangles.iter().map(|t| t.color).collect();
         assert!(colors.contains(&Color::rgb(255, 255, 255)), "the top");
         assert!(colors.contains(&Color::rgb(127, 127, 127)), "the sides");
+        // A face can glow a little: lit by the lamp next to it.
+        world.set_below(AIR);
+        world.update_meshes_shaded(&palette, |_, x, _, _| FaceLight {
+            shade: 1.0,
+            glow: if x == 1 { 0.5 } else { 0.0 },
+        });
+        let mesh = world.chunk_mesh(0, 0);
+        let half = (0..mesh.triangles.len())
+            .filter(|&t| mesh.glow_of(t) == 0.5)
+            .count();
+        assert_eq!(half, 2, "the stone's face towards the lamp");
     }
 
     #[test]

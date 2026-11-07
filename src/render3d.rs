@@ -63,6 +63,33 @@ pub struct Lighting {
     pub ambient: f32,
 }
 
+/// Distance fog: 3D fades into `color` with distance, not at all up to
+/// `near` and completely from `far` (distances straight ahead of the
+/// camera, in world units). Make `color` the sky's, and the world melts
+/// into it instead of stopping at a hard edge. Set with
+/// [`Canvas::set_fog`](crate::canvas::Canvas::set_fog).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Fog {
+    pub color: Color,
+    pub near: f32,
+    pub far: f32,
+}
+
+impl Fog {
+    /// How much fog is in front of a point `depth` ahead of the camera:
+    /// 0 none, 255 only fog.
+    pub(crate) fn amount(&self, depth: f32) -> u8 {
+        let share = if self.far > self.near {
+            (depth - self.near) / (self.far - self.near)
+        } else if depth >= self.far {
+            1.0
+        } else {
+            0.0
+        };
+        (share.clamp(0.0, 1.0) * 255.0).round() as u8
+    }
+}
+
 impl Default for Lighting {
     /// The light every 3D picture had before `Lighting` existed (so they
     /// all stay the same): white, from above, a little left and in front,
@@ -523,6 +550,12 @@ pub struct Mesh {
     pub texture: Option<Sprite>,
     /// Drawn at full brightness, whatever the light (lava, lamps, a screen).
     pub glowing: bool,
+    /// How much each triangle glows, in the same order as `triangles`
+    /// (a shorter list leaves the rest at 0): 0 is lit by the scene's light
+    /// as usual, 1 is full brightness whatever the light, and in between
+    /// is "at least this bright" (a face lit by a lamp at night). Set with
+    /// [`set_glow`](Mesh::set_glow).
+    pub glow: Vec<f32>,
 }
 
 impl Mesh {
@@ -582,6 +615,27 @@ impl Mesh {
             self.uvs.resize(index + 1, None);
         }
         self.uvs[index] = Some(uvs);
+    }
+
+    /// Makes triangle `index` glow by `level`: 0 lit as usual, 1 full
+    /// brightness whatever the light (one lamp in a chunk of stone), in
+    /// between at least that bright. [`glowing`](Mesh::glowing) makes the
+    /// whole mesh glow instead.
+    pub fn set_glow(&mut self, index: usize, level: f32) {
+        if self.glow.len() <= index {
+            self.glow.resize(index + 1, 0.0);
+        }
+        self.glow[index] = level.clamp(0.0, 1.0);
+    }
+
+    /// How much triangle `index` glows (see [`set_glow`](Mesh::set_glow)):
+    /// 1 if the whole mesh is [`glowing`](Mesh::glowing).
+    pub fn glow_of(&self, index: usize) -> f32 {
+        if self.glowing {
+            1.0
+        } else {
+            self.glow.get(index).copied().unwrap_or(0.0)
+        }
     }
 
     /// Triangle `index`'s texture coordinates, if it's textured.
@@ -882,7 +936,10 @@ impl Mesh {
     ///
     /// If both meshes have textures and they're different pictures (a mesh
     /// has one texture: put the pictures in one atlas, see
-    /// [`Mesh::block`]), or one glows and the other doesn't.
+    /// [`Mesh::block`]).
+    ///
+    /// Glowing parts keep glowing: a glowing lamp merged into a plain
+    /// chunk glows, and the rest of the chunk doesn't.
     #[track_caller]
     pub fn merge(&mut self, other: &Mesh, transform: &Transform) {
         // A plain part joining a textured mesh: don't let it pick up the
@@ -903,12 +960,12 @@ impl Mesh {
             _ => {}
         }
         let empty = self.triangles.is_empty() && self.vertices.is_empty();
-        assert!(
-            empty || self.glowing == other.glowing,
-            "Mesh::merge: one mesh glows and the other doesn't; draw them as two meshes"
-        );
         if empty {
             self.glowing = other.glowing;
+        } else if self.glowing && !other.glowing {
+            // Only part of it glows now: say so triangle by triangle.
+            self.glowing = false;
+            self.glow = vec![1.0; self.triangles.len()];
         }
         let base = self.vertices.len();
         let first = self.triangles.len();
@@ -923,6 +980,13 @@ impl Mesh {
         for index in 0..other.triangles.len() {
             let points = other.uvs.get(index).copied().flatten();
             self.uvs.push(if stays_plain { None } else { points });
+        }
+        if !self.glowing {
+            let glows = (0..other.triangles.len()).map(|i| other.glow_of(i));
+            if self.glow.iter().any(|&g| g > 0.0) || glows.clone().any(|g| g > 0.0) {
+                self.glow.resize(first, 0.0);
+                self.glow.extend(glows);
+            }
         }
     }
 
@@ -1111,9 +1175,15 @@ impl Canvas {
                 continue;
             }
 
-            // Flat shading: brightest when facing the sun head-on.
-            let brightness = if mesh.glowing {
+            // Flat shading: brightest when facing the sun head-on. A
+            // glowing triangle is at least as bright as its glow.
+            let glow = mesh.glow_of(index);
+            let brightness = if glow >= 1.0 {
                 [1.0; 3]
+            } else if glow > 0.0 {
+                lighting
+                    .brightness(normal, sun, sun_rgb)
+                    .map(|b| b.max(glow))
             } else {
                 lighting.brightness(normal, sun, sun_rgb)
             };
@@ -1354,6 +1424,39 @@ fn tinted(color: Color, tint: Color) -> Color {
     )
 }
 
+/// A row of five white cubes going away from the camera (2 to 18 ahead),
+/// lit from behind them so the faces we see are dark, except where they
+/// glow: the second cube glows fully, the third at 0.6. With fog from 6
+/// to 16, sky blue.
+#[cfg(test)]
+pub(crate) fn draw_glow_and_fog_scene(canvas: &mut crate::canvas::Canvas) {
+    let camera = Camera3D::new(vec3(0.0, 0.0, -2.0));
+    canvas.clear(Color::rgb(120, 170, 230));
+    canvas.set_lighting(Lighting {
+        sun_direction: vec3(0.3, 0.2, 1.0),
+        ambient: 0.2,
+        ..Lighting::default()
+    });
+    canvas.set_fog(Some(Fog {
+        color: Color::rgb(120, 170, 230),
+        near: 6.0,
+        far: 16.0,
+    }));
+    let mut row = Mesh::new();
+    for i in 0..5 {
+        let mut cube = Mesh::cube(Color::WHITE);
+        let level = [0.0, 1.0, 0.6, 0.0, 0.0][i];
+        for t in 0..cube.triangles.len() {
+            cube.set_glow(t, level);
+        }
+        row.merge(
+            &cube,
+            &Transform::at(vec3(i as f32 * 1.2 - 2.4, 0.0, i as f32 * 4.0 + 2.0)),
+        );
+    }
+    canvas.draw_mesh(&row, &Transform::default(), &camera);
+}
+
 /// Against black: a red cube at distance 3, a half see-through blue
 /// cube at 1.5 in front of it, then (drawn last) a green cube between them.
 /// All glow, so the colours are exact. `green` leaves the green one out.
@@ -1567,6 +1670,86 @@ mod tests {
             &Transform::at(vec3(2.0, 0.0, 0.0)),
         );
         assert!(plain.uvs_of(0).is_none() && plain.uvs_of(12).is_some());
+    }
+
+    #[test]
+    fn triangles_glow_on_their_own() {
+        // A plain cube lit from behind: the face we see is dark...
+        let camera = Camera3D::new(vec3(0.0, 0.0, -3.0));
+        let light = Lighting {
+            sun_direction: vec3(0.0, 0.0, 1.0),
+            ambient: 0.2,
+            ..Lighting::default()
+        };
+        let middle = |cube: &Mesh| {
+            let mut canvas = crate::canvas::Canvas::new(40, 30);
+            canvas.set_lighting(light);
+            canvas.draw_mesh(cube, &Transform::default(), &camera);
+            canvas.get_pixel(20, 15).unwrap()
+        };
+        let mut cube = Mesh::cube(Color::WHITE);
+        assert_eq!(middle(&cube).r, 51, "ambient 0.2 of white");
+        // ...unless it glows a little (at least 0.6 bright) or fully.
+        for t in 0..cube.triangles.len() {
+            cube.set_glow(t, 0.6);
+        }
+        assert_eq!(middle(&cube).r, 153);
+        for t in 0..cube.triangles.len() {
+            cube.set_glow(t, 1.0);
+        }
+        assert_eq!(middle(&cube), middle(&Mesh::cube(Color::WHITE).glowing()));
+        assert_eq!(cube.glow_of(0), 1.0);
+        assert_eq!(Mesh::cube(Color::WHITE).glow_of(0), 0.0);
+    }
+
+    #[test]
+    fn a_glowing_part_merged_into_a_plain_mesh_keeps_glowing() {
+        let mut chunk = Mesh::cube(Color::GRAY);
+        chunk.merge(
+            &Mesh::cube(Color::YELLOW).glowing(),
+            &Transform::at(vec3(1.0, 0.0, 0.0)),
+        );
+        assert!(!chunk.glowing);
+        assert_eq!((chunk.glow_of(0), chunk.glow_of(12)), (0.0, 1.0));
+        // And a plain part merged into a glowing mesh doesn't glow.
+        let mut lamp = Mesh::cube(Color::YELLOW).glowing();
+        lamp.merge(
+            &Mesh::cube(Color::GRAY),
+            &Transform::at(vec3(1.0, 0.0, 0.0)),
+        );
+        assert!(!lamp.glowing);
+        assert_eq!((lamp.glow_of(0), lamp.glow_of(12)), (1.0, 0.0));
+        // Into an empty mesh: it's all the same.
+        let mut all = Mesh::new();
+        all.merge(&Mesh::cube(Color::YELLOW).glowing(), &Transform::default());
+        assert!(all.glowing);
+    }
+
+    #[test]
+    fn fog_fades_3d_into_its_colour_with_distance() {
+        let fog = Fog {
+            color: Color::rgb(0, 0, 200),
+            near: 5.0,
+            far: 15.0,
+        };
+        assert_eq!(
+            (fog.amount(4.0), fog.amount(10.0), fog.amount(20.0)),
+            (0, 128, 255)
+        );
+        let at = |z: f32| {
+            let mut canvas = crate::canvas::Canvas::new(40, 30);
+            canvas.set_fog(Some(fog));
+            let near_face = Transform::at(vec3(0.0, 0.0, z + 0.5));
+            let white = Mesh::cube(Color::WHITE).glowing();
+            canvas.draw_mesh(&white, &near_face, &Camera3D::new(Vec3::ZERO));
+            canvas.get_pixel(20, 15).unwrap()
+        };
+        assert_eq!(at(3.0), Color::WHITE, "nearer than the fog");
+        assert_eq!(at(10.0), Color::rgb(127, 127, 227), "half way into it");
+        assert_eq!(at(20.0).g, 0, "all fog");
+        let mut canvas = crate::canvas::Canvas::new(40, 30);
+        draw_glow_and_fog_scene(&mut canvas);
+        assert_eq!(canvas.fog().map(|f| f.near), Some(6.0));
     }
 
     #[test]

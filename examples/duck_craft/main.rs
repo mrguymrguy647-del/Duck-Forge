@@ -27,7 +27,9 @@
 //!   kept, so a chunk is a few thousand triangles, not hundreds of
 //!   thousands. Digging or building rebuilds only that chunk.
 //! - Faces in caves and under overhangs are drawn darker: a cheap "no sky
-//!   above" shadow.
+//!   above" shadow. Lamps glow, and so do the faces round them (a glow
+//!   level per face), so they light up the night. Far away, everything
+//!   fades into the horizon's colour (fog).
 //! - The duck is a blocky character with a skin, like a Minecraft player
 //!   (`Duck`, `art/make_skin.py`): boxes for the head, beak, body, arms and
 //!   legs, each face painted from one 64 x 32 picture, limbs swinging as it
@@ -281,6 +283,8 @@ const DIRECTIONS: [(i32, i32, i32); 6] = [
 struct World {
     /// The blocks, and the meshes that draw them (one per chunk).
     grid: BlockWorld,
+    /// Where the lamps are: the faces near them glow a little.
+    lamps: Vec<[i32; 3]>,
     /// For each column, the lowest y with nothing above it that casts a
     /// shadow: air there and above is under the open sky.
     sky: Vec<i32>,
@@ -304,18 +308,39 @@ impl World {
 
     /// Changes a block. Its chunk is built again at the next `update_chunks`.
     fn set(&mut self, x: i32, y: i32, z: i32, block: Block) {
-        if World::inside(x, y, z) {
-            self.grid.set(x, y, z, block as BlockId);
-            self.update_sky(x, z);
+        if !World::inside(x, y, z) {
+            return;
         }
+        if self.get(x, y, z) == Block::Lamp || block == Block::Lamp {
+            // A lamp came or went: the faces it lights change, in every
+            // chunk it reaches.
+            self.lamps.retain(|&lamp| lamp != [x, y, z]);
+            if block == Block::Lamp {
+                self.lamps.push([x, y, z]);
+            }
+            let reach = LAMP_REACH.ceil() as i32;
+            for (dx, dz) in [
+                (-reach, -reach),
+                (-reach, reach),
+                (reach, -reach),
+                (reach, reach),
+            ] {
+                self.grid.mark_changed(x + dx, z + dz);
+            }
+        }
+        self.grid.set(x, y, z, block as BlockId);
+        self.update_sky(x, z);
     }
 
     /// Builds again the chunks that changed, shading each face by the light
     /// in the cell it looks into.
     fn update_chunks(&mut self, palette: &BlockPalette) {
-        let sky = &self.sky;
+        let (sky, lamps) = (&self.sky, &self.lamps);
         self.grid
-            .update_meshes_shaded(palette, |grid, x, y, z| light(grid, sky, x, y, z));
+            .update_meshes_shaded(palette, |grid, x, y, z| FaceLight {
+                shade: light(grid, sky, x, y, z),
+                glow: lamp_light(lamps, x, y, z),
+            });
     }
 
     /// Whether the duck can't be in this cell: solid blocks, and the
@@ -357,6 +382,7 @@ impl World {
     fn generate() -> World {
         let mut world = World {
             grid: BlockWorld::with_chunk_size(SIZE, TALL, SIZE, CHUNK),
+            lamps: Vec::new(),
             sky: vec![0; SIZE * SIZE],
             spawn: Vec3::ZERO,
             spawn_yaw: 0.0,
@@ -573,6 +599,23 @@ impl World {
 
 /// How bright a face next to this cell is: 1 under the open sky, less
 /// in caves and under trees and overhangs.
+/// How far a lamp's light reaches, in blocks.
+const LAMP_REACH: f32 = 4.5;
+
+/// How much the lamps light this cell (0 to 0.75), so the faces round a
+/// lamp stay bright at night: brightest next to it, fading out by
+/// `LAMP_REACH`.
+fn lamp_light(lamps: &[[i32; 3]], x: i32, y: i32, z: i32) -> f32 {
+    let cell = vec3(x as f32, y as f32, z as f32);
+    lamps
+        .iter()
+        .map(|&[lx, ly, lz]| {
+            let distance = cell.distance(vec3(lx as f32, ly as f32, lz as f32));
+            (1.0 - distance / LAMP_REACH).max(0.0) * 0.75
+        })
+        .fold(0.0, f32::max)
+}
+
 fn light(grid: &BlockWorld, sky: &[i32], x: i32, y: i32, z: i32) -> f32 {
     if !World::inside(x, y, z) {
         return 1.0;
@@ -1565,6 +1608,13 @@ impl Game for DuckCraft {
             canvas.fill_rect(Rect::new(0.0, y, WIDTH, 8.0), sky.lerp(band_color, t));
         }
         canvas.fill_rect(Rect::new(0.0, horizon, WIDTH, HEIGHT), band_color);
+        // Far things fade into the horizon's colour: no hard edge where
+        // the world (or the sea) stops.
+        canvas.set_fog(Some(Fog {
+            color: band_color,
+            near: 40.0,
+            far: 120.0,
+        }));
         if daylight < 0.9 {
             let alpha = ((1.0 - daylight) * 255.0) as u8;
             for i in 0..90 {

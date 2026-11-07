@@ -988,11 +988,15 @@ bottom from one `Tileset`). Block worlds: `BlockPalette::new(&atlas,
 `world.set(x, y, z, id)`, `world.get(x, y, z)`, `world.set_below(id)`,
 `world.update_meshes(&palette)` in `update` (builds only the chunks that
 changed; `update_meshes_shaded(&palette, |world, x, y, z| light)` darkens
-faces), `world.draw(canvas, &camera)`, `world.chunk_mesh(cx, cz)`. Build your own with `add_vertex`,
+faces, or gives `FaceLight { shade, glow }` to light them, say by a lamp),
+`world.draw(canvas, &camera)`, `world.chunk_mesh(cx, cz)`. Build your own with `add_vertex`,
 `add_triangle`, `add_quad`, `add_triangle_uv(a, b, c, [uv; 3], color)`,
 `add_quad_uv(a, b, c, d, [uv; 4], color)` (corners clockwise seen from
 the front). `.with_texture(sprite)` (colours times the texture; white
-shows it as painted), `.glowing()` (ignores the light),
+shows it as painted), `.glowing()` (the whole mesh ignores the light),
+`mesh.set_glow(triangle, level)` (one triangle: 1 full glow, 0.5 at least
+half bright; `mesh.glow_of(triangle)`; glowing parts merged into a plain
+mesh keep glowing),
 `.with_color(color)`. `chunk.merge(&mesh, &transform)` (many meshes in
 one; two different textures panic: use one atlas; texture points come
 along, so merging parts first and calling `.with_texture` once works;
@@ -1358,7 +1362,10 @@ mesh, the engine checks a ball around it against the edges of the view
 and skips it if it's entirely outside (*frustum culling*), so chunks
 behind the camera cost nothing. `update_meshes_shaded(&palette, |world,
 x, y, z| brightness)` darkens each face by the cell it looks into (Duck
-Craft makes caves darker this way). To build your own meshes from the
+Craft makes caves darker this way); return `FaceLight { shade, glow }`
+to make faces glow a little too (Duck Craft lights the faces round its
+lamps). Glowing kinds (`BlockKind::glowing`) glow triangle by triangle,
+in the same mesh as everything else. To build your own meshes from the
 atlas instead, `tiles.uv_rect(name)` says where a tile is, and
 `chunk.merge(&Mesh::block(..), &transform)` still works for small things.
 (Measured: 4,096 textured blocks in 16 chunks take about 5 ms a frame on
@@ -1369,8 +1376,17 @@ the CPU at 320 x 240.)
 0.55 })` in `draw`, before the meshes: `sun_direction` is where the light
 comes *from*; `ambient` is how bright faces turned away from the sun are
 (0.35 by default; higher looks softer). It stays until changed.
-`.glowing()` meshes ignore it (lava, lamps, screens). There are no
+`.glowing()` meshes ignore it (lava, lamps, screens), and so do
+triangles given a glow with `mesh.set_glow(triangle, 1.0)`: one lamp in a
+chunk of stone is one mesh. A glow between 0 and 1 keeps a triangle at
+least that bright (the floor round a lamp at night). There are no
 shadows.
+
+**Fog.** `canvas.set_fog(Some(Fog { color: sky, near: 40.0, far: 120.0
+}))` fades 3D into `color` with distance: not at all nearer than `near`,
+completely past `far` (distances straight ahead of the camera). Use the
+sky's colour, and the world melts into it instead of ending at a hard
+edge. `None` turns it off; like the light, it stays until changed.
 
 **Sprites in 3D (billboards).** `canvas.draw_billboard(&sprite, feet,
 height, &camera)` stands a sprite in the world, `height` units tall, its

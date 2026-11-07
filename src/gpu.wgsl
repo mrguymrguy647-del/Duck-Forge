@@ -12,6 +12,12 @@ struct Globals {
     sun: vec4<f32>,
     // rgb: the sun's colour times its strength (1, 1, 1 by default). w is unused.
     sun_color: vec4<f32>,
+    // Distance fog. rgb: its colour. w: 1 with fog, 0 without.
+    fog_color: vec4<f32>,
+    // x: where fog starts, y: where it's complete (distances ahead of the camera).
+    fog_range: vec4<f32>,
+    // The way the camera looks (w is unused), to measure "ahead of the camera".
+    camera_forward: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> globals: Globals;
@@ -51,6 +57,8 @@ struct VertexOut {
     // The same for the whole triangle, so not blended at all.
     @location(3) @interpolate(flat) flags: u32,
     @location(4) @interpolate(flat) tint: vec4<f32>,
+    // How much the triangle glows: it's at least this bright.
+    @location(5) @interpolate(flat) glow: f32,
 };
 
 @vertex
@@ -62,6 +70,7 @@ fn vs_main(v: VertexIn) -> VertexOut {
     out.clip_position = globals.view_projection * world;
     out.world_position = world.xyz;
     out.color = v.color.rgb;
+    out.glow = v.color.a;
     out.uv = v.uv;
     out.flags = v.flags;
     out.tint = v.tint;
@@ -100,13 +109,29 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         color = color * texel.rgb;
     }
     color = color * in.tint.rgb;
-    if (in.flags & GLOWING) != 0u {
-        return vec4<f32>(color, in.tint.a);
+    var lit = color;
+    if (in.flags & GLOWING) == 0u {
+        // The same flat shading as the CPU renderer.
+        let sunlight = max(dot(normal, globals.sun.xyz), 0.0);
+        let ambient = globals.sun.w;
+        let brightness = max(
+            ambient + (1.0 - ambient) * (sunlight * globals.sun_color.rgb),
+            vec3<f32>(in.glow),
+        );
+        lit = color * brightness;
     }
-
-    // The same flat shading as the CPU renderer.
-    let sunlight = max(dot(normal, globals.sun.xyz), 0.0);
-    let ambient = globals.sun.w;
-    let brightness = ambient + (1.0 - ambient) * (sunlight * globals.sun_color.rgb);
-    return vec4<f32>(color * brightness, in.tint.a);
+    // Distance fog, by how far ahead of the camera this pixel is (as on the CPU).
+    if globals.fog_color.w > 0.5 {
+        let ahead = dot(in.world_position - globals.camera_position.xyz, globals.camera_forward.xyz);
+        let near = globals.fog_range.x;
+        let far = globals.fog_range.y;
+        var amount = 0.0;
+        if far > near {
+            amount = clamp((ahead - near) / (far - near), 0.0, 1.0);
+        } else if ahead >= far {
+            amount = 1.0;
+        }
+        lit = mix(lit, globals.fog_color.rgb, amount);
+    }
+    return vec4<f32>(lit, in.tint.a);
 }

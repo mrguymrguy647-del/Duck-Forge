@@ -22,7 +22,7 @@ use std::hash::{BuildHasherDefault, Hash, Hasher};
 
 use bytemuck::{Pod, Zeroable};
 
-use crate::render3d::{Camera3D, Lighting, Mesh, Transform, triangle_corners};
+use crate::render3d::{Camera3D, Fog, Lighting, Mesh, Transform, triangle_corners};
 use crate::sprite::Sprite;
 
 /// One corner of one triangle, laid out exactly as the shader reads it.
@@ -34,6 +34,7 @@ use crate::sprite::Sprite;
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 struct Vertex {
     position: [f32; 3],
+    /// Red, green, blue, and how much the triangle glows (0 to 255 for 0 to 1).
     color: [u8; 4],
     /// The texture point this corner shows (unused without a texture).
     uv: [f32; 2],
@@ -43,7 +44,7 @@ struct Vertex {
 
 /// `Vertex::flags`: the triangle shows the mesh's texture.
 const TEXTURED: u32 = 1;
-/// `Vertex::flags`: the mesh ignores the light.
+/// `Vertex::flags`: the triangle ignores the light (it fully glows).
 const GLOWING: u32 = 2;
 
 /// Per-object data: the object's transform matrix, and its tint (red,
@@ -55,6 +56,15 @@ struct Instance {
     tint: [f32; 4],
 }
 
+/// How one object is drawn, besides where: the canvas's light and fog,
+/// and the object's tint.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Look {
+    pub lighting: Lighting,
+    pub fog: Option<Fog>,
+    pub tint: crate::color::Color,
+}
+
 /// Settings shared by one batch of drawing (see `Globals` in `gpu.wgsl`).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
@@ -63,6 +73,9 @@ struct Globals {
     camera_position: [f32; 4],
     sun: [f32; 4],
     sun_color: [f32; 4],
+    fog_color: [f32; 4],
+    fog_range: [f32; 4],
+    camera_forward: [f32; 4],
 }
 
 /// Where a mesh's two lists live in memory, and how long they are. The same
@@ -109,6 +122,9 @@ fn fingerprint(mesh: &Mesh) -> u64 {
         .map(Sprite::identity)
         .hash(&mut hasher);
     mesh.glowing.hash(&mut hasher);
+    for glow in &mesh.glow {
+        glow.to_bits().hash(&mut hasher);
+    }
     hasher.finish()
 }
 
@@ -122,6 +138,7 @@ struct Sample {
     uvs: [Option<Option<[crate::math::Vec2; 3]>>; 3],
     texture: Option<(usize, [usize; 4])>,
     glowing: bool,
+    glow: [Option<u32>; 3],
 }
 
 fn sample(mesh: &Mesh) -> Sample {
@@ -132,6 +149,7 @@ fn sample(mesh: &Mesh) -> Sample {
         uvs: picks(mesh.uvs.len()).map(|i| mesh.uvs.get(i).copied()),
         texture: mesh.texture.as_ref().map(Sprite::identity),
         glowing: mesh.glowing,
+        glow: picks(mesh.glow.len()).map(|i| mesh.glow.get(i).map(|g| g.to_bits())),
     }
 }
 
@@ -249,6 +267,8 @@ pub(crate) struct GpuRenderer {
     textures: FastMap<TextureKey, GpuTexture>,
     /// The light for the pending objects.
     lighting: Lighting,
+    /// The fog for the pending objects.
+    fog: Option<Fog>,
 
     meshes: FastMap<MeshKey, GpuMesh>,
     /// Fingerprints worked out during the current batch, so each mesh is
@@ -527,6 +547,7 @@ impl GpuRenderer {
             plain,
             textures: FastMap::default(),
             lighting: Lighting::default(),
+            fog: None,
             meshes: FastMap::default(),
             seen: FastMap::default(),
             pending: FastMap::default(),
@@ -567,17 +588,21 @@ impl GpuRenderer {
         mesh: &Mesh,
         transform: &Transform,
         camera: &Camera3D,
-        lighting: &Lighting,
-        tint: crate::color::Color,
+        look: Look,
         pixels: &mut [u32],
     ) {
+        let Look {
+            lighting,
+            fog,
+            tint,
+        } = look;
         if mesh.triangles.is_empty() {
             return; // nothing to draw (and the GPU can't hold an empty buffer)
         }
         // Everything in one batch shares a camera and a light. A new one?
         // Draw what we have first.
         let changed = self.camera.is_some_and(|current| current != *camera)
-            || (self.camera.is_some() && self.lighting != *lighting);
+            || (self.camera.is_some() && (self.lighting != lighting || self.fog != fog));
         // A solid object after see-through ones: draw those first, so the
         // picture follows the drawing order, as on the CPU.
         let solid_after_glass = tint.a == 255 && !self.pending_see_through.is_empty();
@@ -585,7 +610,8 @@ impl GpuRenderer {
             self.flush(pixels);
         }
         self.camera = Some(*camera);
-        self.lighting = *lighting;
+        self.lighting = lighting;
+        self.fog = fog;
 
         let key = self.key_for(mesh);
         if !self.meshes.contains_key(&key) {
@@ -641,15 +667,17 @@ impl GpuRenderer {
     /// Sends a copy of `mesh` (and its texture, if the GPU hasn't got it
     /// yet) to the GPU.
     fn upload(&mut self, key: MeshKey, mesh: &Mesh) {
-        let glow = if mesh.glowing { GLOWING } else { 0 };
         // One GPU vertex per triangle corner, each carrying the triangle's
-        // color, and its texture point if it's textured.
+        // color and glow, and its texture point if it's textured.
         let vertices: Vec<Vertex> = mesh
             .triangles
             .iter()
             .enumerate()
             .flat_map(|(index, triangle)| {
-                let color = [triangle.color.r, triangle.color.g, triangle.color.b, 255];
+                let level = mesh.glow_of(index);
+                let glow = if level >= 1.0 { GLOWING } else { 0 };
+                let partly = (level * 255.0).round() as u8;
+                let color = [triangle.color.r, triangle.color.g, triangle.color.b, partly];
                 let uvs = mesh.uvs_of(index);
                 let flags = glow | if uvs.is_some() { TEXTURED } else { 0 };
                 let corners = triangle_corners(&mesh.vertices, index, triangle);
@@ -740,6 +768,22 @@ impl GpuRenderer {
             camera_position: [camera.position.x, camera.position.y, camera.position.z, 0.0],
             sun: [sun.x, sun.y, sun.z, self.lighting.ambient_level()],
             sun_color: [r, g, b, 0.0],
+            fog_color: self.fog.map_or([0.0; 4], |fog| {
+                let c = fog.color;
+                [
+                    c.r as f32 / 255.0,
+                    c.g as f32 / 255.0,
+                    c.b as f32 / 255.0,
+                    1.0,
+                ]
+            }),
+            fog_range: self
+                .fog
+                .map_or([0.0; 4], |fog| [fog.near, fog.far, 0.0, 0.0]),
+            camera_forward: {
+                let f = camera.forward();
+                [f.x, f.y, f.z, 0.0]
+            },
         };
         self.queue
             .write_buffer(&self.globals_buffer, 0, bytemuck::bytes_of(&globals));
@@ -1117,6 +1161,19 @@ mod tests {
     }
 
     #[test]
+    fn glow_levels_and_fog_are_drawn_like_the_cpu() {
+        let Some(mut gpu) = gpu_canvas(160, 120) else {
+            return;
+        };
+        let mut cpu = Canvas::new(160, 120);
+        crate::render3d::draw_glow_and_fog_scene(&mut gpu);
+        crate::render3d::draw_glow_and_fog_scene(&mut cpu);
+        gpu.flush_3d();
+        let share = share_different(&gpu, &cpu);
+        assert!(share < 0.02, "{:.1}% of pixels differ", share * 100.0);
+    }
+
+    #[test]
     fn tinted_and_see_through_meshes_are_drawn_like_the_cpu() {
         for green in [false, true] {
             let Some(mut gpu) = gpu_canvas(80, 60) else {
@@ -1310,8 +1367,11 @@ mod tests {
                     &cube,
                     &Transform::at(at),
                     &camera,
-                    &Default::default(),
-                    Color::WHITE,
+                    super::Look {
+                        lighting: crate::render3d::Lighting::default(),
+                        fog: None,
+                        tint: Color::WHITE,
+                    },
                     pixels,
                 );
             }

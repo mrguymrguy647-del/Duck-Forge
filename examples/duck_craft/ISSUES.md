@@ -36,7 +36,11 @@ game; the tool still has the gap.
    so, and Duck Craft uses it instead of copying pixels.
 4. **Glow is per mesh.** Lamps need their own mesh per chunk, and glowing
    blocks can't light their neighbours. No fog either, so the world ends
-   with a hard edge at the sea.
+   with a hard edge at the sea. **Fixed in the engine:** a glow level per
+   triangle (`mesh.set_glow`, `BlockKind::glowing` and `FaceLight` in a
+   block world) and `canvas.set_fog`. Lamps are in the chunk mesh, the
+   faces round a lamp glow a little at night, and the world fades into
+   the horizon's colour.
 5. **The default fuzz keys don't include W/A/S/D or the game's own keys**,
    so `verify`'s 50 runs stood still (`x always 32.5`). Passing
    `--fuzz-keys W,A,S,D,Space,X,C,...` found real coverage. The fuzzer

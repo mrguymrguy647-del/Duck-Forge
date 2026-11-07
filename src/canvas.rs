@@ -52,6 +52,8 @@ pub struct Canvas {
     texts: Vec<SceneText>,
     /// The light 3D is drawn with.
     lighting: Lighting,
+    /// Distance fog over 3D, if any.
+    fog: Option<crate::render3d::Fog>,
     /// The last 3D drawn was in view space (`draw_mesh_in_view`): the
     /// depth buffer was emptied for it, and isn't again until the world is
     /// drawn once more.
@@ -103,6 +105,7 @@ impl Canvas {
             labels: Vec::new(),
             texts: Vec::new(),
             lighting: Lighting::default(),
+            fog: None,
             drawing_in_view: false,
             see_through_marks: Vec::new(),
             see_through_mark: 0,
@@ -143,6 +146,26 @@ impl Canvas {
     /// with. See [`Lighting`].
     pub fn set_lighting(&mut self, lighting: Lighting) {
         self.lighting = lighting;
+    }
+
+    /// Fades 3D into a colour with distance (`Some`), or not (`None`, the
+    /// start). It stays until it's changed, like the lighting. See
+    /// [`Fog`](crate::render3d::Fog).
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// # let mut canvas = Canvas::new(32, 24);
+    /// let sky = Color::from_hex(0x87ceeb);
+    /// canvas.clear(sky);
+    /// canvas.set_fog(Some(Fog { color: sky, near: 30.0, far: 80.0 }));
+    /// ```
+    pub fn set_fog(&mut self, fog: Option<crate::render3d::Fog>) {
+        self.fog = fog;
+    }
+
+    /// The fog 3D is drawn with now.
+    pub fn fog(&self) -> Option<crate::render3d::Fog> {
+        self.fog
     }
 
     /// The light 3D meshes are drawn with now.
@@ -370,14 +393,12 @@ impl Canvas {
         }
         match &mut self.gpu {
             GpuSlot::Running(gpu) => {
-                gpu.draw(
-                    mesh,
-                    transform,
-                    camera,
-                    &self.lighting,
+                let look = crate::gpu::Look {
+                    lighting: self.lighting,
+                    fog: self.fog,
                     tint,
-                    &mut self.pixels,
-                );
+                };
+                gpu.draw(mesh, transform, camera, look, &mut self.pixels);
                 true
             }
             _ => false,
@@ -592,6 +613,7 @@ impl Canvas {
         opacity: u8,
     ) {
         let c32 = color.to_u32();
+        let fog = self.fog.map(|f| (f, f.color.to_u32()));
         // Borrow the two buffers separately, so the closure can change both.
         let (pixels, depth) = (&mut self.pixels, &mut self.depth);
         if opacity < 255 {
@@ -605,7 +627,8 @@ impl Canvas {
                     + weights[2] * inverse_depths[2];
                 if d > depth[i] && marks[i] != mark {
                     marks[i] = mark;
-                    pixels[i] = crate::color::blend(pixels[i], c32, opacity);
+                    let color = fogged(c32, fog, d);
+                    pixels[i] = crate::color::blend(pixels[i], color, opacity);
                 }
             });
             return;
@@ -617,7 +640,7 @@ impl Canvas {
                 + weights[2] * inverse_depths[2];
             if d > depth[i] {
                 depth[i] = d;
-                pixels[i] = c32;
+                pixels[i] = fogged(c32, fog, d);
             }
         });
     }
@@ -643,6 +666,7 @@ impl Canvas {
         // is integer arithmetic (much quicker than rounding floats).
         let shade = shade.map(|k| (k.clamp(0.0, 255.0) * 65536.0).round() as u32);
         let (texture_rgb, texture_alpha, row, start) = texture.texels();
+        let fog = self.fog.map(|f| (f, f.color.to_u32()));
         let (pixels, depth) = (&mut self.pixels, &mut self.depth);
         let (marks, mark) = (&mut self.see_through_marks, self.see_through_mark);
         for_each_pixel_in_triangle(self.width, self.height, corners, |i, weights| {
@@ -676,6 +700,7 @@ impl Canvas {
                 (((c + 32768) >> 16).min(255) as u32) << shift
             };
             let color = channel(16, shade[0]) | channel(8, shade[1]) | channel(0, shade[2]);
+            let color = fogged(color, fog, d);
             if opacity < 255 {
                 // See-through: no depth, and each pixel once per mesh.
                 if marks[i] != mark {
@@ -1116,6 +1141,19 @@ fn for_each_pixel_in_triangle(
                 plot(y * width + x, weights);
             }
         }
+    }
+}
+
+/// A 3D pixel's colour (`0x00RRGGBB`) with the fog in front of it mixed
+/// in: `d` is 1 / its distance ahead of the camera. Unchanged with no fog.
+#[inline]
+fn fogged(color: u32, fog: Option<(crate::render3d::Fog, u32)>, d: f32) -> u32 {
+    match fog {
+        None => color,
+        Some((fog, fog_rgb)) => match fog.amount(1.0 / d) {
+            0 => color,
+            amount => crate::color::blend(color, fog_rgb, amount),
+        },
     }
 }
 

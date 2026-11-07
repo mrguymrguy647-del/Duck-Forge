@@ -2780,3 +2780,46 @@ you look at; its CPU and GPU pictures differ in 0.18% of pixels. The
 CPU benchmarks (`stress3d`'s `frame_time`, two runs each) were 5.7 to 6.4
 ms for the textured block world before and 6.2 to 6.9 ms after, about the
 spread between runs.
+
+## Fix 9: Glow per triangle, and distance fog
+
+**Glow.** A mesh glowed or it didn't, so Duck Craft kept a second mesh per
+chunk for its lamps (and `BlockWorld` did the same in fix 3), and a lamp
+couldn't light anything round it. Meshes now have a glow level per
+triangle (`mesh.glow`, set with `set_glow`; `glow_of` reads it, and says 1
+for a `.glowing()` mesh): 0 is lit as before, 1 ignores the light
+exactly as `.glowing()` does, and in between keeps the triangle at least
+that bright, per colour channel (`max(light, glow)`). "At least" rather
+than "plus" means a lamp's light can't make a sunny face brighter than
+white, and does nothing in daylight; it shows at night.
+
+- `merge` no longer refuses to mix glowing and plain meshes (it said
+  "draw them as two meshes"): glowing parts keep glowing, triangle by
+  triangle.
+- The GPU carries the level in each corner's colour alpha, which was
+  unused (always 255). A full glow still sets the `GLOWING` flag, so it
+  takes exactly the old path.
+- `BlockWorld` is back to one mesh per chunk: `BlockKind::glowing` blocks
+  glow by their triangles, and the shade closure may return
+  `FaceLight { shade, glow }` instead of a number (a plain `f32` still
+  works, through `From<f32>`). `chunk_glow_mesh` is gone (it never left
+  this branch). Duck Craft keeps a list of its lamps and gives faces
+  within 4.5 blocks a glow of up to 0.75; placing or digging a lamp marks
+  the chunks it reaches.
+
+**Fog.** `canvas.set_fog(Some(Fog { color, near, far }))`, apart from
+`Lighting` so the struct literals games already write keep compiling.
+The amount is by distance straight ahead of the camera (the same depth
+the CPU's depth buffer holds as `1 / z`; the GPU works it out from the
+camera's direction, now sent with the other per-batch settings), from
+none at `near` to all at `far`, mixed with `color::blend` on the CPU and
+`mix` on the GPU. It applies to every 3D pixel, glowing or not, and before
+see-through mixing. Duck Craft uses the horizon's colour from 40 to 120
+blocks, so the sea fades out instead of ending at a hard edge.
+
+The 42 baseline pictures are unchanged (no glow and no fog run the old
+code). Tests: glow levels 0, 0.6 and 1 on the CPU (exact values), merging
+glowing and plain parts both ways, fog amounts and exact fogged colours,
+a GPU picture with glow levels and fog matching the CPU's, `BlockWorld`
+with a lamp and a half-lit face, and Duck Craft's lamp lighting the floor
+round it (and going out when dug).

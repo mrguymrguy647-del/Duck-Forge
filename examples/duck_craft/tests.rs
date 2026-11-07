@@ -262,6 +262,30 @@ fn the_mouse_looks_round_while_the_window_holds_the_pointer() {
 }
 
 #[test]
+fn a_lamp_lights_the_faces_round_it_and_glows_itself() {
+    let game = arena(|w| w.set(8, FLOOR, 10, Block::Lamp));
+    let mesh = game.world.grid.chunk_mesh(0, 0);
+    let glows: Vec<f32> = (0..mesh.triangles.len()).map(|t| mesh.glow_of(t)).collect();
+    // The lamp's own five faces (its underside is on the floor) glow fully...
+    assert_eq!(glows.iter().filter(|&&g| g == 1.0).count(), 10);
+    // ...the floor round it a little, less further away, and far off not at all.
+    let partly: Vec<f32> = glows
+        .iter()
+        .copied()
+        .filter(|&g| g > 0.0 && g < 1.0)
+        .collect();
+    assert!(partly.len() > 20, "{} faces lit", partly.len());
+    assert!(partly.iter().any(|&g| g > 0.5) && partly.iter().any(|&g| g < 0.3));
+    assert!(glows.iter().filter(|&&g| g == 0.0).count() > 400);
+    // Digging it out puts the light out.
+    let mut game = game;
+    game.world.set(8, FLOOR, 10, Block::Air);
+    game.update_chunks();
+    let mesh = game.world.grid.chunk_mesh(0, 0);
+    assert!((0..mesh.triangles.len()).all(|t| mesh.glow_of(t) == 0.0));
+}
+
+#[test]
 fn bedrock_cant_be_dug() {
     let game = arena(|w| w.set(8, FLOOR + 1, 10, Block::Bedrock));
     let played = PlayTest::new(config(), game)
@@ -431,6 +455,19 @@ fn views() {
             .save_png(format!("out/views/{name}.png"))
             .unwrap();
     }
+    // At night, round a few lamps on the arena's floor.
+    let mut game = arena(|w| {
+        for (x, z) in [(6, 12), (10, 13), (8, 16)] {
+            w.set(x, FLOOR, z, Block::Lamp);
+        }
+        w.set(9, FLOOR, 12, Block::Planks);
+    });
+    game.pitch = -0.35;
+    game.show_help = false;
+    game.time = 0.7 * DAY_SECONDS;
+    let mut sim = Simulation::new(config(), game);
+    sim.step();
+    sim.picture().save_png("out/views/lamps.png").unwrap();
     for (name, at, yaw, pitch, behind, time) in shots {
         let mut game = new_game().unwrap();
         if let Some(at) = at {

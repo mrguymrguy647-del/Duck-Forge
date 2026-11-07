@@ -85,7 +85,7 @@ pub use simulation::Simulation;
 /// `use duckforge::prelude::*;`
 pub mod prelude {
     pub use crate::background::Background;
-    pub use crate::blocks::{AIR, BlockId, BlockKind, BlockPalette, BlockWorld};
+    pub use crate::blocks::{AIR, BlockId, BlockKind, BlockPalette, BlockWorld, FaceLight};
     pub use crate::camera::Camera2D;
     pub use crate::canvas::Canvas;
     pub use crate::color::Color;
@@ -96,7 +96,7 @@ pub mod prelude {
         vec3,
     };
     pub use crate::playtest::PlayTest;
-    pub use crate::render3d::{Billboard, Camera3D, Lighting, Mesh, Renderer, Transform};
+    pub use crate::render3d::{Billboard, Camera3D, Fog, Lighting, Mesh, Renderer, Transform};
     pub use crate::report::ReportValue;
     pub use crate::rng::Rng;
     pub use crate::script::InputScript;
