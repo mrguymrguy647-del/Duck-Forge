@@ -934,7 +934,10 @@ float type), a `bool`, a `&str` or a `String`. Enums: report
 `Wave::Square` / `Sine` / `Triangle` / `Noise`; `attack` and `decay` are
 fade in/out in ms; `slide_to: 0.0` means no slide. Files:
 `let w = Wav::load("assets/x.wav")?;` (8/16/24/32-bit or float, any rate,
-mono or stereo) then `ctx.play_wav(&w)`. Music and other repeating
+mono or stereo; stereo keeps its left and right, `w.is_stereo()`) then
+`ctx.play_wav(&w)`. Placed between the speakers:
+`ctx.play_panned(sound, -0.5)` and `ctx.play_wav_panned(&w, 1.0)` (-1
+left, 0 both sides, 1 right). Music and other repeating
 sounds: `let music: LoopId = ctx.play_loop(&w, 0.6);` (a `Wav`, or a
 `Sound` passed as it is; it repeats with no gap until stopped),
 `ctx.set_loop_volume(music, 0.3)`, `ctx.stop_loop(music)`; keep the
@@ -1373,7 +1376,8 @@ Plan around these. Don't spend time looking for them:
 - One-off sounds can't be stopped or changed once started (loops can:
   `play_loop`, `set_loop_volume`, `stop_loop`). No pitch changes while
   playing, and no crossfades beyond changing volumes yourself.
-- No stereo panning: every sound is mono.
+- No moving pans: a one-off sound's pan is set when it starts, and loops
+  play in the middle (or as their stereo file is).
 - Physics boxes don't rotate (balls and axis-aligned boxes only).
 - No running in a web browser.
 - One built-in pixel font (ASCII only), and no other fonts.

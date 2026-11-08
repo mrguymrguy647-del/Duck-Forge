@@ -15,42 +15,61 @@
 
 use std::sync::{Arc, Mutex};
 
-use crate::sound::SAMPLE_RATE;
+use crate::sound::{SAMPLE_RATE, Samples, pan_gains};
 
 /// At most this many sounds play at once; a new one replaces the oldest.
 const MAX_VOICES: usize = 32;
-/// Samples per refill: 1024 is about 23 milliseconds, short enough that a
-/// sound feels instant, long enough not to stutter.
+/// Moments per refill (each a left and a right sample): 1024 is about 23
+/// milliseconds, short enough that a sound feels instant, long enough not
+/// to stutter.
 const BLOCK: usize = 1024;
+
+/// One sound playing: its samples, how loud on the left and the right
+/// (from its pan), and how far through it we are.
+struct Voice {
+    samples: Samples,
+    gains: (f32, f32),
+    at: usize,
+}
 
 /// The sounds playing right now, and how far through each one we are.
 #[derive(Default)]
 struct Voices {
-    playing: Vec<(Arc<[f32]>, usize)>,
+    playing: Vec<Voice>,
     /// Looping sounds: the loop's number, its samples, how far through
     /// them we are, and its volume.
-    loops: Vec<(u32, Arc<[f32]>, usize, f32)>,
+    loops: Vec<(u32, Samples, usize, f32)>,
 }
 
 impl Voices {
-    /// Adds up every playing sound into `out` and moves them all on.
+    /// Adds up every playing sound into `out` (left and right side by
+    /// side: left, right, left, right...) and moves them all on. A mono
+    /// sound plays the same on both sides; a stereo one keeps its own.
     fn fill(&mut self, out: &mut [f32]) {
         out.fill(0.0);
-        for (samples, at) in &mut self.playing {
-            let rest = &samples[(*at).min(samples.len())..];
-            for (o, s) in out.iter_mut().zip(rest) {
-                *o += s;
+        let frames = out.len() / 2;
+        for voice in &mut self.playing {
+            let (to_left, to_right) = voice.gains;
+            let end = (voice.at + frames).min(voice.samples.frames());
+            for (pair, i) in out.chunks_exact_mut(2).zip(voice.at..end) {
+                let (l, r) = voice.samples.frame(i);
+                pair[0] += l * to_left;
+                pair[1] += r * to_right;
             }
-            *at += out.len();
+            voice.at += frames;
         }
-        self.playing.retain(|(samples, at)| *at < samples.len());
+        self.playing
+            .retain(|voice| voice.at < voice.samples.frames());
         for (_, samples, at, volume) in &mut self.loops {
-            if samples.is_empty() {
+            let length = samples.frames();
+            if length == 0 {
                 continue;
             }
-            for o in out.iter_mut() {
-                *o += samples[*at] * *volume;
-                *at = (*at + 1) % samples.len(); // round again, with no gap
+            for pair in out.chunks_exact_mut(2) {
+                let (l, r) = samples.frame(*at);
+                pair[0] += l * *volume;
+                pair[1] += r * *volume;
+                *at = (*at + 1) % length; // round again, with no gap
             }
         }
         for o in out {
@@ -78,15 +97,20 @@ impl Speaker {
         })
     }
 
-    /// Starts playing `samples` (at [`SAMPLE_RATE`], mono).
-    pub(crate) fn play(&self, samples: Arc<[f32]>) {
+    /// Starts playing `samples` (at [`SAMPLE_RATE`], mono or stereo) at
+    /// `pan` (-1 left, 0 both sides, 1 right).
+    pub(crate) fn play(&self, samples: Samples, pan: f32) {
         // A panic on the sound thread can't happen while it holds the
         // lock (filling can't panic), but recover anyway rather than crash.
         let mut voices = self.voices.lock().unwrap_or_else(|e| e.into_inner());
         if voices.playing.len() >= MAX_VOICES {
             voices.playing.remove(0);
         }
-        voices.playing.push((samples, 0));
+        voices.playing.push(Voice {
+            samples,
+            gains: pan_gains(pan),
+            at: 0,
+        });
     }
 
     /// Starts, changes or stops a looping sound.
@@ -122,18 +146,13 @@ mod backend {
                 channels_count: 2,
                 channel_sample_count: BLOCK,
             };
-            let mut mono = vec![0.0; BLOCK];
+            // tinyaudio asks for left and right side by side, just as
+            // `fill` makes them.
             let device = run_output_device(params, move |stereo: &mut [f32]| {
-                let frames = stereo.len() / 2;
-                mono.resize(frames, 0.0);
                 voices
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
-                    .fill(&mut mono);
-                for (pair, &sample) in stereo.chunks_exact_mut(2).zip(&mono) {
-                    pair[0] = sample; // left
-                    pair[1] = sample; // right
-                }
+                    .fill(stereo);
             })
             .map_err(|err| format!("couldn't open the sound device ({err})"))?;
             Ok(Device(device))
@@ -253,7 +272,7 @@ mod backend {
                     alsa.error(code)
                 ));
             }
-            // Mono 16-bit at 44100 Hz, letting ALSA convert if the card
+            // Stereo 16-bit at 44100 Hz, letting ALSA convert if the card
             // wants something else, with about 50 ms of buffering.
             // SAFETY: `pcm` was just opened.
             let code = unsafe {
@@ -261,7 +280,7 @@ mod backend {
                     pcm,
                     FORMAT_S16_LE,
                     ACCESS_RW_INTERLEAVED,
-                    1,
+                    2,
                     SAMPLE_RATE,
                     1,
                     50_000,
@@ -283,8 +302,9 @@ mod backend {
                 .name(String::from("duckforge sound"))
                 .spawn(move || {
                     let handle = handle;
-                    let mut mixed = vec![0.0f32; BLOCK];
-                    let mut pcm16 = vec![0i16; BLOCK];
+                    // Left and right side by side: two samples a moment.
+                    let mut mixed = vec![0.0f32; 2 * BLOCK];
+                    let mut pcm16 = vec![0i16; 2 * BLOCK];
                     while still_running.load(Ordering::Relaxed) {
                         voices
                             .lock()
@@ -295,7 +315,7 @@ mod backend {
                         }
                         // Waits until the device has room, which is what
                         // keeps this loop in step with the speakers.
-                        // SAFETY: the buffer holds BLOCK samples of one channel.
+                        // SAFETY: the buffer holds BLOCK moments of two channels.
                         let written = unsafe {
                             (alsa.writei)(handle.0, pcm16.as_ptr().cast(), BLOCK as c_ulong)
                         };
@@ -342,8 +362,12 @@ mod backend {
             let voices = Arc::new(Mutex::new(Voices::default()));
             let device = Device::open_named(c"null", Arc::clone(&voices))
                 .expect("the null device always opens");
-            let beep: Arc<[f32]> = crate::sound::Sound::default().render().into();
-            voices.lock().unwrap().playing.push((beep, 0));
+            let beep = Samples::mono(crate::sound::Sound::default().render());
+            voices.lock().unwrap().playing.push(Voice {
+                samples: beep,
+                gains: (1.0, 1.0),
+                at: 0,
+            });
             // Wait until the sound thread has played the whole beep.
             for _ in 0..200 {
                 if voices.lock().unwrap().playing.is_empty() {
@@ -364,29 +388,71 @@ mod backend {
 mod tests {
     use super::*;
 
+    fn voice(samples: Samples, pan: f32) -> Voice {
+        Voice {
+            samples,
+            gains: pan_gains(pan),
+            at: 0,
+        }
+    }
+
+    /// Only the left samples of a filled buffer (left, right, left, right...).
+    fn lefts(out: &[f32]) -> Vec<f32> {
+        out.iter().step_by(2).copied().collect()
+    }
+
     #[test]
     fn voices_add_up_move_on_and_finish() {
         let mut voices = Voices::default();
-        voices.playing.push((vec![0.25, 0.25, 0.25].into(), 0));
-        voices.playing.push((vec![0.5, 1.0].into(), 0));
-        let mut out = [9.0; 2];
+        voices
+            .playing
+            .push(voice(Samples::mono(vec![0.25, 0.25, 0.25]), 0.0));
+        voices
+            .playing
+            .push(voice(Samples::mono(vec![0.5, 1.0]), 0.0));
+        let mut out = [9.0; 4]; // two moments, left and right
         voices.fill(&mut out);
-        assert_eq!(out, [0.75, 1.0], "added together, and cut off at 1.0");
+        assert_eq!(
+            out,
+            [0.75, 0.75, 1.0, 1.0],
+            "added together, and cut off at 1.0"
+        );
         voices.fill(&mut out);
-        assert_eq!(out, [0.25, 0.0]);
+        assert_eq!(out, [0.25, 0.25, 0.0, 0.0]);
         assert!(voices.playing.is_empty(), "both finished");
+    }
+
+    #[test]
+    fn stereo_sounds_keep_their_sides_and_pans_move_sounds() {
+        let mut voices = Voices::default();
+        // Left 0.5 and right -0.25, then left 0.1 and right 0.2.
+        voices
+            .playing
+            .push(voice(Samples::stereo(vec![0.5, -0.25, 0.1, 0.2]), 0.0));
+        let mut out = [0.0; 4];
+        voices.fill(&mut out);
+        assert_eq!(out, [0.5, -0.25, 0.1, 0.2], "each side as it was");
+        // A mono sound panned half left: the right side at half.
+        voices
+            .playing
+            .push(voice(Samples::mono(vec![0.8, 0.8]), -0.5));
+        voices.fill(&mut out);
+        assert_eq!(out, [0.8, 0.4, 0.8, 0.4]);
     }
 
     #[test]
     fn loops_go_round_with_no_gap_at_their_volume() {
         let mut voices = Voices::default();
-        voices.loops.push((1, vec![0.1, 0.2, 0.3].into(), 0, 2.0));
-        let mut out = [0.0; 4];
+        voices
+            .loops
+            .push((1, Samples::mono(vec![0.1, 0.2, 0.3]), 0, 2.0));
+        let mut out = [0.0; 8];
         voices.fill(&mut out);
         let want = [0.2, 0.4, 0.6, 0.2];
-        for (got, want) in out.iter().zip(want) {
+        for (got, want) in lefts(&out).iter().zip(want) {
             assert!((got - want).abs() < 1e-6, "{out:?}");
         }
+        assert_eq!(out[0], out[1], "a mono loop is the same on both sides");
         voices.fill(&mut out);
         assert!(
             (out[0] - 0.4).abs() < 1e-6,

@@ -113,6 +113,7 @@ impl Game for Everything {
         if ctx.frame() == 3 {
             ctx.beep(440.0, 50.0);
             ctx.play(Sound::coin());
+            ctx.play_panned(Sound::explosion(), -0.5); // from the left
             ctx.play(Sound::jump());
             ctx.play(Sound::hit());
             ctx.play(Sound::explosion());
@@ -236,7 +237,7 @@ fn the_game_parts_of_the_cheat_sheet_work() {
     assert_eq!(sim.game().inits, 1);
     assert_eq!(sim.game().resizes, 1);
     assert_eq!(sim.sound_frames("coin"), [3]);
-    assert_eq!(sim.sounds().len(), 9);
+    assert_eq!(sim.sounds().len(), 10);
     sim.assert_sound("laser", 3, 0);
     let replay = sim.recording();
     let file = std::env::temp_dir().join(format!("cheat-sheet-{}.json", std::process::id()));
@@ -501,6 +502,8 @@ fn loading_files_gives_one_sentence_errors() {
     // play_wav with a real file is tested in src/headless.rs; here it only
     // needs to exist with the cheat sheet's signature.
     let _: fn(&mut Context, &Wav) = Context::play_wav;
+    let _: fn(&mut Context, &Wav, f32) = Context::play_wav_panned;
+    let _: fn(&Wav) -> bool = Wav::is_stereo;
 }
 
 #[test]

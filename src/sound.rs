@@ -47,6 +47,70 @@ use crate::sprite::missing_file_error;
 /// Samples per second of every sound in the engine (CD quality).
 pub const SAMPLE_RATE: u32 = 44_100;
 
+/// Sound samples at [`SAMPLE_RATE`], each from -1.0 to 1.0: one channel
+/// (mono), or two side by side (stereo: left, right, left, right...).
+/// Cloning is cheap: the samples are shared, not copied.
+#[derive(Debug, Clone)]
+pub(crate) struct Samples {
+    data: Arc<[f32]>,
+    stereo: bool,
+}
+
+impl Samples {
+    pub(crate) fn mono(samples: Vec<f32>) -> Samples {
+        Samples {
+            data: samples.into(),
+            stereo: false,
+        }
+    }
+
+    /// Left and right samples, side by side.
+    pub(crate) fn stereo(interleaved: Vec<f32>) -> Samples {
+        debug_assert!(
+            interleaved.len().is_multiple_of(2),
+            "a left and a right each time"
+        );
+        Samples {
+            data: interleaved.into(),
+            stereo: true,
+        }
+    }
+
+    pub(crate) fn is_stereo(&self) -> bool {
+        self.stereo
+    }
+
+    /// How many moments it holds (a stereo frame is a left and a right).
+    pub(crate) fn frames(&self) -> usize {
+        if self.stereo {
+            self.data.len() / 2
+        } else {
+            self.data.len()
+        }
+    }
+
+    /// Moment `i` as (left, right). A mono sample is the same on both sides.
+    #[inline]
+    pub(crate) fn frame(&self, i: usize) -> (f32, f32) {
+        if self.stereo {
+            (self.data[2 * i], self.data[2 * i + 1])
+        } else {
+            (self.data[i], self.data[i])
+        }
+    }
+}
+
+/// How loud a sound is on the left and on the right for a `pan` from -1
+/// (left only) through 0 (both, as loud as without a pan) to 1 (right only).
+pub(crate) fn pan_gains(pan: f32) -> (f32, f32) {
+    let pan = if pan.is_finite() {
+        pan.clamp(-1.0, 1.0)
+    } else {
+        0.0
+    };
+    ((1.0 - pan).min(1.0), (1.0 + pan).min(1.0))
+}
+
 /// The shape of a sound wave, which gives a sound its character.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Wave {
@@ -308,12 +372,14 @@ impl Noise {
 pub struct Wav {
     name: String,
     path: PathBuf,
-    samples: Arc<[f32]>,
+    samples: Samples,
 }
 
 impl Wav {
     /// Loads a `.wav` file: 8, 16, 24 or 32-bit, or floating point, at any
-    /// sample rate, mono or stereo (stereo is mixed down to mono). The
+    /// sample rate (converted to [`SAMPLE_RATE`]), mono or stereo. Stereo
+    /// stays stereo, left and right; a mono sound plays the same on both
+    /// sides. (Files with more than two channels keep the first two.) The
     /// sound's name in logs is the file name without `.wav`.
     ///
     /// If the file is missing or isn't a WAV duckforge can read, the error
@@ -338,7 +404,7 @@ impl Wav {
         Ok(Wav {
             name,
             path: path.to_path_buf(),
-            samples: samples.into(),
+            samples,
         })
     }
 
@@ -350,7 +416,12 @@ impl Wav {
 
     /// How long the sound lasts, in seconds.
     pub fn seconds(&self) -> f32 {
-        self.samples.len() as f32 / SAMPLE_RATE as f32
+        self.samples.frames() as f32 / SAMPLE_RATE as f32
+    }
+
+    /// Whether the file is stereo (a left and a right channel).
+    pub fn is_stereo(&self) -> bool {
+        self.samples.is_stereo()
     }
 }
 
@@ -360,9 +431,10 @@ impl std::fmt::Debug for Wav {
     }
 }
 
-/// Reads the samples out of a WAV file, mixed to mono and converted to
-/// [`SAMPLE_RATE`]. The error says what's wrong with the file.
-fn decode_wav(bytes: &[u8]) -> Result<Vec<f32>, String> {
+/// Reads the samples out of a WAV file, converted to [`SAMPLE_RATE`]:
+/// mono stays mono, stereo stays stereo (more channels keep the first
+/// two). The error says what's wrong with the file.
+fn decode_wav(bytes: &[u8]) -> Result<Samples, String> {
     if bytes.len() < 12 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
         return Err(String::from("it doesn't start like a WAV file"));
     }
@@ -417,30 +489,111 @@ fn decode_wav(bytes: &[u8]) -> Result<Vec<f32>, String> {
     };
     let width = bits as usize / 8;
     let frame = width * channels as usize;
-    let mono: Vec<f32> = data
+    let kept = (channels as usize).min(2);
+    let samples: Vec<f32> = data
         .chunks_exact(frame)
-        .map(|f| f.chunks_exact(width).map(read).sum::<f32>() / channels as f32)
+        .flat_map(|f| f.chunks_exact(width).take(kept).map(read))
         .collect();
-    Ok(resample(&mono, rate))
+    let samples = resample(&samples, kept, rate);
+    Ok(if kept == 2 {
+        Samples::stereo(samples)
+    } else {
+        Samples::mono(samples)
+    })
 }
 
-/// Converts samples recorded at `rate` per second to [`SAMPLE_RATE`],
-/// drawing straight lines between the original samples.
-fn resample(samples: &[f32], rate: u32) -> Vec<f32> {
-    if rate == SAMPLE_RATE || samples.is_empty() {
+/// How many original samples the resampling filter reaches on each side
+/// (when making a sound longer; further when making it shorter).
+const SINC_REACH: usize = 12;
+/// How finely the filter is worked out between two original samples.
+const SINC_STEPS: usize = 1024;
+
+/// Converts samples recorded at `rate` per second to [`SAMPLE_RATE`]
+/// (`channels` of them side by side, 1 or 2), or copies them if they're
+/// already at that rate.
+///
+/// Each new sample is a weighted sum of the original samples round it:
+/// the weights are a *windowed sinc*, the curve that rebuilds a sound
+/// exactly from its samples (sinc), faded to zero at the edges (a Blackman
+/// window) so it only reaches 12 samples each way. Joining samples with
+/// straight lines instead adds a hiss and a metallic ring. When the sound
+/// is made shorter (from 48000 or 96000 per second), the filter is widened
+/// so it also removes the notes too high for 44100 per second, which would
+/// otherwise fold back down as false ones (aliasing). The weights are
+/// worked out once into a table, so a minute of music takes well under a
+/// second.
+fn resample(samples: &[f32], channels: usize, rate: u32) -> Vec<f32> {
+    let frames = samples.len() / channels;
+    if rate == SAMPLE_RATE || frames == 0 {
         return samples.to_vec();
     }
-    let length = (samples.len() as u64 * SAMPLE_RATE as u64 / rate as u64) as usize;
-    let step = rate as f64 / SAMPLE_RATE as f64;
-    (0..length)
-        .map(|i| {
-            let at = i as f64 * step;
-            let before = (at as usize).min(samples.len() - 1);
-            let after = (before + 1).min(samples.len() - 1);
-            let t = (at - before as f64) as f32;
-            samples[before] + (samples[after] - samples[before]) * t
-        })
-        .collect()
+    let length = (frames as u64 * SAMPLE_RATE as u64 / rate as u64) as usize;
+    let step = rate as f64 / SAMPLE_RATE as f64; // original samples per new one
+    // The highest note kept, as a share of the original's highest: all of
+    // it when making the sound longer, less when making it shorter.
+    let cutoff = (1.0 / step).min(1.0);
+    let reach = (SINC_REACH as f64 / cutoff).ceil() as usize;
+    let taps = 2 * reach;
+    let table = sinc_table(cutoff, reach);
+
+    let mut out = vec![0.0f32; length * channels];
+    for i in 0..length {
+        let at = i as f64 * step;
+        let whole = at.floor();
+        let row = ((at - whole) * SINC_STEPS as f64).round() as usize;
+        let weights = &table[row * taps..(row + 1) * taps];
+        // The first original sample in reach, and the part of the filter
+        // that lands inside the sound (outside it is silence).
+        let first = whole as i64 - (reach as i64 - 1);
+        let from = first.max(0);
+        let to = (first + taps as i64).min(frames as i64);
+        if from >= to {
+            continue;
+        }
+        let weights = &weights[(from - first) as usize..(to - first) as usize];
+        for c in 0..channels {
+            let mut sum = 0.0f32;
+            for (k, w) in (from as usize..to as usize).zip(weights) {
+                sum += samples[k * channels + c] * w;
+            }
+            out[i * channels + c] = sum;
+        }
+    }
+    out
+}
+
+/// The resampling filter's weights: `SINC_STEPS + 1` rows (how far the new
+/// sample is past an original one, from 0 to 1), each `2 * reach` weights
+/// for the original samples from `reach - 1` before to `reach` after.
+/// Each row adds up to 1, so a steady level stays exactly the same.
+fn sinc_table(cutoff: f64, reach: usize) -> Vec<f32> {
+    use std::f64::consts::PI;
+    let taps = 2 * reach;
+    let mut table = Vec::with_capacity((SINC_STEPS + 1) * taps);
+    let mut row = vec![0.0f64; taps];
+    for step in 0..=SINC_STEPS {
+        let past = step as f64 / SINC_STEPS as f64;
+        for (t, weight) in row.iter_mut().enumerate() {
+            // How far this original sample is from the new one.
+            let d = t as f64 - (reach as f64 - 1.0) - past;
+            let x = cutoff * d;
+            let sinc = if x == 0.0 {
+                1.0
+            } else {
+                (PI * x).sin() / (PI * x)
+            };
+            let u = d / reach as f64; // -1 to 1 across the filter
+            let window = if u.abs() >= 1.0 {
+                0.0
+            } else {
+                0.42 + 0.5 * (PI * u).cos() + 0.08 * (2.0 * PI * u).cos()
+            };
+            *weight = cutoff * sinc * window;
+        }
+        let total: f64 = row.iter().sum();
+        table.extend(row.iter().map(|w| (w / total) as f32));
+    }
+    table
 }
 
 /// One sound the game played: what it was, and on which frame.
@@ -452,7 +605,9 @@ pub struct PlayedSound {
     /// file's name without `.wav`.
     pub name: String,
     pub(crate) source: SoundSource,
-    pub(crate) samples: Arc<[f32]>,
+    pub(crate) samples: Samples,
+    /// Where it was played, from -1 (left) to 1 (right); 0 is both sides.
+    pub(crate) pan: f32,
     /// The sample it starts at in `audio.wav`.
     pub(crate) start: u64,
 }
@@ -469,15 +624,18 @@ pub(crate) enum SoundSource {
 pub(crate) struct SoundRequest {
     pub(crate) name: String,
     pub(crate) source: SoundSource,
-    pub(crate) samples: Arc<[f32]>,
+    pub(crate) samples: Samples,
+    /// -1 (left) to 1 (right); 0 is both sides, as without a pan.
+    pub(crate) pan: f32,
 }
 
 impl SoundRequest {
     pub(crate) fn synth(sound: Sound) -> SoundRequest {
         SoundRequest {
             name: sound.label().to_string(),
-            samples: sound.render().into(),
+            samples: Samples::mono(sound.render()),
             source: SoundSource::Synth(sound),
+            pan: 0.0,
         }
     }
 
@@ -485,8 +643,14 @@ impl SoundRequest {
         SoundRequest {
             name: wav.name.clone(),
             source: SoundSource::File(wav.path.clone()),
-            samples: Arc::clone(&wav.samples),
+            samples: wav.samples.clone(),
+            pan: 0.0,
         }
+    }
+
+    /// The same sound, played at `pan`.
+    pub(crate) fn panned(self, pan: f32) -> SoundRequest {
+        SoundRequest { pan, ..self }
     }
 }
 
@@ -495,8 +659,13 @@ impl PlayedSound {
     /// settings or its file, like
     /// `{"frame": 10, "sound": "coin", "wave": "square", "freq": 1050, ...}`.
     pub(crate) fn to_json(&self) -> String {
+        let pan = if self.pan == 0.0 {
+            String::new() // not panned: the line stays as it always was
+        } else {
+            format!(", \"pan\": {}", number_json(self.pan))
+        };
         format!(
-            "{{\"frame\": {}, \"sound\": {}{}}}",
+            "{{\"frame\": {}, \"sound\": {}{}{pan}}}",
             self.frame,
             Value::from(self.name.as_str()),
             source_json(&self.source)
@@ -589,7 +758,7 @@ pub struct PlayedLoop {
     /// `[(1, 0.6), (400, 0.3)]`.
     pub volumes: Vec<(u64, f32)>,
     pub(crate) source: SoundSource,
-    pub(crate) samples: Arc<[f32]>,
+    pub(crate) samples: Samples,
     /// The samples in `audio.wav` where it starts and stops, and where
     /// each volume begins (the same order as `volumes`).
     pub(crate) start_sample: u64,
@@ -634,16 +803,18 @@ impl PlayedLoop {
         )
     }
 
-    /// Adds the loop into `track`, repeating it with no gap, from its start
-    /// to its stop (or the end of the track), at each volume in turn.
-    fn mix_into(&self, track: &mut [f32]) {
-        if self.samples.is_empty() {
+    /// Adds the loop into the `left` and `right` tracks, repeating it with
+    /// no gap, from its start to its stop (or the end of the tracks), at
+    /// each volume in turn.
+    fn mix_into(&self, left: &mut [f32], right: &mut [f32]) {
+        let length = self.samples.frames() as u64;
+        if length == 0 {
             return;
         }
         let end = self
             .stop_sample
-            .unwrap_or(track.len() as u64)
-            .min(track.len() as u64);
+            .unwrap_or(left.len() as u64)
+            .min(left.len() as u64);
         for (index, &volume) in self.volumes.iter().map(|(_, v)| v).enumerate() {
             let from = self.volume_samples[index].max(self.start_sample);
             let to = self
@@ -653,43 +824,71 @@ impl PlayedLoop {
                 .unwrap_or(end)
                 .min(end);
             for at in from..to {
-                let i = ((at - self.start_sample) % self.samples.len() as u64) as usize;
-                track[at as usize] += self.samples[i] * volume;
+                let i = ((at - self.start_sample) % length) as usize;
+                let (l, r) = self.samples.frame(i);
+                left[at as usize] += l * volume;
+                right[at as usize] += r * volume;
             }
         }
     }
 }
 
-/// Mixes every sound and loop into one track, each starting at its own sample, and
-/// turns it into the bytes of a 16-bit mono `.wav` file. The track is at
-/// least `length` samples long, and longer if a sound rings on past it.
+/// Mixes every sound and loop into a track, each starting at its own
+/// sample, and turns it into the bytes of a 16-bit `.wav` file: mono, or
+/// stereo if any sound is stereo or panned. The track is at least `length`
+/// samples long, and longer if a sound rings on past it.
 pub(crate) fn mix_to_wav(sounds: &[PlayedSound], loops: &[PlayedLoop], length: u64) -> Vec<u8> {
     let end = sounds
         .iter()
-        .map(|s| s.start + s.samples.len() as u64)
+        .map(|s| s.start + s.samples.frames() as u64)
         .fold(length, u64::max);
-    let mut track = vec![0.0f32; end as usize];
+    let mut left = vec![0.0f32; end as usize];
+    let mut right = vec![0.0f32; end as usize];
     for sound in sounds {
         let start = sound.start as usize;
-        for (out, &sample) in track[start..].iter_mut().zip(sound.samples.iter()) {
-            *out += sample;
+        let (to_left, to_right) = pan_gains(sound.pan);
+        for i in 0..sound.samples.frames() {
+            let (l, r) = sound.samples.frame(i);
+            left[start + i] += l * to_left;
+            right[start + i] += r * to_right;
         }
     }
     // Loops still playing at the end stop with the run, not with the last
     // one-off sound ringing on.
-    let run = (length as usize).min(track.len());
+    let run = (length as usize).min(left.len());
     for looped in loops {
-        looped.mix_into(&mut track[..run]);
+        looped.mix_into(&mut left[..run], &mut right[..run]);
     }
     // Too loud is cut off at the top (clipping), rather than wrapping round.
-    let pcm = track
-        .iter()
-        .map(|&s| (s.clamp(-1.0, 1.0) * 32767.0).round() as i16);
-    wav_bytes(pcm, track.len())
+    let pcm = |s: f32| (s.clamp(-1.0, 1.0) * 32767.0).round() as i16;
+    let stereo = sounds.iter().any(|s| s.samples.is_stereo() || s.pan != 0.0)
+        || loops.iter().any(|l| l.samples.is_stereo());
+    if stereo {
+        let both = left
+            .iter()
+            .zip(&right)
+            .flat_map(|(&l, &r)| [pcm(l), pcm(r)]);
+        stereo_wav_bytes(both, left.len())
+    } else {
+        // Every sound is the same on both sides: a mono file, as always.
+        wav_bytes(left.iter().map(|&s| pcm(s)), left.len())
+    }
 }
 
 /// A 16-bit mono WAV file at [`SAMPLE_RATE`] holding `samples`.
 pub(crate) fn wav_bytes(samples: impl Iterator<Item = i16>, count: usize) -> Vec<u8> {
+    wav_file(samples, count, 1)
+}
+
+/// A 16-bit stereo WAV file at [`SAMPLE_RATE`]: `frames` pairs of left
+/// and right samples.
+pub(crate) fn stereo_wav_bytes(samples: impl Iterator<Item = i16>, frames: usize) -> Vec<u8> {
+    wav_file(samples, frames * 2, 2)
+}
+
+/// A 16-bit WAV file at [`SAMPLE_RATE`] with `count` samples in all, in
+/// `channels` channels side by side.
+fn wav_file(samples: impl Iterator<Item = i16>, count: usize, channels: u16) -> Vec<u8> {
     let data_size = (count * 2) as u32;
     let mut out = Vec::with_capacity(44 + count * 2);
     out.extend_from_slice(b"RIFF");
@@ -697,10 +896,11 @@ pub(crate) fn wav_bytes(samples: impl Iterator<Item = i16>, count: usize) -> Vec
     out.extend_from_slice(b"WAVEfmt ");
     out.extend_from_slice(&16u32.to_le_bytes()); // size of the fmt section
     out.extend_from_slice(&1u16.to_le_bytes()); // plain PCM
-    out.extend_from_slice(&1u16.to_le_bytes()); // mono
+    out.extend_from_slice(&channels.to_le_bytes()); // 1 mono, 2 stereo
     out.extend_from_slice(&SAMPLE_RATE.to_le_bytes());
-    out.extend_from_slice(&(SAMPLE_RATE * 2).to_le_bytes()); // bytes per second
-    out.extend_from_slice(&2u16.to_le_bytes()); // bytes per sample
+    let frame = 2 * channels as u32; // bytes per moment: 2 a sample
+    out.extend_from_slice(&(SAMPLE_RATE * frame).to_le_bytes()); // bytes per second
+    out.extend_from_slice(&(frame as u16).to_le_bytes());
     out.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
     out.extend_from_slice(b"data");
     out.extend_from_slice(&data_size.to_le_bytes());
@@ -794,10 +994,12 @@ mod tests {
         let samples: Vec<i16> = (0..2205).map(|i| (i * 10) as i16).collect();
         let bytes = wav_bytes(samples.iter().copied(), samples.len());
         let decoded = decode_wav(&bytes).unwrap();
-        assert_eq!(decoded.len(), 2205);
-        assert_eq!(decoded[100], 1000.0 / 32768.0);
+        assert!(!decoded.is_stereo());
+        assert_eq!(decoded.frames(), 2205);
+        // Already at 44100 Hz: not resampled, so exactly the file's samples.
+        assert_eq!(decoded.frame(100), (1000.0 / 32768.0, 1000.0 / 32768.0));
 
-        // An 8-bit stereo file at 22050 Hz: mixed to mono and stretched to 44100.
+        // An 8-bit stereo file at 22050 Hz: stays stereo, stretched to 44100.
         let mut odd = Vec::new();
         odd.extend_from_slice(b"RIFF\0\0\0\0WAVEfmt ");
         odd.extend_from_slice(&16u32.to_le_bytes());
@@ -811,12 +1013,158 @@ mod tests {
         odd.extend_from_slice(&4u32.to_le_bytes());
         odd.extend_from_slice(&[128, 128, 255, 1]); // silence, then left up + right down
         let decoded = decode_wav(&odd).unwrap();
-        assert_eq!(decoded.len(), 4);
-        assert_eq!(decoded[0], 0.0);
-        assert!(
-            decoded.iter().all(|v| v.abs() < 0.01),
-            "left and right cancel out"
+        assert!(decoded.is_stereo());
+        assert_eq!(decoded.frames(), 4, "2 moments at 22050 Hz are 4 at 44100");
+        let (left, right) = decoded.frame(0);
+        assert!(left.abs() < 1e-6 && right.abs() < 1e-6, "silence first");
+        // The second moment is still left up and right down: not mixed away.
+        let (left, right) = decoded.frame(2);
+        assert!((left - 127.0 / 128.0).abs() < 0.01, "{left}");
+        assert!((right + 127.0 / 128.0).abs() < 0.01, "{right}");
+    }
+
+    /// A WAV file at `rate` with `channels` channels, holding `samples`
+    /// (side by side for stereo), as 16-bit numbers.
+    fn wav_at(rate: u32, channels: u16, samples: &[f32]) -> Vec<u8> {
+        let mut bytes = wav_file(
+            samples.iter().map(|&s| (s * 32767.0).round() as i16),
+            samples.len(),
+            channels,
         );
+        bytes[24..28].copy_from_slice(&rate.to_le_bytes());
+        let frame = 2 * channels as u32;
+        bytes[28..32].copy_from_slice(&(rate * frame).to_le_bytes());
+        bytes
+    }
+
+    /// `seconds` of a sine wave at `freq` Hz, `rate` samples a second.
+    fn sine_wave(freq: f32, rate: u32, seconds: f32) -> Vec<f32> {
+        let count = (rate as f32 * seconds) as usize;
+        (0..count)
+            .map(|i| 0.5 * (std::f32::consts::TAU * freq * i as f32 / rate as f32).sin())
+            .collect()
+    }
+
+    /// The biggest difference between `samples` (at 44100 Hz) and the
+    /// perfect sine wave, away from the first and last 10 ms (where the
+    /// sound starts and stops, and a filter has nothing to see past them).
+    fn worst_error(samples: impl Iterator<Item = f32>, freq: f32) -> f32 {
+        let samples: Vec<f32> = samples.collect();
+        let edge = 441;
+        (edge..samples.len() - edge)
+            .map(|i| {
+                let ideal = 0.5 * (std::f32::consts::TAU * freq * i as f32 / 44_100.0).sin();
+                (samples[i] - ideal).abs()
+            })
+            .fold(0.0, f32::max)
+    }
+
+    #[test]
+    fn stereo_files_keep_left_and_right_apart() {
+        // Left: a 440 Hz sine. Right: silence, then a steady -0.25.
+        let left = sine_wave(440.0, 44_100, 0.1);
+        let interleaved: Vec<f32> = left
+            .iter()
+            .enumerate()
+            .flat_map(|(i, &l)| [l, if i < 2000 { 0.0 } else { -0.25 }])
+            .collect();
+        let decoded = decode_wav(&wav_at(44_100, 2, &interleaved)).unwrap();
+        assert!(decoded.is_stereo());
+        assert_eq!(decoded.frames(), left.len());
+        for i in [0, 100, 1999, 2000, 4000] {
+            let (l, r) = decoded.frame(i);
+            assert!((l - left[i]).abs() < 1e-4, "left at {i}");
+            let want = if i < 2000 { 0.0 } else { -0.25 };
+            assert!((r - want).abs() < 1e-4, "right at {i}: {r}");
+        }
+        // A mono file is the same on both sides, exactly as before.
+        let mono = decode_wav(&wav_at(44_100, 1, &left)).unwrap();
+        assert!(!mono.is_stereo());
+        let (l, r) = mono.frame(100);
+        assert_eq!(l, r);
+        assert!((l - left[100]).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_resampled_sine_stays_a_clean_sine_at_the_right_length() {
+        for rate in [16_000, 22_050, 32_000, 48_000] {
+            let decoded = decode_wav(&wav_at(rate, 1, &sine_wave(1000.0, rate, 1.0))).unwrap();
+            assert_eq!(decoded.frames(), 44_100, "one second at {rate} Hz");
+            let error = worst_error((0..decoded.frames()).map(|i| decoded.frame(i).0), 1000.0);
+            // About 0.0004 here; straight lines between the samples (the
+            // old way) were off by 0.005 at 22050 Hz.
+            assert!(error < 0.001, "{rate} Hz: off by {error}");
+        }
+        // A stereo file is resampled side by side, each side on its own.
+        let (a, b) = (
+            sine_wave(500.0, 22_050, 0.5),
+            sine_wave(3000.0, 22_050, 0.5),
+        );
+        let both: Vec<f32> = a.iter().zip(&b).flat_map(|(&l, &r)| [l, r]).collect();
+        let decoded = decode_wav(&wav_at(22_050, 2, &both)).unwrap();
+        assert_eq!(decoded.frames(), 22_050);
+        let frames = 0..decoded.frames();
+        assert!(worst_error(frames.clone().map(|i| decoded.frame(i).0), 500.0) < 0.001);
+        assert!(worst_error(frames.map(|i| decoded.frame(i).1), 3000.0) < 0.001);
+    }
+
+    #[test]
+    fn notes_too_high_for_44100_are_removed_not_folded_down() {
+        // 30 kHz can't exist at 44100 samples a second. Without a low-pass
+        // filter it would come out as a false 14.1 kHz whine.
+        let decoded = decode_wav(&wav_at(96_000, 1, &sine_wave(30_000.0, 96_000, 0.5))).unwrap();
+        assert_eq!(decoded.frames(), 22_050);
+        let inside = 441..decoded.frames() - 441;
+        let loudest = inside.map(|i| decoded.frame(i).0.abs()).fold(0.0, f32::max);
+        assert!(loudest < 0.01, "a sine of 0.5 came out at {loudest}");
+    }
+
+    #[test]
+    fn a_minute_of_music_resamples_quickly() {
+        let music = sine_wave(440.0, 22_050, 60.0);
+        let both: Vec<f32> = music.iter().flat_map(|&s| [s, -s]).collect();
+        let started = std::time::Instant::now();
+        let out = resample(&both, 2, 22_050);
+        let seconds = started.elapsed().as_secs_f32();
+        assert_eq!(out.len(), 2 * 60 * 44_100);
+        // Well under a second when optimized; this allows for test builds.
+        assert!(seconds < 20.0, "{seconds} s");
+    }
+
+    #[test]
+    fn stereo_and_panned_sounds_make_a_stereo_recording() {
+        let played = |samples: Samples, pan: f32| PlayedSound {
+            frame: 1,
+            name: String::from("t"),
+            source: SoundSource::Synth(Sound::default()),
+            samples,
+            pan,
+            start: 0,
+        };
+        // Mono and not panned: a mono file, as always.
+        let mono = mix_to_wav(&[played(Samples::mono(vec![0.5; 4]), 0.0)], &[], 4);
+        assert_eq!(u16::from_le_bytes([mono[22], mono[23]]), 1);
+        // A stereo sound: a stereo file with each side kept.
+        let stereo = Samples::stereo(vec![0.5, -0.5, 0.25, 0.0]);
+        let wav = mix_to_wav(&[played(stereo, 0.0)], &[], 2);
+        let decoded = decode_wav(&wav).unwrap();
+        assert!(decoded.is_stereo());
+        assert!((decoded.frame(0).0 - 0.5).abs() < 0.001);
+        assert!((decoded.frame(0).1 + 0.5).abs() < 0.001);
+        // A mono sound panned all the way right: nothing on the left.
+        let wav = mix_to_wav(&[played(Samples::mono(vec![0.5; 2]), 1.0)], &[], 2);
+        let decoded = decode_wav(&wav).unwrap();
+        assert_eq!(decoded.frame(1).0, 0.0);
+        assert!((decoded.frame(1).1 - 0.5).abs() < 0.001);
+        assert_eq!(
+            pan_gains(0.0),
+            (1.0, 1.0),
+            "the middle is as loud as no pan"
+        );
+        assert_eq!(pan_gains(-0.5), (1.0, 0.5));
+        assert_eq!(pan_gains(f32::NAN), (1.0, 1.0));
+        let json = played(Samples::mono(vec![]), -0.5).to_json();
+        assert!(json.ends_with(r#""pan": -0.5}"#), "{json}");
     }
 
     #[test]
@@ -857,7 +1205,8 @@ mod tests {
             frame: 1,
             name: String::from("t"),
             source: SoundSource::Synth(Sound::default()),
-            samples: samples.into(),
+            samples: Samples::mono(samples),
+            pan: 0.0,
             start,
         };
         let wav = mix_to_wav(
@@ -867,9 +1216,13 @@ mod tests {
         );
         let decoded = decode_wav(&wav).unwrap();
         let expected = [0.0, 0.0, 0.5, 1.0, 0.25]; // 0.5 + 0.75 is cut off at 1.0
-        assert_eq!(decoded.len(), 5, "the last sound rings on past the length");
-        for (got, want) in decoded.iter().zip(expected) {
-            assert!((got - want).abs() < 0.001, "{decoded:?}");
+        assert_eq!(
+            decoded.frames(),
+            5,
+            "the last sound rings on past the length"
+        );
+        for (i, want) in expected.into_iter().enumerate() {
+            assert!((decoded.frame(i).0 - want).abs() < 0.001, "{decoded:?}");
         }
     }
 
@@ -882,7 +1235,7 @@ mod tests {
             stop: stop.map(|_| 3),
             volumes: vec![(1, 1.0), (2, 0.5)],
             source: SoundSource::Synth(Sound::default()),
-            samples: vec![0.1, 0.2, 0.3].into(),
+            samples: Samples::mono(vec![0.1, 0.2, 0.3]),
             start_sample: 1,
             stop_sample: stop,
             volume_samples: vec![1, 5],
@@ -892,14 +1245,14 @@ mod tests {
         let wav = mix_to_wav(&[], &[looped(Some(7))], 9);
         let decoded = decode_wav(&wav).unwrap();
         let expected = [0.0, 0.1, 0.2, 0.3, 0.1, 0.1, 0.15, 0.0, 0.0];
-        assert_eq!(decoded.len(), 9);
-        for (got, want) in decoded.iter().zip(expected) {
-            assert!((got - want).abs() < 0.001, "{decoded:?}");
+        assert_eq!(decoded.frames(), 9);
+        for (i, want) in expected.into_iter().enumerate() {
+            assert!((decoded.frame(i).0 - want).abs() < 0.001, "{decoded:?}");
         }
         // Never stopped: it plays to the end of the run, and no further.
         let wav = mix_to_wav(&[], &[looped(None)], 9);
         let decoded = decode_wav(&wav).unwrap();
-        assert!((decoded[8] - 0.1).abs() < 0.001, "{decoded:?}");
+        assert!((decoded.frame(8).0 - 0.1).abs() < 0.001, "{decoded:?}");
         let json = looped(Some(7)).to_json();
         assert!(
             json.starts_with(r#"{"loop": "hum", "wave": "square""#)
