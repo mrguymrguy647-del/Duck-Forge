@@ -12,17 +12,175 @@
 //!   without sound still runs every game, just silently.
 //!
 //! Headless runs never use this: they mix sounds into `audio.wav` instead.
+//!
+//! When the game closes, the speaker prints one line saying how often the
+//! sound thread was late with a refill (which is heard as a crackle or a
+//! skip), like `duckforge: sound: 0 late refills in 5 minutes`. If it was
+//! late often, a bigger buffer helps: set the `DUCKFORGE_SOUND_BLOCK`
+//! environment variable to the moments per refill, like `4096`.
 
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
-use crate::sound::{SAMPLE_RATE, Samples, pan_gains};
+use crate::sound::{LoopCommand, LoopId, SAMPLE_RATE, Samples, pan_gains};
 
 /// At most this many sounds play at once; a new one replaces the oldest.
 const MAX_VOICES: usize = 32;
-/// Moments per refill (each a left and a right sample): 1024 is about 23
-/// milliseconds, short enough that a sound feels instant, long enough not
-/// to stutter.
+
+/// Moments per refill (each a left and a right sample), unless
+/// `DUCKFORGE_SOUND_BLOCK` says otherwise.
+///
+/// On Windows, `tinyaudio` plays through DirectSound with two buffers of
+/// this size: one plays while the other is refilled. A refill that comes
+/// more than one buffer late writes over sound that's already playing.
+/// DirectSound's "refill now" signal can itself come 10 milliseconds or so
+/// late, and a busy computer wakes the sound thread later still, so 1024
+/// (about 23 milliseconds) is too small. Windows gets 2048 (about 46 milliseconds):
+/// a sound you start is heard 2 to 3 of these later, about 0.1 seconds.
+#[cfg(target_os = "windows")]
+const BLOCK: usize = 2048;
+/// Everywhere else, 1024 (about 23 milliseconds).
+#[cfg(not(target_os = "windows"))]
 const BLOCK: usize = 1024;
+
+/// The smallest and biggest `DUCKFORGE_SOUND_BLOCK` allowed.
+const BLOCK_RANGE: std::ops::RangeInclusive<usize> = 256..=16384;
+
+/// The moments per refill: [`BLOCK`], or the `DUCKFORGE_SOUND_BLOCK`
+/// environment variable if it's set to a sensible number.
+fn block_size() -> usize {
+    let value = std::env::var("DUCKFORGE_SOUND_BLOCK").ok();
+    block_size_from(value.as_deref()).unwrap_or_else(|warning| {
+        eprintln!("duckforge: {warning}");
+        BLOCK
+    })
+}
+
+/// [`block_size`] given the variable's value, or a warning saying why the
+/// value can't be used.
+fn block_size_from(value: Option<&str>) -> Result<usize, String> {
+    let Some(text) = value else {
+        return Ok(BLOCK);
+    };
+    match text.trim().parse::<usize>() {
+        Ok(moments) if BLOCK_RANGE.contains(&moments) => Ok(moments),
+        _ => Err(format!(
+            "ignoring DUCKFORGE_SOUND_BLOCK={text:?} (use a number from {} to {}, like 4096)",
+            BLOCK_RANGE.start(),
+            BLOCK_RANGE.end()
+        )),
+    }
+}
+
+/// How long `moments` take to play.
+fn play_time(moments: usize) -> Duration {
+    Duration::from_secs_f64(moments as f64 / SAMPLE_RATE as f64)
+}
+
+/// After this many late refills, the speaker warns (once) while the game
+/// is still running.
+const LATE_WARNING: u64 = 10;
+
+/// When each refill came, to count the late ones.
+///
+/// A refill is due every block's play time. One that comes more than a
+/// whole block after it was due (so more than two blocks after the one
+/// before it) is late: on Windows that block has already played the old
+/// sound again, or been played over.
+#[derive(Default)]
+struct Refills {
+    first: Option<Instant>,
+    last: Option<Instant>,
+    /// How long one block plays: a refill is due this often.
+    every: Duration,
+    count: u64,
+    late: u64,
+    /// The longest time between two refills.
+    worst: Duration,
+    warned: bool,
+}
+
+impl Refills {
+    /// Notes a refill of `moments` at `now`. Returns a warning, once, when
+    /// the refills have been late many times.
+    fn note(&mut self, now: Instant, moments: usize) -> Option<String> {
+        self.every = play_time(moments);
+        self.first.get_or_insert(now);
+        if let Some(last) = self.last {
+            let gap = now.saturating_duration_since(last);
+            self.worst = self.worst.max(gap);
+            if gap > 2 * self.every {
+                self.late += 1;
+            }
+        }
+        self.last = Some(now);
+        self.count += 1;
+        if self.late >= LATE_WARNING && !self.warned {
+            self.warned = true;
+            return Some(format!(
+                "duckforge: sound: {} refills were late (the longest wait was {} ms, when one \
+                 is due every {} ms), so the sound may crackle. A bigger buffer helps: \
+                 set DUCKFORGE_SOUND_BLOCK={}",
+                self.late,
+                self.worst.as_millis(),
+                self.every.as_millis(),
+                (2 * moments).min(*BLOCK_RANGE.end())
+            ));
+        }
+        None
+    }
+
+    /// The line printed when the game closes, like `duckforge: sound: 0
+    /// late refills in 5 minutes (...)`, or `None` if the sound never
+    /// started.
+    fn report(&self) -> Option<String> {
+        let (Some(first), Some(last)) = (self.first, self.last) else {
+            return None;
+        };
+        if self.count < 2 {
+            return None;
+        }
+        let plural = if self.late == 1 { "" } else { "s" };
+        Some(format!(
+            "duckforge: sound: {} late refill{plural} in {} (one is due every {} ms; the longest \
+             wait was {} ms)",
+            self.late,
+            how_long(last.saturating_duration_since(first)),
+            self.every.as_millis(),
+            self.worst.as_millis()
+        ))
+    }
+}
+
+/// A length of time in words: "40 seconds", "5 minutes".
+fn how_long(time: Duration) -> String {
+    let seconds = time.as_secs_f64().round() as u64;
+    if seconds < 90 {
+        let plural = if seconds == 1 { "" } else { "s" };
+        format!("{seconds} second{plural}")
+    } else {
+        format!("{} minutes", (seconds as f64 / 60.0).round() as u64)
+    }
+}
+
+/// Mixes are left alone up to this loudness; louder peaks are rounded off
+/// so they never pass 1.0.
+const LIMIT_KNEE: f32 = 0.8;
+
+/// A gentle limiter for one sample: anything between -0.8 and 0.8 is left
+/// as it is, and louder samples bend smoothly towards 1.0 (or -1.0)
+/// without reaching it. Cutting peaks off flat at 1.0 instead makes a
+/// crackle whenever a few loud sounds add up.
+fn soft_limit(sample: f32) -> f32 {
+    let size = sample.abs();
+    if size <= LIMIT_KNEE {
+        return sample;
+    }
+    // tanh starts out rising at the same rate as the sample, so the bend
+    // has no corner, and it never quite reaches 1.
+    let room = 1.0 - LIMIT_KNEE;
+    (LIMIT_KNEE + room * ((size - LIMIT_KNEE) / room).tanh()).copysign(sample)
+}
 
 /// One sound playing: its samples, how loud on the left and the right
 /// (from its pan), and how far through it we are.
@@ -32,13 +190,36 @@ struct Voice {
     at: usize,
 }
 
+/// One looping sound playing.
+struct Loop {
+    /// The loop's number, from its [`LoopId`](crate::sound::LoopId).
+    id: u32,
+    samples: Samples,
+    /// How far through the samples we are.
+    at: usize,
+    /// Its volume now...
+    volume: f32,
+    /// ...and the volume it's going to. A change glides from one to the
+    /// other across the next block, because a sudden jump clicks.
+    target: f32,
+    /// Stopped: it fades to silence over the next block, then goes.
+    stopping: bool,
+}
+
+impl Loop {
+    /// Is this the loop `id`, and still playing? (A stopping loop is
+    /// fading out, so it takes no more changes.)
+    fn is(&self, id: LoopId) -> bool {
+        self.id == id.0 && !self.stopping
+    }
+}
+
 /// The sounds playing right now, and how far through each one we are.
 #[derive(Default)]
 struct Voices {
     playing: Vec<Voice>,
-    /// Looping sounds: the loop's number, its samples, how far through
-    /// them we are, and its volume.
-    loops: Vec<(u32, Samples, usize, f32)>,
+    loops: Vec<Loop>,
+    refills: Refills,
 }
 
 impl Voices {
@@ -60,21 +241,73 @@ impl Voices {
         }
         self.playing
             .retain(|voice| voice.at < voice.samples.frames());
-        for (_, samples, at, volume) in &mut self.loops {
-            let length = samples.frames();
-            if length == 0 {
+        for looped in &mut self.loops {
+            let length = looped.samples.frames();
+            let (from, to) = (looped.volume, looped.target);
+            looped.volume = to;
+            if length == 0 || frames == 0 {
                 continue;
             }
-            for pair in out.chunks_exact_mut(2) {
-                let (l, r) = samples.frame(*at);
-                pair[0] += l * *volume;
-                pair[1] += r * *volume;
-                *at = (*at + 1) % length; // round again, with no gap
+            for (n, pair) in out.chunks_exact_mut(2).enumerate() {
+                // A straight line from the old volume to the new one,
+                // reaching it at the block's last moment.
+                let volume = from + (to - from) * (n + 1) as f32 / frames as f32;
+                let (l, r) = looped.samples.frame(looped.at);
+                pair[0] += l * volume;
+                pair[1] += r * volume;
+                looped.at = (looped.at + 1) % length; // round again, with no gap
             }
         }
+        // Stopped loops have now faded out.
+        self.loops.retain(|looped| !looped.stopping);
         for o in out {
-            *o = o.clamp(-1.0, 1.0);
+            *o = soft_limit(*o);
         }
+    }
+
+    /// Starts, changes or stops a looping sound. A new volume, or a stop,
+    /// takes effect over the next block.
+    fn change_loop(&mut self, command: LoopCommand) {
+        match command {
+            LoopCommand::Start(id, request, volume) => {
+                // A loop starts at its volume straight away.
+                self.loops.push(Loop {
+                    id: id.0,
+                    samples: request.samples,
+                    at: 0,
+                    volume,
+                    target: volume,
+                    stopping: false,
+                });
+            }
+            LoopCommand::Volume(id, volume) => {
+                for looped in self.loops.iter_mut().filter(|l| l.is(id)) {
+                    looped.target = volume;
+                }
+            }
+            LoopCommand::Stop(id) => {
+                for looped in self.loops.iter_mut().filter(|l| l.is(id)) {
+                    looped.target = 0.0;
+                    looped.stopping = true;
+                }
+            }
+        }
+    }
+}
+
+/// What both kinds of sound device do each time they want more sound:
+/// note the time, then mix `out`. A warning about late refills is printed
+/// after letting go of the lock, so printing can't hold up the game.
+fn refill(voices: &Mutex<Voices>, out: &mut [f32]) {
+    let now = Instant::now();
+    let warning = {
+        let mut voices = voices.lock().unwrap_or_else(|e| e.into_inner());
+        let warning = voices.refills.note(now, out.len() / 2);
+        voices.fill(out);
+        warning
+    };
+    if let Some(warning) = warning {
+        eprintln!("{warning}");
     }
 }
 
@@ -114,19 +347,20 @@ impl Speaker {
     }
 
     /// Starts, changes or stops a looping sound.
-    pub(crate) fn change_loop(&self, command: crate::sound::LoopCommand) {
-        use crate::sound::LoopCommand;
-        let mut voices = self.voices.lock().unwrap_or_else(|e| e.into_inner());
-        match command {
-            LoopCommand::Start(id, request, volume) => {
-                voices.loops.push((id.0, request.samples, 0, volume));
-            }
-            LoopCommand::Volume(id, volume) => {
-                for looped in voices.loops.iter_mut().filter(|l| l.0 == id.0) {
-                    looped.3 = volume;
-                }
-            }
-            LoopCommand::Stop(id) => voices.loops.retain(|l| l.0 != id.0),
+    pub(crate) fn change_loop(&self, command: LoopCommand) {
+        self.voices
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .change_loop(command);
+    }
+}
+
+impl Drop for Speaker {
+    /// Says how the sound went, in one line, as the game closes.
+    fn drop(&mut self) {
+        let voices = self.voices.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(report) = voices.refills.report() {
+            eprintln!("{report}");
         }
     }
 }
@@ -144,15 +378,12 @@ mod backend {
             let params = OutputDeviceParameters {
                 sample_rate: SAMPLE_RATE as usize,
                 channels_count: 2,
-                channel_sample_count: BLOCK,
+                channel_sample_count: block_size(),
             };
             // tinyaudio asks for left and right side by side, just as
             // `fill` makes them.
             let device = run_output_device(params, move |stereo: &mut [f32]| {
-                voices
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .fill(stereo);
+                refill(&voices, stereo);
             })
             .map_err(|err| format!("couldn't open the sound device ({err})"))?;
             Ok(Device(device))
@@ -273,7 +504,10 @@ mod backend {
                 ));
             }
             // Stereo 16-bit at 44100 Hz, letting ALSA convert if the card
-            // wants something else, with about 50 ms of buffering.
+            // wants something else, with room for two blocks (and at least
+            // 50 ms) in ALSA's own buffer.
+            let block = block_size();
+            let buffer_us = (2 * play_time(block).as_micros()).max(50_000) as c_uint;
             // SAFETY: `pcm` was just opened.
             let code = unsafe {
                 (alsa.set_params)(
@@ -283,7 +517,7 @@ mod backend {
                     2,
                     SAMPLE_RATE,
                     1,
-                    50_000,
+                    buffer_us,
                 )
             };
             if code < 0 {
@@ -303,21 +537,18 @@ mod backend {
                 .spawn(move || {
                     let handle = handle;
                     // Left and right side by side: two samples a moment.
-                    let mut mixed = vec![0.0f32; 2 * BLOCK];
-                    let mut pcm16 = vec![0i16; 2 * BLOCK];
+                    let mut mixed = vec![0.0f32; 2 * block];
+                    let mut pcm16 = vec![0i16; 2 * block];
                     while still_running.load(Ordering::Relaxed) {
-                        voices
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner())
-                            .fill(&mut mixed);
+                        refill(&voices, &mut mixed);
                         for (out, &s) in pcm16.iter_mut().zip(&mixed) {
                             *out = (s * 32767.0) as i16;
                         }
                         // Waits until the device has room, which is what
                         // keeps this loop in step with the speakers.
-                        // SAFETY: the buffer holds BLOCK moments of two channels.
+                        // SAFETY: the buffer holds `block` moments of two channels.
                         let written = unsafe {
-                            (alsa.writei)(handle.0, pcm16.as_ptr().cast(), BLOCK as c_ulong)
+                            (alsa.writei)(handle.0, pcm16.as_ptr().cast(), block as c_ulong)
                         };
                         if written < 0 {
                             // An "underrun" (we were late) or similar: reset and carry on.
@@ -379,6 +610,10 @@ mod backend {
                 voices.lock().unwrap().playing.is_empty(),
                 "the beep was played"
             );
+            assert!(
+                voices.lock().unwrap().refills.report().is_some(),
+                "each refill was timed"
+            );
             drop(device); // stops the thread and closes the device
         }
     }
@@ -394,6 +629,21 @@ mod tests {
             gains: pan_gains(pan),
             at: 0,
         }
+    }
+
+    fn looping(id: u32, samples: Samples, volume: f32) -> Loop {
+        Loop {
+            id,
+            samples,
+            at: 0,
+            volume,
+            target: volume,
+            stopping: false,
+        }
+    }
+
+    fn close(a: f32, b: f32) -> bool {
+        (a - b).abs() < 1e-6
     }
 
     /// Only the left samples of a filled buffer (left, right, left, right...).
@@ -412,11 +662,10 @@ mod tests {
             .push(voice(Samples::mono(vec![0.5, 1.0]), 0.0));
         let mut out = [9.0; 4]; // two moments, left and right
         voices.fill(&mut out);
-        assert_eq!(
-            out,
-            [0.75, 0.75, 1.0, 1.0],
-            "added together, and cut off at 1.0"
-        );
+        assert_eq!(&out[..2], [0.75, 0.75], "added together");
+        // 0.25 + 1.0 is too loud: the limiter brings it just under 1.0.
+        assert!(out[2] > 0.99 && out[2] < 1.0, "{out:?}");
+        assert_eq!(out[2], out[3]);
         voices.fill(&mut out);
         assert_eq!(out, [0.25, 0.25, 0.0, 0.0]);
         assert!(voices.playing.is_empty(), "both finished");
@@ -445,7 +694,7 @@ mod tests {
         let mut voices = Voices::default();
         voices
             .loops
-            .push((1, Samples::mono(vec![0.1, 0.2, 0.3]), 0, 2.0));
+            .push(looping(1, Samples::mono(vec![0.1, 0.2, 0.3]), 2.0));
         let mut out = [0.0; 8];
         voices.fill(&mut out);
         let want = [0.2, 0.4, 0.6, 0.2];
@@ -458,5 +707,136 @@ mod tests {
             (out[0] - 0.4).abs() < 1e-6,
             "carries on where it was: {out:?}"
         );
+    }
+
+    #[test]
+    fn the_limiter_leaves_normal_levels_alone_and_rounds_off_peaks() {
+        for x in [0.0, 0.3, -0.5, 0.8, -0.8] {
+            assert_eq!(soft_limit(x), x, "{x} is left as it is");
+        }
+        let mut last = 0.0;
+        for step in 1..=400 {
+            let x = step as f32 * 0.01; // 0.01 up to 4.0
+            let y = soft_limit(x);
+            assert!(y <= 1.0, "{x} never comes out past 1.0, giving {y}");
+            if x <= 1.5 {
+                assert!(y < 1.0, "{x} stays under 1.0, giving {y}");
+            }
+            assert!(y >= last, "louder in never gives quieter out");
+            assert_eq!(soft_limit(-x), -y, "the same for the low side");
+            last = y;
+        }
+        // No corner at the knee: just past it, the output still rises at
+        // the same rate as the input.
+        let rise = (soft_limit(0.801) - soft_limit(0.8)) / 0.001;
+        assert!((rise - 1.0).abs() < 0.01, "slope {rise}");
+        // A very loud mix comes out just under full, not cut off flat.
+        assert!(soft_limit(1.2) > 0.95 && soft_limit(1.2) < 1.0);
+    }
+
+    #[test]
+    fn a_loud_mix_is_rounded_off_not_cut_flat() {
+        let mut voices = Voices::default();
+        // Three loud loops add up to 0.9, 1.2 and 1.5.
+        for id in 1..=3 {
+            voices
+                .loops
+                .push(looping(id, Samples::mono(vec![0.3, 0.4, 0.5]), 1.0));
+        }
+        let mut out = [0.0; 6];
+        voices.fill(&mut out);
+        let got = lefts(&out);
+        assert!(got[0] < 0.9 && got[0] > 0.85, "{got:?}");
+        assert!(
+            got[0] < got[1] && got[1] < got[2],
+            "still in order: {got:?}"
+        );
+        assert!(got[2] < 1.0, "{got:?}");
+    }
+
+    #[test]
+    fn a_new_loop_volume_glides_across_one_block() {
+        let mut voices = Voices::default();
+        voices.loops.push(looping(7, Samples::mono(vec![1.0]), 0.2));
+        voices.change_loop(LoopCommand::Volume(LoopId(7), 0.6));
+        let mut out = [0.0; 8]; // four moments
+        voices.fill(&mut out);
+        let want = [0.3, 0.4, 0.5, 0.6];
+        for (got, want) in lefts(&out).iter().zip(want) {
+            assert!(close(*got, want), "a step at a time to 0.6: {out:?}");
+        }
+        voices.fill(&mut out);
+        assert!(
+            lefts(&out).iter().all(|&v| close(v, 0.6)),
+            "then it stays there: {out:?}"
+        );
+    }
+
+    #[test]
+    fn a_stopped_loop_fades_out_then_goes() {
+        let mut voices = Voices::default();
+        voices.loops.push(looping(3, Samples::mono(vec![1.0]), 0.8));
+        voices.change_loop(LoopCommand::Stop(LoopId(3)));
+        // Too late: it's stopping.
+        voices.change_loop(LoopCommand::Volume(LoopId(3), 1.0));
+        let mut out = [0.0; 8];
+        voices.fill(&mut out);
+        let want = [0.6, 0.4, 0.2, 0.0];
+        for (got, want) in lefts(&out).iter().zip(want) {
+            assert!(close(*got, want), "fades to silence: {out:?}");
+        }
+        assert!(voices.loops.is_empty(), "and then it's gone");
+    }
+
+    #[test]
+    fn late_refills_are_counted_and_reported() {
+        let mut refills = Refills::default();
+        assert_eq!(refills.report(), None, "nothing to say before any sound");
+        let start = Instant::now();
+        let every = play_time(1024); // about 23 ms
+        let mut now = start;
+        // Ten minutes of refills on time, with a little wobble...
+        for n in 0..26_000u32 {
+            let wobble = Duration::from_millis(u64::from(n % 3) * 4);
+            assert_eq!(refills.note(now + wobble, 1024), None);
+            now += every;
+        }
+        assert_eq!(refills.late, 0);
+        // ...then one that waits more than two blocks.
+        now += 2 * every;
+        assert_eq!(refills.note(now, 1024), None);
+        assert_eq!(refills.late, 1);
+        let report = refills.report().unwrap();
+        assert!(
+            report.starts_with("duckforge: sound: 1 late refill in 10 minutes"),
+            "{report}"
+        );
+        assert!(report.contains("due every 23 ms"), "{report}");
+        // Many late ones: a warning, only once.
+        let mut warnings = 0;
+        for _ in 0..20 {
+            now += 3 * every;
+            warnings += usize::from(refills.note(now, 1024).is_some());
+        }
+        assert_eq!(warnings, 1);
+        assert_eq!(refills.late, 21);
+    }
+
+    #[test]
+    fn times_read_as_words() {
+        assert_eq!(how_long(Duration::from_secs(1)), "1 second");
+        assert_eq!(how_long(Duration::from_millis(40_400)), "40 seconds");
+        assert_eq!(how_long(Duration::from_secs(300)), "5 minutes");
+    }
+
+    #[test]
+    fn the_block_size_can_be_changed_with_a_variable() {
+        assert_eq!(block_size_from(None), Ok(BLOCK));
+        assert_eq!(block_size_from(Some("4096")), Ok(4096));
+        assert_eq!(block_size_from(Some(" 1536 ")), Ok(1536));
+        for bad in ["", "big", "-5", "10", "100000"] {
+            let warning = block_size_from(Some(bad)).unwrap_err();
+            assert!(warning.contains("DUCKFORGE_SOUND_BLOCK"), "{warning}");
+        }
     }
 }
