@@ -3,9 +3,6 @@
 //! of date once because only the first two were replayed), but not files
 //! that belong to another example with a longer name.
 
-use std::fs;
-use std::path::Path;
-
 const SH: &str = include_str!("../tools/verify.sh");
 const BAT: &str = include_str!("../tools/verify.bat");
 
@@ -44,6 +41,9 @@ fn both_scripts_look_for_the_same_playthroughs() {
 #[cfg(unix)]
 #[test]
 fn verify_sh_replays_every_playthrough_of_the_game_and_no_other() {
+    use std::fs;
+    use std::path::Path;
+
     let root = std::env::temp_dir().join(format!("duckforge-verify-{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
     let touch = |path: &str| {
