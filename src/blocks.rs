@@ -260,6 +260,9 @@ pub struct BlockWorld {
     below: BlockId,
     /// Each chunk's mesh.
     meshes: Vec<Mesh>,
+    /// Each chunk's mesh's lowest and highest corner, worked out when it's
+    /// built, for skipping chunks hidden in fog.
+    bounds: Vec<(Vec3, Vec3)>,
     /// Which chunks need building again.
     changed: Vec<bool>,
 }
@@ -303,6 +306,7 @@ impl BlockWorld {
             blocks: vec![AIR; width * height * depth],
             below: AIR,
             meshes: vec![Mesh::new(); chunks_x * chunks_z],
+            bounds: vec![(Vec3::ZERO, Vec3::ZERO); chunks_x * chunks_z],
             changed: vec![true; chunks_x * chunks_z],
         }
     }
@@ -414,6 +418,7 @@ impl BlockWorld {
                 let i = cz * self.chunks_x + cx;
                 if self.changed[i] {
                     self.meshes[i] = self.build_chunk(palette, cx, cz, &shade);
+                    self.bounds[i] = self.meshes[i].bounds();
                     self.changed[i] = false;
                     built += 1;
                 }
@@ -495,14 +500,37 @@ impl BlockWorld {
         self.changed[self.chunk_index(cx, cz)]
     }
 
-    /// Draws every chunk as last built. Chunks out of the camera's view
-    /// are skipped whole.
-    pub fn draw(&self, canvas: &mut Canvas, camera: &Camera3D) {
-        for mesh in &self.meshes {
-            if !mesh.triangles.is_empty() {
-                canvas.draw_mesh(mesh, &Transform::default(), camera);
+    /// Draws every chunk as last built, and says how many it drew. Chunks
+    /// out of the camera's view are skipped whole, and so are chunks lost
+    /// in the canvas's fog ([`Canvas::set_fog`]): every point of them is
+    /// past the fog's `far` edge, where they'd be drawn as nothing but
+    /// fog. A world 192 blocks across is 144 chunks, mostly sea; with fog
+    /// only the ones you could see are drawn.
+    ///
+    /// What that does to the picture: where a skipped chunk would have
+    /// been, the background shows (whatever was drawn before the world,
+    /// like the sky) instead of the fog's colour. Clear to the fog's colour,
+    /// or make the fog the sky's colour, and nothing changes.
+    pub fn draw(&self, canvas: &mut Canvas, camera: &Camera3D) -> usize {
+        let far = canvas.fog().map_or(f32::INFINITY, |fog| fog.far);
+        self.draw_within(canvas, camera, far)
+    }
+
+    /// Like [`draw`](BlockWorld::draw), skipping every chunk whose nearest
+    /// point is more than `far` ahead of the camera (along the way it
+    /// looks, as fog measures distance), fog or not: a view distance.
+    /// Chunks behind the camera or below it aren't skipped by this (the
+    /// camera can look straight down); the camera's view skips them anyway.
+    pub fn draw_within(&self, canvas: &mut Canvas, camera: &Camera3D, far: f32) -> usize {
+        let mut drawn = 0;
+        for (mesh, &(low, high)) in self.meshes.iter().zip(&self.bounds) {
+            if mesh.triangles.is_empty() || nearest_ahead(camera, low, high) > far {
+                continue;
             }
+            canvas.draw_mesh(mesh, &Transform::default(), camera);
+            drawn += 1;
         }
+        drawn
     }
 
     /// Whether the face of the block at (x, y, z) looking in direction
@@ -519,6 +547,21 @@ impl BlockWorld {
         let (dx, dy, dz) = FACE_DIRECTIONS[face];
         palette.kind(block).is_some() && palette.face_shows(block, self.get(x + dx, y + dy, z + dz))
     }
+}
+
+/// How far ahead of the camera, along the way it looks, the nearest point
+/// of the box from `low` to `high` is (negative if some of it is behind the
+/// camera). That's the distance fog uses, so a box whose nearest point is
+/// past the fog's far edge is all fog.
+fn nearest_ahead(camera: &Camera3D, low: Vec3, high: Vec3) -> f32 {
+    let ahead = camera.forward();
+    // The corner furthest back along `ahead`, axis by axis.
+    let corner = vec3(
+        if ahead.x > 0.0 { low.x } else { high.x },
+        if ahead.y > 0.0 { low.y } else { high.y },
+        if ahead.z > 0.0 { low.z } else { high.z },
+    );
+    (corner - camera.position).dot(ahead)
 }
 
 /// Splits [`Mesh::block`]'s cube into its six faces, in
@@ -712,6 +755,83 @@ mod tests {
             .filter(|&t| mesh.glow_of(t) == 0.5)
             .count();
         assert_eq!(half, 2, "the stone's face towards the lamp");
+    }
+
+    /// A sea of stone 192 blocks across (144 chunks), seen through fog from
+    /// 10 to 30 blocks, from the middle. `look_down` looks straight down.
+    fn foggy_world(look_down: bool) -> (BlockWorld, Camera3D, crate::render3d::Fog) {
+        let palette = palette();
+        let stone = palette.id("stone");
+        let mut world = BlockWorld::new(192, 4, 192);
+        for z in 0..192 {
+            for x in 0..192 {
+                world.set(x, 0, z, stone);
+            }
+        }
+        world.update_meshes(&palette);
+        let mut camera = Camera3D::new(vec3(96.0, 6.0, 96.0));
+        camera.pitch = if look_down {
+            -std::f32::consts::FRAC_PI_2
+        } else {
+            -0.2
+        };
+        let fog = crate::render3d::Fog {
+            color: Color::rgb(200, 220, 255),
+            near: 10.0,
+            far: 30.0,
+        };
+        (world, camera, fog)
+    }
+
+    #[test]
+    fn chunks_lost_in_fog_are_not_drawn_and_the_rest_are() {
+        for look_down in [false, true] {
+            let (world, camera, fog) = foggy_world(look_down);
+            let picture = |all: bool| {
+                let mut canvas = Canvas::new(80, 60);
+                canvas.clear(Color::BLACK); // not the fog's colour: skipped chunks show
+                canvas.set_fog(Some(fog));
+                let drawn = if all {
+                    world.draw_within(&mut canvas, &camera, f32::INFINITY)
+                } else {
+                    world.draw(&mut canvas, &camera)
+                };
+                (drawn, canvas)
+            };
+            let (drawn, culled) = picture(false);
+            let (every, full) = picture(true);
+            assert_eq!(every, 144);
+            if look_down {
+                // Looking down, the whole floor is 6 ahead: nothing is lost in
+                // the fog, however far away sideways.
+                assert_eq!(drawn, 144);
+            } else {
+                assert!(drawn < 100, "{drawn} of 144 chunks drawn");
+            }
+            // Every pixel is the same, except where a chunk that would only
+            // have been fog was skipped: there the background shows.
+            let fog_colour = fog.color.to_u32();
+            let mut stone = 0;
+            for (a, b) in culled.pixels().iter().zip(full.pixels()) {
+                assert!(a == b || (*a == 0 && *b == fog_colour), "{a:06x} {b:06x}");
+                stone += usize::from(*a != 0 && *a != fog_colour);
+            }
+            assert!(
+                stone > 500,
+                "the floor inside the fog is still drawn: {stone} pixels"
+            );
+        }
+    }
+
+    #[test]
+    fn draw_within_skips_chunks_past_a_view_distance() {
+        let (world, camera, _) = foggy_world(false);
+        let mut canvas = Canvas::new(80, 60);
+        let near = world.draw_within(&mut canvas, &camera, 20.0);
+        let further = world.draw_within(&mut canvas, &camera, 60.0);
+        assert!(near < further && further < 144, "{near} {further}");
+        // Without fog, draw draws them all.
+        assert_eq!(world.draw(&mut canvas, &camera), 144);
     }
 
     #[test]

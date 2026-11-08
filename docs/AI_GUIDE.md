@@ -1006,7 +1006,10 @@ bottom from one `Tileset`). Block worlds: `BlockPalette::new(&atlas,
 `world.update_meshes(&palette)` in `update` (builds only the chunks that
 changed; `update_meshes_shaded(&palette, |world, x, y, z| light)` darkens
 faces, or gives `FaceLight { shade, glow }` to light them, say by a lamp),
-`world.draw(canvas, &camera)`, `world.chunk_mesh(cx, cz)`. Build your own with `add_vertex`,
+`world.draw(canvas, &camera)` (skips chunks lost in the canvas's fog, where
+the background then shows instead of fog colour; gives how many it drew),
+`world.draw_within(canvas, &camera, far)` (a view distance, fog or not),
+`world.chunk_mesh(cx, cz)`. Build your own with `add_vertex`,
 `add_triangle`, `add_quad`, `add_triangle_uv(a, b, c, [uv; 3], color)`,
 `add_quad_uv(a, b, c, d, [uv; 4], color)` (corners clockwise seen from
 the front). `.with_texture(sprite)` (colours times the texture; white

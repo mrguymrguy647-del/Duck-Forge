@@ -2881,3 +2881,20 @@ the frame just played, the same way a step does (that part of `step_by`
 is now one function both use). Reports from the same frame are merged
 into one entry, so `log.json` doesn't list frame 5 twice. Before the
 first step it's frame 0, after the game's `init`.
+
+**`BlockWorld` skips chunks lost in fog.** `draw` handed every chunk to
+`draw_mesh`, which skips chunks outside the view but not ones so far
+away they'd be nothing but fog: a world 192 blocks across is 144 chunks,
+mostly sea, all drawn every frame. Now a chunk is skipped when its
+nearest point is past the fog's `far` edge, measured the way the fog
+measures, straight ahead along the camera's view (the box's corner
+furthest back along that direction, so a camera looking straight down
+skips nothing below it: everything there is near). Each chunk's box is
+worked out when it's built. `draw_within(canvas, camera, far)` does the
+same with any distance, fog or not, and both say how many chunks they
+drew. The picture changes in one way, in the docs: where a skipped chunk
+would have been, the background shows instead of the fog's colour, so
+games clear to (or fog with) the sky's colour. A test draws the 144-chunk
+world level and looking straight down, and checks every pixel is the
+same as drawing everything, except fog-coloured ones that became
+background.

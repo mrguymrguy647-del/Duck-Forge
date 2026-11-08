@@ -689,6 +689,7 @@ fn three_d_textures_light_and_billboards() -> Result<(), LoadError> {
     }
     canvas.draw_mesh(&chunk, &Transform::at(vec3(-1.5, -1.0, 1.0)), &camera);
     world.draw(&mut canvas, &camera);
+    assert_eq!(world.draw_within(&mut canvas, &camera, 1000.0), 1);
     canvas.set_fog(None);
     let picture = std::env::temp_dir().join(format!("cheat-sheet-{}.png", std::process::id()));
     canvas.save_png(&picture).expect("the picture is saved");
