@@ -245,6 +245,12 @@ fn the_game_parts_of_the_cheat_sheet_work() {
     assert_eq!(sim.sound_frames("coin"), [3]);
     assert_eq!(sim.sounds().len(), 10);
     sim.assert_sound("laser", 3, 0);
+    // One of the game's own methods, with the real ctx, between frames.
+    let frame = sim.with_context(|game, ctx| {
+        game.x += 0.0;
+        ctx.frame()
+    });
+    assert_eq!(frame, sim.context().frame());
     let replay = sim.recording();
     let file = std::env::temp_dir().join(format!("cheat-sheet-{}.json", std::process::id()));
     replay.save(&file).unwrap();

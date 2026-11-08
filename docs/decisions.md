@@ -2871,3 +2871,13 @@ code says 0)`, and `log.json` says `"from": "recording"`. The catch: to
 try a new value against an old playthrough, use `--set` or `--tune FILE`;
 editing the game's tune file no longer changes a replay that recorded
 that value. This fixes issue 31.
+
+**`Simulation::with_context`.** A test could only step the whole game,
+so a game method taking `&mut Context` (a trick that rolls `ctx.rng` and
+plays a sound) couldn't be called on its own. `sim.with_context(|game,
+ctx| game.trick(ctx))` runs it between frames with the simulation's own
+context, then records what it reported, played and did with its loops on
+the frame just played, the same way a step does (that part of `step_by`
+is now one function both use). Reports from the same frame are merged
+into one entry, so `log.json` doesn't list frame 5 twice. Before the
+first step it's frame 0, after the game's `init`.

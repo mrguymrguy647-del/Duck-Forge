@@ -1043,7 +1043,9 @@ and `Simulation::new(config, game)` with `press`, `release`,
 `move_mouse`, `move_mouse_by(vec2(dx, dy))` (a locked pointer's movement),
 `press_mouse`, `release_mouse`, `scroll`, `step`,
 `run(frames)`, `game()`, `picture()`, `recording()`, `follow(script)`,
-`resize(w, h)`. Scripts: `InputScript::load(path)` or its other name
+`resize(w, h)`, `sim.with_context(|game, ctx| ...)` (runs one
+of the game's methods that takes `ctx`, between frames; what it plays,
+reports or checks counts as the last frame's). Scripts: `InputScript::load(path)` or its other name
 `InputScript::from_file(path)`; `InputScript::parse(text)` or
 `InputScript::from_json(text)`; `script.save(path)`.
 

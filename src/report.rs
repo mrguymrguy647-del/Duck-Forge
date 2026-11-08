@@ -144,7 +144,12 @@ impl ReportLog {
             }
         }
         if self.keep_changes && !changes.is_empty() {
-            self.changes.push(FrameReport { frame, changes });
+            match self.changes.last_mut() {
+                // More from the same frame (`Simulation::with_context`
+                // between frames): one entry for the frame.
+                Some(last) if last.frame == frame => last.changes.extend(changes),
+                _ => self.changes.push(FrameReport { frame, changes }),
+            }
         }
     }
 

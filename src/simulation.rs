@@ -218,6 +218,44 @@ impl<G: Game> Simulation<G> {
         }
     }
 
+    /// Runs `f` on the game with the simulation's own [`Context`], between
+    /// two steps, and gives back what `f` returns. For a test that calls
+    /// one of the game's methods that needs `ctx` (a trick that rolls
+    /// `ctx.rng` and plays a sound, say) without stepping the whole game:
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// # struct Duck;
+    /// # impl Duck {
+    /// #     fn quack(&mut self, ctx: &mut Context) { ctx.play(Sound::coin()); }
+    /// # }
+    /// # impl Game for Duck {
+    /// #     fn update(&mut self, _: &mut Context) {}
+    /// #     fn draw(&self, canvas: &mut Canvas) { canvas.clear(Color::BLACK); }
+    /// # }
+    /// let mut sim = Simulation::new(Config::default(), Duck);
+    /// sim.run(10);
+    /// sim.with_context(|duck, ctx| duck.quack(ctx));
+    /// assert_eq!(sim.sound_frames("coin"), [10]);
+    /// ```
+    ///
+    /// It counts as part of the frame just played: the sounds it plays,
+    /// the values it reports, the loops it starts and the checks it fails
+    /// are recorded on that frame (`ctx.frame()`), exactly as if the game's
+    /// `update` had done them. Before the first step it's frame 0, and the
+    /// game's `init` runs first. The random numbers it uses are the same
+    /// `ctx.rng` the game uses, so later frames see them used.
+    pub fn with_context<R>(&mut self, f: impl FnOnce(&mut G, &mut Context) -> R) -> R {
+        if !self.initialized {
+            self.initialized = true;
+            self.game.init(&mut self.ctx);
+        }
+        let result = f(&mut self.game, &mut self.ctx);
+        self.collect_what_the_game_did();
+        self.drawn_frame = None; // the game may look different now
+        result
+    }
+
     /// One update that moves the game forward by `dt` seconds.
     pub(crate) fn step_by(&mut self, dt: f32) {
         if !self.initialized {
@@ -233,8 +271,6 @@ impl<G: Game> Simulation<G> {
         self.scroll = 0.0;
         self.mouse_motion = Vec2::ZERO;
         self.game.update(&mut self.ctx);
-        let reported = self.ctx.take_reports();
-        self.reports.record(self.ctx.frame(), reported);
         if self.ctx.was_idle_ok() {
             let frame = self.ctx.frame();
             match self.idle.last_mut() {
@@ -242,6 +278,14 @@ impl<G: Game> Simulation<G> {
                 _ => self.idle.push((frame, frame)),
             }
         }
+        self.collect_what_the_game_did();
+    }
+
+    /// Takes what the game reported, played and did with its loops since
+    /// last time from the context, and records it for the current frame.
+    fn collect_what_the_game_did(&mut self) {
+        let reported = self.ctx.take_reports();
+        self.reports.record(self.ctx.frame(), reported);
         let start = self.sample_at(self.ctx.frame());
         for request in self.ctx.take_sounds() {
             self.sounds.push(PlayedSound {
@@ -1180,6 +1224,73 @@ mod tests {
         sim.step(); // the scroll only lasts one step
         assert_eq!(sim.game().clicks, [vec2(3.0, 4.0)]);
         assert_eq!(sim.game().scrolls, [-1.0]);
+    }
+
+    /// A game with a method that needs `ctx`, for `with_context`.
+    #[derive(Default)]
+    struct Trickster {
+        inits: u32,
+        rolls: Vec<f32>,
+    }
+
+    impl Trickster {
+        /// Rolls `ctx.rng`, plays a sound, reports and checks something.
+        fn trick(&mut self, ctx: &mut Context) -> f32 {
+            let roll = ctx.rng.next_f32();
+            ctx.play(crate::sound::Sound {
+                name: "trick",
+                ..crate::sound::Sound::default()
+            });
+            ctx.report("tricks", 1);
+            ctx.check("no tricks", false);
+            roll
+        }
+    }
+
+    impl Game for Trickster {
+        fn init(&mut self, _: &mut Context) {
+            self.inits += 1;
+        }
+        fn update(&mut self, ctx: &mut Context) {
+            self.rolls.push(ctx.rng.next_f32());
+            ctx.report("frame", ctx.frame());
+        }
+        fn draw(&self, canvas: &mut Canvas) {
+            canvas.clear(Color::BLACK);
+        }
+    }
+
+    #[test]
+    fn with_context_runs_game_code_between_frames_as_part_of_the_last_one() {
+        let mut sim = Simulation::new(config(), Trickster::default());
+        sim.run(5);
+        let roll = sim.with_context(|game, ctx| game.trick(ctx));
+        // Recorded on frame 5, as if update had done it.
+        assert_eq!(sim.sound_frames("trick"), [5]);
+        assert_eq!(sim.number("tricks"), 1.0);
+        assert_eq!(sim.failed_checks()[0].frame, 5);
+        assert_eq!(sim.failed_checks()[0].name, "no tricks");
+        let frame_5: Vec<&FrameReport> = sim.report_log().iter().filter(|r| r.frame == 5).collect();
+        assert_eq!(frame_5.len(), 1, "one entry for frame 5");
+        assert!(frame_5[0].changes.contains_key("tricks"));
+        // It used the game's own random numbers: the next frame carries on
+        // from them, so its roll is the one that would have come after.
+        sim.step();
+        let mut plain = Simulation::new(config(), Trickster::default());
+        plain.run(7);
+        assert_eq!(roll, plain.game().rolls[5]);
+        assert_eq!(sim.game().rolls[5], plain.game().rolls[6]);
+        assert_eq!(sim.game().inits, 1);
+
+        // Before the first step: frame 0, after the game's init.
+        let mut fresh = Simulation::new(config(), Trickster::default());
+        fresh.with_context(|game, ctx| {
+            assert_eq!(game.inits, 1, "init ran first");
+            game.trick(ctx)
+        });
+        assert_eq!(fresh.sound_frames("trick"), [0]);
+        fresh.step();
+        assert_eq!(fresh.game().inits, 1, "and only once");
     }
 
     /// Mouse look with a locked pointer: the game sees the movement in
