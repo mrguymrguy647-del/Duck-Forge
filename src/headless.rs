@@ -1822,61 +1822,110 @@ mod tests {
         assert!(err.contains("could not create the folder"), "{err}");
     }
 
+    /// [`Tuned`], also asking for a "shade" that changes nothing it reports.
+    struct Shaded(Tuned);
+
+    impl Game for Shaded {
+        fn update(&mut self, ctx: &mut Context) {
+            self.0.update(ctx);
+            let _ = ctx.tune("shade", 1.0);
+        }
+
+        fn draw(&self, canvas: &mut Canvas) {
+            self.0.draw(canvas);
+        }
+    }
+
     #[test]
-    fn tune_values_changed_since_recording_warn_or_explain_the_failure() {
+    fn a_replay_uses_the_tune_values_it_was_recorded_with() {
         let folder = test_folder("tune-replay");
-        let options = |tune: Vec<(String, f32)>, script: InputScript| HeadlessOptions {
-            frames: 30,
-            out: Some(folder.clone()),
-            inputs: Some(script),
-            inputs_file: Some(PathBuf::from("playthroughs/t.json")),
-            tune,
-            ..HeadlessOptions::default()
+        fs::create_dir_all(&folder).unwrap();
+        let set = |pairs: &[(&str, f32)]| -> Vec<(String, f32)> {
+            pairs.iter().map(|&(n, v)| (n.to_string(), v)).collect()
         };
-        // How the game ends with its own values.
-        let plain = run_headless(
+        // Recorded with --set wobble=0.5 (and shade 2, which changes nothing
+        // the game reports): its ending, and its tune values.
+        let recorded = run_headless(
             config(),
-            Tuned { x: 0.0 },
+            Shaded(Tuned { x: 0.0 }),
             &HeadlessOptions {
                 frames: 30,
+                tune: set(&[("wobble", 0.5), ("shade", 2.0)]),
                 ..HeadlessOptions::default()
             },
         )
         .unwrap();
-        let x = plain.number("x");
-        // Recorded with wobble 0.5 (which made no difference to the end).
-        let script = InputScript::parse(&format!(
-            r#"{{"frames": 30, "expect": {{"size": 4, "speed": 10, "x": {x}}},
-                "tune": {{"size": 4, "speed": 10, "wobble": 0.5}}, "events": []}}"#
-        ))
-        .unwrap();
-        let run = |tune| {
-            run_and_save(config(), Tuned { x: 0.0 }, &options(tune, script.clone()))
+        let mut script = recorded.recording();
+        assert_eq!(
+            script.tune.as_ref().unwrap()["wobble"],
+            0.5,
+            "the recording keeps them"
+        );
+        script.events.clear();
+        let replay = |config: Config, tune: Vec<(String, f32)>, tune_file: Option<PathBuf>| {
+            let options = HeadlessOptions {
+                frames: 30,
+                out: Some(folder.join("out")),
+                inputs: Some(script.clone()),
+                inputs_file: Some(PathBuf::from("playthroughs/t.json")),
+                tune,
+                tune_file,
+                ..HeadlessOptions::default()
+            };
+            run_and_save(config, Shaded(Tuned { x: 0.0 }), &options)
                 .unwrap()
                 .1
         };
 
-        // Replayed with wobble 0: the same ending, so only a warning naming the change.
-        let tuned = run(Vec::new());
-        assert_eq!(tuned.tune_changed, ["wobble 0.5 to 0"]);
-        assert!(tuned.changed.is_empty() && tuned.warnings.is_empty());
-        assert!(tuned.problems()[0].starts_with(
-            "playthrough tuned: recorded with other tune values (wobble 0.5 to 0), and it still ends as expected"
-        ));
+        // No --set: the recorded values are used, so it ends as recorded,
+        // and the summary says which values came from the recording.
+        let plain = replay(config(), Vec::new(), None);
+        assert!(plain.changed.is_empty() && plain.tune_changed.is_empty());
+        assert!(plain.warnings.is_empty(), "{:?}", plain.warnings);
+        assert!(
+            plain
+                .tuned
+                .contains(&(String::from("wobble"), 0.5, "recording", 0.0))
+        );
+        let text = plain.to_text();
+        assert!(
+            text.contains("wobble = 0.5 (from the recording; code says 0)"),
+            "{text}"
+        );
+        // The game's own tune file doesn't beat the recording either.
+        let file = folder.join("game.tune.json");
+        fs::write(&file, r#"{"wobble": 0}"#).unwrap();
+        let named = Config {
+            tune_file: Some(file.clone()),
+            ..config()
+        };
+        assert!(replay(named, Vec::new(), None).changed.is_empty());
 
-        // With size 5 the ending changes too: a failure naming the cause.
-        let failed = run(vec![(String::from("size"), 5.0)]);
+        // --set wins: wobble 0 ends differently, and the summary names
+        // the changed value as the likely cause.
+        let failed = replay(config(), set(&[("wobble", 0.0)]), None);
         assert_eq!(failed.warnings.len(), 1, "{:?}", failed.warnings);
         let warning = &failed.warnings[0];
         assert!(
-            warning.starts_with("playthroughs/t.json ends differently (size 4 to 5)"),
+            warning.starts_with("playthroughs/t.json ends differently (x "),
             "{warning}"
         );
-        assert!(warning.contains("tune values changed since it was recorded (size 4 to 5, wobble 0.5 to 0): that's the likely cause"), "{warning}");
         assert!(
-            failed.changed.is_empty() && failed.tune_changed.is_empty(),
-            "said once"
+            warning.contains("tune values changed since it was recorded (wobble 0.5 to 0)"),
+            "{warning}"
         );
+        // --tune FILE wins too.
+        let from_file = replay(config(), Vec::new(), Some(file));
+        assert_eq!(from_file.warnings.len(), 1, "{:?}", from_file.warnings);
+
+        // A value changed with --set that doesn't change the ending: only
+        // the "playthrough tuned" warning.
+        let tuned = replay(config(), set(&[("shade", 3.0)]), None);
+        assert_eq!(tuned.tune_changed, ["shade 2 to 3"]);
+        assert!(tuned.changed.is_empty() && tuned.warnings.is_empty());
+        assert!(tuned.problems()[0].starts_with(
+            "playthrough tuned: recorded with other tune values (shade 2 to 3), and it still ends as expected"
+        ));
         let _ = fs::remove_dir_all(folder);
     }
 

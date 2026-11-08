@@ -99,8 +99,8 @@ panic is one line with the frame: replay with `--frames N` just before it.
 
 `let speed = ctx.tune("player_speed", 90.0);` at the top of `update`; try
 `--set player_speed=120`; keep values in `examples/mygame.tune.json`
-(`--write-tune` writes them all). New values that still give a recording's
-expected ending are only a `tuned` warning.
+(`--write-tune` writes them all). Replays use a recording's own values;
+`--set` ones that still give its expected ending are only a `tuned` warning.
 
 ## 6. Labels: know what's on screen without pictures
 

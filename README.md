@@ -496,7 +496,7 @@ tools/verify.sh dodge        # on Windows: tools\verify.bat dodge
 ```
 
 builds the game headless, runs its play tests, replays every
-`playthroughs/dodge.json` and `playthroughs/dodge-*.json` with a contact
+`playthroughs/dodge.json`, `dodge-*.json` and `dodge_*.json` with a contact
 sheet and the debug overlay, fuzzes 50 runs (`tools/verify.sh dodge 200`
 for more, `tools/verify.sh dodge 0` to skip fuzzing), and prints one line per step, ending in `VERIFY OK` or
 `VERIFY FAILED` (exit code 1). Each failed step shows its first lines of

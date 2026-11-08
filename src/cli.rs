@@ -552,6 +552,8 @@ mod tests {
         "--lib",
         "--test-threads",
         "--nocapture",
+        // tools/verify's own: list the playthroughs it would replay.
+        "--list-playthroughs",
     ];
 
     #[test]

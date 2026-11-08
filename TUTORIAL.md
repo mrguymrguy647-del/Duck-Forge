@@ -4934,7 +4934,8 @@ VERIFY OK: template in 2 s (pictures and summaries in out/verify/template)
 
 Recordings named `playthroughs/template.json` (the bot's, from
 `cargo test --example template -- --ignored`) or
-`playthroughs/template-*.json` (press F10 in the game to make one) are
+`playthroughs/template-*.json` or `template_*.json` (press F10 in the
+game to make one) are
 replayed with a contact sheet you can look at in `out/verify/template/`.
 Run it before you put the game away for the day.
 

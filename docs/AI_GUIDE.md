@@ -295,7 +295,8 @@ VERIFY OK: dodge in 2 s (pictures and summaries in out/verify/dodge)
 ```
 
 It builds the game headless, runs its play tests, replays every
-`playthroughs/mygame.json` and `playthroughs/mygame-*.json` with a
+`playthroughs/mygame.json`, `mygame-*.json` and `mygame_*.json` (not
+another example's, like `mygame_two.json` if there's a game `mygame_two`) with a
 contact sheet and the debug overlay, plays 50 random games (`--fuzz`;
 `tools/verify.sh mygame 200` for more, `0` to skip it), and prints one line per step. A
 failed step shows its first few lines of detail (the failing test, the
@@ -928,13 +929,17 @@ tests: `PlayTest::new(..).tune("jump_speed", 400.0)` or
 To name the file yourself (so a bot in a test program with another name
 reads it too): `Config { tune_file: Some("examples/mygame.tune.json".into()), ..Default::default() }`;
 a named file that doesn't exist yet just means the code's values.
-Recordings store the tune values they were made with. Replayed with
-other values, a playthrough that still ends as expected is a warning
-(`playthrough tuned: ... (speed 90 to 120)`), so you can tune without
-recording again; one that ends differently fails and names the changed
-values as the likely cause. `--accept` stores the new ending and values.
-The summary's second line says which values aren't the code's:
-`TUNED from examples/mygame.tune.json: speed = 120 (code says 90)`.
+Recordings store the tune values they were made with, and a replay uses
+them, over the game's tune file and its code, so it plays out as it was
+recorded (a playthrough recorded with `--set start_time_of_day=0.47`
+needs no `--set` to replay). `--set` and `--tune FILE` still win: replayed
+with other values that way, a playthrough that still ends as expected is
+a warning (`playthrough tuned: ... (speed 90 to 120)`), so you can try new
+values without recording again; one that ends differently fails and
+names the changed values as the likely cause. `--accept` stores the new
+ending and values. The summary's second line says which values aren't
+the code's, and where they came from:
+`TUNED from examples/mygame.tune.json: speed = 120 (code says 90), time = 0.47 (from the recording; code says 0)`.
 
 **Checks** (rules that must always hold): in `update`,
 `ctx.check("player inside level", level.contains(player.center()))`.

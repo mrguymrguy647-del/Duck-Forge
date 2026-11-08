@@ -4,14 +4,21 @@ rem
 rem   tools\verify.bat dodge          (50 fuzz runs)
 rem   tools\verify.bat dodge 200      (200 fuzz runs)
 rem   tools\verify.bat dodge 0        (no fuzzing: the step says "skipped")
+rem   tools\verify.bat --list-playthroughs dodge   (only list what it would replay)
 rem
 rem It builds the example headless, runs its play tests, replays every
-rem playthroughs\<game>.json and playthroughs\<game>-*.json with a contact
-rem sheet and the debug overlay, fuzzes it, and prints one short report.
+rem playthrough of the game (playthroughs\<game>.json, <game>-*.json and
+rem <game>_*.json, like duck_craft_night.json) with a contact sheet and the
+rem debug overlay, fuzzes it, and prints one short report. A file named
+rem after another example is that example's: mini_craft.json isn't replayed
+rem for a game called mini.
 rem Everything it saves goes in out\verify\<game>\. It stops with exit code 1
 rem if anything failed. tools/verify.sh does the same on Linux and macOS.
 
 setlocal EnableDelayedExpansion
+set "list_only=0"
+if /i "%~1"=="--list-playthroughs" set "list_only=1"
+if "%list_only%"=="1" shift
 set "game=%~1"
 set "runs=%~2"
 if "%runs%"=="" set "runs=50"
@@ -20,6 +27,15 @@ if "%game%"=="" goto usage
 rem The number of fuzz runs: digits only.
 echo %runs%| findstr /r /x "[0-9][0-9]*" > nul || goto usage
 if not exist "examples\%game%.rs" if not exist "examples\%game%\main.rs" goto usage
+
+rem --list-playthroughs: only say which playthroughs would be replayed.
+if "%list_only%"=="1" (
+    for %%S in ("playthroughs\%game%.json" "playthroughs\%game%-*.json" "playthroughs\%game%_*.json") do (
+        if exist "%%~S" call :owner "%%~nS"
+        if exist "%%~S" if "!skip!"=="0" echo playthroughs\%%~nxS
+    )
+    exit /b 0
+)
 
 set "out=out\verify\%game%"
 if exist "%out%" rmdir /s /q "%out%"
@@ -71,8 +87,9 @@ if "!code!"=="0" (
 
 rem 3. Every playthrough, with a contact sheet of its events and the debug overlay.
 set "found=0"
-for %%S in ("playthroughs\%game%.json" "playthroughs\%game%-*.json") do (
-    if exist "%%~S" (
+for %%S in ("playthroughs\%game%.json" "playthroughs\%game%-*.json" "playthroughs\%game%_*.json") do (
+    if exist "%%~S" call :owner "%%~nS"
+    if exist "%%~S" if "!skip!"=="0" (
         set "found=1"
         set "name=%%~nS"
         set "folder=%out%\%%~nS"
@@ -182,6 +199,18 @@ rem The first 6 lines, exactly as they are (cmd would drop any "!").
 powershell -NoProfile -Command "Get-Content -LiteralPath '!detail!' -TotalCount 6 | ForEach-Object { '      ' + $_ }"
 exit /b 0
 
+rem Sets skip=1 if the playthrough named %1 (without .json) belongs to
+rem another example: mini_craft.json is mini_craft's, not a game called mini's.
+rem   call :owner NAME
+:owner
+set "skip=0"
+for /f "tokens=1 delims=-" %%o in ("%~1") do set "owner=%%o"
+if /i "!owner!"=="%game%" exit /b 0
+if exist "examples\!owner!.rs" set "skip=1"
+if exist "examples\!owner!\main.rs" set "skip=1"
+exit /b 0
+
 :usage
 echo usage: tools\verify.bat ^<example^> [fuzz runs]   ^(examples\^<example^>.rs or examples\^<example^>\main.rs must exist; fuzz runs is a number, 0 to skip fuzzing^)
+echo        tools\verify.bat --list-playthroughs ^<example^>   ^(lists the playthroughs it would replay^)
 exit /b 2

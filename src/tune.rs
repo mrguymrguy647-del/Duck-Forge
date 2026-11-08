@@ -13,9 +13,12 @@
 //! The value comes from, in order:
 //!
 //! 1. `--set jump_speed=400` on the command line (repeatable),
-//! 2. the tune file: `examples/<game>.tune.json` (or `--tune FILE`), a JSON
-//!    object like `{"jump_speed": 400, "gravity": 900}`,
-//! 3. the default in the code.
+//! 2. a tune file named on the command line with `--tune FILE`,
+//! 3. during a replay, the value the playthrough was recorded with (its
+//!    `"tune"` block), so it plays out as it was recorded,
+//! 4. the game's tune file: `examples/<game>.tune.json`, a JSON object
+//!    like `{"jump_speed": 400, "gravity": 900}`,
+//! 5. the default in the code.
 //!
 //! In a window, the tune file is read again whenever it changes, so you
 //! can tweak a running game. `log.json` records every value used and where
@@ -36,6 +39,8 @@ pub(crate) enum Source {
     Default,
     File,
     Set,
+    /// The `"tune"` block of the playthrough being replayed.
+    Recording,
 }
 
 impl Source {
@@ -44,6 +49,7 @@ impl Source {
             Source::Default => "default",
             Source::File => "file",
             Source::Set => "set",
+            Source::Recording => "recording",
         }
     }
 }
@@ -58,6 +64,11 @@ pub(crate) struct Tunes {
     file: HashMap<String, f32>,
     /// Values from `--set`.
     set: HashMap<String, f32>,
+    /// The tune file was named on the command line (`--tune FILE`): it
+    /// wins over a recording's values.
+    file_on_command_line: bool,
+    /// The values the playthrough being replayed was recorded with.
+    recorded: HashMap<String, f32>,
     /// Every name the game asked for: the value it got, from where, and
     /// the default written in the code.
     /// (A `RefCell` lets `ctx.tune` take `&self`, so it can be used inside
@@ -90,11 +101,21 @@ impl Tunes {
         config: Option<&Path>,
         set: &[(String, f32)],
     ) -> Result<Tunes, String> {
-        match (command_line, config) {
-            (Some(file), _) => Tunes::load(Some(file), set),
-            (None, Some(named)) => Tunes::load_named(named, set),
-            (None, None) => Tunes::load(None, set),
-        }
+        let mut tunes = match (command_line, config) {
+            (Some(file), _) => Tunes::load(Some(file), set)?,
+            (None, Some(named)) => Tunes::load_named(named, set)?,
+            (None, None) => Tunes::load(None, set)?,
+        };
+        tunes.file_on_command_line = command_line.is_some();
+        Ok(tunes)
+    }
+
+    /// Replays use the values a playthrough was recorded with (its
+    /// `"tune"` block) over the game's tune file and its code, so a
+    /// recording made with `--set start_time_of_day=0.47` replays the same
+    /// way without it. `--set` and `--tune FILE` still win.
+    pub(crate) fn use_recording(&mut self, recorded: &BTreeMap<String, f32>) {
+        self.recorded = recorded.iter().map(|(n, &v)| (n.clone(), v)).collect();
     }
 
     fn load_from(
@@ -123,14 +144,25 @@ impl Tunes {
         Ok(tunes)
     }
 
-    /// The value for `name`: from `--set`, the file, or `default`.
+    /// The value for `name`: from `--set`, `--tune FILE`, the recording
+    /// being replayed, the game's tune file, or `default`, in that order.
     pub(crate) fn get(&self, name: &str, default: f32) -> f32 {
+        let from_file = self.file.get(name).copied();
         let (value, source) = if let Some(&v) = self.set.get(name) {
             (v, Source::Set)
-        } else if let Some(&v) = self.file.get(name) {
+        } else if let (true, Some(v)) = (self.file_on_command_line, from_file) {
             (v, Source::File)
         } else {
-            (default, Source::Default)
+            let (v, source) = match from_file {
+                Some(v) => (v, Source::File),
+                None => (default, Source::Default),
+            };
+            match self.recorded.get(name) {
+                // Only a value that changes something counts as the
+                // recording's (the same value stays the file's or the code's).
+                Some(&recorded) if recorded != v => (recorded, Source::Recording),
+                _ => (v, source),
+            }
         };
         // Only allocate the first time a name is used.
         let mut used = self.used.borrow_mut();
@@ -341,6 +373,40 @@ mod tests {
         let path = folder.join(name);
         fs::write(&path, text).unwrap();
         path
+    }
+
+    #[test]
+    fn a_recording_beats_the_games_file_but_not_the_command_line() {
+        let file = temp_file("order.tune.json", r#"{"a": 1, "b": 1, "c": 1}"#);
+        let recorded: BTreeMap<String, f32> = [("a", 5.0), ("b", 5.0), ("d", 5.0), ("e", 2.0)]
+            .map(|(n, v)| (n.to_string(), v))
+            .into();
+        let set = [(String::from("a"), 9.0)];
+
+        // The game's own file (named in its Config): the recording wins
+        // over it and over the code, and --set wins over everything.
+        let mut tunes = Tunes::for_run(None, Some(&file), &set).unwrap();
+        tunes.use_recording(&recorded);
+        assert_eq!(tunes.get("a", 0.0), 9.0, "--set");
+        assert_eq!(tunes.get("b", 0.0), 5.0, "the recording over the file");
+        assert_eq!(tunes.get("c", 0.0), 1.0, "not recorded: the file");
+        assert_eq!(tunes.get("d", 0.0), 5.0, "the recording over the code");
+        assert_eq!(tunes.get("e", 2.0), 2.0, "the same as the code");
+        let sources: BTreeMap<String, Source> =
+            tunes.used().into_iter().map(|(n, _, s)| (n, s)).collect();
+        assert_eq!(sources["b"], Source::Recording);
+        assert_eq!(sources["d"], Source::Recording);
+        assert_eq!(
+            sources["e"],
+            Source::Default,
+            "a recorded value that changes nothing"
+        );
+
+        // A file given with --tune wins over the recording.
+        let mut tunes = Tunes::for_run(Some(&file), None, &[]).unwrap();
+        tunes.use_recording(&recorded);
+        assert_eq!(tunes.get("b", 0.0), 1.0);
+        assert_eq!(tunes.get("d", 0.0), 5.0, "not in the file: the recording");
     }
 
     #[test]

@@ -437,7 +437,15 @@ impl<G: Game> Simulation<G> {
     /// Frame numbers in the script count from the start of the game, so
     /// follow a script before the first step. (For the same game to unfold,
     /// the seed must match too: use the script's `seed` in the config.)
+    ///
+    /// The `ctx.tune` values the script was recorded with (its `"tune"`
+    /// block) are used too, over the game's tune file and its code, so the
+    /// game plays out as it was recorded. `--set` and `--tune FILE` still
+    /// win; the summary marks the values that came from the recording.
     pub fn follow(&mut self, script: InputScript) {
+        if let Some(tune) = &script.tune {
+            self.ctx.tunes_mut().use_recording(tune);
+        }
         self.script = Some((script, 0));
     }
 

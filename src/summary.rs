@@ -214,7 +214,11 @@ impl Summary {
                 .tuned
                 .iter()
                 .map(|(name, value, source, default)| {
-                    let set = if *source == "set" { "--set" } else { "" };
+                    let set = match *source {
+                        "set" => "--set",
+                        "recording" => "from the recording",
+                        _ => "",
+                    };
                     let code = if value != default {
                         format!("code says {}", ReportValue::from(*default))
                     } else {

@@ -4,14 +4,23 @@
 #   tools/verify.sh dodge          (50 fuzz runs)
 #   tools/verify.sh dodge 200      (200 fuzz runs)
 #   tools/verify.sh dodge 0        (no fuzzing: the step says "skipped")
+#   tools/verify.sh --list-playthroughs dodge   (only list what it would replay)
 #
 # It builds the example headless, runs its play tests, replays every
-# playthroughs/<game>.json and playthroughs/<game>-*.json with a contact
-# sheet and the debug overlay, fuzzes it, and prints one short report.
+# playthrough of the game (playthroughs/<game>.json, <game>-*.json and
+# <game>_*.json, like duck_craft_night.json) with a contact sheet and the
+# debug overlay, fuzzes it, and prints one short report. A file named after
+# another example is that example's: mini_craft.json isn't replayed for a
+# game called mini.
 # Everything it saves goes in out/verify/<game>/. It stops with exit code 1
 # if anything failed. tools/verify.bat does the same on Windows.
 
 set -u
+list_only=0
+if [ "${1:-}" = "--list-playthroughs" ]; then
+    list_only=1
+    shift
+fi
 game="${1:-}"
 runs="${2:-50}"
 cd "$(dirname "$0")/.." || exit 2
@@ -20,7 +29,27 @@ case "$runs" in
 esac
 if [ -z "$game" ] || [ "$runs" = bad ] || { [ ! -f "examples/$game.rs" ] && [ ! -f "examples/$game/main.rs" ]; }; then
     echo "usage: tools/verify.sh <example> [fuzz runs]   (examples/<example>.rs or examples/<example>/main.rs must exist; fuzz runs is a number, 0 to skip fuzzing)"
+    echo "       tools/verify.sh --list-playthroughs <example>   (lists the playthroughs it would replay)"
     exit 2
+fi
+
+# The game's playthroughs: <game>.json, <game>-*.json and <game>_*.json in
+# playthroughs/, except files named after another example (mini_craft.json
+# belongs to mini_craft, not to a game called mini).
+playthroughs() {
+    for script in "playthroughs/$game.json" playthroughs/"$game"-*.json playthroughs/"$game"_*.json; do
+        [ -f "$script" ] || continue
+        owner=$(basename "$script" .json)
+        owner=${owner%%-*}
+        if [ "$owner" != "$game" ] && { [ -f "examples/$owner.rs" ] || [ -f "examples/$owner/main.rs" ]; }; then
+            continue
+        fi
+        echo "$script"
+    done
+}
+if [ $list_only -eq 1 ]; then
+    playthroughs
+    exit 0
 fi
 out="out/verify/$game"
 rm -rf "$out"
@@ -70,14 +99,13 @@ fi
 
 # 3. Every playthrough, with a contact sheet of its events and the debug overlay.
 found=0
-for script in "playthroughs/$game.json" playthroughs/"$game"-*.json; do
-    [ -f "$script" ] || continue
+while IFS= read -r script; do
     found=1
     name=$(basename "$script" .json)
     folder="$out/$name"
     cargo run -q --no-default-features --example "$game" -- \
         --headless --inputs "$script" --sheet-events --debug --quiet --out "$folder" \
-        >"$folder.txt" 2>&1
+        </dev/null >"$folder.txt" 2>&1
     code=$?
     if [ $code -eq 0 ] && [ ! -s "$folder.txt" ]; then
         final=$(grep -E '^final: ' "$folder/summary.txt" | cut -c 8-)
@@ -102,7 +130,7 @@ for script in "playthroughs/$game.json" playthroughs/"$game"-*.json; do
     if [ -f "$folder/summary.txt" ]; then
         grep '^TUNED' "$folder/summary.txt" | sed 's/^/      /'
     fi
-done
+done < <(playthroughs)
 if [ $found -eq 0 ]; then
     report playthroughs ok "none (save one as playthroughs/$game.json)"
 fi

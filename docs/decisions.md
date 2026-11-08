@@ -2843,3 +2843,31 @@ round it (and going out when dug).
 - The tutorial's 3D chapter has a short section on what a block game
   needed (visible faces only, hands in view space, see-through, glow and
   fog, mouse look), and the quick start lists the new features.
+
+## More fixes Duck Craft asked for
+
+**verify replays `<game>_*.json` too.** A `duck_craft_night.json` was
+never replayed, because verify only looked for `<game>.json` and
+`<game>-*.json`, and it went out of date without anyone noticing. Now
+`<game>_*.json` is replayed as well. That would also catch another
+game's files (`mini_craft.json` for a game called `mini`), so a file whose
+name, up to its first `-`, is another example's name is left to that
+example. `tools/verify.sh --list-playthroughs <game>` (and the same in
+`verify.bat`) only lists what would be replayed; a test runs it in a small
+pretend project. "Every file in the playthroughs folder" wasn't possible:
+in this repository the folder holds every game's playthroughs.
+
+**Replays use the tune values they were recorded with.** A recording
+stores the `ctx.tune` values it was made with, but a replay only warned
+when they differed, so a playthrough recorded with
+`--set start_time_of_day=0.47` replayed wrong without the same `--set`.
+`Simulation::follow` now hands the recording's values to the tunes, and
+they come between the command line and the game's own tune file: `--set`,
+then `--tune FILE`, then the recording, then the game's tune file, then
+the code. A recorded value only counts as the recording's when it changes
+something (most recordings store the values everyone uses anyway), so the
+summary's TUNED line names just those: `time = 0.47 (from the recording;
+code says 0)`, and `log.json` says `"from": "recording"`. The catch: to
+try a new value against an old playthrough, use `--set` or `--tune FILE`;
+editing the game's tune file no longer changes a replay that recorded
+that value. This fixes issue 31.
