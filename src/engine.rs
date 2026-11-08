@@ -502,6 +502,14 @@ impl Context {
         self.sounds.push(SoundRequest::synth(sound));
     }
 
+    /// Plays `sound` like [`play`](Context::play), placed between the
+    /// speakers: `pan` -1.0 is only the left, 0.0 both (the same as
+    /// `play`), 1.0 only the right. A coin to the player's left can come
+    /// from the left.
+    pub fn play_panned(&mut self, sound: Sound, pan: f32) {
+        self.sounds.push(SoundRequest::synth(sound).panned(pan));
+    }
+
     /// Plays a plain square-wave beep: `freq` in Hz (440 is the note A),
     /// lasting `ms` milliseconds. Its name in logs is `"beep"`.
     pub fn beep(&mut self, freq: f32, ms: f32) {
@@ -518,6 +526,13 @@ impl Context {
     /// file name without `.wav`.
     pub fn play_wav(&mut self, wav: &Wav) {
         self.sounds.push(SoundRequest::wav(wav));
+    }
+
+    /// Plays a `.wav` file like [`play_wav`](Context::play_wav), placed
+    /// between the speakers: `pan` -1.0 left, 0.0 both, 1.0 right. A stereo
+    /// file keeps its own left and right; the pan turns one side down.
+    pub fn play_wav_panned(&mut self, wav: &Wav, pan: f32) {
+        self.sounds.push(SoundRequest::wav(wav).panned(pan));
     }
 
     /// Starts a sound that repeats with no gap until you stop it: music, an
