@@ -117,6 +117,7 @@ jobs:
           cd ..
           ls -l "$name.zip"
           echo "ZIP=$name.zip" >> "$GITHUB_ENV"
+          echo "NAME=$name" >> "$GITHUB_ENV"
 
       - name: Check what's in the zip
         shell: bash
@@ -138,7 +139,8 @@ jobs:
       - name: Keep the zip and the timings on this run's page
         uses: actions/upload-artifact@v5
         with:
-          name: ${{ env.ZIP }}
+          # GitHub adds ".zip" to this name itself when it's downloaded.
+          name: ${{ env.NAME }}
           path: |
             ${{ env.ZIP }}
             timing-*.txt
