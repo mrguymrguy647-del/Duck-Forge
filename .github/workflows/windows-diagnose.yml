@@ -14,6 +14,10 @@ env:
 jobs:
   copy-race:
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        defender: [off, on]
     steps:
       - uses: actions/checkout@v5
       - name: Install Rust
@@ -21,39 +25,71 @@ jobs:
         run: |
           rustup toolchain install "$RUST_VERSION" --profile minimal
           rustup default "$RUST_VERSION"
+      - name: Windows Defender as it is, then as on a home PC
+        shell: pwsh
+        run: |
+          Get-MpComputerStatus | Select-Object AMServiceEnabled, AntivirusEnabled, RealTimeProtectionEnabled, OnAccessProtectionEnabled, IoavProtectionEnabled | Format-List
+          (Get-MpPreference).ExclusionPath
+          if ("${{ matrix.defender }}" -eq "on") {
+            Set-MpPreference -DisableRealtimeMonitoring $false -DisableIOAVProtection $false -DisableBehaviorMonitoring $false
+            foreach ($p in (Get-MpPreference).ExclusionPath) { Remove-MpPreference -ExclusionPath $p }
+            Start-Sleep -Seconds 5
+            Get-MpComputerStatus | Select-Object RealTimeProtectionEnabled, OnAccessProtectionEnabled | Format-List
+          }
+      - name: A folder like an unzipped download, in the user's Downloads
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:USERPROFILE "Downloads\Duck-Forge-main"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Copy-Item -Recurse tests $dir
+          # Mark of the Web, as Explorer puts on files unzipped from a download.
+          Get-ChildItem -Recurse -File $dir | ForEach-Object {
+            Set-Content -Path $_.FullName -Stream Zone.Identifier -Value "[ZoneTransfer]`r`nZoneId=3`r`nHostUrl=https://github.com/"
+          }
+          Get-Item (Join-Path $dir "tests\fixtures\quill\scale1\duck.json") -Stream * | Format-Table Stream, Length
+          "DL=$dir" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
       - name: fs::copy of the fixture while six threads read it
         shell: bash
         run: |
           rustc -O --edition 2021 -o cwr.exe .github/diagnose/copy_while_reading.rs
-          echo "== fs::copy (CopyFileExW), relative path"
-          ./cwr.exe tests/fixtures/quill/scale1/duck.json 20 copy
-          echo "== fs::copy, absolute path"
-          ./cwr.exe "$PWD/tests/fixtures/quill/scale1/duck.json" 20 copy
-          echo "== fs::read + fs::write instead of fs::copy"
-          ./cwr.exe tests/fixtures/quill/scale1/duck.json 20 readwrite
+          echo "== in the checkout, fs::copy"
+          ./cwr.exe tests/fixtures/quill/scale1/duck.json 15 copy
+          echo "== in Downloads, marked as downloaded, fs::copy"
+          ./cwr.exe "$DL/tests/fixtures/quill/scale1/duck.json" 15 copy
+          echo "== in Downloads, marked as downloaded, fs::read + fs::write"
+          ./cwr.exe "$DL/tests/fixtures/quill/scale1/duck.json" 15 readwrite
 
   old-tests:
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        defender: [off, on]
     steps:
       - uses: actions/checkout@v5
         with:
           # The Phase 4 commit, before any of this branch's fixes.
-          ref: 7df959b5
+          ref: 7df959bde7e80c41d2982c3eb09e58dfc73ff0d1
       - name: Install Rust
         shell: bash
         run: |
           rustup toolchain install "$RUST_VERSION" --profile minimal
           rustup default "$RUST_VERSION"
-      - name: The engine's unit tests, ten times, as they were
+      - name: Build the engine's unit tests
+        shell: bash
+        run: cargo test --lib --no-run
+      - name: Windows Defender on, as on a home PC
+        if: matrix.defender == 'on'
+        shell: pwsh
+        run: |
+          Set-MpPreference -DisableRealtimeMonitoring $false -DisableIOAVProtection $false -DisableBehaviorMonitoring $false
+          foreach ($p in (Get-MpPreference).ExclusionPath) { Remove-MpPreference -ExclusionPath $p }
+          Start-Sleep -Seconds 5
+          Get-MpComputerStatus | Select-Object RealTimeProtectionEnabled, OnAccessProtectionEnabled | Format-List
+      - name: The engine's unit tests, fifteen times, as they were
         shell: bash
         run: |
-          cargo test --lib --no-run
-          for i in 1 2 3 4 5 6 7 8 9 10; do
+          for i in $(seq 1 15); do
             cargo test --lib > "run-$i.txt" 2>&1 && echo "run $i: passed" || echo "run $i: FAILED"
-            grep -E "^test .* FAILED|os error|panicked" "run-$i.txt" | head -20 || true
+            grep -E "^test .* FAILED|os error|panicked at|test result" "run-$i.txt" | head -20 || true
           done
-      - name: All of the engine's tests once, as they were
-        shell: bash
-        run: |
-          cargo test > all.txt 2>&1 && echo passed || echo FAILED
-          grep -E "^test .* FAILED|os error|test result" all.txt | head -60 || true
