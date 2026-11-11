@@ -75,7 +75,7 @@ cargo run --release --example door_show_3d      # the same video on a 3D game-sh
 cargo run --example hello      # the smallest possible game
 cargo run --example shapes     # every 2D drawing function, animated
 cargo run --example template   # the starter game to copy
-cargo test                     # run the tests (on Windows: double-click test.bat)
+cargo test                     # run the tests (on Windows: double-click "tools\Run tests (for developers).bat")
 cargo doc --open               # browse the engine's documentation
 ```
 
@@ -102,8 +102,47 @@ cargo run --no-default-features --example breakout -- --headless --frames 600 --
 ## Duck Forge Studio
 
 For making games without a terminal: an app where the game plays *inside*
-it. It's in `studio/` (its own cargo workspace), and its Windows download
-is made by the "Studio release" workflow.
+it. It's in `studio/` (its own cargo workspace), and its Windows downloads
+(an installer and a zip) are made by the "Studio release" workflow.
+
+**On Windows, with no terminal:**
+
+- **Installed:** double-click `DuckForgeStudioSetup.exe` (from a release,
+  or from a run of the "Studio release" workflow under Actions). It
+  installs just for you, with no administrator password, in
+  `%LOCALAPPDATA%\Programs\Duck Forge Studio`, with a Start menu and a
+  desktop icon; Windows Settings, Apps, uninstalls it. If Rust isn't
+  installed it offers the official page (it never installs Rust itself).
+- **From this folder:** double-click **`Start Duck Forge Studio.bat`**. It
+  checks for Rust, builds the Studio (several minutes the first time,
+  seconds after that) and opens it, working on the games in this folder.
+- **Tests:** double-click **`tools\Run tests (for developers).bat`**: the
+  engine's tests both ways, then the Studio's.
+
+**Where your games are.** An installed (or unzipped) Studio never makes
+anything in its own folder, which the next version replaces. The first
+time it starts it copies the Duck Forge it came with to
+**`Documents\Duck Forge`**, and every game, playthrough, tune file, check
+and clip goes there (Home's "Open" shows the folder). A newer Studio
+brings that folder's Duck Forge files up to date, but only the ones you
+haven't changed: your games and anything you edited stay as they are
+(`.came-with-studio.json` there remembers what came with the Studio).
+Builds go to `%LOCALAPPDATA%\Duck Forge\build` (through the folder's
+`.cargo/config.toml`), so gigabytes of build output stay out of Documents
+and OneDrive. Settings are in `%APPDATA%\Duck Forge Studio\settings.json`.
+Installing over an older version and uninstalling both leave the games and
+the settings alone. ("Start Duck Forge Studio.bat" uses the Duck Forge
+folder it's in, as before; Home's "Change" picks any folder.)
+
+**New versions.** When it starts, the Studio reads this repository's
+releases list on GitHub (one plain request, with nothing about you in it,
+made by Windows' own `curl`). If there's a newer `studio-vX.Y.Z`, Home shows
+a banner with "What's new" and **Update**, which downloads the new
+`DuckForgeStudioSetup.exe`, starts it and closes the Studio. Nothing is
+downloaded without that click; with no internet it says nothing. Settings,
+"Tell me when a new version is out", turns it off.
+`DuckForgeStudio --check-for-updates` says what it finds. This is all in
+the Studio: nothing is added to the engine or to games.
 
 - **Home** lists your games as cards ("Checks pass" or "Needs a look") and
   makes new ones from a starter.
@@ -819,7 +858,9 @@ On a computer with one (in PowerShell or cmd, in the project folder):
 | `src/color.rs`    | Colors with alpha, and see-through blending                         |
 | `src/rng.rs`      | A tiny xorshift random number generator                             |
 | `examples/`       | `hello`, `shapes`, `template`, `starter_topdown`, `starter_shooter`, `pollen_run`, `breakout`, `dodge`, `duckling_parade`, `door_short`, `door_show_3d`, `physics`, `world3d` and `stress3d` |
-| `test.bat`        | Runs every test on Windows with a double-click                       |
+| `Start Duck Forge Studio.bat` | Builds Duck Forge Studio from this folder and opens it, with a double-click |
+| `tools/Run tests (for developers).bat` | Runs every test on Windows with a double-click: the engine's both ways, then the Studio's |
+| `tools/rust_check.bat` | Used by both: checks that Rust is installed, and offers the official page if not |
 
 Only `src/window.rs` knows winit and softbuffer exist, so the window
 library could be swapped out by rewriting one file. (It was: the engine

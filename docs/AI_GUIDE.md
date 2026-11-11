@@ -1558,6 +1558,15 @@ It changes nothing for you: every game is still the same plain files,
 and every command in this guide works as before. What it adds that an
 agent might meet:
 
+- **Where the games are.** A Studio built from `studio/` uses the Duck
+  Forge folder it's in. An installed one (DuckForgeStudioSetup.exe) uses
+  `Documents\Duck Forge`: a whole Duck Forge folder it copied from the
+  one it came with, and keeps up to date without touching what the
+  person made or changed (`.came-with-studio.json` lists what came with
+  it). Its `.cargo/config.toml` sends builds to
+  `%LOCALAPPDATA%\Duck Forge\build`, so look for built programs there,
+  not in `target/`. Never make anything in the install folder's own
+  `duckforge`: the next version replaces it.
 - **The Console panel** shows the command behind each button with its
   real output. A person may paste you that output.
 - **Sessions.** Everything played in the Studio is saved as an input

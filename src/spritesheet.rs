@@ -353,6 +353,9 @@ mod tests {
     fn a_misspelt_animation_names_the_ones_there_are() {
         let folder = TestFolder::new("sheet-misspelt");
         let sheet = SpriteSheet::load(folder.fixture("quill/scale1").join("duck.json")).unwrap();
+        // This test passes by panicking, and a panicking test's folder is
+        // kept: let it go first.
+        drop(folder);
         sheet.animation("run");
     }
 

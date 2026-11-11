@@ -3856,3 +3856,176 @@ Said plainly, from walking the proof and reading its pictures:
     and a graphics card.** The workflow proves the commands on Windows;
     painting by hand, hearing sounds and the feel of mouse look are the
     checklist in `docs/phase4-design.md`.
+
+# Windows: tests, a double-click, an installer and new versions
+
+On a Windows 11 PC, `test.bat` said 333 passed and 5 failed, all in the
+engine's own unit tests (so the integration tests and the examples'
+tests had never run on Windows: `cargo test` stops at the first test
+program that fails). This part makes the tests pass there, gives a
+person something to double-click, an installer, and update notices.
+
+## The five failures
+
+**`a_recording_beats_the_games_file_but_not_the_command_line` read an
+empty file.** Two tests in `src/tune.rs` wrote `order.tune.json` in the
+same temporary folder (named only by the test program's process number,
+the same for every test in it), and `cargo test` runs a file's tests at
+the same time: one read the file while the other was writing it. A real
+bug in the tests, fixed.
+
+**"Access is denied (os error 5)" on `tests/fixtures/quill/scale1/duck.json`**,
+in four tests that read it (three in `src/spritesheet.rs` and the one in
+`src/tileset.rs`), while a fifth test read it fine. What we know:
+
+- On Linux, a trace of every file the engine's 340 unit tests open shows
+  that the fixture is only ever *read*. One test (the "wrong size" one)
+  also copied it with `fs::copy`, which on Windows is the system's
+  CopyFileEx, a different call that also copies a file's attributes and
+  hidden streams. The full `cargo test` (591 tests) writes nothing in
+  the project folder but `target/`.
+- On GitHub's Windows machine, a program that copies the fixture with
+  `fs::copy` over and over while six threads read it gave no error in
+  210,000 reads; nor with Windows Defender's real-time scanning switched
+  on (it slowed the copies five times, so it was scanning), nor with the
+  files in Downloads marked as downloaded from the internet, as Explorer
+  marks the files in an unzipped download. The Phase 4 engine's unit
+  tests, unchanged, passed fifteen times in a row there, with Defender on
+  and off.
+
+So **it didn't reproduce on GitHub's Windows machine, and the cause isn't
+proved.** "Access is denied" for a file that exists and is only being
+read is what Windows says while another program holds it in a way that
+blocks reading, or while it's being replaced or deleted. The likeliest
+causes on a home PC are a program that isn't on GitHub's machines: a
+virus scanner other than Defender, a backup program, or OneDrive (which,
+on many Windows 11 PCs, syncs Documents and Desktop, where a download is
+often unzipped) holding a newly unzipped file for a moment. That fits a
+timing failure that hit several tests at once.
+
+**Made safe anyway.** Every test in the engine, its integration tests and
+the Studio now writes only in a `TestFolder` of its own
+(`src/test_folder.rs`, `tests/common/mod.rs`,
+`studio_core::test_folder`): named by the test, the process, the time
+and a count, so no two tests or runs share one (Windows soon gives a
+process number to another program); deleted when the test passes, kept
+when it fails. No test copies a fixture with `fs::copy`; each Quill test
+loads a private copy in its own folder, read and written again, and that
+one read of the shared file waits and tries again for up to two seconds
+if Windows says "Access is denied". The Studio's tests used fixed
+settings file names with no process number, set through an environment
+variable shared by every test in the program; settings now remember the
+file they're saved in (`Settings::file`), so a test's settings are never
+saved anywhere, and no test sets the variable. One more shared name was
+found on the way: the Studio's level tests named their folders by the
+length of the level's text.
+
+**The Windows workflow runs the engine's tests**, `cargo test` and
+`cargo test --no-default-features`, five times in a row (one green run
+proves little for a test that fails now and then), and runs whenever the
+engine, its tests, tools or examples change, not only the Studio.
+
+## Something to double-click
+
+`test.bat` is now `tools\Run tests (for developers).bat`: the engine's
+tests both ways, then the Studio's (skipped in a copy with no Studio
+code). `Start Duck Forge Studio.bat`, at the top of the folder, builds
+the Studio (`cargo build --release -p studio_app` in `studio/`) and opens
+it, saying what it's doing. Both call `tools\rust_check.bat` first: if
+`cargo` isn't on the PATH it looks where rustup puts it (a window opened
+right after installing Rust may not know yet), and if Rust really isn't
+there it says so in plain words with the official page, offers to open
+it, and installs nothing. `tests/windows_scripts.rs` checks all of them
+(brackets, labels, Windows line endings, Rust checked before cargo).
+
+## The installer
+
+**Inno Setup 6.** One `DuckForgeStudioSetup.exe`, from a short text
+script (`studio/release/DuckForgeStudio.iss`) that a person can read.
+It installs for one person with no administrator rights
+(`PrivilegesRequired=lowest`), so `{autopf}` is
+`%LOCALAPPDATA%\Programs\Duck Forge Studio`, a folder they can write
+to; makes Start menu and desktop shortcuts and the entry in Windows
+Settings, Apps; closes the Studio if it's open; and its Pascal script
+checks for `cargo.exe` and offers the Rust page. It's free, it's on
+GitHub's Windows machines or a `choco install` away, and it has done
+per-user installs and upgrades in place for decades. WiX makes an MSI,
+which needs a separate bootstrapper to be one `.exe` and is awkward per
+user; NSIS would do, with a less readable script.
+
+The fixed `AppId` makes a newer installer replace an older install.
+`[InstallDelete]` empties the install folder's `duckforge` first, so no
+file from an older version is left in it. Uninstalling removes the
+program, that copy, the shortcuts, and `%LOCALAPPDATA%\Duck Forge\build`
+(built programs only).
+
+## Where the games are
+
+Before this, an unzipped Studio made games in the `duckforge` folder
+beside it: inside its own folder, which a newer version would replace.
+Now **an installed or unzipped Studio never makes anything in its own
+copy of Duck Forge.** The first time it starts, it copies that copy to
+`Documents\Duck Forge` (the real Documents, asked of Windows with
+`SHGetKnownFolderPath`, since OneDrive often moves it) and everything
+happens there. It's still a whole Duck Forge folder, laid out as before,
+so `tools/verify`, `tools/new_game`, `cargo run`, `--fuzz`, `--video` and
+agents work in it unchanged.
+
+A newer Studio brings that folder up to date the next time it starts
+(`studio_core::my_games`): `.came-with-studio.json` remembers a
+fingerprint (FNV-1a, the same on every computer) of each file that came
+with the Studio. A file still as it came is replaced by the new one; a
+file the person changed is kept, and Home says which; their games,
+playthroughs, tune files, `out/` and `history/` aren't in the list at all,
+so they're never touched; files the new version dropped go if unchanged;
+a game they deleted stays deleted. `Cargo.toml` is the one file both
+write (`tools/new_game` adds a game's lines), so the new one is used and
+the person's games' `[[example]]` lines are added back. A Duck Forge
+folder the Studio didn't make is used as it is and never changed.
+
+Builds go to `%LOCALAPPDATA%\Duck Forge\build`, through a
+`.cargo/config.toml` the Studio writes in the games folder: a build is
+gigabytes, and Documents may be copied to OneDrive. Every cargo command
+in the folder, the Studio's, the tools', a terminal's or an agent's,
+reads that file. Settings stay where they were,
+`%APPDATA%\Duck Forge Studio\settings.json`. Choosing the Studio's own
+copy as the games folder is refused. A Studio built from the code (with
+`Start Duck Forge Studio.bat` or `cargo run`) has no copy beside it, and
+uses the Duck Forge folder it's in, as before.
+
+## New versions
+
+When the window opens (not for `--run` or the tests), the Studio reads
+`https://api.github.com/repos/mrguymrguy647-del/Duck-Forge/releases` in
+the background, with the `curl.exe` that comes with Windows: no new
+library, and the request is what any download sends, with nothing about
+the person. The newest `studio-vX.Y.Z` that isn't a draft or a
+pre-release is compared with the running version, as numbers (0.10 is
+newer than 0.9). If it's newer, Home shows a banner: the version, "What's
+new" (the release's page), **Update** and "Not now". Update downloads
+that release's `DuckForgeStudioSetup.exe` to the temporary folder,
+checks its size, starts it and closes the Studio; a release without an
+installer opens its page instead. Nothing is downloaded without that
+click. No internet, an error page or a list it can't read: nothing is
+shown. Settings, "Tell me when a new version is out", turns it off (on
+unless turned off). All of it is in `studio_core::update` and the app;
+nothing is in the engine or in games. `DuckForgeStudio
+--check-for-updates` says what the check finds, and `DUCK_FORGE_RELEASES`
+points it at another list: the workflow uses that to try the real `curl`
+on Windows with a pretend newer release, the same version, and an
+address nothing answers at. The unit tests use a pretend internet,
+including no internet, up to date, drafts, pre-releases, the engine's
+own tags, a cut-short download and a release with no installer.
+
+## The numbers
+
+| | |
+|---|---|
+| Engine code that games are built from, changed | none: one `#[cfg(test)]` line in `lib.rs` |
+| Dodge, Duck Peaks, Duck Craft in release, and headless Duck Peaks: machine code (`.text`), constants (`.rodata`, `.data.rel.ro`) | byte for byte the same as Phase 4's |
+| Their sizes | 48, 40, 40 and 0 bytes smaller (only LLVM's internal symbol names differ, `.llvm.<number>`, and the numbers came out shorter) |
+| Duck Craft, 1,200 frames headless, three runs | 0.52, 0.52, 0.54 s before; 0.51, 0.52, 0.54 s after |
+| Engine tests on Linux | 591 pass with everything on |
+| The Studio starting with no window (`--run` of nothing), here: built from the code | 0.014 to 0.018 s |
+| The same, installed, the first time (makes `Documents\Duck Forge`: 234 files, 10.5 MB) | 0.05 to 0.06 s |
+| The same, installed, later (checks the folder is up to date) | 0.03 to 0.04 s |

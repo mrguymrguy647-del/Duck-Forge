@@ -117,7 +117,7 @@ stops recording what you do, and **F12** saves a screenshot.
 | `cargo check`      | Checks your code for errors without building. The fastest feedback. |
 | `cargo build`      | Compiles everything.                                      |
 | `cargo run --example NAME` | Builds and runs `examples/NAME.rs`.               |
-| `cargo test`       | Runs all the tests. On Windows you can also double-click `test.bat`. |
+| `cargo test`       | Runs all the tests. On Windows you can also double-click `tools\Run tests (for developers).bat`. |
 | `cargo clippy`     | A linter with hundreds of helpful suggestions.            |
 | `cargo fmt`        | Formats your code in the standard style.                  |
 | `cargo doc --open` | Builds documentation for the engine and opens it in your browser. |
@@ -5041,11 +5041,20 @@ inside a function that returns `io::Result`: `?` calls `From` for you.
 
 ### Running every test on Windows
 
-Double-click **`test.bat`** in the project folder. It runs `cargo test`
-(everything: window, GPU and sound) and then `cargo test
+Double-click **`Run tests (for developers).bat`** in the project's
+`tools` folder. It first checks that Rust is installed (and if it isn't,
+says so and offers to open the official install page). Then it runs
+`cargo test` (everything: window, GPU and sound), `cargo test
 --no-default-features` (the way a server without a screen runs them),
-and waits for a key at the end so the window doesn't vanish. If anything
-fails, it says so; scroll up to see which test and why.
+and Duck Forge Studio's tests, and waits for a key at the end so the
+window doesn't vanish. If anything fails, it says so; scroll up to see
+which test and why.
+
+Tests run at the same time, on several threads, so no two tests may
+write the same file: on Windows one can't even open a file while
+another is replacing it. Each test that needs files gets a folder of its
+own, `TestFolder::new("name")` (in `src/test_folder.rs`), which is
+deleted when the test passes and kept when it fails, to look at.
 
 # Part 5: Your turn
 

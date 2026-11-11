@@ -638,7 +638,11 @@ The open questions, as answered in the review:
 
 1. **Where games live.** In `examples/` of one Duck Forge folder, for
    Phase 4. The folder is a Studio setting and isn't hard-coded, so games
-   can move out of the engine's folder later.
+   can move out of the engine's folder later. (Since the installer: an
+   installed Studio's games folder is `Documents\Duck Forge`, a copy of
+   the Duck Forge it came with, never the install folder. See
+   `docs/decisions.md`, "Windows: tests, a double-click, an installer and
+   new versions".)
 2. **Tab always belongs to the Studio.** A game can't use Tab inside the
    Studio (it still can in its own window).
 3. **Clip.** An MP4 with sound when `ffmpeg` is found; otherwise a
@@ -768,3 +772,28 @@ no window (`studio/proof/beginners-proof.json`). By hand, with your mouse:
 31. Run, jump, and press Tab in mid-air. With Select, drag a plank under
     the duck. Tab: it lands on the plank.
 32. Duck Craft: the mouse turns the view; Tab gives the pointer back.
+
+## What you test on Windows after the installer
+
+The workflow installs, updates and uninstalls on GitHub's Windows machine
+with no window and no mouse. By hand, on your PC:
+
+33. Double-click `DuckForgeStudioSetup.exe`. It asks for no administrator
+    password, and offers a desktop icon. ("Windows protected your PC": More
+    info, Run anyway.)
+34. The Start menu and the desktop have Duck Forge Studio with the duck
+    icon, and it starts from both.
+35. Without Rust (on an account that hasn't got it): the installer says so
+    at the end and offers the official page; the Studio says so too.
+36. First start: Home says your games are kept in Documents\Duck Forge.
+    "Open" shows that folder in File Explorer. Make a game; it's there.
+37. Settings: "Tell me when a new version is out" is ticked. Untick it,
+    close the Studio, start it again: still unticked.
+38. Install the same `DuckForgeStudioSetup.exe` again while the Studio is
+    open: it offers to close the Studio, and afterwards your game is still
+    on Home.
+39. Windows Settings, Apps, Installed apps: Duck Forge Studio is listed;
+    Uninstall. Documents\Duck Forge (with your game) is still there.
+40. Double-click `Start Duck Forge Studio.bat` in a downloaded copy of the
+    code, and `tools\Run tests (for developers).bat`: both say what
+    they're doing, and the tests all pass.

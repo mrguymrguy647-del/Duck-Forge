@@ -111,10 +111,10 @@ mod tests {
 ## With Duck Forge Studio
 
 A person can make and change the same games with no terminal in Duck Forge Studio (`studio/`, an app):
-the game plays inside it, Tab freezes it on its frame, and they paint the level (`level.txt`), move
-Feel sliders (`examples/<game>.tune.json`) and press Check, which is the verify above as a friendly
-list. It reads and writes only these plain files, so you and they can take turns, even while it's
-open. What they last played is `out/sessions/<game>/latest.json`: replay it with `--inputs`.
+the game plays inside it, Tab freezes it on its frame, and they paint the level (`level.txt`), move Feel
+sliders (`examples/<game>.tune.json`) and press Check (the verify above, as a friendly list). It uses only
+these plain files, so you can take turns. Their last play is `out/sessions/<game>/latest.json` (replay it
+with `--inputs`). Installed, its folder is `Documents\Duck Forge`, building where `.cargo/config.toml` says.
 
 ## Five common mistakes
 

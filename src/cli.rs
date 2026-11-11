@@ -631,6 +631,7 @@ mod tests {
         // Duck Forge Studio's own, for running it with no window.
         "--run",
         "--commands",
+        "--check-for-updates",
     ];
 
     #[test]

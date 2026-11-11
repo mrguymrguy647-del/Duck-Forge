@@ -451,7 +451,15 @@ fn copy(from: &Path, to: &Path, name: &str) -> std::io::Result<()> {
     if let Some(folder) = target.parent() {
         std::fs::create_dir_all(folder)?;
     }
-    std::fs::write(target, bytes)
+    std::fs::write(&target, bytes)?;
+    // On Linux and macOS, tools/*.sh stay programs that can be run.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(from.join(name))?.permissions().mode();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(mode | 0o600))?;
+    }
+    Ok(())
 }
 
 /// Every file in a Duck Forge folder (but [`NOT_COPIED`]), by its name with
@@ -557,6 +565,20 @@ mod tests {
             prepare(&own, &games, "0.1.0", Some(&build)).unwrap(),
             Prepared::UpToDate
         );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let script = own.join("tools/verify.sh");
+            std::fs::write(&script, "#!/bin/sh\n").unwrap();
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let again = test.join("again");
+            prepare(&own, &again, "0.1.0", None).unwrap();
+            let mode = std::fs::metadata(again.join("tools/verify.sh"))
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o111, 0o111, "a script can still be run");
+        }
     }
 
     #[test]

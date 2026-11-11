@@ -117,7 +117,7 @@ or re-record.
 
 ## 9. With a person using Duck Forge Studio
 
-The Studio (`studio/`, an app: the game plays inside it) reads and writes the same files as you, so you can take
+The Studio (an app; installed, its folder is `Documents\Duck Forge`) reads and writes the same files as you, so you can take
 turns, even while their game is open (it rebuilds when code changes and reloads a changed level):
 
 - they paint `examples/mygame/level.txt`, move Feel sliders (`examples/mygame.tune.json`; the sliders' labels
