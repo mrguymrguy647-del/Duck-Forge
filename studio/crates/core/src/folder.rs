@@ -174,15 +174,14 @@ impl GamesFolder {
         Ok(GamesFolder { root })
     }
 
-    /// The folder to use when no setting says: `duckforge` next to the
-    /// Studio's own program (how the release zip is laid out), or the
-    /// nearest Duck Forge folder above where the Studio was started.
+    /// The folder to use when no setting says, for a Studio built from the
+    /// code: the nearest Duck Forge folder above its program
+    /// (`studio/target/release` is inside one), or above where it was
+    /// started. (An installed Studio uses the person's own games folder
+    /// instead: see [`crate::my_games`].)
     pub fn find() -> Option<PathBuf> {
         let mut places = Vec::new();
         if let Ok(program) = std::env::current_exe() {
-            if let Some(beside) = program.parent() {
-                places.push(beside.join("duckforge"));
-            }
             places.extend(program.ancestors().skip(1).map(Path::to_path_buf));
         }
         if let Ok(here) = std::env::current_dir() {
@@ -364,9 +363,10 @@ impl GamesFolder {
     }
 
     /// Where the Studio keeps the copies of built games that it plays
-    /// (Windows won't let cargo replace a program that's running).
+    /// (Windows won't let cargo replace a program that's running): beside
+    /// the builds, wherever the folder's builds go.
     pub fn run_folder(&self) -> PathBuf {
-        self.root.join("target").join("studio-run")
+        crate::my_games::target_folder(&self.root).join("studio-run")
     }
 
     /// The newest change to any of the game's files.

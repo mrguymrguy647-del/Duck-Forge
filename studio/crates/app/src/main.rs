@@ -6,6 +6,8 @@
 //!   DuckForgeStudio --timing duck_peaks  plays a game for ten seconds with
 //!                                        no window and prints its Timing line
 //!   DuckForgeStudio --commands           lists every command
+//!   DuckForgeStudio --check-for-updates  says whether a newer Studio is out
+//!                                        (as the window does when it starts)
 
 // A window app: no black console window behind it on Windows. (Debug
 // builds keep it, so what the Studio prints can be read.)
@@ -40,6 +42,10 @@ fn main() -> eframe::Result {
             println!("Duck Forge Studio {}", env!("CARGO_PKG_VERSION"));
             return Ok(());
         }
+        Some("--check-for-updates") => {
+            check_for_updates();
+            return Ok(());
+        }
         _ => {}
     }
 
@@ -67,9 +73,39 @@ fn main() -> eframe::Result {
             let ctx = &creation_context.egui_ctx;
             ctx.set_theme(theme::from_name(settings.theme.as_deref()));
             theme::apply_brand(ctx);
-            Ok(Box::new(StudioApp::new(Studio::new(settings))))
+            Ok(Box::new(
+                StudioApp::new(Studio::new(settings)).checking_for_updates(),
+            ))
         }),
     )
+}
+
+/// Looks for a newer Studio, as the window does when it starts, and says
+/// what it found. It never downloads anything.
+fn check_for_updates() {
+    use studio_core::update::{Curl, UpdateCheck};
+    let running = env!("CARGO_PKG_VERSION");
+    let mut check = UpdateCheck::start(Curl, running);
+    let found = loop {
+        if let Some(found) = check.poll() {
+            break found;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    match found {
+        Some(new) => {
+            println!(
+                "Duck Forge Studio {} is out (this is {running}).",
+                new.version
+            );
+            println!("What's new: {}", new.whats_new);
+            match new.installer {
+                Some((address, size)) => println!("Installer: {address} ({size} bytes)"),
+                None => println!("Installer: none in that release"),
+            }
+        }
+        None => println!("Nothing to say: up to date ({running}), or no answer."),
+    }
 }
 
 /// Runs a script file with no window. The exit code is 0 if every step

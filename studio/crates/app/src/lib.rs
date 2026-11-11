@@ -14,5 +14,6 @@ pub mod keys;
 pub mod panels;
 pub mod pictures;
 pub mod theme;
+pub mod update_banner;
 
 pub use app::StudioApp;

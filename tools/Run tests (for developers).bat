@@ -34,6 +34,9 @@ echo.
 cargo test --no-default-features
 if errorlevel 1 goto failed
 
+rem A copy of Duck Forge made by the Studio (in Documents) has no Studio
+rem code in it: there, the first two are all there is.
+if not exist "studio\Cargo.toml" goto passed
 echo.
 echo [3 of 3] Duck Forge Studio's tests (they build real games and play them)...
 echo.
@@ -42,6 +45,8 @@ cargo test --workspace
 set "studio_result=%errorlevel%"
 popd
 if not "%studio_result%"=="0" goto failed
+
+:passed
 
 echo.
 echo ================================================================

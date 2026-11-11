@@ -2,26 +2,60 @@ DUCK FORGE STUDIO
 Make games without a terminal. The game plays inside the Studio.
 
 
-TO START
-  Double-click DuckForgeStudio.exe.
+TO INSTALL
+  Double-click DuckForgeStudioSetup.exe and click Install. It installs
+  just for you, with no administrator password, and puts Duck Forge
+  Studio in the Start menu and on the desktop, with the duck icon.
 
   The first time, Windows may say "Windows protected your PC". That's
   because the program isn't signed with a (paid) certificate yet, not
   because something is wrong. Click "More info", then "Run anyway".
-  Windows only asks once.
 
-  For a desktop icon, double-click "Create desktop shortcut.bat".
-  Keep this folder where it is afterwards: the shortcut points into it.
+  (Or use the zip instead: unzip it and double-click DuckForgeStudio.exe
+  in the unzipped folder. "Create desktop shortcut.bat" there puts an
+  icon on the desktop. Keep the folder where it is afterwards.)
 
 
 WHAT YOU NEED
   Rust, the free tool that turns a game's code into a program. If it
-  isn't on this computer, the Studio says so and offers the official
-  install page. It never installs anything by itself.
+  isn't on this computer, the installer and the Studio say so and offer
+  the official install page. Neither installs anything by itself.
 
   The first time a game is built it takes a few minutes and needs the
   internet (it downloads the parts Duck Forge is built from). After
   that, builds take seconds and need no internet.
+
+
+WHERE YOUR GAMES ARE
+  In your Documents folder, in "Duck Forge". The first time the Studio
+  starts, it makes that folder from the copy of Duck Forge it came with,
+  and everything you make goes there: your games (in examples), their
+  playthroughs, tune files, checks, clips and screenshots (in out). On
+  Home, "Open" next to the games folder shows it in File Explorer.
+
+  Your settings (the theme, the games folder you chose) are in
+  %APPDATA%\Duck Forge Studio.
+
+  Installing a new version, or uninstalling the Studio, never changes or
+  deletes either of them. A new version brings the Duck Forge files in
+  your games folder up to date, but only the ones you haven't changed:
+  your games, and any file you changed, stay exactly as they are.
+
+  Building games makes big files that nobody needs to keep, so they go
+  in %LOCALAPPDATA%\Duck Forge\build instead of Documents (which OneDrive
+  may be copying to the internet). Uninstalling removes that folder.
+
+
+NEW VERSIONS
+  When the Studio starts, it looks at Duck Forge's releases page on
+  GitHub. If there's a newer Studio, a small banner on Home says so, with
+  "What's new" and an "Update" button. Nothing is downloaded or changed
+  until you click Update; then it downloads the new installer and starts
+  it, and the Studio closes so it can be updated.
+
+  Nothing about you or your computer is sent. With no internet, the
+  Studio says nothing. To turn the check off: Settings, then untick
+  "Tell me when a new version is out".
 
 
 HOW IT WORKS
@@ -42,17 +76,13 @@ HOW IT WORKS
 
 WHAT'S IN THIS FOLDER
   DuckForgeStudio.exe   the app
-  duckforge\            Duck Forge itself: the engine, the examples and
-                        your games (in duckforge\examples). Everything
-                        the Studio makes is plain files in here, the
-                        same ones an AI agent or a terminal uses.
+  duckforge\            the copy of Duck Forge the Studio came with: the
+                        engine, the examples, the tools and the docs.
+                        The Studio copies it to Documents\Duck Forge and
+                        never changes it; a new version replaces it.
   brand\                the Duck Forge icon
 
 
-A NEW VERSION
-  Your games are in duckforge\examples, INSIDE this folder. Before you
-  replace the folder with a new download, copy your games somewhere
-  safe: each game's folder in duckforge\examples, its files in
-  duckforge\playthroughs, and its lines in duckforge\Cargo.toml.
-  (Or keep the folder and point the new Studio at it: Home, "Change"
-  next to the games folder.)
+TO UNINSTALL
+  Windows Settings, Apps, Installed apps, Duck Forge Studio, Uninstall.
+  Your games (Documents\Duck Forge) and settings stay.

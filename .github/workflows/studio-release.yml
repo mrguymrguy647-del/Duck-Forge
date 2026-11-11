@@ -1,34 +1,39 @@
-# Makes the Windows download of Duck Forge Studio:
-# DuckForgeStudio-<version>-windows.zip.
+# The Windows workflow: tests Duck Forge on Windows, and makes the Windows
+# downloads of Duck Forge Studio:
+#   DuckForgeStudioSetup.exe              the installer (most people want this)
+#   DuckForgeStudio-<version>-windows.zip the same, as a folder to unzip
 #
 # Three ways to make a release, none needing a terminal:
 # - Actions tab -> "Studio release" -> "Run workflow" (the "Make a release"
 #   button): reads the version from studio/Cargo.toml, makes the tag
 #   studio-vX.Y.Z on the chosen branch's newest commit, and publishes the
-#   release with the zip.
+#   release with both files.
 # - Releases -> "Draft a new release" on the GitHub website with a new tag
-#   like studio-v0.1.0: this workflow runs on the tag and adds the zip.
+#   like studio-v0.1.0: this workflow runs on the tag and adds both files.
 # - Pushing a tag like studio-v0.1.0.
-# If the release is already there, its zip is replaced instead of failing.
-# Changing this file (or studio/release/, or the proof in studio/proof/)
-# on a branch only builds it and keeps the Studio's folder as a download
-# ("artifact") on the run's page,
-# so it can be tried before any release is made.
+# If the release is already there, its files are replaced instead of failing.
+# A push to a branch only tests and builds: the installer and the Studio's
+# folder are kept as downloads ("artifacts") on the run's page, so they
+# can be tried before any release is made.
 #
-# Before it builds the zip it tests the Studio on Windows: the core's
-# tests build real games, play them through the link, freeze and resume
-# them, paint a level (checked out with Windows line endings, which the
-# engine and the Studio read as plain \n, so recordings match Linux ones)
-# and change the jump while frozen, undo both, and replay each saved
-# session to the same last picture; and the beginner's proof runs as a
-# test. Then it plays three games through the link for ten seconds each
-# and prints their Timing lines. (GitHub's Windows machines have no
-# graphics card, so those numbers are for the CPU; a real PC is faster.)
-#
-# After it builds the zip it walks the beginner's proof in the unzipped
-# folder, with no window (studio/proof/beginners-proof.json): a new game
-# from a starter, painted, played, tuned, checked, fixed and clipped, and
-# Duck Craft with mouse look. A release is only published if that works.
+# Three jobs:
+# - engine-tests: the engine's "cargo test" and "cargo test
+#   --no-default-features", five times in a row on Windows.
+# - studio: the Studio's tests on Windows (they build real games, play
+#   them through the link, freeze and resume them, paint a level checked
+#   out with Windows line endings, change the jump while frozen, undo both,
+#   replay each saved session to the same last picture, and run the
+#   beginner's proof); three games played through the link for ten seconds
+#   each, with their Timing lines (GitHub's Windows machines have no
+#   graphics card, so those numbers are for the CPU; a real PC is faster);
+#   the update check against pretend release lists; then the zip and the
+#   installer, each tried as a person would: the beginner's proof
+#   (studio/proof/beginners-proof.json: a new game from a starter, painted,
+#   played, tuned, checked, fixed and clipped, and Duck Craft with mouse
+#   look) from the unzipped folder and from the installed Studio; a newer
+#   installer over the top, which must keep the game made and a file
+#   changed; and uninstalling, which must keep the games and settings.
+# - publish: only for a release, and only if both jobs above passed.
 name: Studio release
 
 on:
@@ -68,6 +73,8 @@ on:
 env:
   RUST_VERSION: "1.97.0"
   CARGO_TERM_COLOR: always
+  # The installer's fixed id (studio/release/DuckForgeStudio.iss).
+  APP_ID: "{A3533C57-EC19-400A-8B60-754EDE424F1B}"
 
 jobs:
   # The engine's own tests on Windows, both ways ("cargo test" and "cargo
@@ -117,10 +124,12 @@ jobs:
           path: failed-run-*.txt
           if-no-files-found: ignore
 
-  windows:
+  studio:
+    name: Studio, zip and installer on Windows
     runs-on: windows-latest
-    permissions:
-      contents: write # to publish the release
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
       - uses: actions/checkout@v5
       - name: Install Rust
@@ -142,6 +151,7 @@ jobs:
           version=$(sed -n 's/^version = "\(.*\)"$/\1/p' studio/Cargo.toml | head -n 1)
           echo "Version: $version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
           if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != "studio-v$version" ]]; then
             echo "The tag $GITHUB_REF_NAME doesn't match the version $version in studio/Cargo.toml."
             exit 1
@@ -177,18 +187,44 @@ jobs:
           cat timing-duck_craft-cpu.txt
           ls -l studio/target/release/DuckForgeStudio.exe
 
+      - name: The update check, with Windows' own curl and pretend release lists
+        shell: bash
+        run: |
+          exe=studio/target/release/DuckForgeStudio.exe
+          list() { # tag, then the file to write
+            printf '[{"tag_name": "%s", "draft": false, "prerelease": false, "html_url": "https://example.invalid/whats-new", "assets": [{"name": "DuckForgeStudioSetup.exe", "browser_download_url": "https://example.invalid/DuckForgeStudioSetup.exe", "size": 1}]}]' "$1" > "$2"
+          }
+          list studio-v99.0.0 newer.json
+          list "studio-v$VERSION" same.json
+          echo "== A newer version"
+          DUCK_FORGE_RELEASES="file:///$(cygpath -m "$PWD/newer.json")" "$exe" --check-for-updates | tee update-newer.txt
+          grep -q "Duck Forge Studio 99.0.0 is out (this is $VERSION)" update-newer.txt
+          grep -q "Installer: https://example.invalid/DuckForgeStudioSetup.exe" update-newer.txt
+          echo "== Already up to date"
+          DUCK_FORGE_RELEASES="file:///$(cygpath -m "$PWD/same.json")" "$exe" --check-for-updates | tee update-same.txt
+          grep -q "Nothing to say" update-same.txt
+          echo "== No internet (an address nothing answers at)"
+          start=$SECONDS
+          DUCK_FORGE_RELEASES="https://127.0.0.1:9/releases" "$exe" --check-for-updates | tee update-offline.txt
+          grep -q "Nothing to say" update-offline.txt
+          (( SECONDS - start < 30 )) || { echo "took too long"; exit 1; }
+          echo "== The real list on GitHub (whatever it says, it mustn't fail)"
+          "$exe" --check-for-updates
+
       - name: Put the zip together
         shell: bash
         run: |
-          name="DuckForgeStudio-${{ steps.version.outputs.version }}-windows"
+          name="DuckForgeStudio-$VERSION-windows"
           folder="dist/Duck Forge Studio"
           mkdir -p "$folder/brand" "$folder/duckforge"
           cp studio/target/release/DuckForgeStudio.exe "$folder/"
           cp studio/brand/duck-forge-icon-256.png "$folder/brand/"
           cp "studio/release/READ ME FIRST.txt" "studio/release/Create desktop shortcut.bat" "$folder/"
           # Duck Forge itself, as it is in this commit: the engine, the
-          # examples, the tools and the docs. Not the Studio's own code.
+          # examples, the tools and the docs. Not the Studio's own code
+          # (nor the file that builds it from that code).
           git archive --format=tar HEAD -- . ':(exclude)studio' ':(exclude).github' ':(exclude)docs/studio-screens' \
+              ':(exclude)Start Duck Forge Studio.bat' \
             | tar -x -C "$folder/duckforge"
           cd dist
           7z a -tzip "../$name.zip" "Duck Forge Studio" > /dev/null
@@ -205,14 +241,15 @@ jobs:
           grep -E '^Duck Forge Studio(/|\\)[^/\\]+$' contents.txt
           for wanted in DuckForgeStudio.exe "READ ME FIRST.txt" "Create desktop shortcut.bat" \
                         brand/duck-forge-icon-256.png duckforge/Cargo.toml duckforge/src/lib.rs \
-                        duckforge/examples/template/main.rs duckforge/tools/verify.bat; do
+                        duckforge/examples/template/main.rs duckforge/tools/verify.bat \
+                        "duckforge/tools/Run tests (for developers).bat"; do
             grep -qxF "Duck Forge Studio/$wanted" <(tr '\\' / < contents.txt) || { echo "missing: $wanted"; exit 1; }
           done
           if grep -q 'duckforge[/\\]studio[/\\]' contents.txt; then echo "the Studio's own code must not be shipped"; exit 1; fi
           # The program starts and knows its version.
           ver=$("dist/Duck Forge Studio/DuckForgeStudio.exe" --version)
           echo "$ver"
-          [[ "$ver" == "Duck Forge Studio ${{ steps.version.outputs.version }}" ]]
+          [[ "$ver" == "Duck Forge Studio $VERSION" ]]
 
       - name: Keep the Studio's folder on this run's page
         uses: actions/upload-artifact@v5
@@ -228,52 +265,218 @@ jobs:
         run: |
           # What a person does after unzipping, with no window, using only
           # the Studio's commands (studio/proof/beginners-proof.json): the
-          # Studio finds the duckforge folder beside it; makes a platformer
-          # called Gap Dash, builds it, has its first playthrough recorded
-          # and checked; paints a gap, planks and coins; freezes in
-          # mid-jump, moves a plank under the duck and carries on onto it;
-          # sets Feel to "Fast and bouncy" while playing; checks, and fixes
-          # what Check finds; makes a clip; and plays Duck Craft with mouse
-          # look. The script itself says what Check must say at each point,
-          # and stops if it doesn't. The folder's name has spaces in it, as
-          # it will on a person's PC.
-          # Fresh settings, so the Studio looks for the folder by itself.
+          # Studio copies the duckforge folder beside it into the person's
+          # own games folder, and works there; makes a platformer called Gap
+          # Dash, builds it, has its first playthrough recorded and checked;
+          # paints a gap, planks and coins; freezes in mid-jump, moves a
+          # plank under the duck and carries on onto it; sets Feel to "Fast
+          # and bouncy" while playing; checks, and fixes what Check finds;
+          # makes a clip; and plays Duck Craft with mouse look. The script
+          # itself says what Check must say at each point, and stops if it
+          # doesn't. The folders' names have spaces in them, as they will on
+          # a person's PC. (The installer's turn, below, uses the real
+          # Documents folder; this one uses a folder of its own.)
           export DUCK_FORGE_STUDIO_SETTINGS="$PWD/first-game-settings.json"
+          export DUCK_FORGE_GAMES="$RUNNER_TEMP/Zip games/Duck Forge"
           folder="dist/Duck Forge Studio"
           "$folder/DuckForgeStudio.exe" --run studio/proof/beginners-proof.json > first-game.txt 2>&1 || { cat first-game.txt; exit 1; }
           cat first-game.txt
-          check="$folder/duckforge/out/verify/gap_dash/check.json"
+          games=$(cygpath -u "$DUCK_FORGE_GAMES")
+          check="$games/out/verify/gap_dash/check.json"
           grep '"say"' "$check"
           grep -q '"passed": true' "$check"
-          ls -l "$folder/duckforge/out/clips"
-          ls "$folder/duckforge/out/clips" | grep -Eq '^gap_dash-[0-9]+\.(mp4|gif)$'
+          ls -l "$games/out/clips"
+          ls "$games/out/clips" | grep -Eq '^gap_dash-[0-9]+\.(mp4|gif)$'
+          # Nothing was made in the Studio's own copy of Duck Forge.
+          for made in out target history examples/gap_dash; do
+            [[ ! -e "$folder/duckforge/$made" ]] || { echo "the Studio wrote $made into its own copy"; exit 1; }
+          done
+          echo "Builds went to: $(sed -n 's/^target-dir = //p' "$games/.cargo/config.toml")"
 
-      - name: Keep the timings and the beginner's path on this run's page
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          & $iscc "/DVersion=$env:VERSION" "/DSource=$pwd\dist\Duck Forge Studio" "/O$pwd\dist" studio\release\DuckForgeStudio.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-Item dist\DuckForgeStudioSetup.exe | Format-List Name, Length
+
+      - name: Keep the installer on this run's page
+        uses: actions/upload-artifact@v5
+        with:
+          name: DuckForgeStudioSetup-${{ env.VERSION }}
+          path: dist/DuckForgeStudioSetup.exe
+
+      - name: Install it, as a person would (no administrator rights)
+        shell: pwsh
+        run: |
+          $setup = Start-Process dist\DuckForgeStudioSetup.exe -Wait -PassThru `
+            -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$pwd\install.log"
+          if ($setup.ExitCode -ne 0) { Get-Content install.log; throw "the installer said $($setup.ExitCode)" }
+          $app = "$env:LOCALAPPDATA\Programs\Duck Forge Studio"
+          foreach ($file in 'DuckForgeStudio.exe', 'READ ME FIRST.txt', 'brand\duck-forge-icon-256.png',
+                            'duckforge\Cargo.toml', 'duckforge\src\lib.rs', 'unins000.exe') {
+            if (-not (Test-Path "$app\$file")) { throw "not installed: $file" }
+          }
+          if (Test-Path "$app\Create desktop shortcut.bat") { throw "the zip's shortcut maker isn't needed here" }
+          # Start menu and desktop, pointing at the program, with its icon.
+          $shell = New-Object -ComObject WScript.Shell
+          foreach ($place in 'Programs', 'Desktop') {
+            $link = Join-Path ([Environment]::GetFolderPath($place)) 'Duck Forge Studio.lnk'
+            if (-not (Test-Path $link)) { throw "no shortcut in $place" }
+            $target = $shell.CreateShortcut($link).TargetPath
+            "$place shortcut -> $target"
+            if ($target -ne "$app\DuckForgeStudio.exe") { throw "the $place shortcut points at $target" }
+          }
+          # Windows Settings > Apps lists it, for this person only.
+          $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\${env:APP_ID}_is1"
+          $entry = Get-ItemProperty $key
+          $entry | Format-List DisplayName, DisplayVersion, DisplayIcon, InstallLocation, UninstallString
+          if ($entry.DisplayName -ne 'Duck Forge Studio') { throw "listed as $($entry.DisplayName)" }
+          if ($entry.DisplayVersion -ne $env:VERSION) { throw "listed as version $($entry.DisplayVersion)" }
+          if (Test-Path "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\${env:APP_ID}_is1") {
+            throw "installed for every user (that needs administrator rights)"
+          }
+          $ver = & "$app\DuckForgeStudio.exe" --version | Out-String
+          $ver
+          if ($ver.Trim() -ne "Duck Forge Studio $env:VERSION") { throw "the installed program says $ver" }
+
+      - name: The beginner's proof, from the installed Studio, in Documents
+        shell: bash
+        run: |
+          # The installed Studio, started as a person starts it, with fresh
+          # settings: it makes Documents\Duck Forge and everything happens
+          # there, never in the install folder.
+          export DUCK_FORGE_STUDIO_SETTINGS="$PWD/installed-settings.json"
+          app="$(cygpath -u "$LOCALAPPDATA")/Programs/Duck Forge Studio"
+          docs="$(cygpath -u "$(powershell -NoProfile -Command "[Environment]::GetFolderPath('MyDocuments')" | tr -d '\r')")"
+          games="$docs/Duck Forge"
+          [[ ! -e "$games" ]] || { echo "$games is there already"; exit 1; }
+          "$app/DuckForgeStudio.exe" --run studio/proof/beginners-proof.json > installed-proof.txt 2>&1 || { cat installed-proof.txt; exit 1; }
+          cat installed-proof.txt
+          grep -q '"passed": true' "$games/out/verify/gap_dash/check.json"
+          ls "$games/out/clips" | grep -Eq '^gap_dash-[0-9]+\.(mp4|gif)$'
+          [[ -f "$games/.came-with-studio.json" ]]
+          echo "Games folder: $games"
+          echo "Builds go to: $(sed -n 's/^target-dir = //p' "$games/.cargo/config.toml")"
+          grep -q 'AppData\\\\Local\\\\Duck Forge\\\\build' "$games/.cargo/config.toml"
+          for made in out target history examples/gap_dash; do
+            [[ ! -e "$app/duckforge/$made" ]] || { echo "the Studio wrote $made into the install folder"; exit 1; }
+          done
+
+      - name: A newer installer over the top keeps my games and my changes
+        shell: pwsh
+        run: |
+          $games = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Duck Forge'
+          # A change of the person's own to a game that came with Duck Forge.
+          Add-Content "$games\examples\dodge.rs" "// my own change"
+          # The next version: the same Studio with a changed README in its
+          # copy of Duck Forge.
+          Copy-Item -Recurse "dist\Duck Forge Studio" "dist\Next"
+          Add-Content "dist\Next\duckforge\README.md" "A line only the next version has."
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc "/DVersion=$env:VERSION" "/DSource=$pwd\dist\Next" "/O$pwd\dist" "/DSetupName=Next" studio\release\DuckForgeStudio.iss | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "the newer installer couldn't be built" }
+          $setup = Start-Process dist\Next.exe -Wait -PassThru `
+            -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$pwd\upgrade.log"
+          if ($setup.ExitCode -ne 0) { throw "the newer installer said $($setup.ExitCode)" }
+          # The Studio starts (with nothing to do) and brings the folder up to date.
+          '[]' | Set-Content nothing.json
+          $env:DUCK_FORGE_STUDIO_SETTINGS = "$pwd\installed-settings.json"
+          & "$env:LOCALAPPDATA\Programs\Duck Forge Studio\DuckForgeStudio.exe" --run nothing.json | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw "the Studio didn't start" }
+          if (-not (Select-String -Quiet "A line only the next version has" "$games\README.md")) { throw "not brought up to date" }
+          if (-not (Select-String -Quiet "// my own change" "$games\examples\dodge.rs")) { throw "my change to dodge.rs is gone" }
+          foreach ($mine in 'examples\gap_dash\main.rs', 'examples\gap_dash\level.txt', 'playthroughs\gap_dash.json') {
+            if (-not (Test-Path "$games\$mine")) { throw "my game's $mine is gone" }
+          }
+          if (-not (Select-String -Quiet 'name = "gap_dash"' "$games\Cargo.toml")) { throw "my game's lines in Cargo.toml are gone" }
+          "Kept: Gap Dash, its playthrough, its Cargo.toml lines, and the change to dodge.rs."
+
+      - name: Uninstall it, and the games and settings stay
+        shell: pwsh
+        run: |
+          $app = "$env:LOCALAPPDATA\Programs\Duck Forge Studio"
+          $games = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Duck Forge'
+          # Settings where the Studio keeps them.
+          $settings = "$env:APPDATA\Duck Forge Studio\settings.json"
+          New-Item -ItemType Directory -Force (Split-Path $settings) | Out-Null
+          '{"theme": "light"}' | Set-Content $settings
+          Start-Process "$app\unins000.exe" -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait
+          # The uninstaller carries on from a copy of itself: wait for it.
+          $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\${env:APP_ID}_is1"
+          for ($i = 0; $i -lt 120 -and ((Test-Path $key) -or (Test-Path "$app\DuckForgeStudio.exe")); $i++) { Start-Sleep 1 }
+          if (Test-Path $key) { throw "still listed in Settings > Apps" }
+          if (Test-Path "$app\DuckForgeStudio.exe") { throw "the program is still there" }
+          if (Test-Path "$app\duckforge") { throw "its copy of Duck Forge is still there" }
+          foreach ($place in 'Programs', 'Desktop') {
+            if (Test-Path (Join-Path ([Environment]::GetFolderPath($place)) 'Duck Forge Studio.lnk')) { throw "a shortcut is left in $place" }
+          }
+          if (Test-Path "$env:LOCALAPPDATA\Duck Forge\build") { throw "the build folder is left" }
+          foreach ($mine in 'examples\gap_dash\main.rs', 'playthroughs\gap_dash.json', 'examples\dodge.rs', 'out\verify\gap_dash\check.json') {
+            if (-not (Test-Path "$games\$mine")) { throw "uninstalling took $mine" }
+          }
+          if ((Get-Content $settings) -notmatch 'light') { throw "uninstalling took the settings" }
+          "Uninstalled. Still there: $games (with Gap Dash) and $settings."
+
+      - name: Keep the timings, the beginner's paths and the install logs on this run's page
         if: always()
         uses: actions/upload-artifact@v5
         with:
           name: timings
           path: |
             timing-*.txt
+            update-*.txt
             first-game.txt
+            installed-proof.txt
+            install.log
+            upgrade.log
           if-no-files-found: ignore
 
-      - name: Publish the release
-        if: startsWith(github.ref, 'refs/tags/studio-v') || github.event_name == 'workflow_dispatch'
+      - name: Keep the release's files for the publish job
+        uses: actions/upload-artifact@v5
+        with:
+          name: release-files
+          path: |
+            ${{ env.ZIP }}
+            dist/DuckForgeStudioSetup.exe
+
+  publish:
+    name: Publish the release
+    needs: [engine-tests, studio]
+    if: startsWith(github.ref, 'refs/tags/studio-v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # to publish the release
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: release-files
+          path: release
+      - name: Publish
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.version.outputs.tag }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.studio.outputs.tag }}
+          VERSION: ${{ needs.studio.outputs.version }}
         run: |
+          # (The download keeps the folders the files were in.)
+          mapfile -t files < <(find release -name 'DuckForgeStudio-*-windows.zip' -o -name DuckForgeStudioSetup.exe)
+          [[ ${#files[@]} == 2 ]] || { echo "expected the zip and the installer"; exit 1; }
+          ls -l "${files[@]}"
           if gh release view "$TAG" > /dev/null 2>&1; then
-            # Made on the website (or made before): add the zip, replacing
-            # an older one of the same name, instead of failing.
-            echo "The release $TAG is already there: adding the zip to it."
-            gh release upload "$TAG" "$ZIP" --clobber
+            # Made on the website (or made before): add the files, replacing
+            # older ones of the same names, instead of failing.
+            echo "The release $TAG is already there: adding the files to it."
+            gh release upload "$TAG" "${files[@]}" --clobber
           else
             # --target makes the tag on this run's commit if it doesn't exist.
-            gh release create "$TAG" "$ZIP" --target "$GITHUB_SHA" \
-              --title "Duck Forge Studio ${{ steps.version.outputs.version }}" \
-              --notes "Download $ZIP below, unzip it, and double-click DuckForgeStudio.exe. READ ME FIRST.txt inside says the rest."
+            gh release create "$TAG" "${files[@]}" --target "$GITHUB_SHA" \
+              --title "Duck Forge Studio $VERSION" \
+              --notes "Download DuckForgeStudioSetup.exe below and double-click it: it installs Duck Forge Studio just for you (no administrator rights), with a Start menu and desktop icon. Your games go in Documents\\Duck Forge and are kept when you update or uninstall. (Or download the zip, unzip it and double-click DuckForgeStudio.exe.) READ ME FIRST.txt says the rest."
           fi
           echo "Published: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"

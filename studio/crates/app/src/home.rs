@@ -18,6 +18,7 @@ pub enum HomeChoice {
     Open(String),
     NewGame,
     ChooseFolder,
+    OpenFolder,
 }
 
 /// The size of a card's picture, in points.
@@ -143,10 +144,25 @@ pub fn home(ui: &mut egui::Ui, studio: &Studio, pictures: &mut Pictures) -> Opti
                     ui.label(
                         RichText::new(format!("Games folder: {}", folder.root().display())).weak(),
                     );
+                    if ui
+                        .link("Open")
+                        .on_hover_text("Show it in File Explorer")
+                        .clicked()
+                    {
+                        choice = Some(HomeChoice::OpenFolder);
+                    }
                     if ui.link("Change").clicked() {
                         choice = Some(HomeChoice::ChooseFolder);
                     }
                 });
+                // Said once, as the Studio starts: where the games folder
+                // was made, or that a new version brought it up to date.
+                if let Some(note) = &studio.folder_note {
+                    ui.horizontal(|ui| {
+                        ui.add_space(12.0);
+                        ui.label(RichText::new(note).small().color(theme::GOOD));
+                    });
+                }
             }
             ui.add_space(8.0);
             let (mine, came_with): (Vec<&HomeCard>, Vec<&HomeCard>) =

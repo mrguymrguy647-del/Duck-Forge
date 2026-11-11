@@ -18,6 +18,7 @@ use crate::keys::{self, Placement};
 use crate::panels::{self, CheckChoice, ProblemChoice};
 use crate::pictures::Pictures;
 use crate::theme;
+use crate::update_banner::{self, BannerChoice, UpdateState};
 
 /// Duck Forge Studio's window.
 pub struct StudioApp {
@@ -46,6 +47,9 @@ pub struct StudioApp {
     pub history_open: bool,
     pub code_open: bool,
     pub recipe_open: bool,
+    /// Is there a newer Studio? Only the real app checks (see
+    /// [`StudioApp::checking_for_updates`]); tests never use the internet.
+    pub update: UpdateState,
 }
 
 impl StudioApp {
@@ -69,7 +73,16 @@ impl StudioApp {
             history_open: false,
             code_open: false,
             recipe_open: false,
+            update: UpdateState::Off,
         }
+    }
+
+    /// Starts looking for a newer Studio, if Settings says to.
+    pub fn checking_for_updates(mut self) -> StudioApp {
+        if self.studio.settings.check_for_updates {
+            self.update = UpdateState::check();
+        }
+        self
     }
 
     /// Does a command and shows what it said in the status bar.
@@ -248,6 +261,10 @@ impl StudioApp {
         }
         self.dialogs(&ctx);
         self.hold_or_free_the_pointer(&ctx, &events);
+        // The new version's installer has started: close, so it can update.
+        if self.update.poll() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
 
         // Draw again soon: at once while the game plays, now and then
         // while something is running or the code might change.
@@ -270,11 +287,25 @@ impl StudioApp {
                     if ui.button("About").clicked() {
                         self.about_open = true;
                     }
+                    self.settings_menu(ui);
                     self.theme_menu(ui);
                     self.console_toggle(ui);
                 });
             });
         });
+        if self.update.shows() {
+            let chosen = egui::Panel::top("new version")
+                .show(ui, |ui| update_banner::banner(ui, &self.update))
+                .inner;
+            match chosen {
+                Some(BannerChoice::WhatsNew(page)) => {
+                    ui.ctx().open_url(egui::OpenUrl::new_tab(page));
+                }
+                Some(BannerChoice::Update) => self.update.update(ui.ctx()),
+                Some(BannerChoice::NotNow) => self.update = UpdateState::Dismissed,
+                None => {}
+            }
+        }
         self.console_panel(ui);
         let mut choice = None;
         egui::CentralPanel::default().show(ui, |ui| {
@@ -324,6 +355,11 @@ impl StudioApp {
                 self.run(Command::GameOpen { name });
             }
             Some(HomeChoice::NewGame) => self.new_game = Some(NewGame::default()),
+            Some(HomeChoice::OpenFolder) => {
+                if let Some(folder) = &self.studio.folder {
+                    open_folder(folder.root());
+                }
+            }
             Some(HomeChoice::ChooseFolder) => {
                 if let Some(folder) = rfd::FileDialog::new()
                     .set_title("Choose the Duck Forge folder")
@@ -362,6 +398,30 @@ impl StudioApp {
             Some(ProblemChoice::Button(_)) => button(self),
             None => {}
         }
+    }
+
+    /// Settings: for now, whether to look for new versions.
+    fn settings_menu(&mut self, ui: &mut egui::Ui) {
+        ui.menu_button("Settings", |ui| {
+            let mut check = self.studio.settings.check_for_updates;
+            if ui
+                .checkbox(&mut check, "Tell me when a new version is out")
+                .on_hover_text(
+                    "When the Studio starts, it looks at Duck Forge's releases page on GitHub. \
+                     Nothing about you is sent, and nothing is downloaded unless you press \
+                     Update.",
+                )
+                .changed()
+            {
+                self.studio.settings.check_for_updates = check;
+                self.studio.settings.save();
+                self.update = if check {
+                    UpdateState::check()
+                } else {
+                    UpdateState::Off
+                };
+            }
+        });
     }
 
     fn theme_menu(&mut self, ui: &mut egui::Ui) {
@@ -1239,9 +1299,13 @@ enum Overlay {
 
 /// Opens the folder a file is in, in the system's file browser.
 fn show_in_folder(file: &std::path::Path) {
-    let Some(folder) = file.parent() else {
-        return;
-    };
+    if let Some(folder) = file.parent() {
+        open_folder(folder);
+    }
+}
+
+/// Opens a folder in the system's file browser.
+fn open_folder(folder: &std::path::Path) {
     let program = if cfg!(windows) {
         "explorer"
     } else if cfg!(target_os = "macos") {

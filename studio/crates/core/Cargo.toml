@@ -10,6 +10,12 @@ duckforge.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+# Asks Windows where the person's Documents folder really is (OneDrive can
+# move it), for the games folder. The window library already uses it, so
+# nothing new is downloaded.
+windows-sys = { version = "0.61", features = ["Win32_UI_Shell", "Win32_System_Com"] }
+
 [dev-dependencies]
 # To read the pictures a headless replay saves, and compare them.
 png = "0.18"

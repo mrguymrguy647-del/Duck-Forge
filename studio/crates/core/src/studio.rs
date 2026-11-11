@@ -5,7 +5,7 @@
 //! do the same thing: `studio.run(Command::...)`. The app only draws what
 //! this holds and turns clicks into commands.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use duckforge::prelude::{Key, MouseButton};
@@ -21,6 +21,7 @@ use crate::feel::{self, CodeSpot, FeelFile, Slider};
 use crate::folder::{Card, Game, GamesFolder, STARTERS, name_from_title};
 use crate::history::{FileEdit, History, Snapshot, Step, Undo};
 use crate::level::{Cell, Level, LevelArt};
+use crate::my_games;
 use crate::play::{AfterHello, Ending, Play, PlayState, Timing};
 use crate::problem::Problem;
 use crate::settings::Settings;
@@ -627,6 +628,9 @@ pub struct Studio {
     pub folder: Option<GamesFolder>,
     /// Why there's no games folder, if there isn't.
     pub folder_problem: Option<Problem>,
+    /// Something to say once about the games folder: that it was made in
+    /// Documents, or brought up to date by this version.
+    pub folder_note: Option<String>,
     pub rust: Result<Rust, Problem>,
     pub console: Console,
     pub screen: Screen,
@@ -652,6 +656,7 @@ impl Studio {
             settings,
             folder: None,
             folder_problem: None,
+            folder_note: None,
             rust: build::find_rust(),
             console: Console::default(),
             screen: Screen::Home,
@@ -664,11 +669,7 @@ impl Studio {
             buttons_down: Vec::new(),
         };
         studio.console.path = studio.rust.as_ref().ok().and_then(|rust| rust.path.clone());
-        let wanted = studio
-            .settings
-            .games_folder
-            .clone()
-            .or_else(GamesFolder::find);
+        let wanted = studio.games_folder_to_use();
         match wanted {
             Some(root) => match GamesFolder::open(root) {
                 Ok(folder) => studio.folder = Some(folder),
@@ -684,6 +685,58 @@ impl Studio {
         }
         studio.refresh_cards();
         studio
+    }
+
+    /// Which games folder to open as the Studio starts.
+    ///
+    /// An installed (or unzipped) Studio has its own copy of Duck Forge
+    /// beside it, which a new version replaces: the games are kept in the
+    /// person's own folder instead (`Documents\Duck Forge`), made from that
+    /// copy the first time and brought up to date by a newer Studio (see
+    /// [`my_games`]). A folder chosen on Home is used as it is. A Studio
+    /// built from the code uses the Duck Forge folder it's in.
+    fn games_folder_to_use(&mut self) -> Option<PathBuf> {
+        let studios_own = my_games::came_with_the_studio();
+        let chosen = self.settings.games_folder.clone();
+        let Some(own) = studios_own else {
+            return chosen.or_else(GamesFolder::find);
+        };
+        match chosen {
+            Some(chosen) if !my_games::is_the_studios_own(&chosen, &own) => {
+                // Theirs. If the Studio made it, it may need bringing up to date.
+                if chosen.join(my_games::RECORD).is_file() {
+                    self.prepare_my_games(&own, &chosen);
+                }
+                Some(chosen)
+            }
+            _ => {
+                let Some(games) = my_games::my_games_folder() else {
+                    self.folder_problem = Some(Problem::new(
+                        "The Studio couldn't find your Documents folder.",
+                        "Choose a folder for your games on Home.",
+                    ));
+                    return None;
+                };
+                self.prepare_my_games(&own, &games).then_some(games)
+            }
+        }
+    }
+
+    /// Makes or updates the person's games folder from the Studio's own
+    /// copy of Duck Forge. False (with the problem kept) if it couldn't.
+    fn prepare_my_games(&mut self, own: &Path, games: &Path) -> bool {
+        let version = env!("CARGO_PKG_VERSION");
+        let build = my_games::build_folder();
+        match my_games::prepare(own, games, version, build.as_deref()) {
+            Ok(prepared) => {
+                self.folder_note = prepared.say(games);
+                true
+            }
+            Err(problem) => {
+                self.folder_problem = Some(problem);
+                false
+            }
+        }
     }
 
     /// Reads the games and how their last checks went, for Home.
@@ -742,7 +795,18 @@ impl Studio {
                 Ok(String::from("Home"))
             }
             Command::ChooseFolder { folder } => {
+                if let Some(own) = my_games::came_with_the_studio()
+                    && my_games::is_the_studios_own(&folder, &own)
+                {
+                    return Err(Problem::new(
+                        "That's the copy of Duck Forge that came with the Studio.",
+                        "Installing a new version replaces it, so nothing made there could be \
+                         kept. Your games folder is in Documents (Duck Forge), or choose \
+                         another folder of your own.",
+                    ));
+                }
                 let opened = GamesFolder::open(folder.clone())?;
+                self.folder_note = None;
                 self.close_game();
                 self.settings.games_folder = Some(opened.root().to_path_buf());
                 self.settings.save();

@@ -72,6 +72,51 @@ fn home_shows_new_game_the_games_and_the_links() {
     harness.get_by_label("New game: name it");
 }
 
+#[test]
+fn a_new_version_shows_a_banner_and_waits_for_a_click() {
+    use studio_app::update_banner::UpdateState;
+    use studio_core::update::NewVersion;
+    // A pretend answer from the check: no internet is used here.
+    let mut app = StudioApp::new(studio());
+    assert!(matches!(app.update, UpdateState::Off), "tests never check");
+    app.update = UpdateState::Available(NewVersion {
+        version: String::from("9.9.9"),
+        whats_new: String::from("https://example.test/releases/tag/studio-v9.9.9"),
+        installer: Some((
+            String::from("https://example.test/DuckForgeStudioSetup.exe"),
+            5,
+        )),
+    });
+    let mut screen = harness(app, false);
+    screen.step();
+    screen.get_by_label("Duck Forge Studio 9.9.9 is out.");
+    screen.get_by_label(&format!("You have {}.", env!("CARGO_PKG_VERSION")));
+    screen.get_by_label("What's new");
+    screen.get_by_label("Update");
+    // Not now: it goes, and nothing was downloaded.
+    screen.get_by_label("Not now").click();
+    screen.run_steps(2);
+    assert!(screen.query_by_label("Update").is_none());
+    assert!(matches!(screen.state().update, UpdateState::Dismissed));
+
+    // Up to date, or no internet: no banner at all.
+    let mut app = StudioApp::new(studio());
+    app.update = UpdateState::Nothing;
+    let mut screen = harness(app, false);
+    screen.step();
+    assert!(screen.query_by_label_contains("is out.").is_none());
+
+    // Settings has the switch, on unless it's turned off.
+    screen.get_by_label("Settings").click();
+    screen.run_steps(2);
+    screen
+        .get_by_label("Tell me when a new version is out")
+        .click();
+    screen.run_steps(2);
+    assert!(!screen.state().studio.settings.check_for_updates);
+    assert!(matches!(screen.state().update, UpdateState::Off));
+}
+
 /// Puts the repository back as it was after the screenshots made a game.
 /// One at a time: each of the two long tests makes a game in the Duck
 /// Forge folder (and takes it out again).
