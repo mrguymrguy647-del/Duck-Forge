@@ -7,7 +7,8 @@
 //!
 //! It has the parts most platformers need, each small enough to change:
 //!
-//! - the level as text (`LEVEL`), read into a tile map with a legend;
+//! - the level as text in `level.txt`, read into a tile map with the
+//!   legend in `level.legend.json` (and read again when they change);
 //! - art from Duck Quill: the duck and the tiles are sprite sheets made
 //!   with `quill export`, the sky and hills with `quill render` (the
 //!   painting scripts are in `art/`, the pictures in `assets/`);
@@ -46,25 +47,11 @@ const PLAYER_SIZE: Vec2 = vec2(10.0, 14.0); // the hitbox, a little smaller than
 /// Where the art is (`quill export` and `quill render` made these).
 const ASSETS: &str = "examples/template/assets";
 
-/// The level: one letter per 16 x 16 tile. The legend in `Art::legend`
-/// says what each letter is. Change it and run again.
-const LEVEL: &str = "
-................................................................................
-................................................................................
-................................................................................
-................................................................................
-................................................................................
-................................................................................
-..................................c.............................................
-.................................====...........................................
-................................................................................
-.........c....................c...........c...........BBBBB....c................
-........====................====..........BB..................====..............
-................BB........................BB....................................
-..p...c.........BB........................BB............c.............c....g....
-######################~~~#######################~~~#############################
-dddddddddddddddddddddd~~~ddddddddddddddddddddddd~~~ddddddddddddddddddddddddddddd
-";
+/// The level: one letter per 16 x 16 tile, in `level.txt` next to this
+/// file; `level.legend.json` says what each letter is (and where the
+/// tiles' pictures are). Change either, even while the game runs: it reads
+/// them again (see `reload`). Duck Forge Studio paints it in Build mode.
+const LEVEL: &str = "examples/template/level.txt";
 
 /// Everything loaded from files, once, when the game starts.
 #[derive(Clone)]
@@ -92,20 +79,15 @@ impl Art {
                 .offset(vec2(0.0, 116.0)),
         })
     }
+}
 
-    /// What each letter of `LEVEL` means. The names are tiles in
-    /// `tiles.json`.
-    fn legend() -> Legend {
-        Legend::new()
-            .solid('#', "grass")
-            .solid('d', "dirt")
-            .solid('B', "brick")
-            .one_way('=', "plank") // land on it, jump up through it
-            .decoration('~', "water") // drawn, but you fall right in
-            .spawn('p', "player")
-            .spawn('c', "coin")
-            .spawn('g', "flag")
-    }
+/// Where the duck starts: the level's Start, or the top left corner if it
+/// has none (while it's being painted, say).
+fn start_of(map: &TileMap) -> Vec2 {
+    map.spawns("player")
+        .first()
+        .copied()
+        .unwrap_or(vec2(TILE / 2.0, TILE))
 }
 
 /// What the game is doing. An `enum` means it can only be one of these.
@@ -139,9 +121,16 @@ struct Template {
 
 impl Template {
     fn new(art: Art) -> Template {
-        let map =
-            TileMap::parse(LEVEL, TILE, &Art::legend()).unwrap_or_else(|error| panic!("{error}")); // a mistake in LEVEL
-        let start = map.spawn("player");
+        // A mistake in the level's files stops the game with a message
+        // saying what and where.
+        let map = TileMap::load_level(LEVEL).unwrap_or_else(|error| panic!("{error}"));
+        Self::on_map(art, map)
+    }
+
+    /// The game on `map`: the level's files, or (in tests) a tiny level
+    /// of their own.
+    fn on_map(art: Art, map: TileMap) -> Self {
+        let start = start_of(&map);
         let mut game = Template {
             state: State::Playing,
             art,
@@ -152,7 +141,12 @@ impl Template {
             coins: map.spawns("coin"),
             collected: 0,
             splashes: 0,
-            flag: map.spawn("flag"),
+            // No flag (being painted in, say): it's out of the way.
+            flag: map
+                .spawns("flag")
+                .first()
+                .copied()
+                .unwrap_or(vec2(-100.0, -100.0)),
             time: 0.0,
             camera: Camera2D::new(WIDTH, HEIGHT),
             map,
@@ -223,7 +217,7 @@ impl Template {
         if self.player.top() > level.bottom() {
             self.splashes += 1;
             ctx.play(Sound::hit());
-            let start = self.map.spawn("player");
+            let start = start_of(&self.map);
             self.put_player_at(start);
         }
 
@@ -249,7 +243,7 @@ impl Template {
             .camera
             .position
             .x
-            .clamp(WIDTH / 2.0, level.right() - WIDTH / 2.0);
+            .clamp(WIDTH / 2.0, (level.right() - WIDTH / 2.0).max(WIDTH / 2.0));
         self.camera.position.y = HEIGHT / 2.0;
     }
 }
@@ -294,6 +288,31 @@ impl Game for Template {
         ctx.report("splashes", self.splashes);
         ctx.report("x", self.player.x.round());
         ctx.report("on_ground", self.on_ground);
+    }
+
+    /// The level's files changed (painted in Duck Forge Studio, or edited
+    /// by hand while the game runs): read them again and carry on. The
+    /// duck stays where it is, collected coins stay collected, new coins
+    /// appear and removed ones go.
+    fn reload(&mut self, _ctx: &mut Context, file: &std::path::Path) -> bool {
+        if !self.map.reads_from(file) {
+            return false;
+        }
+        let newer = match TileMap::load_level(LEVEL) {
+            Ok(map) => map,
+            Err(error) => {
+                eprintln!("{error}"); // a mistake in the files: keep the old level
+                return false;
+            }
+        };
+        let coins = self.map.spawn_changes(&newer, "coin");
+        self.coins.retain(|coin| !coins.removed.contains(coin));
+        self.coins.extend(coins.added);
+        if let Some(&flag) = newer.spawns("flag").first() {
+            self.flag = flag;
+        }
+        self.map = newer;
+        true
     }
 
     fn draw(&self, canvas: &mut Canvas) {

@@ -444,6 +444,7 @@ fn run_and_save<G: Game>(
     }
     let mut warnings: Vec<String> = timestep_warning.into_iter().collect();
     warnings.extend(skipped_events_warning(options));
+    warnings.extend(sim.replay_warnings().iter().cloned());
     warnings.extend(scene::warnings(&scenes, width as f32, height as f32));
     if let Some((crop, zoom)) = close_up {
         save_png(

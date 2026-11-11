@@ -27,6 +27,20 @@ use crate::sprite::{Blit, Sprite};
 ///
 /// Pixels are stored row by row in one flat `Vec`, so the pixel at
 /// `(x, y)` lives at index `y * width + x`.
+/// Where a tile map was drawn on the canvas: its level file, the screen
+/// position of its top left corner, and how many screen pixels one world
+/// unit is.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DrawnMap {
+    pub file: String,
+    pub x: f32,
+    pub y: f32,
+    pub scale: f32,
+    pub tile_size: f32,
+    pub columns: usize,
+    pub rows: usize,
+}
+
 pub struct Canvas {
     width: usize,
     height: usize,
@@ -50,6 +64,8 @@ pub struct Canvas {
     labels: Vec<Label>,
     /// The lines of text drawn since the last `take_scene`.
     texts: Vec<SceneText>,
+    /// Where tile maps were drawn since the last `take_scene`.
+    maps: Vec<DrawnMap>,
     /// The light 3D is drawn with.
     lighting: Lighting,
     /// Distance fog over 3D, if any.
@@ -104,6 +120,7 @@ impl Canvas {
             frame_camera: None,
             labels: Vec::new(),
             texts: Vec::new(),
+            maps: Vec::new(),
             lighting: Lighting::default(),
             fog: None,
             drawing_in_view: false,
@@ -294,6 +311,17 @@ impl Canvas {
             std::mem::take(&mut self.labels),
             std::mem::take(&mut self.texts),
         )
+    }
+
+    /// Notes where a tile map was drawn (Duck Forge Studio puts its grid
+    /// there in Build mode).
+    pub(crate) fn note_map(&mut self, map: DrawnMap) {
+        self.maps.push(map);
+    }
+
+    /// Where tile maps were drawn since this was last asked.
+    pub(crate) fn take_maps(&mut self) -> Vec<DrawnMap> {
+        std::mem::take(&mut self.maps)
     }
 
     pub(crate) fn take_frame_camera(&mut self) -> Option<Camera2D> {

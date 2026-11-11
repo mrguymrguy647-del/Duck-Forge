@@ -1,35 +1,44 @@
 //! Play tests for the template: `cargo test --example template`.
+//!
+//! Two kinds, so painting the level never breaks a test by accident:
+//!
+//! - How the game plays (running, jumping, planks, walls, water, pausing)
+//!   is tested on tiny levels written right here, with the same letters.
+//!   Editing `level.txt` can't change them.
+//! - The real level is tested for what must stay true: its legend's rules
+//!   hold, every coin and the flag look reachable, and the bot can still
+//!   win on it as it is now.
 
 use super::*;
 
-/// The game, with its art loaded.
+/// The game on its real level, with its art loaded.
 fn game() -> Template {
     Template::new(Art::load().unwrap())
 }
 
-/// The game with the duck standing at column `column` of the ground.
-fn game_at(column: f32) -> Template {
-    let mut game = game();
-    game.put_player_at(vec2((column + 0.5) * TILE, 13.0 * TILE));
-    game
+/// The game on a tiny level of its own (same letters as `level.txt`). A
+/// level must be at least 20 tiles wide: the camera needs a screen's width.
+fn game_on(level: &str) -> Template {
+    let legend = TileMap::load_level(LEVEL).unwrap().legend().clone();
+    let map = TileMap::parse(level, TILE, &legend).unwrap();
+    Template::on_map(Art::load().unwrap(), map)
 }
 
-#[test]
-fn the_level_has_a_start_coins_and_a_flag() {
-    let game = game();
-    assert_eq!(game.map.spawns("player").len(), 1, "one start");
-    assert_eq!(game.coins.len(), 8);
-    assert_eq!(
-        game.map.bounds(),
-        Rect::new(0.0, 0.0, 80.0 * TILE, 15.0 * TILE)
-    );
-    // The duck starts standing on the ground.
-    assert_eq!(game.player.bottom(), 13.0 * TILE);
+/// How the duck jumps, from the same numbers the game uses.
+fn jump() -> Jump {
+    Jump {
+        speed: JUMP_SPEED,
+        gravity: GRAVITY,
+        run: RUN_SPEED,
+    }
 }
 
 #[test]
 fn running_right_moves_the_duck_and_keeps_it_on_the_ground() {
-    let played = PlayTest::new(config(), game())
+    let level = "
+..p....c....................
+############################";
+    let played = PlayTest::new(config(), game_on(level))
         .script(
             r#"{"events": [{"frame": 1, "press": "Right"}, {"frame": 61, "release": "Right"}]}"#,
         )
@@ -43,7 +52,11 @@ fn running_right_moves_the_duck_and_keeps_it_on_the_ground() {
 
 #[test]
 fn jumping_plays_a_sound_and_lands_again() {
-    let played = PlayTest::new(config(), game())
+    let level = "
+....................
+..p.................
+####################";
+    let played = PlayTest::new(config(), game_on(level))
         .script(
             r#"{"events": [{"frame": 10, "press": "Space"}, {"frame": 11, "release": "Space"}]}"#,
         )
@@ -60,44 +73,64 @@ fn jumping_plays_a_sound_and_lands_again() {
 
 #[test]
 fn a_plank_is_jumped_through_from_below_and_stood_on() {
-    // Under the plank at columns 8 to 11, row 10 (its top is at y = 160).
-    let played = PlayTest::new(config(), game_at(9.0))
+    // A plank three tiles up (its top at y = 48), with a coin on it.
+    let level = "
+....................
+....................
+....c...............
+...====.............
+....................
+....p...............
+####################";
+    let played = PlayTest::new(config(), game_on(level))
         .script(r#"{"events": [{"frame": 5, "press": "Space"}, {"frame": 6, "release": "Space"}]}"#)
         .frames(90)
         .run();
     assert!(played.flag("on_ground"));
     assert_eq!(
         played.game().player.bottom(),
-        10.0 * TILE,
+        3.0 * TILE,
         "standing on the plank"
     );
     assert_eq!(played.number("coins"), 1.0, "and the coin on it");
 }
 
 #[test]
-fn the_brick_wall_stops_the_duck() {
-    // The bricks at columns 16 and 17 are two tiles high.
-    let played = PlayTest::new(config(), game_at(12.0))
+fn a_brick_wall_stops_the_duck() {
+    // Bricks two tiles high at columns 8 and 9.
+    let level = "
+....................
+........BB..........
+..p.....BB..........
+####################";
+    let played = PlayTest::new(config(), game_on(level))
         .script(r#"{"events": [{"frame": 1, "press": "Right"}]}"#)
         .frames(90)
         .run();
-    assert_eq!(played.game().player.right(), 16.0 * TILE);
+    assert_eq!(played.game().player.right(), 8.0 * TILE);
 }
 
 #[test]
 fn falling_in_the_water_goes_back_to_the_start() {
-    // Over the first pool, columns 22 to 24.
-    let mut game = game_at(23.0);
-    game.player.y -= 1.0;
+    let level = "
+....................
+p...................
+#####~~~############
+ddddd~~~dddddddddddd";
+    let mut game = game_on(level);
+    game.put_player_at(vec2(6.5 * TILE, 2.0 * TILE - 1.0)); // over the water
     let played = PlayTest::new(config(), game).frames(60).run();
     assert_eq!(played.number("splashes"), 1.0);
-    played.assert_sound("hit", 20, 20);
-    assert_eq!(played.game().feet(), played.game().map.spawn("player"));
+    assert_eq!(played.sound_frames("hit").len(), 1);
+    assert_eq!(played.game().feet(), start_of(&played.game().map));
 }
 
 #[test]
 fn pausing_freezes_the_game() {
-    let played = PlayTest::new(config(), game())
+    let level = "
+..p.................................
+####################################";
+    let played = PlayTest::new(config(), game_on(level))
         .script(
             r#"{"events": [{"frame": 1, "press": "Right"}, {"frame": 30, "press": "P"},
                            {"frame": 31, "release": "P"}]}"#,
@@ -112,8 +145,52 @@ fn pausing_freezes_the_game() {
     assert_eq!(played.number("x"), x_at_pause, "nothing moves while paused");
 }
 
+// ---- The real level, as it is now ----
+
+#[test]
+fn the_level_keeps_its_rules() {
+    let map = TileMap::load_level(LEVEL).unwrap();
+    assert_eq!(map.broken_rules(), Vec::<String>::new());
+}
+
+#[test]
+fn every_coin_and_the_flag_look_reachable() {
+    let map = TileMap::load_level(LEVEL).unwrap();
+    let reach = map.reach(map.spawn("player"), jump());
+    let mut things = map.spawns("coin");
+    things.extend(map.spawns("flag"));
+    let missing: Vec<(i32, i32)> = reach
+        .missing(&things)
+        .iter()
+        .map(|at| map.cell_at(vec2(at.x, at.y - 1.0)))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "these look out of reach (column, row, counted from 0): {missing:?}"
+    );
+}
+
+#[test]
+fn the_bot_can_still_win_on_the_level() {
+    let mut sim = Simulation::new(config(), game());
+    let coins = sim.game().coins.len() as f64;
+    super::bot::play(&mut sim);
+    let feet = sim.game().feet();
+    assert_eq!(
+        sim.text("state"),
+        "Won",
+        "the bot got stuck around column {} row {}",
+        (feet.x / TILE).floor(),
+        (feet.y / TILE).floor() - 1.0
+    );
+    assert_eq!(sim.number("coins"), coins, "with every coin");
+}
+
 #[test]
 fn the_playthrough_reaches_the_flag_with_every_coin() {
+    // It replays on the level it was recorded on (it keeps a copy), so
+    // painting the level doesn't break it. Check says when it's from an
+    // older level, and the bot can record it again.
     let played = PlayTest::new(config(), game())
         .inputs("playthroughs/template.json")
         .run();

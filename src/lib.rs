@@ -39,6 +39,7 @@ mod debug;
 mod diff;
 pub mod engine;
 pub mod error;
+mod files;
 mod fuzz;
 #[cfg(feature = "gpu")]
 mod gpu;
@@ -109,6 +110,8 @@ pub mod prelude {
     pub use crate::sound::{LoopId, Sound, Wav, Wave};
     pub use crate::sprite::{Animation, Blit, Sprite};
     pub use crate::spritesheet::SpriteSheet;
-    pub use crate::tilemap::{Contacts, Legend, TileKind, TileMap};
+    pub use crate::tilemap::{
+        Contacts, Jump, Legend, Letter, LetterKind, Reach, SpawnChanges, TileKind, TileMap,
+    };
     pub use crate::tileset::Tileset;
 }

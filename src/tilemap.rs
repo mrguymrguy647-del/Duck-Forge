@@ -36,10 +36,38 @@
 //! Then, every update, [`TileMap::move_and_slide`] moves a body through the
 //! level and says what it touched, and in `draw`, between `push_camera`
 //! and `pop_camera`, [`TileMap::draw`] draws the tiles the camera sees.
+//!
+//! ## A level as two files
+//!
+//! A level can also live next to the game, where Duck Forge Studio (and
+//! anyone with a text editor) can change it: the letters in `level.txt`,
+//! and what they mean in `level.legend.json`:
+//!
+//! ```json
+//! { "tile_size": 16,
+//!   "tiles": "assets/tiles.json",
+//!   "letters": {
+//!     "#": {"kind": "solid",      "name": "grass"},
+//!     "=": {"kind": "one_way",    "name": "plank"},
+//!     "~": {"kind": "decoration", "name": "water"},
+//!     "p": {"kind": "thing", "name": "player", "label": "Start",
+//!           "at_least": 1, "at_most": 1, "start": true},
+//!     "c": {"kind": "thing", "name": "coin", "label": "Coin"} } }
+//! ```
+//!
+//! [`TileMap::load_level`] reads both. A "thing" is a spawn point. `tiles`
+//! (optional) is the sprite sheet with the tiles' pictures, from the
+//! legend's folder; `label` is what the Studio calls a thing; `at_least`
+//! and `at_most` are rules [`TileMap::broken_rules`] checks; `start`
+//! marks where the player begins. The engine notes the files it read, so
+//! when one changes while the game runs, the game's
+//! [`reload`](crate::engine::Game::reload) hook is called.
 
-use std::fs;
+use std::collections::HashSet;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+use serde_json::Value;
 
 use crate::canvas::Canvas;
 use crate::error::LoadError;
@@ -66,10 +94,86 @@ enum Meaning {
     Spawn(String),
 }
 
+/// What kind of thing a letter is, as a legend file says it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LetterKind {
+    Solid,
+    OneWay,
+    Decoration,
+    /// A spawn point: where the player, a coin or an enemy starts.
+    Thing,
+}
+
+impl LetterKind {
+    /// The word a legend file uses: `solid`, `one_way`, `decoration` or
+    /// `thing`.
+    pub fn word(self) -> &'static str {
+        match self {
+            LetterKind::Solid => "solid",
+            LetterKind::OneWay => "one_way",
+            LetterKind::Decoration => "decoration",
+            LetterKind::Thing => "thing",
+        }
+    }
+}
+
+/// One letter of a [`Legend`], with what a legend file can say about it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Letter {
+    pub letter: char,
+    pub kind: LetterKind,
+    /// The tile's name in the tileset, or the thing's spawn name.
+    pub name: String,
+    /// What Duck Forge Studio calls it ("Start", "Coin"). `None` uses the
+    /// name.
+    pub label: Option<String>,
+    /// The level needs at least this many.
+    pub at_least: Option<u32>,
+    /// The level can have at most this many.
+    pub at_most: Option<u32>,
+    /// It's where the player starts.
+    pub start: bool,
+}
+
+impl Letter {
+    /// Its label, or its name with the first letter made big.
+    pub fn title(&self) -> String {
+        match &self.label {
+            Some(label) => label.clone(),
+            None => {
+                let mut chars = self.name.chars();
+                match chars.next() {
+                    Some(first) => first
+                        .to_uppercase()
+                        .chain(chars)
+                        .collect::<String>()
+                        .replace('_', " "),
+                    None => String::new(),
+                }
+            }
+        }
+    }
+}
+
+/// What a legend file says about a letter beyond its meaning.
+#[derive(Debug, Clone, Default)]
+struct Extra {
+    letter: char,
+    label: Option<String>,
+    at_least: Option<u32>,
+    at_most: Option<u32>,
+    start: bool,
+}
+
 /// What each letter of a level means. See the [module docs](self).
 #[derive(Debug, Clone, Default)]
 pub struct Legend {
     letters: Vec<(char, Meaning)>,
+    /// What a legend file says beyond the meaning (labels, rules).
+    extra: Vec<Extra>,
+    /// From a legend file: how big a tile is, and the tiles' sprite sheet.
+    tile_size: Option<f32>,
+    tiles: Option<PathBuf>,
 }
 
 impl Legend {
@@ -99,6 +203,190 @@ impl Legend {
     /// with [`TileMap::spawn`] or [`TileMap::spawns`]. Its tile is empty.
     pub fn spawn(self, letter: char, name: &str) -> Legend {
         self.with(letter, Meaning::Spawn(name.to_string()))
+    }
+
+    /// Reads a legend file (see the [module docs](self)). Errors say
+    /// what's wrong in plain words.
+    pub fn load(path: impl AsRef<Path>) -> Result<Legend, LoadError> {
+        let path = path.as_ref();
+        let text = crate::files::read_text(path)
+            .map_err(|error| crate::sprite::missing_file_error(path, "legend", &error))?;
+        let mut legend = Legend::from_json(&text).map_err(|message| {
+            LoadError::new(
+                io::ErrorKind::InvalidData,
+                format!("{}: {message}", path.display()),
+            )
+        })?;
+        if let Some(tiles) = &legend.tiles {
+            let folder = path.parent().unwrap_or(Path::new(""));
+            legend.tiles = Some(folder.join(tiles));
+        }
+        Ok(legend)
+    }
+
+    /// Reads a legend from JSON text, as in a legend file.
+    pub fn from_json(text: &str) -> Result<Legend, String> {
+        let value: Value =
+            serde_json::from_str(text).map_err(|error| format!("not valid JSON: {error}"))?;
+        let Value::Object(top) = value else {
+            return Err(String::from(
+                "a legend is a JSON object like {\"letters\": {\"#\": ...}}",
+            ));
+        };
+        if let Some(name) = top
+            .keys()
+            .find(|name| !["tile_size", "tiles", "letters"].contains(&name.as_str()))
+        {
+            return Err(format!(
+                "unknown field {name:?} (a legend has tile_size, tiles and letters)"
+            ));
+        }
+        let mut legend = Legend::new();
+        if let Some(size) = top.get("tile_size") {
+            match size.as_f64() {
+                Some(size) if size > 0.0 => legend.tile_size = Some(size as f32),
+                _ => {
+                    return Err(String::from(
+                        "\"tile_size\" must be a positive number, like 16",
+                    ));
+                }
+            }
+        }
+        if let Some(tiles) = top.get("tiles") {
+            let tiles = tiles
+                .as_str()
+                .ok_or("\"tiles\" names the tiles' sprite sheet, like \"assets/tiles.json\"")?;
+            legend.tiles = Some(PathBuf::from(tiles));
+        }
+        let Some(Value::Object(letters)) = top.get("letters") else {
+            return Err(String::from(
+                "a legend needs \"letters\": an object saying what each letter means",
+            ));
+        };
+        for (key, about) in letters {
+            let mut chars = key.chars();
+            let (Some(letter), None) = (chars.next(), chars.next()) else {
+                return Err(format!("{key:?}: each key is one letter"));
+            };
+            if letter == '.' || letter == ' ' {
+                return Err(format!(
+                    "{key:?} always means an empty tile; pick another letter"
+                ));
+            }
+            let Value::Object(about) = about else {
+                return Err(format!(
+                    "{key:?} needs an object like {{\"kind\": \"solid\", \"name\": \"grass\"}}"
+                ));
+            };
+            if let Some(field) = about.keys().find(|field| {
+                !["kind", "name", "label", "at_least", "at_most", "start"].contains(&field.as_str())
+            }) {
+                return Err(format!(
+                    "{key:?} has an unknown field {field:?} (allowed: kind, name, label, \
+                     at_least, at_most, start)"
+                ));
+            }
+            let name = about
+                .get("name")
+                .and_then(Value::as_str)
+                .ok_or_else(|| format!("{key:?} needs a \"name\""))?;
+            let kind = match about.get("kind").and_then(Value::as_str) {
+                Some("solid") => LetterKind::Solid,
+                Some("one_way") => LetterKind::OneWay,
+                Some("decoration") => LetterKind::Decoration,
+                Some("thing") => LetterKind::Thing,
+                other => {
+                    return Err(format!(
+                        "{key:?}: \"kind\" is {}, but it must be solid, one_way, decoration \
+                         or thing",
+                        other.map_or(String::from("missing"), |kind| format!("{kind:?}"))
+                    ));
+                }
+            };
+            let count = |field: &str| -> Result<Option<u32>, String> {
+                match about.get(field) {
+                    None => Ok(None),
+                    Some(value) => value
+                        .as_u64()
+                        .map(|n| Some(n as u32))
+                        .ok_or_else(|| format!("{key:?}: \"{field}\" must be a whole number")),
+                }
+            };
+            let label = match about.get("label") {
+                None => None,
+                Some(label) => Some(
+                    label
+                        .as_str()
+                        .ok_or_else(|| format!("{key:?}: \"label\" must be text"))?
+                        .to_string(),
+                ),
+            };
+            let start = about.get("start").and_then(Value::as_bool).unwrap_or(false);
+            if legend.letters.iter().any(|(l, _)| *l == letter) {
+                return Err(format!("the legend has {key:?} twice"));
+            }
+            let meaning = match kind {
+                LetterKind::Solid => Meaning::Tile(name.to_string(), TileKind::Solid),
+                LetterKind::OneWay => Meaning::Tile(name.to_string(), TileKind::OneWay),
+                LetterKind::Decoration => Meaning::Tile(name.to_string(), TileKind::Empty),
+                LetterKind::Thing => Meaning::Spawn(name.to_string()),
+            };
+            legend.letters.push((letter, meaning));
+            legend.extra.push(Extra {
+                letter,
+                label,
+                at_least: count("at_least")?,
+                at_most: count("at_most")?,
+                start,
+            });
+        }
+        Ok(legend)
+    }
+
+    /// Every letter it knows: the tiles (solid, one-way, decoration), then
+    /// the things, each in the order they were given (a legend file's in
+    /// the letters' order).
+    pub fn letters(&self) -> Vec<Letter> {
+        let mut letters: Vec<Letter> = self
+            .letters
+            .iter()
+            .map(|(letter, meaning)| {
+                let (kind, name) = match meaning {
+                    Meaning::Tile(name, TileKind::Solid) => (LetterKind::Solid, name),
+                    Meaning::Tile(name, TileKind::OneWay) => (LetterKind::OneWay, name),
+                    Meaning::Tile(name, TileKind::Empty) => (LetterKind::Decoration, name),
+                    Meaning::Spawn(name) => (LetterKind::Thing, name),
+                };
+                let extra = self
+                    .extra
+                    .iter()
+                    .find(|extra| extra.letter == *letter)
+                    .cloned()
+                    .unwrap_or_default();
+                Letter {
+                    letter: *letter,
+                    kind,
+                    name: name.clone(),
+                    label: extra.label,
+                    at_least: extra.at_least,
+                    at_most: extra.at_most,
+                    start: extra.start,
+                }
+            })
+            .collect();
+        letters.sort_by_key(|letter| letter.kind as u8); // stable: keeps the order within a kind
+        letters
+    }
+
+    /// The tile size a legend file gives, if it gives one.
+    pub fn tile_size(&self) -> Option<f32> {
+        self.tile_size
+    }
+
+    /// The sprite sheet with the tiles' pictures, if a legend file names
+    /// one (from the folder the game runs in).
+    pub fn tiles_file(&self) -> Option<&Path> {
+        self.tiles.as_deref()
     }
 
     fn with(mut self, letter: char, meaning: Meaning) -> Legend {
@@ -154,6 +442,65 @@ pub struct TileMap {
     tiles: Vec<(String, TileKind)>,
     /// Every spawn point: its name, and its tile's bottom centre.
     spawns: Vec<(String, Vec2)>,
+    /// What each letter means.
+    legend: Legend,
+    /// The files it was read from (the level, then its legend), named as
+    /// the engine names files: `examples/mygame/level.txt`.
+    files: Vec<String>,
+}
+
+/// Where the things called one name are added and taken away between two
+/// versions of a level: see [`TileMap::spawn_changes`].
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SpawnChanges {
+    pub added: Vec<Vec2>,
+    pub removed: Vec<Vec2>,
+}
+
+/// How a character jumps, for [`TileMap::reach`]: the same numbers a
+/// platformer's code uses (usually its `ctx.tune` values).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Jump {
+    /// How fast it leaves the ground, upwards (world units a second).
+    pub speed: f32,
+    /// How fast it falls faster (world units a second, a second).
+    pub gravity: f32,
+    /// How fast it runs (world units a second).
+    pub run: f32,
+}
+
+/// Where a character can get to in a level: see [`TileMap::reach`].
+#[derive(Debug, Clone, Default)]
+pub struct Reach {
+    tile_size: f32,
+    /// Every tile it can be in.
+    cells: HashSet<(i32, i32)>,
+}
+
+impl Reach {
+    /// Can it get to the thing at `point` (a spawn point: the bottom
+    /// centre of its tile)?
+    pub fn can_reach(&self, point: Vec2) -> bool {
+        let cell = (
+            (point.x / self.tile_size).floor() as i32,
+            ((point.y - 0.5) / self.tile_size).floor() as i32,
+        );
+        self.cells.contains(&cell)
+    }
+
+    /// Which of `points` it can't get to.
+    pub fn missing(&self, points: &[Vec2]) -> Vec<Vec2> {
+        points
+            .iter()
+            .copied()
+            .filter(|point| !self.can_reach(*point))
+            .collect()
+    }
+
+    /// Can it be in the tile at `column`, `row`?
+    pub fn has(&self, column: i32, row: i32) -> bool {
+        self.cells.contains(&(column, row))
+    }
 }
 
 /// How far inside a tile's edge something must be to count as in it: so
@@ -183,9 +530,297 @@ impl TileMap {
         legend: &Legend,
     ) -> Result<TileMap, LoadError> {
         let path = path.as_ref();
-        let text = fs::read_to_string(path)
+        let text = crate::files::read_text(path)
             .map_err(|error| crate::sprite::missing_file_error(path, "level", &error))?;
-        TileMap::read(&text, tile_size, legend, &format!("{} ", path.display()))
+        let mut map = TileMap::read(&text, tile_size, legend, &format!("{} ", path.display()))?;
+        map.files = vec![crate::files::name_of(path)];
+        Ok(map)
+    }
+
+    /// Reads a level and its legend from two files next to each other:
+    /// `level.txt` (the letters) and `level.legend.json` (what they mean,
+    /// and the tile size). See the [module docs](self).
+    ///
+    /// ```no_run
+    /// # use duckforge::prelude::*;
+    /// # fn main() -> Result<(), duckforge::LoadError> {
+    /// let map = TileMap::load_level("examples/mygame/level.txt")?;
+    /// let start = map.spawn("player");
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn load_level(path: impl AsRef<Path>) -> Result<TileMap, LoadError> {
+        let path = path.as_ref();
+        let legend_path = TileMap::legend_file_for(path);
+        let legend = Legend::load(&legend_path)?;
+        let tile_size = legend.tile_size.unwrap_or(16.0);
+        let mut map = TileMap::load(path, tile_size, &legend)?;
+        map.files.push(crate::files::name_of(&legend_path));
+        Ok(map)
+    }
+
+    /// The legend file that goes with a level file: `level.txt` has
+    /// `level.legend.json`.
+    pub fn legend_file_for(level: &Path) -> PathBuf {
+        let stem = level.file_stem().map_or(String::from("level"), |stem| {
+            stem.to_string_lossy().into_owned()
+        });
+        level.with_file_name(format!("{stem}.legend.json"))
+    }
+
+    /// Was this map read from `file` (its level or its legend file)? For a
+    /// game's [`reload`](crate::engine::Game::reload):
+    ///
+    /// ```ignore
+    /// fn reload(&mut self, ctx: &mut Context, file: &Path) -> bool {
+    ///     if !self.map.reads_from(file) {
+    ///         return false;
+    ///     }
+    ///     // read the level again, keeping the player where it is
+    /// }
+    /// ```
+    pub fn reads_from(&self, file: &Path) -> bool {
+        let name = crate::files::name_of(file);
+        self.files.contains(&name)
+    }
+
+    /// The files it was read from: the level, then its legend (empty for a
+    /// map made with [`parse`](TileMap::parse)).
+    pub fn files(&self) -> &[String] {
+        &self.files
+    }
+
+    /// What each letter means.
+    pub fn legend(&self) -> &Legend {
+        &self.legend
+    }
+
+    /// Where the things called `name` were added and taken away in
+    /// `newer`, a new version of this level. For a game's
+    /// [`reload`](crate::engine::Game::reload), to keep what's been
+    /// collected: take away the removed coins, add the new ones.
+    pub fn spawn_changes(&self, newer: &TileMap, name: &str) -> SpawnChanges {
+        let old = self.spawns(name);
+        let new = newer.spawns(name);
+        SpawnChanges {
+            added: new.iter().copied().filter(|at| !old.contains(at)).collect(),
+            removed: old.iter().copied().filter(|at| !new.contains(at)).collect(),
+        }
+    }
+
+    /// The legend's rules the level breaks, in plain words: "The level
+    /// needs at least 1 Flag; it has none." Empty if it keeps them all.
+    /// The rules are a legend file's `at_least` and `at_most`.
+    pub fn broken_rules(&self) -> Vec<String> {
+        let mut broken = Vec::new();
+        for letter in self.legend.letters() {
+            let count = match letter.kind {
+                LetterKind::Thing => self.spawns(&letter.name).len() as u32,
+                _ => {
+                    let tile = self.tiles.iter().position(|(name, _)| *name == letter.name);
+                    self.cells
+                        .iter()
+                        .filter(|cell| cell.is_some() && *cell == &tile)
+                        .count() as u32
+                }
+            };
+            let title = letter.title();
+            let has = match count {
+                0 => String::from("none"),
+                n => n.to_string(),
+            };
+            if let Some(least) = letter.at_least
+                && count < least
+            {
+                broken.push(format!(
+                    "The level needs at least {least} {title}; it has {has}."
+                ));
+            }
+            if let Some(most) = letter.at_most
+                && count > most
+            {
+                broken.push(format!(
+                    "The level can have at most {most} {title}; it has {has}."
+                ));
+            }
+        }
+        broken
+    }
+
+    /// Where a platformer's character can get to, starting with its feet
+    /// at `start`, running and jumping as `jump` says. It's cautious:
+    /// it tries jumps at a few speeds, left and right, and walking off
+    /// edges, following the arc a point would take. So something it can't
+    /// reach is *probably* out of reach: a warning to look at, not proof.
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// let legend = Legend::new().solid('#', "ground").spawn('c', "coin").spawn('p', "player");
+    /// let level = "c........\n.........\n.........\n.........\n.........\n.p......c\n#########";
+    /// let map = TileMap::parse(level, 16.0, &legend).unwrap();
+    /// // A jump about 60 pixels high, nearly four tiles.
+    /// let jump = Jump { speed: 330.0, gravity: 900.0, run: 110.0 };
+    /// let reach = map.reach(map.spawn("player"), jump);
+    /// let coins = map.spawns("coin");
+    /// assert!(!reach.can_reach(coins[0]), "five tiles up is too high");
+    /// assert!(reach.can_reach(coins[1]), "a walk away");
+    /// ```
+    pub fn reach(&self, start: Vec2, jump: Jump) -> Reach {
+        let size = self.tile_size;
+        let mut reach = Reach {
+            tile_size: size,
+            cells: HashSet::new(),
+        };
+        let Some(first) = self.land_below(start) else {
+            return reach;
+        };
+        let mut queue = vec![first];
+        let mut standing: HashSet<(i32, i32)> = HashSet::from([first]);
+        let fractions = [0.0, 0.25, 0.5, 0.75, 1.0];
+        while let Some((column, row)) = queue.pop() {
+            reach.cells.insert((column, row));
+            let feet = vec2((column as f32 + 0.5) * size, (row + 1) as f32 * size);
+            let mut landed = Vec::new();
+            for direction in [-1.0, 1.0] {
+                // Walking: to the next tile, or off the edge.
+                let next = (column + direction as i32, row);
+                if self.is_inside_column(next.0) && self.kind(next.0, next.1) != TileKind::Solid {
+                    if self.can_stand(next.0, next.1) {
+                        landed.push(next);
+                    } else {
+                        let edge = vec2(
+                            (column as f32 + 0.5 + direction * 0.5) * size + direction * 0.5,
+                            feet.y,
+                        );
+                        for fraction in fractions {
+                            let speed = vec2(direction * fraction * jump.run, 0.0);
+                            self.arc(edge, speed, jump.gravity, &mut reach, &mut landed);
+                        }
+                    }
+                }
+                // Jumping.
+                for fraction in fractions {
+                    if fraction == 0.0 && direction > 0.0 {
+                        continue; // straight up only once
+                    }
+                    let speed = vec2(direction * fraction * jump.run, -jump.speed);
+                    self.arc(feet, speed, jump.gravity, &mut reach, &mut landed);
+                }
+            }
+            for cell in landed {
+                if standing.insert(cell) {
+                    queue.push(cell);
+                }
+            }
+        }
+        reach
+    }
+
+    /// Where a top-down character can walk to from `start`: every tile
+    /// that isn't solid, joined to it up, down, left or right.
+    pub fn reach_on_foot(&self, start: Vec2) -> Reach {
+        let size = self.tile_size;
+        let mut reach = Reach {
+            tile_size: size,
+            cells: HashSet::new(),
+        };
+        let first = self.cell_at(vec2(start.x, start.y - 0.5));
+        let mut queue = vec![first];
+        while let Some((column, row)) = queue.pop() {
+            let inside = self.is_inside_column(column) && row >= 0 && (row as usize) < self.rows;
+            if !inside
+                || self.kind(column, row) == TileKind::Solid
+                || !reach.cells.insert((column, row))
+            {
+                continue;
+            }
+            queue.extend([
+                (column - 1, row),
+                (column + 1, row),
+                (column, row - 1),
+                (column, row + 1),
+            ]);
+        }
+        reach
+    }
+
+    fn is_inside_column(&self, column: i32) -> bool {
+        column >= 0 && (column as usize) < self.columns
+    }
+
+    /// Something can stand in this tile: it isn't solid, and the one below
+    /// is solid or a one-way platform.
+    fn can_stand(&self, column: i32, row: i32) -> bool {
+        self.kind(column, row) != TileKind::Solid
+            && matches!(
+                self.kind(column, row + 1),
+                TileKind::Solid | TileKind::OneWay
+            )
+    }
+
+    /// The tile something with its feet at `feet` comes to stand in, after
+    /// falling straight down if it must.
+    fn land_below(&self, feet: Vec2) -> Option<(i32, i32)> {
+        let (column, mut row) = self.cell_at(vec2(feet.x, feet.y - 0.5));
+        while (row as usize) < self.rows + 1 && row >= -1 {
+            if self.can_stand(column, row) {
+                return Some((column, row));
+            }
+            row += 1;
+        }
+        None
+    }
+
+    /// Follows a point thrown from `from` at `speed`, marking every tile a
+    /// character there would be in, until it lands (the tile goes in
+    /// `landed`), hits something solid, or falls out of the level.
+    fn arc(
+        &self,
+        from: Vec2,
+        speed: Vec2,
+        gravity: f32,
+        reach: &mut Reach,
+        landed: &mut Vec<(i32, i32)>,
+    ) {
+        let size = self.tile_size;
+        let dt = 1.0 / 120.0;
+        let bottom = (self.rows + 1) as f32 * size;
+        let mut previous = from;
+        for step in 1..=600 {
+            let t = step as f32 * dt;
+            let at = vec2(
+                from.x + speed.x * t,
+                from.y + speed.y * t + gravity * t * t / 2.0,
+            );
+            // Going down across the top of a tile it can land on: landed.
+            if at.y > previous.y {
+                let top_row = (at.y / size).floor() as i32;
+                if (previous.y / size).floor() as i32 != top_row {
+                    let column = (at.x / size).floor() as i32;
+                    if matches!(
+                        self.kind(column, top_row),
+                        TileKind::Solid | TileKind::OneWay
+                    ) && self.kind(column, top_row - 1) != TileKind::Solid
+                    {
+                        reach.cells.insert((column, top_row - 1));
+                        landed.push((column, top_row - 1));
+                        return;
+                    }
+                }
+            }
+            let (column, row) = self.cell_at(vec2(at.x, at.y - 0.5));
+            let head = self.cell_at(vec2(at.x, at.y - size * 0.8));
+            if !self.is_inside_column(column)
+                || self.kind(column, row) == TileKind::Solid
+                || self.kind(head.0, head.1) == TileKind::Solid
+                || at.y > bottom
+            {
+                return;
+            }
+            reach.cells.insert((column, row));
+            reach.cells.insert(head);
+            previous = at;
+        }
     }
 
     fn read(
@@ -217,6 +852,8 @@ impl TileMap {
             cells: vec![None; columns * rows],
             tiles: Vec::new(),
             spawns: Vec::new(),
+            legend: legend.clone(),
+            files: Vec::new(),
         };
         for (row, line) in lines.iter().enumerate() {
             for (column, letter) in line.chars().enumerate() {
@@ -513,6 +1150,24 @@ impl TileMap {
         )
     }
 
+    /// Tells the canvas where this map is on screen, for tools (Duck Forge
+    /// Studio puts its grid there in Build mode), without drawing it.
+    /// [`draw`](TileMap::draw) does this itself; call it in a game that
+    /// draws its own tiles, between `push_camera` and `pop_camera`.
+    pub fn mark_drawn(&self, canvas: &mut Canvas) {
+        let view = canvas.view();
+        let corner = view.apply(Vec2::ZERO);
+        canvas.note_map(crate::canvas::DrawnMap {
+            file: self.files.first().cloned().unwrap_or_default(),
+            x: corner.x,
+            y: corner.y,
+            scale: view.apply(vec2(1.0, 0.0)).x - corner.x,
+            tile_size: self.tile_size,
+            columns: self.columns,
+            rows: self.rows,
+        });
+    }
+
     /// Draws the map's tiles with `tiles`, at `time` seconds (the game's
     /// time, kept in `update`: it moves animated tiles like water). Call it
     /// between `push_camera` and `pop_camera`, like the rest of the world.
@@ -531,6 +1186,7 @@ impl TileMap {
         canvas.label("map", self.bounds());
         let (columns, rows) = self.visible_cells(canvas);
         let view = canvas.view();
+        self.mark_drawn(canvas);
         canvas.set_view(crate::camera::View::SCREEN);
         // Tile edges in whole screen pixels, shared by neighbours.
         let edge_x =
@@ -567,6 +1223,8 @@ impl TileMap {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+
     use crate::camera::Camera2D;
     use crate::color::Color;
     use crate::sprite::{Animation, Sprite};
@@ -606,6 +1264,150 @@ p...===..
         // Rows can be shorter than the longest: the rest is empty.
         let ragged = TileMap::parse("#\n###", 8.0, &legend()).unwrap();
         assert_eq!((ragged.columns(), ragged.tile_at(2, 0)), (3, None));
+    }
+
+    const LEGEND_FILE: &str = r##"{
+  "tile_size": 8,
+  "tiles": "assets/tiles.json",
+  "letters": {
+    "#": {"kind": "solid", "name": "ground"},
+    "=": {"kind": "one_way", "name": "plank"},
+    "p": {"kind": "thing", "name": "player", "label": "Start", "at_least": 1, "at_most": 1, "start": true},
+    "c": {"kind": "thing", "name": "coin"},
+    "g": {"kind": "thing", "name": "flag", "at_least": 1}
+  }
+}"##;
+
+    #[test]
+    fn a_level_and_its_legend_are_read_from_two_files() {
+        let folder = std::env::temp_dir().join(format!("duckforge-level-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let level = folder.join("level.txt");
+        std::fs::write(&level, "p.c.\n####\n").unwrap();
+        std::fs::write(folder.join("level.legend.json"), LEGEND_FILE).unwrap();
+
+        let map = TileMap::load_level(&level).unwrap();
+        assert_eq!(map.tile_size(), 8.0, "from the legend file");
+        assert_eq!(map.spawn("player"), vec2(4.0, 8.0));
+        assert_eq!(map.files().len(), 2);
+        assert!(map.reads_from(&level));
+        assert!(map.reads_from(&folder.join("level.legend.json")));
+        assert!(!map.reads_from(&folder.join("other.txt")));
+        assert_eq!(
+            map.legend().tiles_file(),
+            Some(folder.join("assets/tiles.json").as_path())
+        );
+        let letters = map.legend().letters();
+        let kinds: Vec<char> = letters.iter().map(|l| l.letter).collect();
+        assert_eq!(kinds, ['#', '=', 'c', 'g', 'p'], "tiles first, then things");
+        let start = &letters[4];
+        assert_eq!(
+            (start.letter, start.kind, start.title()),
+            ('p', LetterKind::Thing, String::from("Start"))
+        );
+        assert!(start.start);
+        assert_eq!(
+            letters[2].title(),
+            "Coin",
+            "no label: the name, with a capital"
+        );
+
+        // The rules: one Start, at least one flag.
+        assert_eq!(
+            map.broken_rules(),
+            ["The level needs at least 1 Flag; it has none."]
+        );
+        let two_starts = TileMap::parse("p.pg\n####", 8.0, map.legend()).unwrap();
+        assert_eq!(
+            two_starts.broken_rules(),
+            ["The level can have at most 1 Start; it has 2."]
+        );
+
+        // What a new version adds and takes away.
+        let newer = TileMap::parse("p..c\n####", 8.0, map.legend()).unwrap();
+        let changes = map.spawn_changes(&newer, "coin");
+        assert_eq!(changes.added, [vec2(28.0, 8.0)]);
+        assert_eq!(changes.removed, [vec2(20.0, 8.0)]);
+
+        let error = Legend::from_json(r##"{"letters": {"#": {"kind": "rock", "name": "x"}}}"##)
+            .unwrap_err();
+        assert!(
+            error.contains("must be solid, one_way, decoration or thing"),
+            "{error}"
+        );
+        let error = Legend::from_json(r###"{"letters": {"##": {"kind": "solid", "name": "x"}}}"###)
+            .unwrap_err();
+        assert!(error.contains("one letter"), "{error}");
+        std::fs::remove_dir_all(folder).unwrap();
+    }
+
+    #[test]
+    fn reach_follows_jumps_and_falls() {
+        let legend = Legend::new()
+            .solid('#', "ground")
+            .one_way('=', "plank")
+            .spawn('p', "player")
+            .spawn('c', "coin");
+        let jump = Jump {
+            speed: 330.0,
+            gravity: 900.0,
+            run: 110.0,
+        };
+        // A jump of about 60 pixels: three tiles up is fine, five isn't.
+        let map = TileMap::parse(
+            "\
+c.........c
+...........
+...........
+.....c.....
+...........
+...........
+.p.........
+###########",
+            16.0,
+            &legend,
+        )
+        .unwrap();
+        let reach = map.reach(map.spawn("player"), jump);
+        let coins = map.spawns("coin");
+        assert!(reach.can_reach(coins[2]), "three tiles up");
+        assert_eq!(
+            reach.missing(&coins),
+            [coins[0], coins[1]],
+            "seven tiles up"
+        );
+
+        // A plank three tiles up is a step: from it, the high coin.
+        let map = TileMap::parse(
+            "\
+...c.......
+...........
+...........
+...........
+..===......
+...........
+.p.........
+###########",
+            16.0,
+            &legend,
+        )
+        .unwrap();
+        let reach = map.reach(map.spawn("player"), jump);
+        assert!(reach.can_reach(map.spawn("coin")));
+
+        // A gap three tiles wide can be jumped; seven can't.
+        let map =
+            TileMap::parse(".p.....c...........c\n####...####.......##", 16.0, &legend).unwrap();
+        let reach = map.reach(map.spawn("player"), jump);
+        let coins = map.spawns("coin");
+        assert!(reach.can_reach(coins[0]));
+        assert!(!reach.can_reach(coins[1]));
+
+        // On foot (top-down): walls stop it.
+        let map = TileMap::parse("p.#c\n..#.\n####", 16.0, &legend).unwrap();
+        let reach = map.reach_on_foot(map.spawn("player"));
+        assert!(!reach.can_reach(map.spawn("coin")));
+        assert!(reach.has(1, 1));
     }
 
     #[test]

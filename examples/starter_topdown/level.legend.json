@@ -1,0 +1,9 @@
+{
+  "tile_size": 16,
+  "letters": {
+    "#": {"kind": "solid", "name": "wall", "label": "Wall"},
+    "p": {"kind": "thing", "name": "player", "label": "Start", "at_least": 1, "at_most": 1, "start": true},
+    "c": {"kind": "thing", "name": "coin", "label": "Coin", "at_least": 1},
+    "e": {"kind": "thing", "name": "enemy", "label": "Enemy"}
+  }
+}

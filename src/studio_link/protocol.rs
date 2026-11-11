@@ -17,6 +17,9 @@ use std::io::{self, Read, Write};
 
 use serde_json::{Value, json};
 
+use std::collections::BTreeMap;
+
+pub use crate::canvas::DrawnMap;
 use crate::script::{InputEvent, event_json, parse_event};
 
 /// The version of these messages. The game and the Studio must agree.
@@ -54,6 +57,12 @@ pub enum ToGame {
     /// Draw the debug overlay (F1) on the pictures from now on, or stop.
     /// It's drawn on top, so the game itself isn't changed by it.
     Overlay { debug: bool },
+    /// A file the game read has new text (a level painted in Build mode):
+    /// the game reads it again now, between two updates. The game answers
+    /// with [`ToStudio::Changed`].
+    File { path: String, text: String },
+    /// New `ctx.tune` values (Feel), from now on.
+    Tune { values: BTreeMap<String, f32> },
     /// A question: `"recording"` asks for everything done so far as an
     /// input script.
     Ask { id: u64, what: String },
@@ -89,6 +98,8 @@ pub struct Frame {
     pub wants_pointer: bool,
     /// What drew the 3D: the CPU, or the graphics card's name.
     pub renderer: String,
+    /// Where tile maps were drawn on it (for Build mode's grid).
+    pub maps: Vec<DrawnMap>,
     /// The pixels, row by row, each `0x00RRGGBB`.
     pub pixels: Vec<u32>,
 }
@@ -110,6 +121,12 @@ pub enum ToStudio {
     Window {
         open: bool,
         frame: u64,
+    },
+    /// The game took a changed file (`reloaded`), or can't without
+    /// starting again.
+    Changed {
+        path: String,
+        reloaded: bool,
     },
     /// The game is ending, and why: `"quit"` (the game asked to),
     /// `"asked"` (the Studio asked), or a problem in words.
@@ -216,6 +233,8 @@ impl ToGame {
             } => json!({"run": id, "updates": updates, "script": script}).to_string(),
             ToGame::Window { open } => json!({"window": open}).to_string(),
             ToGame::Overlay { debug } => json!({"overlay": {"debug": debug}}).to_string(),
+            ToGame::File { path, text } => json!({"file": path, "text": text}).to_string(),
+            ToGame::Tune { values } => json!({"tune": values}).to_string(),
             ToGame::Ask { id, what } => json!({"ask": id, "what": what}).to_string(),
             ToGame::Quit => json!({"quit": true}).to_string(),
         };
@@ -251,6 +270,18 @@ impl ToGame {
             }
         } else if let Some(open) = value.get("window").and_then(Value::as_bool) {
             ToGame::Window { open }
+        } else if let Some(path) = value.get("file").and_then(Value::as_str) {
+            ToGame::File {
+                path: path.to_string(),
+                text: text_of(&value, "text")?,
+            }
+        } else if let Some(Value::Object(values)) = value.get("tune") {
+            ToGame::Tune {
+                values: values
+                    .iter()
+                    .filter_map(|(name, value)| Some((name.clone(), value.as_f64()? as f32)))
+                    .collect(),
+            }
         } else if let Some(overlay) = value.get("overlay") {
             ToGame::Overlay {
                 debug: overlay["debug"].as_bool().unwrap_or(false),
@@ -288,6 +319,9 @@ impl ToStudio {
             }
             ToStudio::Note(text) => json!({"note": text}),
             ToStudio::Window { open, frame } => json!({"window": open, "frame": frame}),
+            ToStudio::Changed { path, reloaded } => {
+                json!({"changed": path, "reloaded": reloaded})
+            }
             ToStudio::Bye { why } => json!({"bye": why}),
         }
         .to_string();
@@ -329,6 +363,11 @@ impl ToStudio {
                 open,
                 frame: number_of(&value, "frame")?,
             }
+        } else if let Some(path) = value.get("changed").and_then(Value::as_str) {
+            ToStudio::Changed {
+                path: path.to_string(),
+                reloaded: value["reloaded"].as_bool().unwrap_or(false),
+            }
         } else if value.get("bye").is_some() {
             ToStudio::Bye {
                 why: text_of(&value, "bye")?,
@@ -352,6 +391,15 @@ impl Frame {
             "draw_us": self.draw_micros,
             "pointer": self.wants_pointer,
             "renderer": self.renderer,
+            "maps": self.maps.iter().map(|map| json!({
+                "file": map.file,
+                "x": map.x,
+                "y": map.y,
+                "scale": map.scale,
+                "tile": map.tile_size,
+                "columns": map.columns,
+                "rows": map.rows,
+            })).collect::<Vec<_>>(),
         })
         .to_string()
     }
@@ -399,6 +447,22 @@ impl Frame {
             draw_micros: number_of(&header, "draw_us")? as u32,
             wants_pointer: header["pointer"].as_bool().unwrap_or(false),
             renderer: text_of(&header, "renderer")?,
+            maps: header["maps"]
+                .as_array()
+                .map(|maps| {
+                    maps.iter()
+                        .map(|map| DrawnMap {
+                            file: map["file"].as_str().unwrap_or_default().to_string(),
+                            x: map["x"].as_f64().unwrap_or(0.0) as f32,
+                            y: map["y"].as_f64().unwrap_or(0.0) as f32,
+                            scale: map["scale"].as_f64().unwrap_or(1.0) as f32,
+                            tile_size: map["tile"].as_f64().unwrap_or(16.0) as f32,
+                            columns: map["columns"].as_u64().unwrap_or(0) as usize,
+                            rows: map["rows"].as_u64().unwrap_or(0) as usize,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
             pixels,
         })
     }
@@ -457,6 +521,13 @@ mod tests {
         });
         there_and_back_to_game(ToGame::Window { open: true });
         there_and_back_to_game(ToGame::Overlay { debug: true });
+        there_and_back_to_game(ToGame::File {
+            path: String::from("examples/a/level.txt"),
+            text: String::from("p.\"\n##\n"),
+        });
+        there_and_back_to_game(ToGame::Tune {
+            values: BTreeMap::from([(String::from("jump_speed"), 380.5)]),
+        });
         there_and_back_to_game(ToGame::Ask {
             id: 3,
             what: String::from("recording"),
@@ -484,8 +555,21 @@ mod tests {
             draw_micros: 3100,
             wants_pointer: true,
             renderer: String::from("CPU"),
+            maps: vec![DrawnMap {
+                file: String::from("examples/a/level.txt"),
+                x: -32.0,
+                y: 0.0,
+                scale: 1.0,
+                tile_size: 16.0,
+                columns: 80,
+                rows: 15,
+            }],
             pixels: vec![0, 0x00FF_FFFF, 0x0012_3456, 1, 2, 3],
         }));
+        there_and_back_to_studio(ToStudio::Changed {
+            path: String::from("examples/a/level.txt"),
+            reloaded: true,
+        });
         there_and_back_to_studio(ToStudio::Answer {
             id: 3,
             what: String::from("recording"),

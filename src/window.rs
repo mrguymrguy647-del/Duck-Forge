@@ -321,14 +321,11 @@ pub(crate) fn run<G: Game>(
             title = wanted;
         }
 
-        // Pick up edits to the tune file, twice a second.
+        // Pick up edits to the tune file and the files the game read
+        // (its level), twice a second.
         if last_tune_check.elapsed().as_secs_f32() >= 0.5 {
             last_tune_check = Instant::now();
-            match sim.tunes_mut().reload_if_changed() {
-                Some(Ok(message)) => println!("duckforge: {message}"),
-                Some(Err(problem)) => println!("duckforge: {problem}; keeping the old values"),
-                None => {}
-            }
+            pick_up_edits(&mut sim);
         }
 
         // Don't run faster than `target_fps`: wait out the rest of the frame.
@@ -368,6 +365,31 @@ fn pump(event_loop: &mut EventLoop<()>, screen: &mut Screen, patience: Duration)
         event_loop.pump_app_events(Some(patience), screen),
         PumpStatus::Exit(_)
     )
+}
+
+/// Takes in edits made while the game runs: the tune file's values, and
+/// the files the game read (its level). Each is a change the recording
+/// keeps on its frame, so a replay plays out the same.
+fn pick_up_edits<G: Game>(sim: &mut Simulation<G>) {
+    match sim.tunes_mut().reload_if_changed() {
+        Some(Ok(message)) => {
+            println!("duckforge: {message}");
+            let changed = sim.tunes_mut().differences_from_file();
+            sim.change_tunes(changed);
+        }
+        Some(Err(problem)) => println!("duckforge: {problem}; keeping the old values"),
+        None => {}
+    }
+    for (name, text) in crate::files::changed_on_disk() {
+        if sim.change_file(&name, &text) {
+            println!("duckforge: {name} changed; the game read it again");
+        } else {
+            println!(
+                "duckforge: {name} changed, but this game only reads it when it starts \
+                 (it has no reload): start it again to see the change"
+            );
+        }
+    }
 }
 
 /// Opens the game's window, or says why it couldn't.

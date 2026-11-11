@@ -175,6 +175,7 @@ fn send_picture<G: Game>(
         draw_micros,
         wants_pointer: sim.context().pointer_locked(),
         renderer: sim.context().renderer_name().to_string(),
+        maps: sim.drawn_maps().to_vec(),
         pixels: Vec::new(),
     };
     header.write_with(&mut link.writer, sim.picture().pixels())
@@ -359,6 +360,11 @@ pub(crate) fn run<G: Game>(
                 }
             }
             ToGame::Overlay { debug } => sim.set_debug_overlay(debug),
+            ToGame::File { path, text } => {
+                let reloaded = sim.change_file(&path, &text);
+                link.send(&ToStudio::Changed { path, reloaded })?;
+            }
+            ToGame::Tune { values } => sim.change_tunes(values),
             ToGame::Ask { id, what } => {
                 let text = match what.as_str() {
                     "recording" => sim.recording().to_json(),

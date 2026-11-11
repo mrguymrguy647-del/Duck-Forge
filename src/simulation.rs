@@ -12,7 +12,7 @@ use crate::math::Vec2;
 use crate::render3d::Renderer;
 use crate::report::{FrameReport, ReportLog, ReportValue};
 use crate::scene::{Scene, SceneCamera};
-use crate::script::{InputAction, InputEvent, InputScript};
+use crate::script::{Change, ChangeEvent, InputAction, InputEvent, InputScript};
 use crate::sound::{LoopCommand, PlayedLoop, PlayedSound, SAMPLE_RATE};
 
 /// Keys the engine itself uses in a window (FPS counter, recording,
@@ -83,8 +83,20 @@ pub struct Simulation<G> {
     updates_per_second: Option<u32>,
     /// Every input change so far, for [`recording`](Simulation::recording).
     history: Vec<InputEvent>,
+    /// Every file and tune change so far, for the recording too.
+    changes: Vec<ChangeEvent>,
     /// A script being replayed, and how many of its events are done.
     script: Option<(InputScript, usize)>,
+    /// How many of the script's changes are done.
+    script_changes_done: usize,
+    /// Files a replay gives other text than the game read when it was
+    /// made: the game reads them again before the first update.
+    reload_first: Vec<String>,
+    /// What went wrong giving the game a replay's files, for the summary.
+    replay_warnings: Vec<String>,
+    _forget_given_files: ForgetGivenFiles,
+    /// Where tile maps were drawn in the last picture.
+    drawn_maps: Vec<crate::canvas::DrawnMap>,
     /// What the game has reported with `ctx.report`.
     reports: ReportLog,
     /// Every sound the game played (in a window, only those not yet sent
@@ -118,6 +130,17 @@ pub struct Simulation<G> {
     idle: Vec<(u64, u64)>,
     /// Whether the game's `quit` has run.
     finished: bool,
+}
+
+/// The text a run gave the game instead of what's on disk (from the Studio,
+/// or a replay's files) is forgotten when the run ends, so the next game
+/// started on this thread reads the disk again.
+struct ForgetGivenFiles;
+
+impl Drop for ForgetGivenFiles {
+    fn drop(&mut self) {
+        crate::files::forget_given();
+    }
 }
 
 impl<G: Game> Simulation<G> {
@@ -181,7 +204,13 @@ impl<G: Game> Simulation<G> {
                 Timestep::RealTime => None,
             },
             history: Vec::new(),
+            changes: Vec::new(),
             script: None,
+            script_changes_done: 0,
+            reload_first: Vec::new(),
+            replay_warnings: Vec::new(),
+            _forget_given_files: ForgetGivenFiles,
+            drawn_maps: Vec::new(),
             reports: ReportLog {
                 keep_changes: true,
                 ..ReportLog::default()
@@ -288,6 +317,14 @@ impl<G: Game> Simulation<G> {
         if !self.initialized {
             self.initialized = true;
             self.game.init(&mut self.ctx);
+        }
+        for name in std::mem::take(&mut self.reload_first) {
+            if !self.game.reload(&mut self.ctx, std::path::Path::new(&name)) {
+                self.replay_warnings.push(format!(
+                    "{name} was different when this was recorded, and the game can't read it \
+                     again while it runs (it has no reload), so the replay may not match"
+                ));
+            }
         }
         self.apply_script_events();
         self.ctx.begin_frame(dt, self.keys_down.iter().copied());
@@ -513,18 +550,92 @@ impl<G: Game> Simulation<G> {
     /// block) are used too, over the game's tune file and its code, so the
     /// game plays out as it was recorded. `--set` and `--tune FILE` still
     /// win; the summary marks the values that came from the recording.
+    ///
+    /// The files the script was recorded with (its `"files"`) are given to
+    /// the game instead of what's on disk; a file the game has already read
+    /// with other text is read again (its [`reload`](Game::reload)) before
+    /// the first update. Its file and tune changes happen on their frames.
     pub fn follow(&mut self, script: InputScript) {
         if let Some(tune) = &script.tune {
             self.ctx.tunes_mut().use_recording(tune);
         }
+        self.reload_first = crate::files::start_with(&script.files);
         self.script = Some((script, 0));
+        self.script_changes_done = 0;
+    }
+
+    /// A text file the game read has new text: from now on it reads that,
+    /// and its [`reload`](Game::reload) hook is called now, between two
+    /// updates. Returns what `reload` said: `false` if the game can't take
+    /// the change without starting again.
+    ///
+    /// The change is kept in the [`recording`](Simulation::recording), on
+    /// the coming frame, so a replay makes it at the same moment. Duck
+    /// Forge Studio and the window (when a file changes on disk) use this.
+    pub fn change_file(&mut self, name: &str, text: &str) -> bool {
+        self.changes.push(ChangeEvent {
+            frame: self.ctx.frame() + 1,
+            change: Change::File {
+                path: name.to_string(),
+                text: text.to_string(),
+            },
+        });
+        self.make_file_change(name, text)
+    }
+
+    /// Changes `ctx.tune` values from now on (Duck Forge Studio's Feel).
+    /// Kept in the recording, like [`change_file`](Simulation::change_file).
+    pub fn change_tunes(&mut self, values: std::collections::BTreeMap<String, f32>) {
+        if values.is_empty() {
+            return;
+        }
+        self.changes.push(ChangeEvent {
+            frame: self.ctx.frame() + 1,
+            change: Change::Tune(values.clone()),
+        });
+        for (name, value) in values {
+            self.ctx.tunes_mut().change(&name, value);
+        }
+    }
+
+    fn make_file_change(&mut self, name: &str, text: &str) -> bool {
+        crate::files::give(name, text);
+        if !self.initialized {
+            self.initialized = true;
+            self.game.init(&mut self.ctx);
+        }
+        let reloaded = self.game.reload(&mut self.ctx, std::path::Path::new(name));
+        self.collect_what_the_game_did();
+        self.drawn_frame = None; // the game may look different now
+        reloaded
+    }
+
+    /// Where tile maps were drawn in the last picture (see
+    /// [`TileMap::mark_drawn`](crate::tilemap::TileMap::mark_drawn)).
+    #[cfg_attr(not(feature = "studio"), allow(dead_code))] // the Studio's link uses it
+    pub(crate) fn drawn_maps(&self) -> &[crate::canvas::DrawnMap] {
+        &self.drawn_maps
+    }
+
+    /// What went wrong giving the game a replay's files: a file that was
+    /// different when the script was recorded, in a game with no reload.
+    pub fn replay_warnings(&self) -> &[String] {
+        &self.replay_warnings
+    }
+
+    /// The names of the text files the game has read through the engine
+    /// (its level and legend, say), as `examples/mygame/level.txt`.
+    pub fn files_read(&self) -> Vec<String> {
+        crate::files::names()
     }
 
     /// Is a script being replayed, with events or frames still to come?
     pub fn is_replaying(&self) -> bool {
         match &self.script {
             Some((script, done)) => {
-                *done < script.events.len() || self.ctx.frame() < script.frames.unwrap_or(0)
+                *done < script.events.len()
+                    || self.script_changes_done < script.changes.len()
+                    || self.ctx.frame() < script.frames.unwrap_or(0)
             }
             None => false,
         }
@@ -539,12 +650,8 @@ impl<G: Game> Simulation<G> {
             .reports()
             .map(|(name, value)| (name.to_string(), value.clone()))
             .collect();
-        let tuned: std::collections::BTreeMap<String, f32> = self
-            .tunes()
-            .used()
-            .into_iter()
-            .map(|(name, value, _)| (name, value))
-            .collect();
+        // As they were on frame 1: the changes come after, on their frames.
+        let tuned = self.tunes().at_start();
         InputScript {
             seed: Some(self.seed),
             updates_per_second: self.updates_per_second,
@@ -552,15 +659,43 @@ impl<G: Game> Simulation<G> {
             events: self.history.clone(),
             expect: (!reported.is_empty()).then_some(reported),
             tune: (!tuned.is_empty()).then_some(tuned),
+            files: crate::files::first_texts(),
+            changes: self.changes.clone(),
         }
     }
 
-    /// Does the script's events that are due by the coming frame.
+    /// Does the script's changes and events that are due by the coming
+    /// frame: the changes first.
     fn apply_script_events(&mut self) {
+        let coming_frame = self.ctx.frame() + 1;
+        let mut changes = Vec::new();
+        if let Some((script, _)) = &self.script {
+            while let Some(change) = script.changes.get(self.script_changes_done) {
+                if change.frame > coming_frame {
+                    break;
+                }
+                changes.push(change.clone());
+                self.script_changes_done += 1;
+            }
+        }
+        for change in changes {
+            match &change.change {
+                Change::File { path, text } => {
+                    // A game that couldn't take the change when it was
+                    // made can't now either: the same thing happens.
+                    self.make_file_change(path, text);
+                }
+                Change::Tune(values) => {
+                    for (name, value) in values {
+                        self.ctx.tunes_mut().change(name, *value);
+                    }
+                }
+            }
+            self.changes.push(change);
+        }
         let Some((script, done)) = &mut self.script else {
             return;
         };
-        let coming_frame = self.ctx.frame() + 1;
         let mut due = Vec::new();
         while let Some(event) = script.events.get(*done) {
             if event.frame > coming_frame {
@@ -982,6 +1117,7 @@ impl<G: Game> Simulation<G> {
         self.canvas.reset_view(); // so the engine's own drawing is in screen pixels
         let camera = self.canvas.take_frame_camera();
         let (labels, texts) = self.canvas.take_scene();
+        self.drawn_maps = self.canvas.take_maps();
         self.scene = Scene {
             frame: self.ctx.frame(),
             camera: camera.as_ref().map(|c| SceneCamera {
@@ -1497,6 +1633,101 @@ mod tests {
         sim.move_mouse(vec2(1.0, 1.0)); // same place
         sim.scroll(0.0);
         assert_eq!(sim.recording().events.len(), 2);
+    }
+
+    /// A game with a level from two files, that takes changes to them.
+    struct Leveled {
+        path: std::path::PathBuf,
+        map: crate::tilemap::TileMap,
+        x: f32,
+        reloads: u32,
+    }
+
+    impl Leveled {
+        fn new(path: &std::path::Path) -> Leveled {
+            Leveled {
+                path: path.to_path_buf(),
+                map: crate::tilemap::TileMap::load_level(path).unwrap(),
+                x: 0.0,
+                reloads: 0,
+            }
+        }
+    }
+
+    impl Game for Leveled {
+        fn update(&mut self, ctx: &mut Context) {
+            // Walks right faster where the level has more coins.
+            self.x += self.map.spawns("coin").len() as f32 * ctx.tune("speed", 1.0);
+            ctx.report("x", self.x);
+        }
+        fn draw(&self, _: &mut Canvas) {}
+        fn reload(&mut self, _: &mut Context, file: &std::path::Path) -> bool {
+            if !self.map.reads_from(file) {
+                return false;
+            }
+            self.map = crate::tilemap::TileMap::load_level(&self.path).unwrap();
+            self.reloads += 1;
+            true
+        }
+    }
+
+    #[test]
+    fn changes_while_running_are_replayed_on_their_frame() {
+        let folder = std::env::temp_dir().join(format!("duckforge-changes-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let level = folder.join("level.txt");
+        std::fs::write(&level, "c....\n#####").unwrap();
+        std::fs::write(
+            folder.join("level.legend.json"),
+            r##"{"letters": {"#": {"kind": "solid", "name": "ground"}, "c": {"kind": "thing", "name": "coin"}}}"##,
+        )
+        .unwrap();
+        let name = crate::files::name_of(&level);
+
+        let mut sim = Simulation::new(Config::default(), Leveled::new(&level));
+        sim.run(10);
+        assert!(sim.change_file(&name, "c.c.c\n#####"), "the game took it");
+        assert_eq!(sim.game().reloads, 1);
+        assert!(!sim.change_file("somewhere/else.txt", "x"), "not its file");
+        sim.run(5);
+        sim.change_tunes(std::collections::BTreeMap::from([(
+            String::from("speed"),
+            2.0,
+        )]));
+        sim.run(5);
+        // 10 frames at 1, 5 at 3, 5 at 3 x 2.
+        assert_eq!(sim.game().x, 10.0 + 15.0 + 30.0);
+        let recording = sim.recording();
+        assert_eq!(recording.files[&name], "c....\n#####", "as on frame 1");
+        assert_eq!(
+            recording.tune.as_ref().unwrap()["speed"],
+            1.0,
+            "as on frame 1"
+        );
+        assert_eq!(recording.changes.len(), 3);
+        assert_eq!(recording.changes[0].frame, 11);
+        assert_eq!(recording.changes[2].frame, 16);
+        let text = recording.to_json();
+        drop(sim);
+
+        // Replayed with something else on disk: the same game.
+        std::fs::write(&level, "ccccc\n#####").unwrap();
+        let script = InputScript::parse(&text).unwrap();
+        let mut replay = Simulation::new(Config::default(), Leveled::new(&level));
+        replay.follow(script);
+        replay.run(20);
+        assert_eq!(replay.game().x, 55.0);
+        assert!(
+            replay.replay_warnings().is_empty(),
+            "{:?}",
+            replay.replay_warnings()
+        );
+        assert_eq!(replay.recording().changes, recording.changes);
+        drop(replay);
+
+        // After the run, the disk is read again.
+        assert_eq!(Leveled::new(&level).map.spawns("coin").len(), 5);
+        std::fs::remove_dir_all(folder).unwrap();
     }
 
     #[test]

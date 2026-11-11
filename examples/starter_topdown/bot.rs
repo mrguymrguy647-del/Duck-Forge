@@ -65,7 +65,11 @@ fn next_step_to_a_coin(game: &TopDown) -> Vec2 {
                 .enemies
                 .iter()
                 .any(|e| e.body.center().distance(center(next)) < 2.0 * TILE);
-            if !game.walls[next.1][next.0] && !near_enemy && !came_from.contains_key(&next) {
+            let wall = matches!(
+                game.map.tile_at(next.0 as i32, next.1 as i32),
+                Some((_, TileKind::Solid))
+            );
+            if !wall && !near_enemy && !came_from.contains_key(&next) {
                 came_from.insert(next, tile);
                 queue.push_back(next);
             }

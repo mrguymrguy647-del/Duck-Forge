@@ -42,6 +42,8 @@ Only `"events"` is required.
 | `"seed"` | The random seed the game ran with. A replay uses it, so random things (like Breakout's serve angle) happen the same way. `--seed` on the command line overrides it. |
 | `"updates_per_second"` | The game's timestep when this was recorded. If the game now runs at a different rate, duckforge warns that the replay won't match. |
 | `"expect"` | Optional. The game's reported values at the end, like `{"score": 20, "state": "Won"}`. Written by recordings; a replay that ends differently says `playthrough changed: ...`. `--accept` rewrites it. |
+| `"tune"` | Optional. The `ctx.tune` values it was recorded with, as they were on frame 1. A replay uses them. |
+| `"files"` | Optional. The text files the game read (its level and legend), as they were on frame 1: `{"examples/mygame/level.txt": "...", ...}`. A replay gives the game these, not what's on disk now, so a playthrough still replays after the level is painted. Written by recordings. |
 | `"frames"` | How long the recording lasted. `--headless` runs this many frames unless `--frames` says otherwise. Without either, it runs until two seconds after the last event (600 frames if there are no events). If the run stops before some events, the summary warns how many were skipped. |
 | `"events"` | The list of events, described below. |
 
@@ -58,6 +60,16 @@ Every event is an object with a `"frame"` and exactly **one** action:
 | `"mouse_press"` | `{"frame": 10, "mouse_press": "Left"}` | Starts holding a mouse button: `"Left"`, `"Right"` or `"Middle"`. |
 | `"mouse_release"` | `{"frame": 12, "mouse_release": "Left"}` | Lets go of a mouse button. |
 | `"scroll"` | `{"frame": 10, "scroll": 1}` | Rolls the wheel for one frame: positive is up (away from you), negative is down. |
+
+Two more kinds of event are **changes made while the game ran** (in Duck
+Forge Studio, or by editing a file while a window is open). Recordings
+write them; they're applied just before that frame's update, before its
+inputs:
+
+| Change | Example | What it does |
+|--------|---------|--------------|
+| `"file"` | `{"frame": 413, "file": "examples/mygame/level.txt", "text": "..."}` | A file the game read has this new text. The game's `reload` hook is called, as when it happened. |
+| `"tune"` | `{"frame": 413, "tune": {"jump_speed": 380}}` | `ctx.tune` gives these values from now on. |
 
 ### What "frame" means
 

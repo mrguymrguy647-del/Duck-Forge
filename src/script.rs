@@ -21,6 +21,22 @@
 //!   ]
 //! }
 //! ```
+//!
+//! A run where files or tune values changed while it played (in Duck
+//! Forge Studio, say) also has the files the game read, as they were on
+//! frame 1, and each change on the frame it happened:
+//!
+//! ```json
+//! {
+//!   "duckforge_inputs": 1,
+//!   "files": {"examples/mygame/level.txt": "p..\n###\n"},
+//!   "events": [
+//!     {"frame": 413, "file": "examples/mygame/level.txt", "text": "p.=\n###\n"},
+//!     {"frame": 413, "tune": {"jump_speed": 380}},
+//!     {"frame": 413, "press": "Space"}
+//!   ]
+//! }
+//! ```
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -68,6 +84,25 @@ pub struct InputEvent {
     pub action: InputAction,
 }
 
+/// A change made while a game ran, applied just before the update of its
+/// frame (before that frame's inputs).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Change {
+    /// A text file the game read has new text: `{"frame": 413, "file":
+    /// "examples/mygame/level.txt", "text": "..."}`. The game's
+    /// [`reload`](crate::engine::Game::reload) hook is called.
+    File { path: String, text: String },
+    /// New `ctx.tune` values: `{"frame": 413, "tune": {"jump_speed": 380}}`.
+    Tune(BTreeMap<String, f32>),
+}
+
+/// A [`Change`], and the frame that sees it first.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChangeEvent {
+    pub frame: u64,
+    pub change: Change,
+}
+
 /// A whole recorded (or written) playthrough.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct InputScript {
@@ -90,6 +125,13 @@ pub struct InputScript {
     /// other values says which changed (a warning if it still ends as
     /// expected, the likely cause if it doesn't).
     pub tune: Option<BTreeMap<String, f32>>,
+    /// The text files the game read (its level, say), as they were on
+    /// frame 1. A replay gives the game these, not what's on disk now.
+    /// Empty in a script written before files were kept.
+    pub files: BTreeMap<String, String>,
+    /// Files and tune values changed while it played, in frame order. In
+    /// the JSON they're in the `"events"` list with the inputs.
+    pub changes: Vec<ChangeEvent>,
 }
 
 impl InputScript {
@@ -132,6 +174,7 @@ impl InputScript {
                 "frames",
                 "expect",
                 "tune",
+                "files",
                 "events",
             ],
             "the script",
@@ -205,21 +248,41 @@ impl InputScript {
             }
         };
 
+        let files = match top.get("files") {
+            None | Some(Value::Null) => BTreeMap::new(),
+            Some(Value::Object(texts)) => texts
+                .iter()
+                .map(|(name, text)| match text.as_str() {
+                    Some(text) => Ok((name.clone(), text.to_string())),
+                    None => Err(format!("\"files\": {name:?} must be the file's text")),
+                })
+                .collect::<Result<_, _>>()?,
+            Some(_) => {
+                return Err(String::from(
+                    "\"files\" must be an object like {\"examples/mygame/level.txt\": \"...\"}",
+                ));
+            }
+        };
+
         let Some(list) = top.get("events") else {
             return Err(String::from("the script has no \"events\" list"));
         };
         let Value::Array(list) = list else {
             return Err(String::from("\"events\" must be a list: [...]"));
         };
-        let mut events = list
-            .iter()
-            .enumerate()
-            .map(|(index, event)| {
-                parse_event(event).map_err(|err| format!("event {} ({event}): {err}", index + 1))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut events = Vec::new();
+        let mut changes = Vec::new();
+        for (index, event) in list.iter().enumerate() {
+            let place = |err: String| format!("event {} ({event}): {err}", index + 1);
+            if event.get("file").is_some() || event.get("tune").is_some() {
+                changes.push(parse_change(event).map_err(place)?);
+            } else {
+                events.push(parse_event(event).map_err(place)?);
+            }
+        }
         // Events may be written in any order; same-frame events keep theirs.
         events.sort_by_key(|event| event.frame);
+        changes.sort_by_key(|change| change.frame);
 
         Ok(InputScript {
             seed,
@@ -228,6 +291,8 @@ impl InputScript {
             events,
             expect,
             tune,
+            files,
+            changes,
         })
     }
 
@@ -258,16 +323,41 @@ impl InputScript {
                 .collect();
             text += &format!("  \"tune\": {{{}}},\n", values.join(", "));
         }
-        text += "  \"events\": [";
-        for (index, event) in self.events.iter().enumerate() {
-            let comma = if index + 1 < self.events.len() {
-                ","
-            } else {
-                ""
-            };
-            text += &format!("\n    {}{comma}", event_json(event));
+        if !self.files.is_empty() {
+            text += "  \"files\": {";
+            for (index, (name, file)) in self.files.iter().enumerate() {
+                let comma = if index + 1 < self.files.len() {
+                    ","
+                } else {
+                    ""
+                };
+                text += &format!(
+                    "\n    {}: {}{comma}",
+                    Value::from(name.as_str()),
+                    Value::from(file.as_str())
+                );
+            }
+            text += "\n  },\n";
         }
-        if !self.events.is_empty() {
+        // Inputs and changes in one list, by frame; on the same frame the
+        // changes come first, as they're applied first.
+        let mut lines: Vec<(u64, u8, String)> = self
+            .changes
+            .iter()
+            .map(|change| (change.frame, 0, change_json(change)))
+            .collect();
+        lines.extend(
+            self.events
+                .iter()
+                .map(|event| (event.frame, 1, event_json(event))),
+        );
+        lines.sort_by_key(|(frame, order, _)| (*frame, *order));
+        text += "  \"events\": [";
+        for (index, (_, _, line)) in lines.iter().enumerate() {
+            let comma = if index + 1 < lines.len() { "," } else { "" };
+            text += &format!("\n    {line}{comma}");
+        }
+        if !lines.is_empty() {
             text += "\n  ";
         }
         text += "]\n}\n";
@@ -342,9 +432,12 @@ impl InputScript {
             .collect()
     }
 
-    /// The last frame that has an event, or 0 if there are none.
+    /// The last frame that has an event (an input or a change), or 0 if
+    /// there are none.
     pub fn last_event_frame(&self) -> u64 {
-        self.events.last().map_or(0, |event| event.frame)
+        let input = self.events.last().map_or(0, |event| event.frame);
+        let change = self.changes.last().map_or(0, |change| change.frame);
+        input.max(change)
     }
 }
 
@@ -380,6 +473,71 @@ pub(crate) fn event_json(event: &InputEvent) -> String {
         InputAction::Scroll(amount) => ("scroll", number(amount)),
     };
     format!("{{\"frame\": {}, \"{name}\": {value}}}", event.frame)
+}
+
+/// One change as a line of JSON, like `{"frame": 413, "tune": {"gravity": 700}}`.
+pub(crate) fn change_json(change: &ChangeEvent) -> String {
+    match &change.change {
+        Change::File { path, text } => format!(
+            "{{\"frame\": {}, \"file\": {}, \"text\": {}}}",
+            change.frame,
+            Value::from(path.as_str()),
+            Value::from(text.as_str())
+        ),
+        Change::Tune(values) => {
+            let values: Vec<String> = values
+                .iter()
+                .map(|(name, &value)| format!("{}: {}", Value::from(name.as_str()), number(value)))
+                .collect();
+            format!(
+                "{{\"frame\": {}, \"tune\": {{{}}}}}",
+                change.frame,
+                values.join(", ")
+            )
+        }
+    }
+}
+
+pub(crate) fn parse_change(event: &Value) -> Result<ChangeEvent, String> {
+    let Value::Object(fields) = event else {
+        return Err(String::from("each event is an object"));
+    };
+    let frame = match fields.get("frame") {
+        Some(value) => whole_number(value, "\"frame\"", u64::MAX)?,
+        None => return Err(String::from("it has no \"frame\"")),
+    };
+    if frame == 0 {
+        return Err(String::from("frames count from 1"));
+    }
+    let change = if let Some(path) = fields.get("file") {
+        check_keys(fields, &["frame", "file", "text"], "a file change")?;
+        let path = path.as_str().ok_or("\"file\" names the file, as text")?;
+        let text = fields
+            .get("text")
+            .and_then(Value::as_str)
+            .ok_or("a file change needs the file's new \"text\"")?;
+        Change::File {
+            path: path.to_string(),
+            text: text.to_string(),
+        }
+    } else {
+        check_keys(fields, &["frame", "tune"], "a tune change")?;
+        let Some(Value::Object(values)) = fields.get("tune") else {
+            return Err(String::from(
+                "\"tune\" must be an object like {\"jump_speed\": 380}",
+            ));
+        };
+        Change::Tune(
+            values
+                .iter()
+                .map(|(name, value)| match value.as_f64() {
+                    Some(n) => Ok((name.clone(), n as f32)),
+                    None => Err(format!("\"tune\": {name:?} must be a number")),
+                })
+                .collect::<Result<_, _>>()?,
+        )
+    };
+    Ok(ChangeEvent { frame, change })
 }
 
 /// A name in JSON quotes. (Key names never need escaping, but `Value`
@@ -637,8 +795,32 @@ mod tests {
                     action: InputAction::Scroll(1.0),
                 },
             ],
+            files: BTreeMap::from([(
+                String::from("examples/a/level.txt"),
+                String::from("p.\"\n##\n"),
+            )]),
+            changes: vec![
+                ChangeEvent {
+                    frame: 6,
+                    change: Change::File {
+                        path: String::from("examples/a/level.txt"),
+                        text: String::from("p=\n##\n"),
+                    },
+                },
+                ChangeEvent {
+                    frame: 6,
+                    change: Change::Tune(BTreeMap::from([(String::from("jump_speed"), 380.5)])),
+                },
+            ],
         };
         let json = script.to_json();
+        assert!(
+            json.contains(
+                "\n    {\"frame\": 6, \"tune\": {\"jump_speed\": 380.5}},\n    {\"frame\": 6, \"mouse_motion\""
+            ),
+            "changes come before the inputs of their frame: {json}"
+        );
+        assert!(json.contains(r#""files": {"#), "{json}");
         assert!(
             json.contains("\n    {\"frame\": 1, \"press\": \"Digit7\"},\n"),
             "{json}"

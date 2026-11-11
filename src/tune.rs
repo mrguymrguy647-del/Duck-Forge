@@ -41,6 +41,9 @@ pub(crate) enum Source {
     Set,
     /// The `"tune"` block of the playthrough being replayed.
     Recording,
+    /// Changed while the game ran: Duck Forge Studio's Feel, the tune
+    /// file edited in a window, or such a change being replayed.
+    Changed,
 }
 
 impl Source {
@@ -50,6 +53,7 @@ impl Source {
             Source::File => "file",
             Source::Set => "set",
             Source::Recording => "recording",
+            Source::Changed => "changed while running",
         }
     }
 }
@@ -76,6 +80,11 @@ pub(crate) struct Tunes {
     used: RefCell<BTreeMap<String, (f32, Source, f32)>>,
     /// When the file was last changed, to notice edits.
     modified: Option<SystemTime>,
+    /// Values changed while the game runs. They win over everything.
+    changed: HashMap<String, f32>,
+    /// The values in use just before the first change, for a recording's
+    /// `"tune"` block: a replay starts with them, then makes the changes.
+    before_changes: Option<BTreeMap<String, f32>>,
 }
 
 impl Tunes {
@@ -147,8 +156,80 @@ impl Tunes {
     /// The value for `name`: from `--set`, `--tune FILE`, the recording
     /// being replayed, the game's tune file, or `default`, in that order.
     pub(crate) fn get(&self, name: &str, default: f32) -> f32 {
+        let (value, source) = match self.changed.get(name) {
+            Some(&v) => (v, Source::Changed),
+            None => self.underlying(name, default),
+        };
+        // Only allocate the first time a name is used.
+        let mut used = self.used.borrow_mut();
+        match used.get_mut(name) {
+            Some(entry) => *entry = (value, source, default),
+            None => {
+                used.insert(name.to_string(), (value, source, default));
+            }
+        }
+        value
+    }
+
+    /// Changes `name` to `value` from now on, over every other source.
+    pub(crate) fn change(&mut self, name: &str, value: f32) {
+        if self.before_changes.is_none() {
+            self.before_changes = Some(
+                self.used()
+                    .into_iter()
+                    .map(|(name, value, _)| (name, value))
+                    .collect(),
+            );
+        }
+        self.changed.insert(name.to_string(), value);
+        // The game sees it next time it asks; tell the summary now.
+        if let Some(entry) = self.used.borrow_mut().get_mut(name) {
+            entry.0 = value;
+            entry.1 = Source::Changed;
+        }
+    }
+
+    /// The values used, as they were before anything changed while the
+    /// game ran.
+    pub(crate) fn at_start(&self) -> BTreeMap<String, f32> {
+        let mut values: BTreeMap<String, f32> = self
+            .used()
+            .into_iter()
+            .map(|(name, value, _)| (name, value))
+            .collect();
+        if let Some(before) = &self.before_changes {
+            for (name, value) in values.iter_mut() {
+                if let Some(old) = before.get(name) {
+                    *value = *old;
+                } else if self.changed.contains_key(name) {
+                    // First asked for after it was changed: what it would
+                    // have been.
+                    let default = self.code_default(name).unwrap_or(*value);
+                    *value = self.underlying(name, default).0;
+                }
+            }
+        }
+        values
+    }
+
+    /// Values the tune file now gives that differ from what the game has:
+    /// after the file was edited, these are the changes to make.
+    #[cfg_attr(not(feature = "window"), allow(dead_code))] // only the window reloads
+    pub(crate) fn differences_from_file(&self) -> BTreeMap<String, f32> {
+        self.used
+            .borrow()
+            .iter()
+            .filter_map(|(name, &(value, _, default))| {
+                let (wanted, _) = self.underlying(name, default);
+                (wanted != value).then(|| (name.clone(), wanted))
+            })
+            .collect()
+    }
+
+    /// The value for `name` without the changes made while running.
+    fn underlying(&self, name: &str, default: f32) -> (f32, Source) {
         let from_file = self.file.get(name).copied();
-        let (value, source) = if let Some(&v) = self.set.get(name) {
+        if let Some(&v) = self.set.get(name) {
             (v, Source::Set)
         } else if let (true, Some(v)) = (self.file_on_command_line, from_file) {
             (v, Source::File)
@@ -163,16 +244,7 @@ impl Tunes {
                 Some(&recorded) if recorded != v => (recorded, Source::Recording),
                 _ => (v, source),
             }
-        };
-        // Only allocate the first time a name is used.
-        let mut used = self.used.borrow_mut();
-        match used.get_mut(name) {
-            Some(entry) => *entry = (value, source, default),
-            None => {
-                used.insert(name.to_string(), (value, source, default));
-            }
         }
-        value
     }
 
     /// Reads the file again if it changed since it was last read. Returns

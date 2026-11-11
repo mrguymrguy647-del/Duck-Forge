@@ -11,6 +11,17 @@ use super::*;
 #[ignore]
 fn record_playthrough() {
     let mut sim = Simulation::new(config(), DuckPeaks::new(Art::load().unwrap()));
+    play(&mut sim);
+    assert_eq!(sim.text("state"), "Won", "the bot should reach the flag");
+    sim.recording()
+        .save("playthroughs/duck_peaks.json")
+        .unwrap();
+}
+
+/// The bot plays the level as it is now, until it reaches the flag (or 90
+/// seconds pass), then a second more. The play tests use it to check the
+/// level can still be won.
+pub(super) fn play(sim: &mut Simulation<DuckPeaks>) {
     sim.step(); // reports exist after the first update
     let mut jump_held = false;
     let mut last_x = 0.0;
@@ -47,10 +58,6 @@ fn record_playthrough() {
         sim.release(key);
     }
     sim.run(60); // a second of the ending
-    assert_eq!(sim.text("state"), "Won", "the bot should reach the flag");
-    sim.recording()
-        .save("playthroughs/duck_peaks.json")
-        .unwrap();
 }
 
 /// Which way to run (-1, 0 or 1), and whether to jump now.

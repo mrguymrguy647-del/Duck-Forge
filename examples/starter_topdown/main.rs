@@ -7,7 +7,8 @@
 //! Escape quits. F1 shows the debug overlay (hitboxes, and how far each
 //! enemy can see), F10 records what you do.
 //!
-//! The parts, each small enough to change: a level drawn as text (MAP),
+//! The parts, each small enough to change: a level drawn as text
+//! (`level.txt`, read into a tile map),
 //! sprites drawn with letters, 8-direction movement (set DIAGONALS to false
 //! for 4), sliding along walls, enemies that wander and then chase, coins,
 //! lives with a moment of safety after a hit, a camera that follows you,
@@ -29,7 +30,7 @@ use duckforge::prelude::*;
 
 const WIDTH: f32 = 320.0;
 const HEIGHT: f32 = 240.0;
-const TILE: f32 = 16.0; // each letter of MAP is a 16 x 16 pixel square
+const TILE: f32 = 16.0; // each letter of the level is a 16 x 16 pixel square
 const BODY: f32 = 12.0; // the player's and the enemies' hitbox (a square)
 const PLAYER_SPEED: f32 = 90.0; // pixels per second
 const ENEMY_SPEED: f32 = 50.0;
@@ -38,40 +39,11 @@ const DIAGONALS: bool = true; // false: only up, down, left or right at a time
 const START_LIVES: u32 = 3;
 const SAFE_TIME: f32 = 1.5; // seconds you can't be hit again after a hit
 
-/// The level: '#' wall, '.' floor, 'p' where you start, 'c' a coin, 'e' an
-/// enemy. Every row must be as long as the first.
-const MAP: [&str; 30] = [
-    "########################################",
-    "#...........#..............#...........#",
-    "#.p......c..#....c.........#........c..#",
-    "#...........#..............#...........#",
-    "#....#......#.......##.....#.....#.....#",
-    "#..........................#......e....#",
-    "#...................e......#...........#",
-    "#...........#...........c..............#",
-    "#...........#.......................c..#",
-    "#...........#..............#...........#",
-    "#####..############..############..#####",
-    "#...........#..............#...........#",
-    "#...........#..............#....c......#",
-    "#..c........#..........................#",
-    "#...........#.......#..................#",
-    "#.....#..............#.....#..e........#",
-    "#.....e....................#.....#.....#",
-    "#.........c.#.......c......#...........#",
-    "#...........#..............#.........c.#",
-    "#...........#..............#...........#",
-    "########..#############..##########..###",
-    "#.................#....................#",
-    "#.................#...........c........#",
-    "#.............c...#....................#",
-    "#........#................#............#",
-    "#.........e....................#.......#",
-    "#.................#..............e.....#",
-    "#..c..............#....c.............c.#",
-    "#.................#....................#",
-    "########################################",
-];
+/// The level: one letter per 16 x 16 tile, in `level.txt` next to this
+/// file: '#' wall, '.' floor, 'p' where you start, 'c' a coin, 'e' an
+/// enemy (`level.legend.json` says so). Change it, even while the game
+/// runs: it reads it again (see `reload`). Duck Forge Studio paints it.
+const LEVEL: &str = "examples/starter_topdown/level.txt";
 
 /// The hero, two 6 x 6 frames side by side ('.' is see-through).
 const HERO: [&str; 6] = [
@@ -93,6 +65,19 @@ const BLOB: [&str; 6] = [
     "r.rr.r.r..r.",
 ];
 
+impl Enemy {
+    /// A new enemy standing at `home`, not yet chasing.
+    fn at(home: Vec2) -> Enemy {
+        Enemy {
+            body: Rect::from_center(home, BODY, BODY),
+            home,
+            wander: Vec2::ZERO,
+            wander_time: 0.0,
+            chasing: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum State {
     Playing,
@@ -103,6 +88,8 @@ enum State {
 
 struct Enemy {
     body: Rect,
+    /// Where it started: the level's 'e'.
+    home: Vec2,
     /// Where it walks when it can't see you, and for how much longer.
     wander: Vec2,
     wander_time: f32,
@@ -111,7 +98,7 @@ struct Enemy {
 
 struct TopDown {
     state: State,
-    walls: Vec<Vec<bool>>,
+    map: TileMap,
     player: Rect,
     facing_left: bool,
     /// For 4-direction movement: was a left/right key pressed last?
@@ -131,27 +118,31 @@ struct TopDown {
 
 impl TopDown {
     fn new() -> TopDown {
-        let mut walls = Vec::new();
-        let (mut player, mut enemies, mut coins) = (Rect::new(0.0, 0.0, 0.0, 0.0), vec![], vec![]);
-        for (ty, row) in MAP.iter().enumerate() {
-            walls.push(row.chars().map(|c| c == '#').collect());
-            for (tx, c) in row.chars().enumerate() {
-                // A body standing in the middle of the tile.
-                let center = vec2((tx as f32 + 0.5) * TILE, (ty as f32 + 0.5) * TILE);
-                let body = Rect::from_center(center, BODY, BODY);
-                match c {
-                    'p' => player = body,
-                    'c' => coins.push(center),
-                    'e' => enemies.push(Enemy {
-                        body,
-                        wander: Vec2::ZERO,
-                        wander_time: 0.0,
-                        chasing: false,
-                    }),
-                    _ => {}
-                }
-            }
-        }
+        // A mistake in the level's files stops the game with a message
+        // saying what and where.
+        let map = TileMap::load_level(LEVEL).unwrap_or_else(|error| panic!("{error}"));
+        TopDown::on_map(map)
+    }
+
+    /// The game on `map`: the level's files, or (in tests) a tiny level
+    /// of their own.
+    fn on_map(map: TileMap) -> TopDown {
+        // Things stand in the middle of their tile (a map's spawn points
+        // are the bottom middle).
+        let middle = |at: Vec2| at - vec2(0.0, TILE / 2.0);
+        let start = middle(
+            map.spawns("player")
+                .first()
+                .copied()
+                .unwrap_or(vec2(1.5 * TILE, 2.0 * TILE)),
+        );
+        let player = Rect::from_center(start, BODY, BODY);
+        let coins: Vec<Vec2> = map.spawns("coin").into_iter().map(middle).collect();
+        let enemies = map
+            .spawns("enemy")
+            .into_iter()
+            .map(|at| Enemy::at(middle(at)))
+            .collect();
         let hero = Sprite::from_ascii(
             &HERO,
             &[
@@ -172,7 +163,7 @@ impl TopDown {
         camera.position = player.center();
         TopDown {
             state: State::Playing,
-            walls,
+            map,
             player,
             facing_left: false,
             last_horizontal: true,
@@ -191,12 +182,7 @@ impl TopDown {
     }
 
     fn world(&self) -> Rect {
-        Rect::new(
-            0.0,
-            0.0,
-            MAP[0].len() as f32 * TILE,
-            MAP.len() as f32 * TILE,
-        )
+        self.map.bounds()
     }
 
     /// A wall tile that `rect` overlaps, if any. Outside the map counts as wall.
@@ -205,14 +191,12 @@ impl TopDown {
             |from: f32, to: f32| (from / TILE).floor() as i32..=((to - 0.01) / TILE).floor() as i32;
         for ty in tiles(rect.top(), rect.bottom()) {
             for tx in tiles(rect.left(), rect.right()) {
-                let wall = ty < 0
+                let outside = ty < 0
                     || tx < 0
-                    || self
-                        .walls
-                        .get(ty as usize)
-                        .and_then(|row| row.get(tx as usize))
-                        .copied()
-                        .unwrap_or(true);
+                    || ty as usize >= self.map.rows()
+                    || tx as usize >= self.map.columns();
+                let wall =
+                    outside || matches!(self.map.tile_at(tx, ty), Some((_, TileKind::Solid)));
                 if wall {
                     return Some(Rect::new(tx as f32 * TILE, ty as f32 * TILE, TILE, TILE));
                 }
@@ -354,7 +338,7 @@ impl Game for TopDown {
             }
             State::Won | State::Lost => {
                 if ctx.input.was_pressed(Key::Space) || ctx.input.was_pressed(Key::Enter) {
-                    *self = TopDown::new();
+                    *self = TopDown::on_map(self.map.clone());
                 }
             }
         }
@@ -390,12 +374,12 @@ impl Game for TopDown {
             .camera
             .position
             .x
-            .clamp(WIDTH / 2.0, world.w - WIDTH / 2.0);
+            .clamp(WIDTH / 2.0, (world.w - WIDTH / 2.0).max(WIDTH / 2.0));
         self.camera.position.y = self
             .camera
             .position
             .y
-            .clamp(HEIGHT / 2.0, world.h - HEIGHT / 2.0);
+            .clamp(HEIGHT / 2.0, (world.h - HEIGHT / 2.0).max(HEIGHT / 2.0));
         self.camera.update(ctx);
 
         // Rules that must always hold (the summary, play tests and --fuzz check them).
@@ -437,10 +421,43 @@ impl Game for TopDown {
         ctx.report("chasing", self.enemies.iter().filter(|e| e.chasing).count());
     }
 
+    /// The level's files changed (painted in Duck Forge Studio, or edited
+    /// by hand while the game runs): read them again and carry on. The
+    /// player stays where it is, collected coins stay collected, new coins
+    /// and enemies appear and removed ones go.
+    fn reload(&mut self, _ctx: &mut Context, file: &std::path::Path) -> bool {
+        if !self.map.reads_from(file) {
+            return false;
+        }
+        let newer = match TileMap::load_level(LEVEL) {
+            Ok(map) => map,
+            Err(error) => {
+                eprintln!("{error}"); // a mistake in the files: keep the old level
+                return false;
+            }
+        };
+        let middle = |at: Vec2| at - vec2(0.0, TILE / 2.0);
+        let coins = self.map.spawn_changes(&newer, "coin");
+        let removed: Vec<Vec2> = coins.removed.into_iter().map(middle).collect();
+        self.coins.retain(|coin| !removed.contains(coin));
+        self.coins.extend(coins.added.into_iter().map(middle));
+        self.total_coins = self.collected + self.coins.len() as u32;
+        let enemies = self.map.spawn_changes(&newer, "enemy");
+        let removed: Vec<Vec2> = enemies.removed.into_iter().map(middle).collect();
+        self.enemies.retain(|enemy| !removed.contains(&enemy.home));
+        self.enemies
+            .extend(enemies.added.into_iter().map(|at| Enemy::at(middle(at))));
+        self.map = newer;
+        true
+    }
+
     fn draw(&self, canvas: &mut Canvas) {
         canvas.clear(Color::from_hex(0x1a1a24));
 
         canvas.push_camera(&self.camera);
+        // The walls are drawn below, by hand; this tells tools (Duck Forge
+        // Studio's grid) where the map is.
+        self.map.mark_drawn(canvas);
         // Only the tiles the camera can see.
         let view = self.camera.visible_area();
         let (tx0, ty0) = (
@@ -451,8 +468,12 @@ impl Game for TopDown {
             (view.right() / TILE) as usize + 1,
             (view.bottom() / TILE) as usize + 1,
         );
-        for (ty, row) in self.walls.iter().enumerate().take(ty1).skip(ty0) {
-            for (tx, &wall) in row.iter().enumerate().take(tx1).skip(tx0) {
+        for ty in ty0..ty1.min(self.map.rows()) {
+            for tx in tx0..tx1.min(self.map.columns()) {
+                let wall = matches!(
+                    self.map.tile_at(tx as i32, ty as i32),
+                    Some((_, TileKind::Solid))
+                );
                 let tile = Rect::new(tx as f32 * TILE, ty as f32 * TILE, TILE, TILE);
                 if wall {
                     canvas.fill_rect(tile, Color::from_hex(0x5a5a78));

@@ -21,8 +21,9 @@ use crate::tune::Tunes;
 /// What every game must provide. The engine calls `update` and `draw` once
 /// per frame.
 ///
-/// `init`, `resize` and `quit` are optional: they have empty bodies here
-/// (*default methods*), so a game only writes them if it needs them.
+/// `init`, `resize`, `reload` and `quit` are optional: they have empty
+/// bodies here (*default methods*), so a game only writes them if it needs
+/// them.
 pub trait Game {
     /// Runs once, just before the first `update`. Use it for setup that
     /// needs the context, like reading `ctx.width()`, picking random
@@ -51,6 +52,24 @@ pub trait Game {
     /// This takes `&self`, not `&mut self`: drawing can look at the game but
     /// never change it, and the compiler enforces that for us.
     fn draw(&self, canvas: &mut Canvas);
+
+    /// A text file the game read has changed (its level, edited in Duck
+    /// Forge Studio or by hand while the game runs): read it again and
+    /// carry on. `file` names it as the game did, with forward slashes
+    /// (`examples/mygame/level.txt`).
+    ///
+    /// Return `true` if the game took the change, `false` (what it does
+    /// unless the game says otherwise) if it can't without starting again:
+    /// the Studio then offers Restart. Only files read with
+    /// [`TileMap::load_level`](crate::tilemap::TileMap::load_level) or
+    /// [`TileMap::load`](crate::tilemap::TileMap::load) are watched, and
+    /// reading them again here gives the new text. It runs between two
+    /// updates, so a replay calls it on the same frame and plays out the
+    /// same.
+    fn reload(&mut self, ctx: &mut Context, file: &std::path::Path) -> bool {
+        let _ = (ctx, file);
+        false
+    }
 
     /// Runs once when the game is about to end, however it ends: the
     /// window's close button, [`Context::quit`], `--frames` running out,

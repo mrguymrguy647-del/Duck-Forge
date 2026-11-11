@@ -1,0 +1,16 @@
+{
+  "tile_size": 16,
+  "tiles": "assets/tiles.json",
+  "letters": {
+    "#": {"kind": "solid", "name": "grass"},
+    "d": {"kind": "solid", "name": "dirt"},
+    "B": {"kind": "solid", "name": "brick"},
+    "R": {"kind": "solid", "name": "rock"},
+    "S": {"kind": "solid", "name": "snow"},
+    "=": {"kind": "one_way", "name": "plank"},
+    "~": {"kind": "decoration", "name": "water"},
+    "p": {"kind": "thing", "name": "player", "label": "Start", "at_least": 1, "at_most": 1, "start": true},
+    "c": {"kind": "thing", "name": "coin", "label": "Coin"},
+    "g": {"kind": "thing", "name": "flag", "label": "Flag", "at_least": 1, "at_most": 1}
+  }
+}
