@@ -358,6 +358,7 @@ pub(crate) fn run<G: Game>(
                     )))?;
                 }
             }
+            ToGame::Overlay { debug } => sim.set_debug_overlay(debug),
             ToGame::Ask { id, what } => {
                 let text = match what.as_str() {
                     "recording" => sim.recording().to_json(),

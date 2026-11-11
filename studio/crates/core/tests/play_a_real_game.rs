@@ -106,6 +106,40 @@ fn a_game_is_built_played_frozen_resumed_and_its_session_replays_exactly() {
         "freezing saves the session"
     );
 
+    // F1 while frozen: the game draws its debug overlay on the same
+    // frame, and takes it away again. The game itself doesn't move.
+    say(
+        &mut studio,
+        Step::Do(Command::GameDebugOverlay { on: Some(true) }),
+    );
+    say(&mut studio, Step::Wait(Wait::Seconds { seconds: 0.2 }));
+    let overlaid = studio.play().unwrap().picture.clone().unwrap();
+    assert_eq!(overlaid.frame, frozen.frame);
+    assert_ne!(overlaid.pixels, frozen.pixels, "the overlay is drawn");
+    say(
+        &mut studio,
+        Step::Do(Command::GameDebugOverlay { on: Some(false) }),
+    );
+    say(&mut studio, Step::Wait(Wait::Seconds { seconds: 0.2 }));
+    assert_eq!(
+        studio.play().unwrap().picture.as_ref().unwrap().pixels,
+        frozen.pixels
+    );
+
+    // F12: the picture is saved at the game's own size.
+    let said = studio.run(Command::GameScreenshot).unwrap();
+    let name = said.rsplit('/').next().unwrap();
+    let saved = studio
+        .folder
+        .as_ref()
+        .unwrap()
+        .screenshots_folder()
+        .join(name);
+    let (width, height, pixels) = png_pixels(&saved);
+    assert_eq!((width, height), (frozen.width, frozen.height));
+    assert_eq!(pixels, frozen.pixels, "{said}");
+    std::fs::remove_file(saved).unwrap();
+
     // Frozen, one frame at a time.
     say(&mut studio, Step::Do(Command::GameStep { frames: 1 }));
     say(&mut studio, Step::Wait(Wait::Seconds { seconds: 0.1 }));

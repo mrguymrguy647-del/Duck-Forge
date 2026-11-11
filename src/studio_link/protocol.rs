@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 use crate::script::{InputEvent, event_json, parse_event};
 
 /// The version of these messages. The game and the Studio must agree.
-pub const LINK_VERSION: u32 = 1;
+pub const LINK_VERSION: u32 = 2;
 
 /// The environment variable holding the one-time key the Studio gives the
 /// game it starts. The game says it back in its `hello`, so the Studio
@@ -51,6 +51,9 @@ pub enum ToGame {
     /// Open the game's own window (`true`), or close it and come back
     /// inside the Studio (`false`).
     Window { open: bool },
+    /// Draw the debug overlay (F1) on the pictures from now on, or stop.
+    /// It's drawn on top, so the game itself isn't changed by it.
+    Overlay { debug: bool },
     /// A question: `"recording"` asks for everything done so far as an
     /// input script.
     Ask { id: u64, what: String },
@@ -212,6 +215,7 @@ impl ToGame {
                 script,
             } => json!({"run": id, "updates": updates, "script": script}).to_string(),
             ToGame::Window { open } => json!({"window": open}).to_string(),
+            ToGame::Overlay { debug } => json!({"overlay": {"debug": debug}}).to_string(),
             ToGame::Ask { id, what } => json!({"ask": id, "what": what}).to_string(),
             ToGame::Quit => json!({"quit": true}).to_string(),
         };
@@ -247,6 +251,10 @@ impl ToGame {
             }
         } else if let Some(open) = value.get("window").and_then(Value::as_bool) {
             ToGame::Window { open }
+        } else if let Some(overlay) = value.get("overlay") {
+            ToGame::Overlay {
+                debug: overlay["debug"].as_bool().unwrap_or(false),
+            }
         } else if value.get("ask").is_some() {
             ToGame::Ask {
                 id: number_of(&value, "ask")?,
@@ -448,6 +456,7 @@ mod tests {
             script: None,
         });
         there_and_back_to_game(ToGame::Window { open: true });
+        there_and_back_to_game(ToGame::Overlay { debug: true });
         there_and_back_to_game(ToGame::Ask {
             id: 3,
             what: String::from("recording"),

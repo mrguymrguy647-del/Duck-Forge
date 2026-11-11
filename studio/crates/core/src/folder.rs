@@ -353,6 +353,11 @@ impl GamesFolder {
         self.root.join("out").join("sessions").join(game)
     }
 
+    /// Where F12 saves screenshots.
+    pub fn screenshots_folder(&self) -> PathBuf {
+        self.root.join("out").join("screenshots")
+    }
+
     /// Where clips are saved.
     pub fn clips_folder(&self) -> PathBuf {
         self.root.join("out").join("clips")
@@ -375,17 +380,24 @@ impl GamesFolder {
     /// A picture of the game for its card: the last frame of its latest
     /// checked playthrough, if it has been checked.
     pub fn card_picture(&self, game: &str) -> Option<PathBuf> {
+        // Check replays with the debug overlay on, so its last.png has
+        // boxes and numbers on it. last.plain.png is the same frame as the
+        // game drew it (older checks didn't save one).
+        let clean = |folder: PathBuf| {
+            ["last.plain.png", "last.png"]
+                .iter()
+                .map(|name| folder.join(name))
+                .find(|picture| picture.is_file())
+        };
         let folder = self.check_folder(game);
-        let named = folder.join(game).join("last.png");
-        if named.is_file() {
+        if let Some(named) = clean(folder.join(game)) {
             return Some(named);
         }
         let mut others: Vec<PathBuf> = std::fs::read_dir(&folder)
             .into_iter()
             .flatten()
             .flatten()
-            .map(|entry| entry.path().join("last.png"))
-            .filter(|picture| picture.is_file())
+            .filter_map(|entry| clean(entry.path()))
             .collect();
         others.sort();
         // Never checked with a playthrough: the picture in the docs, if

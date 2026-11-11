@@ -73,6 +73,16 @@ pub enum Command {
     /// Stop the game.
     #[serde(rename = "game.stop")]
     GameStop,
+    /// F1: show the game's debug overlay on its pictures, or hide it.
+    /// Without `on`, it switches.
+    #[serde(rename = "game.debug_overlay")]
+    GameDebugOverlay {
+        #[serde(default)]
+        on: Option<bool>,
+    },
+    /// F12: save the game's picture as it is now, at its own size.
+    #[serde(rename = "game.screenshot")]
+    GameScreenshot,
     /// Press or let go of a key or button, or move the mouse, written as
     /// in an input script: `{"do": "game.input", "press": "Space"}`.
     #[serde(rename = "game.input")]
@@ -178,6 +188,16 @@ pub const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         name: "game.stop",
         title: "Stop the game",
+        needs: "",
+    },
+    CommandInfo {
+        name: "game.debug_overlay",
+        title: "Show or hide the debug overlay (F1)",
+        needs: "on: true or false (without it, it switches)",
+    },
+    CommandInfo {
+        name: "game.screenshot",
+        title: "Save a screenshot (F12)",
         needs: "",
     },
     CommandInfo {
@@ -318,6 +338,8 @@ pub struct Studio {
     /// game still thinks is held but isn't, is let go, so nothing sticks.
     pub keys_down: Vec<Key>,
     pub buttons_down: Vec<MouseButton>,
+    /// F1: the game draws its debug overlay. Kept across restarts.
+    pub debug_overlay: bool,
 }
 
 impl Studio {
@@ -335,6 +357,7 @@ impl Studio {
             making: None,
             open: None,
             problem: None,
+            debug_overlay: false,
             keys_down: Vec::new(),
             buttons_down: Vec::new(),
         };
@@ -569,6 +592,19 @@ impl Studio {
                 self.stop_play();
                 Ok(String::from("Stopped"))
             }
+            Command::GameDebugOverlay { on } => {
+                let on = on.unwrap_or(!self.debug_overlay);
+                self.debug_overlay = on;
+                if let Some(play) = self.open.as_mut().and_then(|open| open.play.as_mut()) {
+                    play.set_debug_overlay(on);
+                }
+                Ok(String::from(if on {
+                    "Showing the debug overlay"
+                } else {
+                    "Hiding the debug overlay"
+                }))
+            }
+            Command::GameScreenshot => self.screenshot(),
             Command::GameInput { event } => {
                 let action = action_from(&event)?;
                 let open = self.open_game()?;
@@ -661,6 +697,53 @@ impl Studio {
     }
 
     /// Starts the built game. With no build yet, it starts when there is one.
+    /// F12: saves the game's picture, as the game drew it, in
+    /// `out/screenshots/`. Says where.
+    fn screenshot(&mut self) -> Result<String, Problem> {
+        let folder = self.folder()?;
+        let open = self.open_game()?;
+        let picture = open
+            .play
+            .as_ref()
+            .and_then(|play| play.picture.as_ref())
+            .ok_or_else(|| {
+                Problem::new(
+                    "There's no picture to save yet.",
+                    "Play the game, then press F12.",
+                )
+            })?;
+        let mut canvas =
+            duckforge::prelude::Canvas::new(picture.width as usize, picture.height as usize);
+        for (i, pixel) in picture.pixels.iter().enumerate() {
+            let (x, y) = (i % picture.width as usize, i / picture.width as usize);
+            let color = duckforge::prelude::Color::rgb(
+                (pixel >> 16) as u8,
+                (pixel >> 8) as u8,
+                *pixel as u8,
+            );
+            canvas.set_pixel(x as i32, y as i32, color);
+        }
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let saved_in = folder.screenshots_folder();
+        let path = saved_in.join(format!("{}-{stamp}.png", open.game.name));
+        std::fs::create_dir_all(&saved_in)
+            .and_then(|()| canvas.save_png(&path))
+            .map_err(|problem| {
+                Problem::new(
+                    "The screenshot couldn't be saved.",
+                    "Check there's space on the disk, then press F12 again.",
+                )
+                .with_details(format!("{}: {problem}", path.display()))
+            })?;
+        Ok(format!(
+            "Saved a screenshot: out/screenshots/{}",
+            path.file_name().unwrap_or_default().to_string_lossy()
+        ))
+    }
+
     fn start_play(&mut self, then: AfterHello, seed: Option<u32>) -> Result<(), Problem> {
         let folder = self.folder()?;
         let open = self.open_game()?;
@@ -672,7 +755,8 @@ impl Studio {
             return Ok(());
         };
         let name = open.game.name.clone();
-        let play = Play::start(&mut self.console, &folder, &name, &program, seed, then)?;
+        let mut play = Play::start(&mut self.console, &folder, &name, &program, seed, then)?;
+        play.set_debug_overlay(self.debug_overlay);
         let open = self.open_game()?;
         open.play = Some(play);
         open.new_build_ready = false;
@@ -1053,6 +1137,8 @@ mod tests {
             r#"{"do": "game.pop_out"}"#,
             r#"{"do": "game.bring_back"}"#,
             r#"{"do": "game.stop"}"#,
+            r#"{"do": "game.debug_overlay", "on": true}"#,
+            r#"{"do": "game.screenshot"}"#,
             r#"{"do": "game.input", "press": "Space"}"#,
             r#"{"do": "check.run"}"#,
             r#"{"do": "check.show_problem", "line": 2}"#,

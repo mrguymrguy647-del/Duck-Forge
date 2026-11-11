@@ -34,6 +34,9 @@ pub struct StudioApp {
     show_details: bool,
     /// The last clip's result has been seen.
     clip_seen: bool,
+    /// A short note in the status bar ("Saved a screenshot: ..."), and
+    /// when it was said. It goes after a few seconds.
+    said: Option<(String, Instant)>,
 }
 
 impl StudioApp {
@@ -51,6 +54,14 @@ impl StudioApp {
             console_line: String::new(),
             show_details: false,
             clip_seen: false,
+            said: None,
+        }
+    }
+
+    /// Does a command and shows what it said in the status bar.
+    fn run_and_say(&mut self, command: Command) {
+        if let Ok(said) = self.studio.run(command) {
+            self.said = Some((said, Instant::now()));
         }
     }
 
@@ -82,6 +93,27 @@ impl StudioApp {
             && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab))
         {
             self.run(Command::GameToggle);
+        }
+        // The keys every game has in its own window. They still reach the
+        // game too, as they do there.
+        if self.studio.screen == Screen::Game && !dialog && !typing {
+            let (f1, f3, f12) = ui.input(|i| {
+                (
+                    i.key_pressed(egui::Key::F1),
+                    i.key_pressed(egui::Key::F3),
+                    i.key_pressed(egui::Key::F12),
+                )
+            });
+            if f1 {
+                self.run_and_say(Command::GameDebugOverlay { on: None });
+            }
+            if f3 {
+                // The Studio's own frame counter is the Timing line.
+                self.studio.settings.show_timing = !self.studio.settings.show_timing;
+            }
+            if f12 {
+                self.run_and_say(Command::GameScreenshot);
+            }
         }
         // Another window became the active one: freeze, and stay frozen.
         if !ui.input(|i| i.focused) && self.is_playing() {
@@ -474,6 +506,12 @@ impl StudioApp {
                     ui.separator();
                     ui.spinner();
                     ui.label("Making a clip...");
+                }
+                if let Some((said, when)) = &self.said {
+                    if when.elapsed().as_secs() < 5 {
+                        ui.separator();
+                        ui.label(RichText::new(said).color(theme::GOOD));
+                    }
                 }
             });
             if self.studio.settings.show_timing {

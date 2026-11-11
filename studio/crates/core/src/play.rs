@@ -229,6 +229,8 @@ pub struct Play {
     bye: Option<String>,
     /// What to do once the game has said hello.
     then: AfterHello,
+    /// The game draws its debug overlay (F1) on its pictures.
+    debug_overlay: bool,
 }
 
 /// What a new session does first.
@@ -312,7 +314,20 @@ impl Play {
             answers: Vec::new(),
             bye: None,
             then,
+            debug_overlay: false,
         })
+    }
+
+    /// Has the game draw its debug overlay (F1) on its pictures, or stop.
+    /// A frozen game draws its picture again, so it shows at once.
+    pub fn set_debug_overlay(&mut self, on: bool) {
+        self.debug_overlay = on;
+        if self.hello.is_some() {
+            self.send(&ToGame::Overlay { debug: on });
+            if self.state == PlayState::Frozen {
+                self.step(0, &[]);
+            }
+        }
     }
 
     pub fn is_running(&self) -> bool {
@@ -753,6 +768,9 @@ impl Play {
                 }
                 self.clock = StudioClock::new(hello.updates_per_second);
                 self.hello = Some(hello);
+                if self.debug_overlay {
+                    self.send(&ToGame::Overlay { debug: true });
+                }
                 match std::mem::replace(&mut self.then, AfterHello::Play) {
                     AfterHello::Play => {
                         self.state = PlayState::Playing;

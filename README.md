@@ -109,7 +109,9 @@ is made by the "Studio release" workflow.
   makes new ones from a starter.
 - **The game screen** shows the game in the middle, exactly as it draws
   itself (enlarged by a whole number, never smoothed). **Tab** freezes it
-  on the frame it's on, and Tab again carries on from exactly there.
+  on the frame it's on, and Tab again carries on from exactly there. F1
+  shows the debug overlay (frozen too), F3 the Timing line, and F12
+  saves a screenshot in `out/screenshots/`.
 - **Check** runs `tools/verify` and shows its report as a friendly list;
   click a line to see its picture. **Clip** saves the last ten seconds as
   a video. **Pop out** plays the game in its own window.

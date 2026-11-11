@@ -447,7 +447,9 @@ which are shrunk). For a game with a `Camera2D`, `--grid-world 50` puts
 the lines every 50 *world* units, through the camera, numbered with world
 coordinates: the same numbers as the game's positions and the labels in
 the scene files. The grid never covers the `--debug` box. The game's own picture, scenes and `--diff` baselines
-aren't affected, but compare runs made with the same `--grid`.
+aren't affected, but compare runs made with the same `--grid`. With
+`--grid` or `--debug`, `last.plain.png` is the last frame with nothing
+drawn on top.
 
 To see one particular moment, stop the run there: `--frames 427` makes
 `last.png` frame 427. To see the moments before something happened, add

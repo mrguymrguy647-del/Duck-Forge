@@ -49,7 +49,8 @@ pub struct HeadlessOptions {
     /// The folder to save files in. It's created if it doesn't exist.
     /// `None` saves nothing. Otherwise it always gets `last.png` (the last
     /// frame) and `log.json` (what happened, and what the game reported),
-    /// plus whatever the options below ask for.
+    /// plus whatever the options below ask for. When `debug` or `grid`
+    /// draws on `last.png`, `last.plain.png` is the same frame without.
     pub out: Option<PathBuf>,
     /// The random seed. `None` uses the script's seed, or `Config::seed`,
     /// or if those are `None` too,
@@ -426,6 +427,16 @@ fn run_and_save<G: Game>(
     let last_picture = for_saving(&mut sim, options);
     save_png(&last_picture, &folder.join("last.png"))?;
     saved.push(String::from("last.png"));
+    if options.debug || options.grid.is_some() {
+        // The same moment with nothing drawn on top: what the game
+        // itself drew (the Studio's cards use it). Drawing doesn't change
+        // the game, so this is safe to do at the end.
+        sim.set_debug_overlay(false);
+        let plain = sim.picture().copy_picture();
+        sim.set_debug_overlay(options.debug);
+        save_png(&plain, &folder.join("last.plain.png"))?;
+        saved.push(String::from("last.plain.png"));
+    }
     save_text(&sim.scene().to_json(), &folder.join("last.scene.json"))?;
     saved.push(String::from("last.scene.json"));
     if scenes.last().is_none_or(|scene| scene.frame != last) && last > 0 {
@@ -1569,6 +1580,12 @@ mod tests {
             sim.picture().get_pixel(16, 40),
             Some(Color::BLACK),
             "the game's own picture has no grid"
+        );
+        let plain = Canvas::load_png_for_tests(&folder.join("last.plain.png"));
+        assert_eq!(
+            plain.get_pixel(16, 40),
+            Some(Color::BLACK),
+            "last.plain.png is the frame with nothing on top"
         );
         let log = fs::read_to_string(folder.join("log.json")).unwrap();
         assert!(
