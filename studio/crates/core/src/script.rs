@@ -73,11 +73,11 @@ fn wait_until(
     let started = Instant::now();
     loop {
         frame(studio, Instant::now());
-        if done(studio) {
-            return Ok(());
-        }
         if let Some(problem) = stopped_by_a_problem(studio) {
             return Err(problem);
+        }
+        if done(studio) {
+            return Ok(());
         }
         if started.elapsed() > PATIENCE {
             return Err(Problem::new(
@@ -88,9 +88,15 @@ fn wait_until(
     }
 }
 
-/// A problem that means what's being waited for will never come.
+/// A problem that means what's being waited for will never come: the
+/// game stopped, its build failed, or the Studio has something to say
+/// (a new game couldn't be made, say). With nobody there to read a
+/// dialog, a script stops and says it.
 fn stopped_by_a_problem(studio: &Studio) -> Option<Problem> {
     if let Some(problem) = studio.crashed() {
+        return Some(problem.clone());
+    }
+    if let Some(problem) = &studio.problem {
         return Some(problem.clone());
     }
     studio.open.as_ref()?.build_problem().cloned()

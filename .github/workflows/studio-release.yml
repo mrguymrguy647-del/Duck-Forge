@@ -20,6 +20,11 @@
 # the link for ten seconds each and prints their Timing lines. (GitHub's
 # Windows machines have no graphics card, so those numbers are for the
 # CPU; a real PC is faster.)
+#
+# After it builds the zip it walks the beginner's path in the unzipped
+# folder, with no window: a new game from a starter, its first build, its
+# first playthrough and Check, and a clip. A release is only published if
+# that works.
 name: Studio release
 
 on:
@@ -144,6 +149,36 @@ jobs:
           path: |
             ${{ env.ZIP }}
             timing-*.txt
+
+      - name: The beginner's path, from the unzipped folder (a new game, its first Check, a clip)
+        shell: bash
+        run: |
+          # What a person does after unzipping, with no window: the Studio
+          # finds the duckforge folder beside it, makes a platformer called
+          # Bee Maze, builds it, plays it, has its first playthrough
+          # recorded and checked, and makes a clip of the run. The folder's
+          # name has spaces in it, as it will on a person's PC.
+          cat > first-game.json <<'EOF'
+          [
+            {"do": "game.new", "starter": "platformer", "name": "Bee Maze"},
+            {"wait": "playing"},
+            {"wait": "idle"},
+            {"wait": "frames", "frames": 120},
+            {"do": "clip.make"},
+            {"wait": "idle"},
+            {"do": "game.stop"}
+          ]
+          EOF
+          # Fresh settings, so the Studio looks for the folder by itself.
+          export DUCK_FORGE_STUDIO_SETTINGS="$PWD/first-game-settings.json"
+          folder="dist/Duck Forge Studio"
+          "$folder/DuckForgeStudio.exe" --run first-game.json > first-game.txt 2>&1 || { cat first-game.txt; exit 1; }
+          cat first-game.txt
+          check="$folder/duckforge/out/verify/bee_maze/check.json"
+          grep '"say"' "$check"
+          grep -q '"passed": true' "$check"
+          ls -l "$folder/duckforge/out/clips"
+          ls "$folder/duckforge/out/clips" | grep -Eq '^bee_maze-[0-9]+\.(mp4|gif)$'
 
       - name: Publish the release
         if: startsWith(github.ref, 'refs/tags/studio-v') || github.event_name == 'workflow_dispatch'
