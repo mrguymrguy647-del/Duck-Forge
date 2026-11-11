@@ -230,3 +230,136 @@ fn a_script_can_drive_the_studio_and_a_missing_game_is_a_plain_problem() {
     frame(&mut studio, Instant::now());
     assert!(studio.play().is_none());
 }
+
+/// Puts a file back as it was when this is dropped, even if the test fails.
+struct PutBack {
+    path: PathBuf,
+    text: String,
+}
+
+impl Drop for PutBack {
+    fn drop(&mut self) {
+        let _ = std::fs::write(&self.path, &self.text);
+    }
+}
+
+#[test]
+fn a_level_painted_while_frozen_is_in_the_game_and_in_its_replay() {
+    let mut studio = studio();
+    let say = |studio: &mut Studio, step: Step| {
+        run_step(studio, &step).unwrap_or_else(|problem| {
+            panic!("{problem}\n{}", problem.details);
+        })
+    };
+    let level_file = duck_forge().join("examples/template/level.txt");
+    let _put_back = PutBack {
+        text: std::fs::read_to_string(&level_file).unwrap(),
+        path: level_file.clone(),
+    };
+    say(
+        &mut studio,
+        Step::Do(Command::GameOpen {
+            name: String::from("template"),
+        }),
+    );
+    say(&mut studio, Step::Wait(Wait::Playing));
+    say(&mut studio, press("Right"));
+    say(&mut studio, Step::Wait(Wait::Frames { frames: 20 }));
+    say(&mut studio, release("Right"));
+    say(&mut studio, Step::Wait(Wait::Frames { frames: 10 }));
+    say(&mut studio, Step::Do(Command::GameToggle));
+    let frozen = studio.play().unwrap().picture.clone().unwrap();
+    let maps = studio.play().unwrap().maps.clone();
+    assert_eq!(maps.len(), 1, "the picture says where the map is");
+    assert_eq!(maps[0].file, "examples/template/level.txt");
+
+    // Paint a wall of bricks in front of the duck, in one stroke: the
+    // frozen game takes it, and draws the same frame again with it.
+    let cells: Vec<(i32, i32)> = (9..12).map(|row| (12, row)).collect();
+    say(
+        &mut studio,
+        Step::Do(Command::LevelPaint {
+            cells,
+            tile: String::from("brick"),
+            stroke: Some(1),
+        }),
+    );
+    say(&mut studio, Step::Wait(Wait::Seconds { seconds: 0.5 }));
+    let painted = studio.play().unwrap().picture.clone().unwrap();
+    assert_eq!(
+        painted.frame, frozen.frame,
+        "still frozen on the same frame"
+    );
+    assert_ne!(painted.pixels, frozen.pixels, "the bricks are drawn");
+    assert!(
+        !studio.open.as_ref().unwrap().level_needs_restart,
+        "the game took it"
+    );
+    let on_disk = std::fs::read_to_string(&level_file).unwrap();
+    assert_eq!(&on_disk[12..13], ".", "row 0 is untouched");
+    assert_eq!(
+        on_disk.lines().nth(9).unwrap().chars().nth(12),
+        Some('B'),
+        "saved at once"
+    );
+
+    // Carry on: the duck runs into the new wall.
+    say(&mut studio, Step::Do(Command::GameToggle));
+    say(&mut studio, press("Right"));
+    say(&mut studio, Step::Wait(Wait::Frames { frames: 90 }));
+    say(&mut studio, release("Right"));
+    say(&mut studio, Step::Do(Command::GameFreeze));
+    let last = studio.play().unwrap().picture.clone().unwrap();
+    say(&mut studio, Step::Do(Command::GameStop));
+    let session = studio.open.as_ref().unwrap().last_session.clone().unwrap();
+    let script = duckforge::InputScript::load(&session).unwrap();
+    assert_eq!(
+        script.changes.len(),
+        1,
+        "one change, on the frame after the freeze"
+    );
+    assert_eq!(script.changes[0].frame, frozen.frame + 1);
+
+    // Undo puts the file back as it was.
+    say(&mut studio, Step::Do(Command::EditUndo));
+    assert_eq!(
+        std::fs::read_to_string(&level_file).unwrap(),
+        _put_back.text,
+        "undone"
+    );
+
+    // Replayed with no window, with the old level on disk: the session
+    // has the level as it was, and the change on its frame, so it ends on
+    // the same picture, pixel for pixel.
+    let out = std::env::temp_dir().join(format!("duck-forge-studio-level-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&out);
+    let replay = std::process::Command::new("cargo")
+        .args([
+            "run",
+            "-q",
+            "--no-default-features",
+            "--example",
+            "template",
+            "--",
+        ])
+        .args(["--headless", "--inputs"])
+        .arg(&session)
+        .arg("--out")
+        .arg(&out)
+        .current_dir(duck_forge())
+        .output()
+        .unwrap();
+    let said = String::from_utf8_lossy(&replay.stdout);
+    assert!(
+        replay.status.success(),
+        "{said}{}",
+        String::from_utf8_lossy(&replay.stderr)
+    );
+    assert!(!said.contains("playthrough changed"), "{said}");
+    let (_, _, pixels) = png_pixels(&out.join("last.png"));
+    assert!(
+        pixels == last.pixels,
+        "the replay ends on the session's last picture"
+    );
+    let _ = std::fs::remove_dir_all(&out);
+}

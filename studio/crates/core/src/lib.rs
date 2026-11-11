@@ -8,6 +8,7 @@
 //! - [`play`]: a game running inside the Studio: the link, the clock,
 //!   freeze and resume, the session's recording.
 //! - [`check`] and [`clip`]: Check and Clip.
+//! - [`level`]: a game's level as Build mode edits it.
 //! - [`script`]: running a list of commands with no window.
 //!
 //! Nothing here opens a window, so all of it can be tested headless, and
@@ -18,6 +19,8 @@ pub mod check;
 pub mod clip;
 pub mod console;
 pub mod folder;
+pub mod history;
+pub mod level;
 pub mod play;
 pub mod problem;
 pub mod script;

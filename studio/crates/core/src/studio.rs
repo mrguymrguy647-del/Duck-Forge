@@ -17,9 +17,20 @@ use crate::check::{self, Check, CheckResult};
 use crate::clip::{Clip, ClipResult};
 use crate::console::{Console, JobEvent, JobId, JobState};
 use crate::folder::{Card, Game, GamesFolder, STARTERS, name_from_title};
+use crate::history::{FileEdit, Step, Undo};
+use crate::level::{Cell, Level, LevelArt};
 use crate::play::{AfterHello, Ending, Play, PlayState, Timing};
 use crate::problem::Problem;
 use crate::settings::Settings;
+
+/// "1 tile", "3 tiles".
+fn count(n: usize, what: &str) -> String {
+    if n == 1 {
+        format!("1 {what}")
+    } else {
+        format!("{n} {what}s")
+    }
+}
 
 /// Everything the Studio can be asked to do. In a script file each is a
 /// JSON object whose `"do"` is the command's name:
@@ -102,6 +113,58 @@ pub enum Command {
     /// Run a line typed into the Console panel, in the games folder.
     #[serde(rename = "console.run")]
     ConsoleRun { line: String },
+    /// Paint a tile (or a thing) on cells: `{"do": "level.paint",
+    /// "cells": [[14, 9], [15, 9]], "tile": "plank"}`. Edits with the same
+    /// `stroke` (one press of the mouse) are one step for Undo.
+    #[serde(rename = "level.paint")]
+    LevelPaint {
+        cells: Vec<Cell>,
+        tile: String,
+        #[serde(default)]
+        stroke: Option<u64>,
+    },
+    /// Empty cells.
+    #[serde(rename = "level.erase")]
+    LevelErase {
+        cells: Vec<Cell>,
+        #[serde(default)]
+        stroke: Option<u64>,
+    },
+    /// Fill the area around a cell (the cells joined to it with the same
+    /// letter) with a tile.
+    #[serde(rename = "level.fill")]
+    LevelFill { at: Cell, tile: String },
+    /// Put a thing in a cell. One the level has only one of (the Start)
+    /// moves there.
+    #[serde(rename = "level.place_thing")]
+    LevelPlaceThing { at: Cell, thing: String },
+    /// Move what's in one cell to another.
+    #[serde(rename = "level.move_thing")]
+    LevelMoveThing { from: Cell, to: Cell },
+    /// Empty one cell.
+    #[serde(rename = "level.delete_thing")]
+    LevelDeleteThing { at: Cell },
+    /// Move a block of cells (`size`: columns and rows) so its top left
+    /// is at `to`.
+    #[serde(rename = "level.move_area")]
+    LevelMoveArea {
+        from: Cell,
+        size: (i32, i32),
+        to: Cell,
+    },
+    /// Make the level this many columns and rows.
+    #[serde(rename = "level.resize")]
+    LevelResize { columns: usize, rows: usize },
+    /// Play from this cell: the game starts again with its Start there,
+    /// this time only (the file isn't changed).
+    #[serde(rename = "level.play_from")]
+    LevelPlayFrom { at: Cell },
+    /// Undo the last edit (a paint stroke, a Feel change...).
+    #[serde(rename = "edit.undo")]
+    EditUndo,
+    /// Redo what was undone.
+    #[serde(rename = "edit.redo")]
+    EditRedo,
 }
 
 /// One command, for lists of what the Studio can do (the Console's help
@@ -225,6 +288,61 @@ pub const COMMANDS: &[CommandInfo] = &[
         title: "Run a typed command",
         needs: "line: the command",
     },
+    CommandInfo {
+        name: "level.paint",
+        title: "Paint a tile or thing on cells",
+        needs: "cells: [[column, row], ...]; tile: its name, like grass",
+    },
+    CommandInfo {
+        name: "level.erase",
+        title: "Empty cells",
+        needs: "cells: [[column, row], ...]",
+    },
+    CommandInfo {
+        name: "level.fill",
+        title: "Fill an area with a tile",
+        needs: "at: [column, row]; tile: its name",
+    },
+    CommandInfo {
+        name: "level.place_thing",
+        title: "Put a thing in a cell",
+        needs: "at: [column, row]; thing: its name, like coin",
+    },
+    CommandInfo {
+        name: "level.move_thing",
+        title: "Move what's in a cell",
+        needs: "from and to: [column, row]",
+    },
+    CommandInfo {
+        name: "level.delete_thing",
+        title: "Empty one cell",
+        needs: "at: [column, row]",
+    },
+    CommandInfo {
+        name: "level.move_area",
+        title: "Move a block of cells",
+        needs: "from: [column, row]; size: [columns, rows]; to: [column, row]",
+    },
+    CommandInfo {
+        name: "level.resize",
+        title: "Change the level's size",
+        needs: "columns and rows",
+    },
+    CommandInfo {
+        name: "level.play_from",
+        title: "Play from a cell, this time only",
+        needs: "at: [column, row]",
+    },
+    CommandInfo {
+        name: "edit.undo",
+        title: "Undo the last edit",
+        needs: "",
+    },
+    CommandInfo {
+        name: "edit.redo",
+        title: "Redo what was undone",
+        needs: "",
+    },
 ];
 
 /// Which screen is showing.
@@ -286,6 +404,23 @@ pub struct OpenGame {
     play_when_built: bool,
     /// For a game just made: its first playthrough and first Check.
     first_steps: Option<FirstSteps>,
+    /// Its level, if it has one (`level.txt` in its folder).
+    pub level: Option<Level>,
+    /// Why its level couldn't be read.
+    pub level_problem: Option<Problem>,
+    /// The pictures of its tiles and things.
+    pub level_art: Option<LevelArt>,
+    /// The game said it reads its level only when it starts: changes need
+    /// a restart to show.
+    pub level_needs_restart: bool,
+    /// The level changed and the game hasn't been sent it yet (during a
+    /// paint stroke it's sent a few times a second, not every frame).
+    level_unsent: bool,
+    level_sent_at: Option<Instant>,
+    /// When the level's file was last looked at for outside changes.
+    level_looked: Instant,
+    /// This session's edits, for Undo and Redo.
+    pub undo: Undo,
 }
 
 impl OpenGame {
@@ -474,6 +609,20 @@ impl Studio {
                 })?;
                 self.close_game();
                 let watched = folder.code_files(&game);
+                // Its level, if it has one in its folder.
+                let (level, level_problem) = match game
+                    .folder
+                    .as_ref()
+                    .map(|own| own.join("level.txt"))
+                    .filter(|file| file.is_file())
+                {
+                    Some(file) => match Level::load(folder.root(), &file) {
+                        Ok(level) => (Some(level), None),
+                        Err(problem) => (None, Some(problem)),
+                    },
+                    None => (None, None),
+                };
+                let level_art = level.as_ref().map(LevelArt::load);
                 self.open = Some(OpenGame {
                     check_result: check::load(&folder, &game.name),
                     game,
@@ -492,6 +641,14 @@ impl Studio {
                     looked: Instant::now(),
                     play_when_built: true,
                     first_steps: None,
+                    level,
+                    level_problem,
+                    level_art,
+                    level_needs_restart: false,
+                    level_unsent: false,
+                    level_sent_at: None,
+                    level_looked: Instant::now(),
+                    undo: Undo::default(),
                 });
                 self.screen = Screen::Game;
                 self.problem = None;
@@ -516,7 +673,7 @@ impl Studio {
                     }
                     Some(play) if play.is_running() => Ok(String::from("Already playing")),
                     _ => {
-                        self.start_play(AfterHello::Play, None)?;
+                        self.start_play(AfterHello::Play, None, None)?;
                         Ok(String::from("Starting"))
                     }
                 }
@@ -551,7 +708,7 @@ impl Studio {
             }
             Command::GameRestart => {
                 self.stop_play();
-                self.start_play(AfterHello::Play, None)?;
+                self.start_play(AfterHello::Play, None, None)?;
                 Ok(String::from("Restarting"))
             }
             Command::GameReplayMyMoves => {
@@ -569,7 +726,7 @@ impl Studio {
                     })?;
                 let frames = script.frames.unwrap_or(0);
                 let seed = script.seed;
-                self.start_play(AfterHello::Replay(Box::new(script), frames), seed)?;
+                self.start_play(AfterHello::Replay(Box::new(script), frames), seed, None)?;
                 Ok(format!("Replaying {frames} frames"))
             }
             Command::GamePopOut => {
@@ -605,6 +762,105 @@ impl Studio {
                 }))
             }
             Command::GameScreenshot => self.screenshot(),
+            Command::LevelPaint {
+                cells,
+                tile,
+                stroke,
+            } => {
+                let letter = self.letter_named(&tile)?;
+                let is_thing = self
+                    .level()?
+                    .letter(letter)
+                    .is_some_and(|l| l.kind == duckforge::prelude::LetterKind::Thing);
+                self.edit_level(stroke, |level| {
+                    let changed = if is_thing && cells.len() == 1 {
+                        usize::from(level.place_thing(cells[0], letter))
+                    } else {
+                        level.paint(&cells, letter)
+                    };
+                    (changed, format!("Painted {}", count(changed, "tile")))
+                })
+            }
+            Command::LevelErase { cells, stroke } => self.edit_level(stroke, |level| {
+                let changed = level.paint(&cells, '.');
+                (changed, format!("Erased {}", count(changed, "tile")))
+            }),
+            Command::LevelFill { at, tile } => {
+                let letter = self.letter_named(&tile)?;
+                self.edit_level(None, |level| {
+                    let changed = level.fill(at, letter);
+                    (changed, format!("Filled {}", count(changed, "tile")))
+                })
+            }
+            Command::LevelPlaceThing { at, thing } => {
+                let letter = self.letter_named(&thing)?;
+                let title = self
+                    .level()?
+                    .letter(letter)
+                    .map(|l| l.title())
+                    .unwrap_or_default();
+                self.edit_level(None, |level| {
+                    let changed = usize::from(level.place_thing(at, letter));
+                    (
+                        changed,
+                        format!("Put a {title} at column {}, row {}", at.0, at.1),
+                    )
+                })
+            }
+            Command::LevelMoveThing { from, to } => self.edit_level(None, |level| {
+                let what = level
+                    .letter(level.letter_at(from))
+                    .map(|l| l.title())
+                    .unwrap_or_else(|| String::from("a tile"));
+                let changed = usize::from(level.move_thing(from, to));
+                (changed, format!("Moved {what}"))
+            }),
+            Command::LevelDeleteThing { at } => self.edit_level(None, |level| {
+                let what = level
+                    .letter(level.letter_at(at))
+                    .map(|l| l.title())
+                    .unwrap_or_else(|| String::from("a tile"));
+                let changed = level.paint(&[at], '.');
+                (changed, format!("Took away {what}"))
+            }),
+            Command::LevelMoveArea { from, size, to } => self.edit_level(None, |level| {
+                let changed = level.move_area(from, size, to);
+                (changed, String::from("Moved an area"))
+            }),
+            Command::LevelResize { columns, rows } => self.edit_level(None, |level| {
+                let changed = usize::from(level.resize(columns, rows));
+                (changed, format!("Made the level {columns} by {rows}"))
+            }),
+            Command::LevelPlayFrom { at } => {
+                let level = self.level()?;
+                let text = level.with_start_at(at).ok_or_else(|| {
+                    Problem::new(
+                        "This level has no Start to move.",
+                        "Its legend needs a thing with \"start\": true.",
+                    )
+                })?;
+                let given = std::collections::BTreeMap::from([(level.name.clone(), text)]);
+                self.stop_play();
+                self.start_play(AfterHello::Play, None, Some(given))?;
+                Ok(format!("Playing from column {}, row {}", at.0, at.1))
+            }
+            Command::EditUndo => {
+                let step = self.open_game()?.undo.undo().ok_or_else(|| {
+                    Problem::new(
+                        "There's nothing to undo.",
+                        "Edits made in Build mode can be undone.",
+                    )
+                })?;
+                self.apply_files(&step, true)?;
+                Ok(format!("Undid: {}", step.title))
+            }
+            Command::EditRedo => {
+                let step = self.open_game()?.undo.redo().ok_or_else(|| {
+                    Problem::new("There's nothing to redo.", "Undo something first.")
+                })?;
+                self.apply_files(&step, false)?;
+                Ok(format!("Redid: {}", step.title))
+            }
             Command::GameInput { event } => {
                 let action = action_from(&event)?;
                 let open = self.open_game()?;
@@ -697,6 +953,114 @@ impl Studio {
     }
 
     /// Starts the built game. With no build yet, it starts when there is one.
+    /// The open game's level, or why there isn't one.
+    fn level(&mut self) -> Result<&mut Level, Problem> {
+        let open = self.open_game()?;
+        if let Some(problem) = &open.level_problem {
+            return Err(problem.clone());
+        }
+        open.level.as_mut().ok_or_else(|| {
+            Problem::new(
+                "This game has no tile level, so there's nothing to paint.",
+                "You can still change how it feels.",
+            )
+        })
+    }
+
+    /// The letter for a tile or thing's name in the open level.
+    fn letter_named(&mut self, name: &str) -> Result<char, Problem> {
+        let level = self.level()?;
+        match level.letter_named(name) {
+            Some(letter) => Ok(letter.letter),
+            None => {
+                let names: Vec<&str> = level.letters.iter().map(|l| l.name.as_str()).collect();
+                Err(Problem::new(
+                    format!("This level has no tile or thing called {name}."),
+                    format!("Pick one of: {}.", names.join(", ")),
+                ))
+            }
+        }
+    }
+
+    /// Makes an edit to the level: `change` edits it and says how many
+    /// cells changed and what it did, in words. A change is saved to the
+    /// file at once, becomes a step for Undo, and goes to the game.
+    fn edit_level(
+        &mut self,
+        stroke: Option<u64>,
+        change: impl FnOnce(&mut Level) -> (usize, String),
+    ) -> Result<String, Problem> {
+        let level = self.level()?;
+        let before = level.text();
+        let (changed, said) = change(level);
+        if changed == 0 {
+            return Ok(String::from("Nothing changed"));
+        }
+        level.save()?;
+        let step = Step {
+            title: said.clone(),
+            files: vec![FileEdit {
+                path: level.path.clone(),
+                before,
+                after: level.text(),
+            }],
+            stroke,
+        };
+        let open = self.open_game()?;
+        open.undo.push(step);
+        open.level_unsent = true;
+        // A paint stroke goes to the game a few times a second, not every
+        // frame; anything else at once.
+        let recently = open
+            .level_sent_at
+            .is_some_and(|at| at.elapsed() < Duration::from_millis(200));
+        if stroke.is_none() || !recently {
+            self.send_level();
+        }
+        Ok(said)
+    }
+
+    /// Sends the level's text to the running game, if it hasn't had it.
+    fn send_level(&mut self) {
+        let Some(open) = &mut self.open else {
+            return;
+        };
+        if !open.level_unsent {
+            return;
+        }
+        open.level_unsent = false;
+        open.level_sent_at = Some(Instant::now());
+        let (Some(level), Some(play)) = (&open.level, &mut open.play) else {
+            return;
+        };
+        // The game names the file as it read it (the picture says).
+        let name = play
+            .maps
+            .first()
+            .map(|map| map.file.clone())
+            .filter(|file| !file.is_empty())
+            .unwrap_or_else(|| level.name.clone());
+        play.send_file(&name, &level.text());
+    }
+
+    /// Writes a step's files back (Undo: the "before" texts; Redo: the
+    /// "after"), then takes the change in: the level reads its file again
+    /// and the game gets it.
+    fn apply_files(&mut self, step: &Step, before: bool) -> Result<(), Problem> {
+        for edit in &step.files {
+            let text = if before { &edit.before } else { &edit.after };
+            crate::level::write_whole(&edit.path, text)?;
+        }
+        let open = self.open_game()?;
+        if let Some(level) = &mut open.level
+            && level.reload_if_changed()
+        {
+            open.level_unsent = true;
+        }
+        self.send_level();
+        Ok(())
+    }
+
     /// F12: saves the game's picture, as the game drew it, in
     /// `out/screenshots/`. Says where.
     fn screenshot(&mut self) -> Result<String, Problem> {
@@ -744,7 +1108,12 @@ impl Studio {
         ))
     }
 
-    fn start_play(&mut self, then: AfterHello, seed: Option<u32>) -> Result<(), Problem> {
+    fn start_play(
+        &mut self,
+        then: AfterHello,
+        seed: Option<u32>,
+        given: Option<std::collections::BTreeMap<String, String>>,
+    ) -> Result<(), Problem> {
         let folder = self.folder()?;
         let open = self.open_game()?;
         let Some(program) = open.program.clone() else {
@@ -755,9 +1124,26 @@ impl Studio {
             return Ok(());
         };
         let name = open.game.name.clone();
-        let mut play = Play::start(&mut self.console, &folder, &name, &program, seed, then)?;
+        let mut play = Play::start(
+            &mut self.console,
+            &folder,
+            &name,
+            &program,
+            seed,
+            then,
+            given,
+        )?;
         play.set_debug_overlay(self.debug_overlay);
         let open = self.open_game()?;
+        // The level as the game will read it, for the Studio's own record.
+        if let Some(level) = &open.level {
+            let legend = std::fs::read_to_string(&level.legend_path).unwrap_or_default();
+            play.note_files_at_start(std::collections::BTreeMap::from([
+                (level.name.clone(), level.text()),
+                (level.legend_name.clone(), legend),
+            ]));
+        }
+        open.level_needs_restart = false;
         open.play = Some(play);
         open.new_build_ready = false;
         Ok(())
@@ -873,6 +1259,7 @@ impl Studio {
             self.take_job_event(*job, event);
         }
         self.watch_code(now);
+        self.watch_level(now);
         if let Some(open) = &mut self.open
             && let Some(play) = &mut open.play
         {
@@ -964,7 +1351,7 @@ impl Studio {
                 let first_steps = built && open.first_steps == Some(FirstSteps::WaitingForBuild);
                 if start {
                     open.play_when_built = false;
-                    if let Err(problem) = self.start_play(AfterHello::Play, None) {
+                    if let Err(problem) = self.start_play(AfterHello::Play, None, None) {
                         self.problem = Some(problem);
                     }
                 }
@@ -1020,6 +1407,49 @@ impl Studio {
 
     /// Twice a second, looks at the game's code. Once a change has stayed
     /// unchanged for a second, the game is built again.
+    /// Keeps the level and the game in step: sends the level after a
+    /// paint stroke's last change, takes in the game's answers, and reads
+    /// the file again if it was changed outside the Studio (an editor, an
+    /// agent), which becomes a step for Undo.
+    fn watch_level(&mut self, now: Instant) {
+        let Some(open) = &mut self.open else {
+            return;
+        };
+        if let Some(play) = &mut open.play {
+            for (_, took_it) in play.take_file_answers() {
+                open.level_needs_restart |= !took_it;
+            }
+        }
+        let quiet = open
+            .level_sent_at
+            .is_none_or(|at| now.saturating_duration_since(at) >= Duration::from_millis(200));
+        if open.level_unsent && quiet {
+            self.send_level();
+            return;
+        }
+        // Outside changes, twice a second (with the code).
+        if now.saturating_duration_since(open.level_looked) < Duration::from_millis(500) {
+            return;
+        }
+        open.level_looked = now;
+        if let Some(level) = &mut open.level {
+            let before = level.text();
+            if level.reload_if_changed() {
+                open.undo.push(Step {
+                    title: String::from("Changed outside the Studio"),
+                    files: vec![FileEdit {
+                        path: level.path.clone(),
+                        before,
+                        after: level.text(),
+                    }],
+                    stroke: None,
+                });
+                open.level_unsent = true;
+                self.send_level();
+            }
+        }
+    }
+
     fn watch_code(&mut self, now: Instant) {
         let Some(open) = &mut self.open else {
             return;
@@ -1144,6 +1574,17 @@ mod tests {
             r#"{"do": "check.show_problem", "line": 2}"#,
             r#"{"do": "clip.make"}"#,
             r#"{"do": "console.run", "line": "cargo test"}"#,
+            r#"{"do": "level.paint", "cells": [[14, 9], [15, 9]], "tile": "plank", "stroke": 3}"#,
+            r#"{"do": "level.erase", "cells": [[14, 9]]}"#,
+            r#"{"do": "level.fill", "at": [0, 12], "tile": "grass"}"#,
+            r#"{"do": "level.place_thing", "at": [3, 12], "thing": "coin"}"#,
+            r#"{"do": "level.move_thing", "from": [3, 12], "to": [4, 12]}"#,
+            r#"{"do": "level.delete_thing", "at": [4, 12]}"#,
+            r#"{"do": "level.move_area", "from": [1, 1], "size": [3, 2], "to": [5, 1]}"#,
+            r#"{"do": "level.resize", "columns": 90, "rows": 15}"#,
+            r#"{"do": "level.play_from", "at": [20, 12]}"#,
+            r#"{"do": "edit.undo"}"#,
+            r#"{"do": "edit.redo"}"#,
         ];
         let mut names = Vec::new();
         for text in written {

@@ -30,6 +30,8 @@ pub const LINK_VERSION: u32 = 2;
 /// knows it's talking to the game it started.
 pub const KEY_VARIABLE: &str = "DUCKFORGE_STUDIO_KEY";
 
+pub use crate::files::GIVE_FILES_VARIABLE;
+
 /// The biggest message either side will read: a 4096 x 4096 picture.
 const MAX_LENGTH: usize = 4096 * 4096 * 4 + 4096;
 

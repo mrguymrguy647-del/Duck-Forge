@@ -21,8 +21,16 @@ use std::collections::BTreeMap;
 use std::io;
 use std::path::Path;
 
+/// The environment variable a tool (Duck Forge Studio's "Play from
+/// here") sets to start a game with other text for some of its files: it
+/// names a JSON file like `{"examples/mygame/level.txt": "..."}`. Those
+/// texts are read instead of what's on disk, and a recording keeps them.
+pub const GIVE_FILES_VARIABLE: &str = "DUCKFORGE_GIVE_FILES";
+
 #[derive(Default)]
 struct Files {
+    /// The variable above has been looked at.
+    looked_at_variable: bool,
     /// Text to give instead of what's on disk: from the Studio, or from a
     /// recording being replayed.
     given: BTreeMap<String, String>,
@@ -48,6 +56,7 @@ pub(crate) fn name_of(path: &Path) -> String {
 /// Reads a text file the game needs, and notes it. If the Studio or a
 /// replay has given newer text for it, that's what's read.
 pub(crate) fn read_text(path: &Path) -> io::Result<String> {
+    take_given_from_variable();
     let name = name_of(path);
     let given = FILES.with(|files| files.borrow().given.get(&name).cloned());
     let text = match given {
@@ -72,6 +81,30 @@ pub(crate) fn read_text(path: &Path) -> io::Result<String> {
         files.last.insert(name, text.clone());
     });
     Ok(text)
+}
+
+/// The first time a file is read: the texts a tool gave in
+/// [`GIVE_FILES_VARIABLE`], if any.
+fn take_given_from_variable() {
+    let looked =
+        FILES.with(|files| std::mem::replace(&mut files.borrow_mut().looked_at_variable, true));
+    if looked {
+        return;
+    }
+    let Some(file) = std::env::var_os(GIVE_FILES_VARIABLE) else {
+        return;
+    };
+    let texts: Option<BTreeMap<String, String>> = std::fs::read_to_string(&file)
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok());
+    match texts {
+        Some(texts) => FILES.with(|files| files.borrow_mut().given.extend(texts)),
+        None => eprintln!(
+            "duckforge: {GIVE_FILES_VARIABLE} names {}, which isn't a JSON object of file texts; \
+             reading the files from disk",
+            std::path::Path::new(&file).display()
+        ),
+    }
 }
 
 /// From now on, reading `name` gives `text`.

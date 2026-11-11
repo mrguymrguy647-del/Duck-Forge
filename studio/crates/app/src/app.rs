@@ -507,12 +507,11 @@ impl StudioApp {
                     ui.spinner();
                     ui.label("Making a clip...");
                 }
-                if let Some((said, when)) = &self.said {
-                    if when.elapsed().as_secs() < 5 {
+                if let Some((said, when)) = &self.said
+                    && when.elapsed().as_secs() < 5 {
                         ui.separator();
                         ui.label(RichText::new(said).color(theme::GOOD));
                     }
-                }
             });
             if self.studio.settings.show_timing {
                 let timing = self.studio.timing(Instant::now());

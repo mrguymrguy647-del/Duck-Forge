@@ -10,7 +10,7 @@
 //! Every input goes into a recording as it's sent, so a session can always
 //! be replayed, even if the game crashes.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::io::BufReader;
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -18,6 +18,8 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::time::{Duration, Instant};
 
 use duckforge::prelude::{Key, MouseButton};
+use duckforge::script::{Change, ChangeEvent};
+use duckforge::studio_link::protocol::{DrawnMap, GIVE_FILES_VARIABLE};
 use duckforge::studio_link::protocol::{
     Frame, Hello, KEY_VARIABLE, LINK_VERSION, ToGame, ToStudio,
 };
@@ -231,6 +233,17 @@ pub struct Play {
     then: AfterHello,
     /// The game draws its debug overlay (F1) on its pictures.
     debug_overlay: bool,
+    /// Where tile maps were drawn on the latest picture.
+    pub maps: Vec<DrawnMap>,
+    /// Files and tune values changed so far, by frame: the session's
+    /// recording has them too.
+    changes: Vec<ChangeEvent>,
+    /// The texts of the game's level files when it started, for the
+    /// Studio's own recording.
+    files_at_start: BTreeMap<String, String>,
+    /// The game's answers to changed files, not yet taken: the file's
+    /// name, and whether the game took it.
+    file_answers: Vec<(String, bool)>,
 }
 
 /// What a new session does first.
@@ -254,6 +267,7 @@ impl Play {
         program: &Path,
         seed: Option<u32>,
         then: AfterHello,
+        given: Option<BTreeMap<String, String>>,
     ) -> Result<Play, Problem> {
         let cant = |what: &str, problem: std::io::Error| {
             Problem::new(
@@ -281,9 +295,19 @@ impl Play {
             Ok(short) => short.display().to_string(),
             Err(_) => program.display().to_string(),
         };
-        let command = CommandLine::new(program, &words, folder.root())
+        let mut command = CommandLine::new(program, &words, folder.root())
             .shown_as(format!("{shown} {}", words.join(" ")))
             .with_env(KEY_VARIABLE, &key);
+        // "Play from here": the game reads these texts for its files
+        // instead of what's on disk, this time only.
+        if let Some(texts) = &given {
+            let file = folder.sessions_folder(game).join("given-files.json");
+            let written = std::fs::create_dir_all(folder.sessions_folder(game)).and_then(|()| {
+                std::fs::write(&file, serde_json::to_string(texts).unwrap_or_default())
+            });
+            written.map_err(|e| cant("writing the level to play from", e))?;
+            command = command.with_env(GIVE_FILES_VARIABLE, &file.to_string_lossy());
+        }
         let job = console.start("Play", &command, Keep::Everything);
         Ok(Play {
             game: game.to_string(),
@@ -315,7 +339,65 @@ impl Play {
             bye: None,
             then,
             debug_overlay: false,
+            maps: Vec::new(),
+            changes: Vec::new(),
+            files_at_start: given.unwrap_or_default(),
+            file_answers: Vec::new(),
         })
+    }
+
+    /// The Studio's record of the game's level files as they were when it
+    /// started (for the session's recording if the game can't give its own).
+    pub fn note_files_at_start(&mut self, files: BTreeMap<String, String>) {
+        for (name, text) in files {
+            self.files_at_start.entry(name).or_insert(text);
+        }
+    }
+
+    /// A file the game read has new text (a level painted in Build mode):
+    /// the game reads it again now. A frozen game draws its picture again,
+    /// so the change shows at once. Kept in the session's recording.
+    pub fn send_file(&mut self, name: &str, text: &str) {
+        if self.hello.is_none() || !self.is_running() {
+            return;
+        }
+        self.send(&ToGame::File {
+            path: name.to_string(),
+            text: text.to_string(),
+        });
+        self.changes.push(ChangeEvent {
+            frame: self.frame + 1,
+            change: Change::File {
+                path: name.to_string(),
+                text: text.to_string(),
+            },
+        });
+        if self.state == PlayState::Frozen {
+            self.step(0, &[]);
+        }
+    }
+
+    /// New `ctx.tune` values (Feel), from now on. Kept in the recording.
+    pub fn send_tunes(&mut self, values: BTreeMap<String, f32>) {
+        if self.hello.is_none() || !self.is_running() || values.is_empty() {
+            return;
+        }
+        self.send(&ToGame::Tune {
+            values: values.clone(),
+        });
+        self.changes.push(ChangeEvent {
+            frame: self.frame + 1,
+            change: Change::Tune(values),
+        });
+        if self.state == PlayState::Frozen {
+            self.step(0, &[]);
+        }
+    }
+
+    /// The game's answers about changed files since this was last asked:
+    /// each file's name, and whether the game took the change.
+    pub fn take_file_answers(&mut self) -> Vec<(String, bool)> {
+        std::mem::take(&mut self.file_answers)
     }
 
     /// Has the game draw its debug overlay (F1) on its pictures, or stop.
@@ -601,6 +683,8 @@ impl Play {
             events: self.events.clone(),
             expect: None,
             tune: None,
+            files: self.files_at_start.clone(),
+            changes: self.changes.clone(),
         }
     }
 
@@ -788,6 +872,12 @@ impl Play {
                             .copied()
                             .filter(|event| event.frame <= frames)
                             .collect();
+                        self.changes = script
+                            .changes
+                            .iter()
+                            .filter(|change| change.frame <= frames)
+                            .cloned()
+                            .collect();
                         let id = self.next_id;
                         self.next_id += 1;
                         self.send(&ToGame::Run {
@@ -834,6 +924,10 @@ impl Play {
                 }
                 false
             }
+            ToStudio::Changed { path, reloaded } => {
+                self.file_answers.push((path, reloaded));
+                false
+            }
             ToStudio::Bye { why } => {
                 self.bye = Some(why);
                 false
@@ -870,6 +964,7 @@ impl Play {
         self.frame = frame.frame;
         self.wants_pointer = frame.wants_pointer;
         self.renderer = frame.renderer;
+        self.maps = frame.maps;
         self.serial += 1;
         self.picture = Some(Picture {
             width: frame.width,
