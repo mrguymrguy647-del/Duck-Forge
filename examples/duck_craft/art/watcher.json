@@ -1,0 +1,64 @@
+{
+ "title": "The Watcher: no colour, two points of light. The duck's skin layout.",
+ "palette": {
+  "black": "#060608",
+  "black_edge": "#121218",
+  "eye": "#F4F4FF",
+  "eye_glow": "#8890B0"
+ },
+ "commands": [
+  {
+   "cmd": "canvas",
+   "width": 64,
+   "height": 32,
+   "pixel": true
+  },
+  {
+   "cmd": "pixels",
+   "at": [
+    0,
+    0
+   ],
+   "colors": {
+    "a": "black",
+    "b": "black_edge",
+    "c": "eye",
+    "d": "eye_glow"
+   },
+   "rows": [
+    "........bbbbbbbbbbbbbbbb...........bbbbbbbb.....................",
+    "........aaaaaaaaaaaaaaaa...........aaaaaaaa.....................",
+    "........aaaaaaaaaaaaaaaa...........aaaaaaaa.....................",
+    "........aaaaaaaaaaaaaaaa........bbbbbbbbbbbbbb..................",
+    "........aaaaaaaaaaaaaaaa........aaaaaaaaaaaaaa..................",
+    "........aaaaaaaaaaaaaaaa........................................",
+    "........aaaaaaaaaaaaaaaa........................................",
+    "........aaaaaaaaaaaaaaaa........................................",
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb................................",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa................................",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa................................",
+    "aaaaaaaaaacaacaaaaaaaaaaaaaaaaaa................................",
+    "aaaaaaaaaadaadaaaaaaaaaaaaaaaaaa................................",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa................................",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa................................",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa................................",
+    "....bbbbbbbbbbbbbbbb........bbbbbbbb........bbbbbbbb............",
+    "....aaaaaaaaaaaaaaaa........aaaaaaaa........aaaaaaaa............",
+    "....aaaaaaaaaaaaaaaa........aaaaaaaa........aaaaaaaa............",
+    "....aaaaaaaaaaaaaaaa........aaaaaaaa........aaaaaaaa............",
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb........",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa........",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa........",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa........",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa........",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa........",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa........",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa........",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa........",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa........",
+    "................................................................",
+    "................................................................"
+   ]
+  }
+ ]
+}

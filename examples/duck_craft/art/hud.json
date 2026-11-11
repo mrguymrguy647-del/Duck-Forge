@@ -1,0 +1,355 @@
+{
+ "title": "Duck Craft's HUD icons: hearts, bread and bubbles, 9 x 9",
+ "palette": {
+  "outline": "#1A1418",
+  "red": "#E02A2A",
+  "red_dark": "#A01818",
+  "shine": "#FFFFFF",
+  "empty": "#4A3E44",
+  "crust": "#B86E2C",
+  "crust_dark": "#7A4418",
+  "crumb": "#F0D490",
+  "crumb_dark": "#C8A860",
+  "bubble": "#8ED8FF",
+  "bubble_dark": "#3A8AC8"
+ },
+ "commands": [
+  {
+   "cmd": "canvas",
+   "width": 9,
+   "height": 9,
+   "pixel": true
+  },
+  {
+   "cmd": "define",
+   "name": "heart_full",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "outline",
+      "b": "red",
+      "c": "red_dark",
+      "d": "shine",
+      "e": "empty",
+      "f": "crust",
+      "g": "crust_dark",
+      "h": "crumb",
+      "i": "crumb_dark",
+      "j": "bubble",
+      "k": "bubble_dark"
+     },
+     "rows": [
+      ".aa...aa.",
+      "abba.abba",
+      "abdbbbbba",
+      "abbbbbbba",
+      "abbbbbbca",
+      ".abbbbca.",
+      "..abbca..",
+      "...aca...",
+      "....a...."
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "bread_full",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "outline",
+      "b": "red",
+      "c": "red_dark",
+      "d": "shine",
+      "e": "empty",
+      "f": "crust",
+      "g": "crust_dark",
+      "h": "crumb",
+      "i": "crumb_dark",
+      "j": "bubble",
+      "k": "bubble_dark"
+     },
+     "rows": [
+      "..aaaaa..",
+      ".afffffa.",
+      "affhhhffa",
+      "afhhhhhfa",
+      "afhhhhhfa",
+      "afhhhhifa",
+      "afhhiiifa",
+      "afffffffg",
+      ".aggggga."
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "heart_half",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "outline",
+      "b": "red",
+      "c": "red_dark",
+      "d": "shine",
+      "e": "empty",
+      "f": "crust",
+      "g": "crust_dark",
+      "h": "crumb",
+      "i": "crumb_dark",
+      "j": "bubble",
+      "k": "bubble_dark"
+     },
+     "rows": [
+      ".aa...aa.",
+      "abba.aeea",
+      "abdbbeeea",
+      "abbbbeeea",
+      "abbbbeeea",
+      ".abbbeea.",
+      "..abbea..",
+      "...aca...",
+      "....a...."
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "bread_half",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "outline",
+      "b": "red",
+      "c": "red_dark",
+      "d": "shine",
+      "e": "empty",
+      "f": "crust",
+      "g": "crust_dark",
+      "h": "crumb",
+      "i": "crumb_dark",
+      "j": "bubble",
+      "k": "bubble_dark"
+     },
+     "rows": [
+      "..aaaaa..",
+      ".afffeea.",
+      "affhheeea",
+      "afhhheeea",
+      "afhhheeea",
+      "afhhheeea",
+      "afhhieeea",
+      "affffeeee",
+      ".agggeea."
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "heart_empty",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "outline",
+      "b": "red",
+      "c": "red_dark",
+      "d": "shine",
+      "e": "empty",
+      "f": "crust",
+      "g": "crust_dark",
+      "h": "crumb",
+      "i": "crumb_dark",
+      "j": "bubble",
+      "k": "bubble_dark"
+     },
+     "rows": [
+      ".aa...aa.",
+      "aeea.aeea",
+      "aeeeeeeea",
+      "aeeeeeeea",
+      "aeeeeeeea",
+      ".aeeeeea.",
+      "..aeeea..",
+      "...aea...",
+      "....a...."
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "bread_empty",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "outline",
+      "b": "red",
+      "c": "red_dark",
+      "d": "shine",
+      "e": "empty",
+      "f": "crust",
+      "g": "crust_dark",
+      "h": "crumb",
+      "i": "crumb_dark",
+      "j": "bubble",
+      "k": "bubble_dark"
+     },
+     "rows": [
+      "..aaaaa..",
+      ".aeeeeea.",
+      "aeeeeeeea",
+      "aeeeeeeea",
+      "aeeeeeeea",
+      "aeeeeeeea",
+      "aeeeeeeea",
+      "aeeeeeeee",
+      ".aeeeeea."
+     ]
+    }
+   ]
+  },
+  {
+   "cmd": "define",
+   "name": "bubble",
+   "commands": [
+    {
+     "cmd": "pixels",
+     "at": [
+      0,
+      0
+     ],
+     "colors": {
+      "a": "outline",
+      "b": "red",
+      "c": "red_dark",
+      "d": "shine",
+      "e": "empty",
+      "f": "crust",
+      "g": "crust_dark",
+      "h": "crumb",
+      "i": "crumb_dark",
+      "j": "bubble",
+      "k": "bubble_dark"
+     },
+     "rows": [
+      "..aaaaa..",
+      ".ajjjjja.",
+      "ajddjjjja",
+      "ajdjjjjja",
+      "ajjjjjjja",
+      "ajjjjjjka",
+      "ajjjjjkka",
+      ".ajjkkja.",
+      "..aaaaa.."
+     ]
+    }
+   ]
+  }
+ ],
+ "animations": {
+  "heart_full": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "heart_full"
+    }
+   ]
+  },
+  "bread_full": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "bread_full"
+    }
+   ]
+  },
+  "heart_half": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "heart_half"
+    }
+   ]
+  },
+  "bread_half": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "bread_half"
+    }
+   ]
+  },
+  "heart_empty": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "heart_empty"
+    }
+   ]
+  },
+  "bread_empty": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "bread_empty"
+    }
+   ]
+  },
+  "bubble": {
+   "frames": 1,
+   "fps": 1,
+   "commands": [
+    {
+     "cmd": "use",
+     "name": "bubble"
+    }
+   ]
+  }
+ }
+}

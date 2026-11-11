@@ -2,7 +2,7 @@
   "image": "blocks.png",
   "frame": { "width": 16, "height": 16 },
   "columns": 1,
-  "rows": 22,
+  "rows": 32,
   "scale": 1,
   "pivot": [8.0,16.0],
   "animations": {
@@ -24,9 +24,19 @@
     "bedrock": {"row":15,"frames":[15],"fps":1.0,"loop":false},
     "cloud": {"row":16,"frames":[16],"fps":1.0,"loop":false},
     "lamp": {"row":17,"frames":[17],"fps":1.0,"loop":false},
-    "crack_1": {"row":18,"frames":[18],"fps":1.0,"loop":false},
-    "crack_2": {"row":19,"frames":[19],"fps":1.0,"loop":false},
-    "crack_3": {"row":20,"frames":[20],"fps":1.0,"loop":false},
-    "crack_4": {"row":21,"frames":[21],"fps":1.0,"loop":false}
+    "tall_grass": {"row":18,"frames":[18],"fps":1.0,"loop":false},
+    "flower_yellow": {"row":19,"frames":[19],"fps":1.0,"loop":false},
+    "flower_red": {"row":20,"frames":[20],"fps":1.0,"loop":false},
+    "flower_white": {"row":21,"frames":[21],"fps":1.0,"loop":false},
+    "apple": {"row":22,"frames":[22],"fps":1.0,"loop":false},
+    "seeds": {"row":23,"frames":[23],"fps":1.0,"loop":false},
+    "bread": {"row":24,"frames":[24],"fps":1.0,"loop":false},
+    "gold_nugget": {"row":25,"frames":[25],"fps":1.0,"loop":false},
+    "coal_lump": {"row":26,"frames":[26],"fps":1.0,"loop":false},
+    "stone_blade": {"row":27,"frames":[27],"fps":1.0,"loop":false},
+    "crack_1": {"row":28,"frames":[28],"fps":1.0,"loop":false},
+    "crack_2": {"row":29,"frames":[29],"fps":1.0,"loop":false},
+    "crack_3": {"row":30,"frames":[30],"fps":1.0,"loop":false},
+    "crack_4": {"row":31,"frames":[31],"fps":1.0,"loop":false}
   }
 }

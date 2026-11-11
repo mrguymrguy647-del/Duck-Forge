@@ -1,10 +1,18 @@
 //! Duck Craft: a little Minecraft-style world of blocks, made with
-//! duckforge and Duck Quill.
+//! duckforge and Duck Quill. Nothing lasts. Build anyway.
 //!
 //! An island grows from noise: grass hills, sandy beaches, the sea, trees,
 //! stone with coal and gold inside, and caves. Walk it as the duck, dig any
-//! block, pick it up, and build with it. The sun crosses the sky; at night,
-//! the lamps you place glow.
+//! block, pick it up, and build with it. Keep it in your bag and craft it
+//! into new things (coal and gold are worth finding). Mind your hearts
+//! and your hunger: eat apples, seeds and bread. Tall grass and flowers
+//! grow on the hills; ducklings waddle about, and follow you once you've
+//! met. Sand falls. The sun crosses the sky; at night the dark comes in
+//! close, and grey things that were ducks once come up out of it
+//! (`night.rs`): keep a lamp lit, or meet them with a stone blade. Some
+//! nights something stands far off and watches. Play in survival, or in
+//! creative (fly, every block, nothing hurts), from the title screen
+//! (`menus.rs`). The island is saved as you play.
 //!
 //!     cargo run --release --example duck_craft
 //!
@@ -14,6 +22,19 @@
 //! - **left click** or **X** (hold) digs the block you look at;
 //!   **right click** or **C** places the block in your hand
 //! - **1 to 9** or the **mouse wheel** pick a block; **middle click** picks the one you look at
+//! - **E** the inventory (`inventory.rs`): your duck, a 2 x 2 crafting
+//!   grid, the backpack and the hotbar, worked with the mouse (click,
+//!   right click to split, Shift+click to send across); the book lists the
+//!   recipes and fills the grid for you. Items and stacks: `items.rs`.
+//! - **hold right click** (or C) with food in hand to eat it; hearts,
+//!   bread and bubbles over the hotbar show health, hunger and air
+//!   (`health.rs`)
+//! - tall grass and flowers break with one click; grass sometimes gives
+//!   seeds, leaves sometimes an apple (`plants.rs`)
+//! - **right click** a duckling and it follows you; again, and it waits
+//!   (`ducklings.rs`)
+//! - **F5** saves (it also saves every 30 seconds and when you quit, to
+//!   `duck_craft_save.dat`; delete that file for a new island: `save.rs`)
 //! - **V** first person / behind the duck, **H** hides the help, **Escape** twice quits
 //!
 //! How it's made:
@@ -34,11 +55,23 @@
 //!   (`Duck`, `art/make_skin.py`): boxes for the head, beak, body, arms and
 //!   legs, each face painted from one 64 x 32 picture, limbs swinging as it
 //!   walks. In first person you see your own arm holding the block in hand.
+//!   The ducklings are built the same way from their own skin
+//!   (`art/make_duckling.py`).
+//!
+//! - The music and sounds are made from scratch by `audio/make_sounds.py`
+//!   (sine waves, noise and a little reverb; Duck Echo isn't ready yet):
+//!   a felt piano for the day, a drone for the night, a theme for the
+//!   title, and the Hollows' groans, the Watcher's sting, a heartbeat.
 //!
 //! Without a screen (or to test):
 //!
 //!     cargo run --release --no-default-features --example duck_craft -- --headless --inputs playthroughs/duck_craft.json --sheet-events --out out
 //!     cargo test --no-default-features --example duck_craft
+//!
+//! The night, from a recording (`--set start_time_of_day=0.47` starts the
+//! first day just before sunset):
+//!
+//!     cargo run --release --no-default-features --example duck_craft -- --headless --set start_time_of_day=0.47 --inputs playthroughs/duck_craft_night.json --video out/night.mp4 --out out/night
 
 use duckforge::LoadError;
 use duckforge::prelude::*;
@@ -54,10 +87,13 @@ const SIZE: usize = 64;
 const TALL: usize = 44;
 const CHUNK: usize = 16; // chunks are 16 x 16 columns, the world's full height
 const SEA: i32 = 12; // the top of the sea is the top of this layer
-const SEED: u32 = 2026; // a different number grows a different island
+/// The island tests, replays and fuzz runs always grow. A new island in
+/// the window gets a seed from the clock.
+const SEED: u32 = 2026;
 
 const WALK_SPEED: f32 = 4.3; // blocks per second
 const RUN_SPEED: f32 = 6.0;
+const FLY_SPEED: f32 = 10.0; // creative
 const GRAVITY: f32 = 28.0;
 const JUMP_SPEED: f32 = 8.6; // a little over one block high
 const HALF_WIDTH: f32 = 0.3; // the duck is 0.6 wide...
@@ -68,13 +104,15 @@ const TURN_SPEED: f32 = 2.4; // arrow keys, radians per second
 const MOUSE_LOOK: f32 = 0.012; // radians per canvas pixel
 const DAY_SECONDS: f32 = 420.0; // a whole day and night
 const PLACE_REPEAT: f32 = 0.25; // seconds between blocks while held
+const APPLE_CHANCE: f32 = 0.1; // of an apple, each time you break leaves
 
 const ASSETS: &str = "examples/duck_craft/assets";
+const HOTBAR_SLOT: f32 = 20.0; // pixels a slot, in the hotbar and the inventory
 
 // ---- Blocks ----
 
 /// One kind of block. `Air` is nothing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Block {
     Air,
     Grass,
@@ -95,19 +133,6 @@ enum Block {
 }
 
 const BLOCK_KINDS: usize = 16;
-
-/// What's in the hotbar, slot 1 to 9.
-const HOTBAR: [Block; 9] = [
-    Block::Dirt,
-    Block::Cobblestone,
-    Block::Planks,
-    Block::Log,
-    Block::Glass,
-    Block::Brick,
-    Block::Sand,
-    Block::Leaves,
-    Block::Lamp,
-];
 
 impl Block {
     const ALL: [Block; BLOCK_KINDS] = [
@@ -285,9 +310,18 @@ struct World {
     grid: BlockWorld,
     /// Where the lamps are: the faces near them glow a little.
     lamps: Vec<[i32; 3]>,
+    /// Cells that changed, or are on top of one that did: sand there may
+    /// have nothing under it now (see `settle_sand`).
+    unsettled: Vec<[i32; 3]>,
     /// For each column, the lowest y with nothing above it that casts a
     /// shadow: air there and above is under the open sky.
     sky: Vec<i32>,
+    /// Tall grass and flowers, by the cell they stand in.
+    plants: std::collections::HashMap<[i32; 3], Plant>,
+    /// A plant came or went: the plants' mesh needs building again.
+    plants_changed: bool,
+    /// The number the island grew from (the same number grows the same island).
+    seed: u32,
     /// Where the duck starts: its feet, and which way it looks.
     spawn: Vec3,
     spawn_yaw: f32,
@@ -330,6 +364,9 @@ impl World {
         }
         self.grid.set(x, y, z, block as BlockId);
         self.update_sky(x, z);
+        self.plants_after_set(x, y, z, block);
+        self.unsettled.push([x, y, z]);
+        self.unsettled.push([x, y + 1, z]);
     }
 
     /// Builds again the chunks that changed, shading each face by the light
@@ -363,12 +400,12 @@ impl World {
     }
 
     /// The height of the ground at column (x, z), before trees.
-    fn ground_height(x: i32, z: i32) -> i32 {
+    fn ground_height(x: i32, z: i32, seed: u32) -> i32 {
         let (fx, fz) = (x as f32, z as f32);
-        let base = 0.5 * noise2(fx / 22.0, fz / 22.0, SEED)
-            + 0.3 * noise2(fx / 11.0, fz / 11.0, SEED + 1)
-            + 0.2 * noise2(fx / 5.0, fz / 5.0, SEED + 2);
-        let hills = (noise2(fx / 16.0, fz / 16.0, SEED + 3) - 0.55).max(0.0) * 34.0;
+        let base = 0.5 * noise2(fx / 22.0, fz / 22.0, seed)
+            + 0.3 * noise2(fx / 11.0, fz / 11.0, seed + 1)
+            + 0.2 * noise2(fx / 5.0, fz / 5.0, seed + 2);
+        let hills = (noise2(fx / 16.0, fz / 16.0, seed + 3) - 0.55).max(0.0) * 34.0;
         let mut h = 6.5 + base * 17.0 + hills;
         // An island: the land sinks under the sea near the edges.
         let edge = x.min(z).min(SIZE as i32 - 1 - x).min(SIZE as i32 - 1 - z) as f32;
@@ -379,18 +416,22 @@ impl World {
     }
 
     /// Grows the island.
-    fn generate() -> World {
+    fn generate(seed: u32) -> World {
         let mut world = World {
             grid: BlockWorld::with_chunk_size(SIZE, TALL, SIZE, CHUNK),
             lamps: Vec::new(),
+            unsettled: Vec::new(),
             sky: vec![0; SIZE * SIZE],
+            plants: std::collections::HashMap::new(),
+            plants_changed: true,
+            seed,
             spawn: Vec3::ZERO,
             spawn_yaw: 0.0,
         };
         // Bedrock all the way down: the bottom layer's undersides aren't drawn.
         world.grid.set_below(Block::Bedrock as BlockId);
         let heights: Vec<i32> = (0..SIZE * SIZE)
-            .map(|i| World::ground_height((i % SIZE) as i32, (i / SIZE) as i32))
+            .map(|i| World::ground_height((i % SIZE) as i32, (i / SIZE) as i32, seed))
             .collect();
         let height = |x: i32, z: i32| heights[z as usize * SIZE + x as usize];
 
@@ -407,7 +448,7 @@ impl World {
                     } else if y >= h - 3 {
                         if beach { Block::Sand } else { Block::Dirt }
                     } else {
-                        let r = random01(x, y, z, SEED + 4);
+                        let r = random01(x, y, z, seed + 4);
                         if y < 10 && r < 0.012 {
                             Block::GoldOre
                         } else if y < 30 && r < 0.035 {
@@ -432,7 +473,7 @@ impl World {
                     continue;
                 }
                 for y in 2..=h - 2 {
-                    let n = noise3(x as f32 / 8.0, y as f32 / 5.0, z as f32 / 8.0, SEED + 5);
+                    let n = noise3(x as f32 / 8.0, y as f32 / 5.0, z as f32 / 8.0, seed + 5);
                     if n > 0.7 {
                         world.grid.set(x, y, z, Block::Air as BlockId);
                     }
@@ -449,9 +490,9 @@ impl World {
                 let room = trees
                     .iter()
                     .all(|&(tx, tz)| (tx - x).abs().max((tz - z).abs()) > 4);
-                if on_grass && room && random01(x, 0, z, SEED + 6) < 0.014 {
+                if on_grass && room && random01(x, 0, z, seed + 6) < 0.014 {
                     trees.push((x, z));
-                    world.grow_tree(x, h + 1, z, random01(x, 1, z, SEED + 6));
+                    world.grow_tree(x, h + 1, z, random01(x, 1, z, seed + 6));
                 }
             }
         }
@@ -461,6 +502,7 @@ impl World {
                 world.update_sky(x, z);
             }
         }
+        world.grow_plants();
 
         // Start on grass as near the middle as there is, not under a tree.
         let middle = SIZE as i32 / 2;
@@ -529,7 +571,7 @@ impl World {
                 for dx in -radius..=radius {
                     let corner = dx.abs() == radius && dz.abs() == radius;
                     let y = top + dy;
-                    if corner && (dy == 1 || random01(x + dx, y, z + dz, SEED + 7) < 0.5) {
+                    if corner && (dy == 1 || random01(x + dx, y, z + dz, self.seed + 7) < 0.5) {
                         continue;
                     }
                     if World::inside(x + dx, y, z + dz) && self.get(x + dx, y, z + dz) == Block::Air
@@ -577,6 +619,15 @@ impl World {
                     cell,
                     normal,
                     block,
+                    plant: None,
+                });
+            }
+            if let Some(plant) = self.plant(cell[0], cell[1], cell[2]) {
+                return Some(RayHit {
+                    cell,
+                    normal,
+                    block,
+                    plant: Some(plant),
                 });
             }
             let axis = if next[0] < next[1] && next[0] < next[2] {
@@ -637,6 +688,15 @@ struct RayHit {
     /// Which way the face that was hit looks (one of the six directions).
     normal: [i32; 3],
     block: Block,
+    /// A plant hit instead of a block (`block` is then air).
+    plant: Option<Plant>,
+}
+
+impl RayHit {
+    /// What was hit, by name.
+    fn name(&self) -> &'static str {
+        self.plant.map_or(self.block.name(), |p| p.name())
+    }
 }
 
 // ---- Art ----
@@ -649,12 +709,23 @@ struct Art {
     cubes: Vec<Option<Mesh>>,
     /// The four stages of cracks, drawn over a block being dug.
     cracks: Vec<Mesh>,
-    /// Each block's picture for the hotbar.
-    icons: Vec<Option<Sprite>>,
+    /// Each item's picture, for the hotbar and the inventory.
+    item_icons: std::collections::HashMap<Item, Sprite>,
+    /// Items that aren't blocks, as flat pictures to hold in the hand.
+    item_cards: std::collections::HashMap<Item, Mesh>,
+    /// Hearts, bread and bubbles over the hotbar.
+    hud: Tileset,
+    /// Each plant's picture in the atlas (by `Plant as usize`).
+    plant_uvs: Vec<Rect>,
     /// The sea all round the island, out to the horizon.
     ocean: Mesh,
     clouds: Mesh,
     duck: Duck,
+    /// The night's shapes: the duck's body in other skins.
+    hollow: Duck,
+    watcher: Duck,
+    sounds: Sounds,
+    duckling: DucklingModel,
     /// A flat dark disc, drawn see-through under the duck.
     shadow: Mesh,
     /// A white cube, drawn faintly over the block you look at.
@@ -667,7 +738,6 @@ impl Art {
         let atlas = Tileset::load(format!("{ASSETS}/blocks.json"))?;
         let mut kinds = Vec::new();
         let mut cubes = Vec::new();
-        let mut icons = Vec::new();
         for block in Block::ALL {
             match block.tiles() {
                 Some(tiles) => {
@@ -685,12 +755,8 @@ impl Art {
                         cube = cube.glowing();
                     }
                     cubes.push(Some(cube));
-                    icons.push(Some(atlas.tile(tiles[1])));
                 }
-                None => {
-                    cubes.push(None);
-                    icons.push(None);
-                }
+                None => cubes.push(None),
             }
         }
         let cracks = (1..=4)
@@ -699,19 +765,112 @@ impl Art {
                 Mesh::block(&atlas, [name.as_str(); 3])
             })
             .collect();
+        let others = [
+            Item::Gold,
+            Item::Coal,
+            Item::Apple,
+            Item::Seeds,
+            Item::Bread,
+            Item::Blade,
+        ];
+        let carried_blocks = Block::ALL
+            .into_iter()
+            .filter(|b| *b != Block::Air)
+            .map(Item::Block);
+        let item_icons = carried_blocks
+            .chain(others)
+            .map(|item| (item, atlas.tile(item.tile())))
+            .collect();
+        let item_cards = others
+            .into_iter()
+            .map(|item| (item, item_card(atlas.tile(item.tile()))))
+            .collect();
         Ok(Art {
             palette: BlockPalette::new(&atlas, &kinds),
             cubes,
             cracks,
-            icons,
+            item_icons,
+            item_cards,
+            hud: Tileset::load(format!("{ASSETS}/hud.json"))?,
+            plant_uvs: Plant::ALL.iter().map(|p| atlas.uv_rect(p.tile())).collect(),
             ocean: ocean(atlas.tile("water")),
             clouds: clouds(atlas.tile("cloud")),
             duck: Duck::load(Sprite::load_png(format!("{ASSETS}/skin.png"))?),
+            hollow: Duck::load(Sprite::load_png(format!("{ASSETS}/hollow.png"))?),
+            watcher: Duck::load(Sprite::load_png(format!("{ASSETS}/watcher.png"))?),
+            sounds: Sounds::load()?,
+            duckling: DucklingModel::load(Sprite::load_png(format!("{ASSETS}/duckling.png"))?),
             shadow: Mesh::cylinder(Color::BLACK, 16).glowing(),
             highlight: Mesh::cube(Color::WHITE).glowing(),
             wind: Wav::load(format!("{ASSETS}/hum.wav"))?,
         })
     }
+}
+
+/// Music and the sounds made from files (`audio/make_sounds.py`).
+struct Sounds {
+    music_day: Wav,
+    music_night: Wav,
+    music_title: Wav,
+    groan: Wav,
+    groan_far: Wav,
+    hollow_hurt: Wav,
+    hollow_die: Wav,
+    sting: Wav,
+    heartbeat: Wav,
+    bell_dusk: Wav,
+    bell_dawn: Wav,
+}
+
+impl Sounds {
+    fn load() -> Result<Sounds, LoadError> {
+        let wav = |name: &str| Wav::load(format!("{ASSETS}/{name}.wav"));
+        Ok(Sounds {
+            music_day: wav("music_day")?,
+            music_night: wav("music_night")?,
+            music_title: wav("music_title")?,
+            groan: wav("groan")?,
+            groan_far: wav("groan_far")?,
+            hollow_hurt: wav("hollow_hurt")?,
+            hollow_die: wav("hollow_die")?,
+            sting: wav("sting")?,
+            heartbeat: wav("heartbeat")?,
+            bell_dusk: wav("bell_dusk")?,
+            bell_dawn: wav("bell_dawn")?,
+        })
+    }
+}
+
+/// An item that isn't a block, as a flat picture a block across (both
+/// sides), standing up round its middle: for holding in the hand.
+fn item_card(picture: Sprite) -> Mesh {
+    let mut mesh = Mesh::new().with_texture(picture);
+    let h = 0.5;
+    let i: Vec<usize> = [
+        vec3(-h, -h, 0.0),
+        vec3(-h, h, 0.0),
+        vec3(h, h, 0.0),
+        vec3(h, -h, 0.0),
+    ]
+    .into_iter()
+    .map(|c| mesh.add_vertex(c))
+    .collect();
+    let uv = [
+        vec2(0.0, 1.0),
+        vec2(0.0, 0.0),
+        vec2(1.0, 0.0),
+        vec2(1.0, 1.0),
+    ];
+    mesh.add_quad_uv(i[0], i[1], i[2], i[3], uv, Color::WHITE);
+    mesh.add_quad_uv(
+        i[3],
+        i[2],
+        i[1],
+        i[0],
+        [uv[3], uv[2], uv[1], uv[0]],
+        Color::WHITE,
+    );
+    mesh
 }
 
 /// A flat square, both sides, from `low` to `high` (x and z) at height
@@ -904,58 +1063,248 @@ impl Duck {
         }
     }
 
-    /// Draws the duck standing at `feet`, in `pose`.
-    fn draw(&self, canvas: &mut Canvas, camera: &Camera3D, feet: Vec3, pose: Pose) {
+    /// Each part and where it goes, for the duck standing at `feet` in
+    /// `pose` (in the world, or in view space for the inventory's picture).
+    fn parts(&self, feet: Vec3, pose: Pose) -> [(&Mesh, Transform); 6] {
+        self.parts_sized(feet, pose, 1.0)
+    }
+
+    /// The same, `size` times as big (a Hollow is 1.12, the Watcher 1.75).
+    fn parts_sized(&self, feet: Vec3, pose: Pose, size: f32) -> [(&Mesh, Transform); 6] {
         let Pose {
             yaw,
             pitch,
             swing,
             lift,
         } = pose;
-        // A part's pivot in the world: its place on the body, turned.
-        let at = |local: Vec3| feet + local.rotate_y(yaw);
+        // A part's pivot: its place on the body, turned.
         let part = |pivot: Vec3, rotation: Vec3| {
-            Transform::at(at(pivot)).rotated(vec3(rotation.x, yaw + rotation.y, rotation.z))
+            Transform::at(feet + (pivot * size).rotate_y(yaw))
+                .rotated(vec3(rotation.x, yaw + rotation.y, rotation.z))
+                .sized(size)
         };
-        canvas.draw_mesh(
-            &self.body,
-            &part(vec3(0.0, Self::HIP, 0.0), Vec3::ZERO),
-            camera,
-        );
-        canvas.draw_mesh(
-            &self.head,
-            &part(vec3(0.0, Self::NECK, 0.0), vec3(pitch, 0.0, 0.0)),
-            camera,
-        );
         let hand = 6.0 * SKIN_PIXEL;
         let thigh = 2.0 * SKIN_PIXEL;
-        canvas.draw_mesh(
-            &self.leg,
-            &part(vec3(-thigh, Self::HIP, 0.0), vec3(swing, 0.0, 0.0)),
-            camera,
-        );
-        canvas.draw_mesh(
-            &self.leg,
-            &part(vec3(thigh, Self::HIP, 0.0), vec3(-swing, 0.0, 0.0)),
-            camera,
-        );
-        canvas.draw_mesh(
-            &self.arm,
-            &part(
-                vec3(-hand, Self::SHOULDER, 0.0),
-                vec3(-swing - lift, 0.0, 0.1),
+        [
+            (&self.body, part(vec3(0.0, Self::HIP, 0.0), Vec3::ZERO)),
+            (
+                &self.head,
+                part(vec3(0.0, Self::NECK, 0.0), vec3(pitch, 0.0, 0.0)),
             ),
-            camera,
-        );
-        canvas.draw_mesh(
-            &self.arm,
-            &part(
-                vec3(hand, Self::SHOULDER, 0.0),
-                vec3(swing - lift, 0.0, -0.1),
+            (
+                &self.leg,
+                part(vec3(-thigh, Self::HIP, 0.0), vec3(swing, 0.0, 0.0)),
             ),
-            camera,
-        );
+            (
+                &self.leg,
+                part(vec3(thigh, Self::HIP, 0.0), vec3(-swing, 0.0, 0.0)),
+            ),
+            (
+                &self.arm,
+                part(
+                    vec3(-hand, Self::SHOULDER, 0.0),
+                    vec3(-swing - lift, 0.0, 0.1),
+                ),
+            ),
+            (
+                &self.arm,
+                part(
+                    vec3(hand, Self::SHOULDER, 0.0),
+                    vec3(swing - lift, 0.0, -0.1),
+                ),
+            ),
+        ]
     }
+
+    /// Draws the duck standing at `feet`, in `pose`.
+    fn draw(&self, canvas: &mut Canvas, camera: &Camera3D, feet: Vec3, pose: Pose) {
+        for (mesh, place) in self.parts(feet, pose) {
+            canvas.draw_mesh(mesh, &place, camera);
+        }
+    }
+}
+
+/// The size of something that walks about and bumps into blocks: the
+/// duck, a duckling. Its position is its feet, in the middle of the box.
+#[derive(Debug, Clone, Copy)]
+struct Body {
+    half_width: f32,
+    height: f32,
+}
+
+/// The duck's body.
+const PLAYER: Body = Body {
+    half_width: HALF_WIDTH,
+    height: BODY_HEIGHT,
+};
+
+impl Body {
+    /// Whether the body, with its feet at `feet`, overlaps anything solid.
+    fn hits(&self, world: &World, feet: Vec3) -> bool {
+        let low = feet - vec3(self.half_width, 0.0, self.half_width);
+        let high = feet + vec3(self.half_width, self.height, self.half_width);
+        let shrink = 1e-4;
+        for y in low.y.floor() as i32..=(high.y - shrink).floor() as i32 {
+            for z in low.z.floor() as i32..=(high.z - shrink).floor() as i32 {
+                for x in low.x.floor() as i32..=(high.x - shrink).floor() as i32 {
+                    if world.blocks_body(x, y, z) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Moves the body at `position` along one axis (0 x, 1 y, 2 z), in steps
+    /// small enough never to pass through a block, stopping flush against
+    /// one. Returns whether something stopped it.
+    fn move_axis(&self, world: &World, position: &mut Vec3, axis: usize, distance: f32) -> bool {
+        let steps = (distance.abs() / 0.4).ceil().max(1.0) as i32;
+        let step = distance / steps as f32;
+        let half = [self.half_width, 0.0, self.half_width];
+        for _ in 0..steps {
+            let mut moved = *position;
+            match axis {
+                0 => moved.x += step,
+                1 => moved.y += step,
+                _ => moved.z += step,
+            }
+            if !self.hits(world, moved) {
+                *position = moved;
+                continue;
+            }
+            // Flush against the block it ran into.
+            let gap = 1e-3;
+            let value = |v: Vec3| [v.x, v.y, v.z][axis];
+            let edge = if step > 0.0 {
+                let top = if axis == 1 { self.height } else { half[axis] };
+                (value(moved) + top).floor() - top - gap
+            } else {
+                (value(moved) - half[axis]).floor() + 1.0 + half[axis] + gap
+            };
+            let mut flush = *position;
+            match axis {
+                0 => flush.x = edge,
+                1 => flush.y = edge,
+                _ => flush.z = edge,
+            }
+            if !self.hits(world, flush) {
+                *position = flush;
+            }
+            return true;
+        }
+        false
+    }
+}
+
+// ---- Falling sand ----
+
+/// Sand with nothing under it, on its way down.
+#[derive(Debug, Clone, Copy)]
+struct FallingBlock {
+    /// The column it's falling in.
+    x: i32,
+    z: i32,
+    /// The height of its bottom face.
+    y: f32,
+    speed: f32,
+    block: Block,
+}
+
+impl DuckCraft {
+    /// Sand that has lost what held it up starts to fall (the sand above
+    /// it follows a frame later, and so on up the pile).
+    fn settle_sand(&mut self) {
+        for [x, y, z] in std::mem::take(&mut self.world.unsettled) {
+            let block = self.world.get(x, y, z);
+            if block == Block::Sand && !self.world.get(x, y - 1, z).solid() && y > 0 {
+                // Under the sea, water fills in behind it.
+                let wet = DIRECTIONS
+                    .iter()
+                    .filter(|&&(_, dy, _)| dy >= 0)
+                    .any(|&(dx, dy, dz)| self.world.get(x + dx, y + dy, z + dz) == Block::Water);
+                self.world
+                    .set(x, y, z, if wet { Block::Water } else { Block::Air });
+                self.falling.push(FallingBlock {
+                    x,
+                    z,
+                    y: y as f32,
+                    speed: 0.0,
+                    block,
+                });
+            }
+        }
+    }
+
+    /// Moves falling blocks down; one that lands becomes a block again
+    /// (through water: sand sinks), unless something stands in its way,
+    /// and then you get it.
+    fn drop_falling(&mut self, ctx: &mut Context) {
+        let dt = ctx.dt();
+        let mut landed = Vec::new();
+        for (i, falling) in self.falling.iter_mut().enumerate() {
+            falling.speed = (falling.speed + GRAVITY * dt).min(30.0);
+            let next = falling.y - falling.speed * dt;
+            // The highest solid cell it would pass into, if any.
+            let from = falling.y.floor() as i32 - 1;
+            let to = next.floor() as i32;
+            let floor = (to..=from)
+                .rev()
+                .find(|&y| y < 0 || self.world.get(falling.x, y, falling.z).solid());
+            match floor {
+                Some(y) => {
+                    falling.y = (y + 1) as f32;
+                    landed.push(i);
+                }
+                None => falling.y = next,
+            }
+        }
+        for &i in landed.iter().rev() {
+            let falling = self.falling.remove(i);
+            let [x, y, z] = [falling.x, falling.y as i32, falling.z];
+            let low = vec3(x as f32, y as f32, z as f32);
+            let in_the_way = boxes_overlap(self.position, PLAYER, low)
+                || self
+                    .ducklings
+                    .iter()
+                    .any(|d| boxes_overlap(d.position, ducklings::DUCKLING, low));
+            if in_the_way || !World::inside(x, y, z) {
+                self.give(Item::Block(falling.block), 1);
+                self.say(format!(
+                    "{} fell on you: you caught it",
+                    falling.block.name()
+                ));
+            } else {
+                self.world.set(x, y, z, falling.block);
+            }
+            ctx.play(Sound {
+                name: "thud",
+                wave: Wave::Noise,
+                freq: 250.0,
+                ms: 90.0,
+                volume: 0.18,
+                decay: 70.0,
+                ..Default::default()
+            });
+        }
+    }
+}
+
+/// Whether a body standing at `feet` overlaps the block whose low corner
+/// is `low`.
+fn boxes_overlap(feet: Vec3, body: Body, low: Vec3) -> bool {
+    let (b_low, b_high) = (
+        feet - vec3(body.half_width, 0.0, body.half_width),
+        feet + vec3(body.half_width, body.height, body.half_width),
+    );
+    let high = low + vec3(1.0, 1.0, 1.0);
+    b_low.x < high.x
+        && b_high.x > low.x
+        && b_low.y < high.y
+        && b_high.y > low.y
+        && b_low.z < high.z
+        && b_high.z > low.z
 }
 
 // ---- The game ----
@@ -997,11 +1346,76 @@ struct DuckCraft {
     /// Which hotbar slot is in your hand (0 to 8).
     slot: usize,
     /// How many of each block you carry.
-    carried: [u32; BLOCK_KINDS],
-    gold: u32,
-    coal: u32,
+    inventory: Inventory,
     dug: u32,
     placed: u32,
+    /// Where the game saves (`None`: it doesn't), and when it last did.
+    save_path: Option<std::path::PathBuf>,
+    last_save: f32,
+    /// Every plant, as one mesh.
+    plant_mesh: Mesh,
+    /// Plants picked, all told.
+    picked: u32,
+    /// Sand on its way down.
+    falling: Vec<FallingBlock>,
+    /// The ducklings on the island.
+    ducklings: Vec<Duckling>,
+    /// The duckling you're looking at, if it's nearer than any block.
+    aimed: Option<usize>,
+    /// How many times a duckling has imprinted on you (orders the line).
+    imprints: u32,
+    /// Health, hunger and air.
+    vitals: health::Vitals,
+    /// Where the game is: the title, playing, or paused.
+    stage: Stage,
+    mode: Mode,
+    /// The island came from a save file (the title offers to carry on).
+    has_save: bool,
+    music: Option<menus::Music>,
+    music_on: bool,
+    /// Creative: flying (Space twice).
+    flying: bool,
+    /// Seconds since Space was last pressed (for the double tap).
+    space_tap: f32,
+    /// "Day 3" and a line, and seconds left on screen.
+    announcement: Option<(String, String, f32)>,
+    /// Last frame's time of day (for noticing dusk and dawn).
+    last_time_of_day: f32,
+    hollows: Vec<Hollow>,
+    watcher: Option<Watcher>,
+    /// The day number the Watcher last had its chance on.
+    watcher_night: u32,
+    /// Seconds to the next try at a Hollow coming up.
+    spawn_wait: f32,
+    /// Hollows put down, all told.
+    kills: u32,
+    /// Seconds until the next blow can land, and of the arm's swing.
+    swing_wait: f32,
+    swing: f32,
+    /// The Hollow in view (nearer than any block), this frame.
+    aimed_hollow_now: Option<usize>,
+    /// Seconds left of the Watcher's scare (a jolt and a flash).
+    scare: f32,
+    /// Seconds on the title screen (it turns the view).
+    title_spin: f32,
+    /// What made the duck faint last (for the faint screen).
+    fainted_because: String,
+    /// Things eaten, all told.
+    eaten: u32,
+    /// Seconds spent eating what's in hand (0: not eating).
+    eating_seconds: f32,
+    /// Blocks made by crafting, all told.
+    crafted: u32,
+    /// The inventory screen, when it's open.
+    screen: Option<inventory::Screen>,
+    /// What was left in the crafting grid when the bag was too full to take
+    /// it back (it's there when the inventory opens again).
+    kept_grid: [Option<Stack>; 4],
+    /// Where the mouse pointer is (for drawing the inventory screen).
+    mouse: Option<Vec2>,
+    /// Draw the pointer ourselves while it's free (for recorded videos,
+    /// which don't show the system's pointer).
+    draw_pointer: bool,
 
     /// The block being dug, and how long it's been dug for.
     digging: Option<[i32; 3]>,
@@ -1015,18 +1429,24 @@ struct DuckCraft {
     message: String,
     message_seconds: f32,
     time: f32,
-    wind: Option<LoopId>,
 }
 
 impl DuckCraft {
     fn new(art: Rc<Art>, mut world: World) -> DuckCraft {
         world.update_chunks(&art.palette);
-        let mut carried = [0; BLOCK_KINDS];
-        carried[Block::Planks as usize] = 32;
-        carried[Block::Glass as usize] = 16;
-        carried[Block::Brick as usize] = 32;
-        carried[Block::Lamp as usize] = 8;
+        let ducklings = ducklings::hatch(&world);
+        world.unsettled.clear();
+        let plant_mesh = art.plant_mesh(&world);
+        world.plants_changed = false;
         DuckCraft {
+            plant_mesh,
+            picked: 0,
+            save_path: None,
+            last_save: 0.0,
+            falling: Vec::new(),
+            ducklings,
+            aimed: None,
+            imprints: 0,
             art,
             position: world.spawn,
             yaw: world.spawn_yaw,
@@ -1041,12 +1461,38 @@ impl DuckCraft {
             left_click_locked: false,
             pointer_free: false,
             orbit: None,
-            slot: 2,
-            carried,
-            gold: 0,
-            coal: 0,
+            slot: 0,
+            inventory: items::starting_kit(),
             dug: 0,
             placed: 0,
+            crafted: 0,
+            eating_seconds: 0.0,
+            vitals: health::Vitals::default(),
+            stage: Stage::Playing,
+            mode: Mode::Survival,
+            has_save: false,
+            music: None,
+            music_on: true,
+            flying: false,
+            space_tap: 10.0,
+            announcement: None,
+            last_time_of_day: menus::DAY_START,
+            hollows: Vec::new(),
+            watcher: None,
+            watcher_night: 0,
+            spawn_wait: 3.0,
+            kills: 0,
+            swing_wait: 0.0,
+            swing: 0.0,
+            aimed_hollow_now: None,
+            scare: 0.0,
+            title_spin: 0.0,
+            fainted_because: String::new(),
+            eaten: 0,
+            screen: None,
+            kept_grid: [None; 4],
+            mouse: None,
+            draw_pointer: false,
             digging: None,
             dig_seconds: 0.0,
             place_wait: 0.0,
@@ -1056,7 +1502,6 @@ impl DuckCraft {
             message: String::new(),
             message_seconds: 0.0,
             time: 0.0,
-            wind: None,
         }
     }
 
@@ -1075,60 +1520,47 @@ impl DuckCraft {
     /// Whether the duck's body, with its feet at `feet`, overlaps anything
     /// solid.
     fn body_hits(&self, feet: Vec3) -> bool {
-        let low = feet - vec3(HALF_WIDTH, 0.0, HALF_WIDTH);
-        let high = feet + vec3(HALF_WIDTH, BODY_HEIGHT, HALF_WIDTH);
-        let shrink = 1e-4;
-        for y in low.y.floor() as i32..=(high.y - shrink).floor() as i32 {
-            for z in low.z.floor() as i32..=(high.z - shrink).floor() as i32 {
-                for x in low.x.floor() as i32..=(high.x - shrink).floor() as i32 {
-                    if self.world.blocks_body(x, y, z) {
-                        return true;
+        PLAYER.hits(&self.world, feet)
+    }
+
+    /// Moves the duck along one axis (0 x, 1 y, 2 z); `true` if something
+    /// stopped it.
+    fn move_axis(&mut self, axis: usize, distance: f32) -> bool {
+        PLAYER.move_axis(&self.world, &mut self.position, axis, distance)
+    }
+
+    /// The nearest place to `feet` the duck fits (not inside a block):
+    /// straight up first, then the columns round about.
+    fn free_spot(&self, feet: Vec3) -> Vec3 {
+        let (cx, cz) = (feet.x.floor() as i32, feet.z.floor() as i32);
+        for ring in 0..8i32 {
+            for dz in -ring..=ring {
+                for dx in -ring..=ring {
+                    if dx.abs().max(dz.abs()) != ring || !World::inside(cx + dx, 0, cz + dz) {
+                        continue;
+                    }
+                    let column = if ring == 0 {
+                        feet
+                    } else {
+                        vec3(
+                            (cx + dx) as f32 + 0.5,
+                            feet.y.floor(),
+                            (cz + dz) as f32 + 0.5,
+                        )
+                    };
+                    for up in 0..TALL as i32 {
+                        let at = column + vec3(0.0, up as f32, 0.0);
+                        if at.y > TALL as f32 {
+                            break;
+                        }
+                        if !self.body_hits(at) {
+                            return at;
+                        }
                     }
                 }
             }
         }
-        false
-    }
-
-    /// Moves the duck along one axis (0 x, 1 y, 2 z), in steps small enough
-    /// never to pass through a block, stopping flush against one. Returns
-    /// whether something stopped it.
-    fn move_axis(&mut self, axis: usize, distance: f32) -> bool {
-        let steps = (distance.abs() / 0.4).ceil().max(1.0) as i32;
-        let step = distance / steps as f32;
-        for _ in 0..steps {
-            let mut moved = self.position;
-            let half = [HALF_WIDTH, 0.0, HALF_WIDTH];
-            match axis {
-                0 => moved.x += step,
-                1 => moved.y += step,
-                _ => moved.z += step,
-            }
-            if !self.body_hits(moved) {
-                self.position = moved;
-                continue;
-            }
-            // Flush against the block it ran into.
-            let gap = 1e-3;
-            let value = |v: Vec3| [v.x, v.y, v.z][axis];
-            let edge = if step > 0.0 {
-                let top = if axis == 1 { BODY_HEIGHT } else { half[axis] };
-                (value(moved) + top).floor() - top - gap
-            } else {
-                (value(moved) - half[axis]).floor() + 1.0 + half[axis] + gap
-            };
-            let mut flush = self.position;
-            match axis {
-                0 => flush.x = edge,
-                1 => flush.y = edge,
-                _ => flush.z = edge,
-            }
-            if !self.body_hits(flush) {
-                self.position = flush;
-            }
-            return true;
-        }
-        false
+        feet
     }
 
     fn say(&mut self, text: impl Into<String>) {
@@ -1136,38 +1568,77 @@ impl DuckCraft {
         self.message_seconds = 2.5;
     }
 
-    fn holding(&self) -> Block {
-        HOTBAR[self.slot]
+    /// What's in the hotbar slot in your hand.
+    fn holding(&self) -> Option<Stack> {
+        self.inventory.slots[self.slot]
+    }
+
+    /// The block in your hand, if it's a block.
+    fn holding_block(&self) -> Option<Block> {
+        self.holding().and_then(|stack| stack.item.block())
+    }
+
+    /// Puts things in the bag; says so if they don't all fit.
+    fn give(&mut self, item: Item, count: u32) {
+        if self.inventory.add(item, count) > 0 {
+            self.say("Your bag is full");
+        }
+    }
+
+    /// How many of `item` you carry.
+    fn count(&self, item: Item) -> u32 {
+        self.inventory.count(item)
     }
 
     /// Builds again the chunks the last dig or build changed.
     fn update_chunks(&mut self) {
         self.world.update_chunks(&self.art.palette);
+        if self.world.plants_changed {
+            self.plant_mesh = self.art.plant_mesh(&self.world);
+            self.world.plants_changed = false;
+        }
     }
 
     fn walk(&mut self, ctx: &mut Context) {
         let dt = ctx.dt();
         let input = &ctx.input;
+        // While the inventory is open the duck stands still (it still
+        // falls and floats).
+        let free = self.screen.is_none() && !self.vitals.fainted;
+        let axis = |minus, plus| if free { input.axis(minus, plus) } else { 0.0 };
+        let down = |key| free && input.is_down(key);
 
         // Look: the mouse (while the window holds the pointer), or the arrow keys.
-        let mouse = if ctx.pointer_locked() {
+        let mouse = if ctx.pointer_locked() && free {
             input.mouse_delta()
         } else {
             Vec2::ZERO
         };
-        self.yaw += mouse.x * MOUSE_LOOK + input.axis(Key::Left, Key::Right) * TURN_SPEED * dt;
-        self.pitch += -mouse.y * MOUSE_LOOK + input.axis(Key::Down, Key::Up) * TURN_SPEED * dt;
+        self.yaw += mouse.x * MOUSE_LOOK + axis(Key::Left, Key::Right) * TURN_SPEED * dt;
+        self.pitch += -mouse.y * MOUSE_LOOK + axis(Key::Down, Key::Up) * TURN_SPEED * dt;
         self.pitch = self.pitch.clamp(-1.55, 1.55);
         self.yaw = self.yaw.rem_euclid(TAU);
 
         // Walk along the ground, the way you're facing.
         let ahead = vec3(self.yaw.sin(), 0.0, self.yaw.cos());
         let right = vec3(self.yaw.cos(), 0.0, -self.yaw.sin());
-        let wish = ahead * input.axis(Key::S, Key::W) + right * input.axis(Key::A, Key::D);
+        let wish = ahead * axis(Key::S, Key::W) + right * axis(Key::A, Key::D);
         self.walking = wish.length() > 0.0;
-        let running = input.is_down(Key::LeftShift);
+        // Creative: Space twice quickly to fly (and again to stop).
+        self.space_tap += dt;
+        if self.mode == Mode::Creative && free && input.was_pressed(Key::Space) {
+            if self.space_tap < 0.3 {
+                self.flying = !self.flying;
+                self.space_tap = 10.0;
+            } else {
+                self.space_tap = 0.0;
+            }
+        }
+        let running = down(Key::LeftShift) && !self.flying;
         let mut speed = if running { RUN_SPEED } else { WALK_SPEED };
-        if self.in_water {
+        if self.flying {
+            speed = FLY_SPEED;
+        } else if self.in_water {
             speed *= 0.55;
         }
         let wish = if self.walking {
@@ -1176,13 +1647,21 @@ impl DuckCraft {
             Vec3::ZERO
         };
         // Quick to start and stop on the ground, floaty in the air.
-        let grip = if self.on_ground { 30.0 } else { 9.0 };
+        let grip = if self.on_ground || self.flying {
+            30.0
+        } else {
+            9.0
+        };
         self.velocity.x = approach(self.velocity.x, wish.x, grip * dt);
         self.velocity.z = approach(self.velocity.z, wish.z, grip * dt);
 
         // Jump, swim, fall.
-        let jump = input.is_down(Key::Space);
-        if self.in_water {
+        let jump = down(Key::Space);
+        if self.flying {
+            // Space up, Shift down, and no falling.
+            let rise = (jump as i32 - down(Key::LeftShift) as i32) as f32;
+            self.velocity.y = approach(self.velocity.y, rise * FLY_SPEED * 0.8, 40.0 * dt);
+        } else if self.in_water {
             self.velocity.y -= GRAVITY * 0.25 * dt;
             if jump {
                 self.velocity.y = approach(self.velocity.y, 3.2, 25.0 * dt);
@@ -1213,9 +1692,12 @@ impl DuckCraft {
             self.velocity.y = 0.0;
         }
         self.on_ground = landed && falling;
+        if self.flying && self.on_ground {
+            self.flying = false; // landed
+        }
 
         // Walking into a step one block high hops up it.
-        if (blocked_x || blocked_z) && self.on_ground && self.walking {
+        if (blocked_x || blocked_z) && self.on_ground && self.walking && !self.flying {
             let up = self.position + vec3(0.0, 1.05, 0.0) + wish.normalized() * 0.3;
             if !self.body_hits(up) && !self.body_hits(self.position + vec3(0.0, 1.05, 0.0)) {
                 self.velocity = vec3(wish.x, JUMP_SPEED, wish.z); // keep going forward
@@ -1284,15 +1766,23 @@ impl DuckCraft {
             self.slot = (self.slot + 1) % 9;
         }
         if input.was_mouse_pressed(MouseButton::Middle) {
+            // The block you look at: its hotbar slot if it has one, else
+            // swapped in from the backpack.
             if let Some(hit) = self.target {
-                let wanted = hit.block.drop().unwrap_or(hit.block);
-                if let Some(slot) = HOTBAR.iter().position(|&b| b == wanted) {
+                let wanted = Item::Block(hit.block.drop().unwrap_or(hit.block));
+                if let Some(slot) = self.inventory.hotbar_slot_of(wanted) {
                     self.slot = slot;
+                } else if let Some(i) = (HOTBAR_SLOTS..SLOTS)
+                    .find(|&i| self.inventory.slots[i].is_some_and(|s| s.item == wanted))
+                {
+                    self.inventory.slots.swap(i, self.slot);
+                    self.say(wanted.name());
                 }
             }
         }
         if self.slot != before {
-            let name = self.holding().name();
+            self.eating_seconds = 0.0; // a new thing in hand starts a new bite
+            let name = self.holding().map_or("Empty hand", |s| s.item.name());
             self.say(name);
             ctx.play(Sound {
                 name: "pick",
@@ -1315,6 +1805,29 @@ impl DuckCraft {
             self.dig_seconds = 0.0;
             return;
         };
+        // A plant breaks at once.
+        if let Some(plant) = hit.plant {
+            let [x, y, z] = hit.cell;
+            self.world.remove_plant(x, y, z);
+            self.update_chunks();
+            self.picked += 1;
+            self.digging = None;
+            self.dig_seconds = 0.0;
+            if plant == Plant::TallGrass && ctx.rng.range(0.0, 1.0) < plants::SEED_CHANCE {
+                self.give(Item::Seeds, 1);
+            }
+            ctx.play(Sound {
+                name: "snip",
+                wave: Wave::Noise,
+                freq: 2000.0,
+                slide_to: 900.0,
+                ms: 70.0,
+                volume: 0.15,
+                decay: 60.0,
+                ..Default::default()
+            });
+            return;
+        }
         if self.digging != Some(hit.cell) {
             self.digging = Some(hit.cell);
             self.dig_seconds = 0.0;
@@ -1327,6 +1840,13 @@ impl DuckCraft {
             }
             return;
         };
+        // Creative: a block breaks at once, one every quarter second while
+        // held.
+        let creative = self.mode == Mode::Creative;
+        if creative && self.swing_wait > 0.0 {
+            return;
+        }
+        let needed = if creative { 0.0 } else { needed };
         let before = self.dig_seconds;
         self.dig_seconds += ctx.dt();
         // A scratch every quarter second while digging.
@@ -1360,20 +1880,32 @@ impl DuckCraft {
         self.digging = None;
         self.dig_seconds = 0.0;
         self.dug += 1;
-        match hit.block {
+        self.vitals.tiredness += health::TIRED_DIG;
+        self.swing = 0.25;
+        if creative {
+            self.swing_wait = 0.25;
+        }
+        // In creative, things don't drop (you have them all already).
+        let block = if creative { Block::Air } else { hit.block };
+        match block {
             Block::GoldOre => {
-                self.gold += 1;
+                self.give(Item::Gold, 1);
                 ctx.play(Sound::coin());
-                self.say(format!("Gold! You have {}", self.gold));
+                self.say(format!("Gold! You have {}", self.count(Item::Gold)));
             }
             Block::CoalOre => {
-                self.coal += 1;
-                self.say(format!("Coal: {}", self.coal));
+                self.give(Item::Coal, 1);
+                self.say(format!("Coal: {}", self.count(Item::Coal)));
             }
             _ => {}
         }
-        if let Some(drop) = hit.block.drop() {
-            self.carried[drop as usize] += 1;
+        if let Some(drop) = block.drop() {
+            self.give(Item::Block(drop), 1);
+        }
+        // Now and then an apple falls out of the leaves.
+        if block == Block::Leaves && ctx.rng.range(0.0, 1.0) < APPLE_CHANCE {
+            self.give(Item::Apple, 1);
+            self.say("An apple!");
         }
         ctx.play(Sound {
             name: "break",
@@ -1417,9 +1949,17 @@ impl DuckCraft {
         let Some(hit) = self.target else {
             return;
         };
+        let Some(block) = self.holding_block() else {
+            return; // nothing to build with in this hand (food is eaten)
+        };
         self.place_wait = PLACE_REPEAT;
-        let block = self.holding();
-        let [x, y, z] = [0, 1, 2].map(|i| hit.cell[i] + hit.normal[i]);
+        // On a plant, the block takes its place; on a block, it goes on the
+        // face you look at.
+        let [x, y, z] = if hit.plant.is_some() {
+            hit.cell
+        } else {
+            [0, 1, 2].map(|i| hit.cell[i] + hit.normal[i])
+        };
         if !World::inside(x, y, z) {
             if pressed {
                 self.say("That's the edge of the world");
@@ -1429,26 +1969,24 @@ impl DuckCraft {
         if self.world.get(x, y, z).solid() {
             return;
         }
-        if self.carried[block as usize] == 0 {
-            if pressed {
-                self.say(format!("No {} left: dig some", block.name()));
-            }
-            return;
-        }
-        // Not inside the duck.
-        let low = self.position - vec3(HALF_WIDTH, 0.0, HALF_WIDTH);
-        let high = self.position + vec3(HALF_WIDTH, BODY_HEIGHT, HALF_WIDTH);
-        let overlaps = (x as f32) < high.x
-            && (x as f32 + 1.0) > low.x
-            && (y as f32) < high.y
-            && (y as f32 + 1.0) > low.y
-            && (z as f32) < high.z
-            && (z as f32 + 1.0) > low.z;
+        // Not inside the duck, a duckling or a Hollow.
+        let cell = vec3(x as f32, y as f32, z as f32);
+        let overlaps = boxes_overlap(self.position, PLAYER, cell)
+            || self
+                .ducklings
+                .iter()
+                .any(|d| boxes_overlap(d.position, ducklings::DUCKLING, cell))
+            || self
+                .hollows
+                .iter()
+                .any(|h| h.fading.is_none() && boxes_overlap(h.position, night::HOLLOW, cell));
         if overlaps {
             return;
         }
         self.world.set(x, y, z, block);
-        self.carried[block as usize] -= 1;
+        if self.mode == Mode::Survival {
+            self.inventory.take_one_from(self.slot);
+        }
         self.placed += 1;
         self.update_chunks();
         ctx.play(Sound {
@@ -1464,11 +2002,26 @@ impl DuckCraft {
     }
 
     fn camera(&self) -> Camera3D {
+        if matches!(self.stage, Stage::Title { .. }) {
+            // Slowly round the island, looking at where you'll start.
+            let middle = self.world.spawn + vec3(0.0, 2.0, 0.0);
+            let angle = self.title_spin * 0.04 + self.world.spawn_yaw + std::f32::consts::PI;
+            let from = middle + vec3(angle.sin() * 26.0, 11.0, angle.cos() * 26.0);
+            let mut camera = Camera3D::looking_at(from, middle);
+            camera.fov = 70f32.to_radians();
+            return camera;
+        }
         let eye = self.eye();
         let mut camera = Camera3D::new(eye);
         camera.yaw = self.yaw;
         camera.pitch = self.pitch;
         camera.fov = 70f32.to_radians();
+        // A jolt when hurt, a shudder when scared.
+        let jolt = self.vitals.hurt_flash;
+        camera.pitch += (jolt * 40.0).sin() * jolt * 0.12;
+        let shudder = self.scare;
+        camera.yaw += (shudder * 70.0).sin() * shudder * 0.05;
+        camera.pitch += (shudder * 53.0).cos() * shudder * 0.04;
         if let (true, Some(orbit)) = (self.behind_view, self.orbit) {
             let around = self.yaw + orbit;
             let from =
@@ -1497,24 +2050,49 @@ impl DuckCraft {
 
     /// Where the day is: 0 sunrise, 0.25 noon, 0.5 sunset, 0.75 midnight.
     fn time_of_day(&self) -> f32 {
-        (self.time / DAY_SECONDS + 0.05).fract()
+        if matches!(self.stage, Stage::Title { .. }) {
+            return 0.512; // the title is always just after sunset
+        }
+        (self.time / DAY_SECONDS + menus::DAY_START).fract()
     }
 }
 
 impl Game for DuckCraft {
     fn update(&mut self, ctx: &mut Context) {
-        // The window holds the mouse pointer, for looking round. Escape lets
-        // go of it (and quits if it's already free); a click takes it back.
-        if ctx.frame() == 1 {
-            ctx.lock_pointer(true);
-        }
-        if ctx.input.was_pressed(Key::Escape) {
-            if ctx.pointer_locked() {
-                ctx.lock_pointer(false);
-            } else {
-                ctx.quit();
+        self.mouse = ctx.input.mouse_position();
+        self.update_music(ctx);
+        match self.stage {
+            Stage::Title { .. } => {
+                // The island turns behind the menu; nothing else moves.
+                self.title_spin += ctx.dt();
+                self.update_title(ctx);
+                self.report_stage(ctx);
+                return;
             }
-        } else if !ctx.pointer_locked() && ctx.input.was_mouse_pressed(MouseButton::Left) {
+            Stage::Paused { .. } => {
+                self.update_pause(ctx);
+                self.report_stage(ctx);
+                return;
+            }
+            Stage::Playing => {}
+        }
+        // The window holds the mouse pointer, for looking round. Escape
+        // pauses (and lets go of it); a click takes it back.
+        if ctx.frame() == 1 {
+            ctx.lock_pointer(true); // a game that starts straight in play
+        }
+        let screen_was_open = self.screen.is_some();
+        self.inventory_screen(ctx);
+        if screen_was_open || self.screen.is_some() {
+            // (Escape closed the inventory; it doesn't also pause.)
+        } else if ctx.input.was_pressed(Key::Escape) {
+            self.pause(ctx);
+            self.report_stage(ctx);
+            return;
+        } else if !ctx.pointer_locked()
+            && ctx.input.was_mouse_pressed(MouseButton::Left)
+            && !self.vitals.fainted
+        {
             ctx.lock_pointer(true);
             self.left_click_locked = true;
         }
@@ -1524,9 +2102,9 @@ impl Game for DuckCraft {
         self.pointer_free = !ctx.pointer_locked();
         let dt = ctx.dt();
         self.time += dt;
-        if self.wind.is_none() {
-            self.wind = Some(ctx.play_loop(&self.art.wind, 0.2));
-        }
+        self.swing_wait = (self.swing_wait - dt).max(0.0);
+        self.swing = (self.swing - dt).max(0.0);
+        self.scare = (self.scare - dt).max(0.0);
         if ctx.input.was_pressed(Key::V) {
             self.behind_view = !self.behind_view;
         }
@@ -1536,12 +2114,38 @@ impl Game for DuckCraft {
         if self.time > 8.0 && self.show_help && self.dug + self.placed > 0 {
             self.show_help = false; // they've got the idea
         }
+        self.day_and_night(ctx);
 
+        let was_on_ground = self.on_ground;
         self.walk(ctx);
         self.target = self.world.raycast(self.eye(), self.look_direction(), REACH);
-        self.pick_block(ctx);
-        self.dig(ctx);
-        self.place(ctx);
+        self.aimed = self.aimed_duckling();
+        self.aimed_hollow_now = self.aimed_hollow().map(|(i, _)| i);
+        if self.aimed_hollow_now.is_some() {
+            self.aimed = None; // a Hollow is nearer than any duckling
+        }
+        if self.aimed.is_some() || self.aimed_hollow_now.is_some() {
+            self.target = None; // something stands in the way
+        }
+        if self.vitals.fainted {
+            self.update_fainted(ctx);
+        } else if self.mode == Mode::Survival {
+            self.update_body(ctx, was_on_ground);
+        }
+        if self.screen.is_none() && !self.vitals.fainted {
+            self.pick_block(ctx);
+            if !self.strike(ctx) && !self.touch_duckling(ctx) {
+                self.dig(ctx);
+                self.place(ctx);
+            }
+        }
+        self.update_ducklings(ctx);
+        self.update_hollows(ctx);
+        self.update_watcher(ctx);
+        self.maybe_save(ctx);
+        self.settle_sand();
+        self.drop_falling(ctx);
+        self.update_chunks();
 
         for crumb in &mut self.crumbs {
             crumb.velocity.y -= GRAVITY * 0.6 * dt;
@@ -1566,14 +2170,53 @@ impl Game for DuckCraft {
         ctx.report("yaw", (self.yaw * 100.0).round() / 100.0);
         ctx.report("dug", self.dug);
         ctx.report("placed", self.placed);
-        ctx.report("gold", self.gold);
-        ctx.report("coal", self.coal);
-        ctx.report("holding", self.holding().name());
+        ctx.report("crafted", self.crafted);
+        self.report_stage(ctx);
+        ctx.report("day", self.day_number());
+        ctx.report("flying", self.flying);
+        ctx.report("health", self.vitals.health);
+        ctx.report("food", self.vitals.food);
+        ctx.report("air", self.vitals.air.ceil());
+        ctx.report("fainted", self.vitals.fainted);
+        ctx.report("eaten", self.eaten);
+        ctx.report("picked", self.picked);
+        ctx.check(
+            "health is never over the top",
+            self.vitals.health <= health::MAX_HEALTH,
+        );
+        ctx.report("inventory_open", self.screen.is_some());
+        ctx.report(
+            "held",
+            self.screen
+                .as_ref()
+                .and_then(|s| s.held)
+                .map_or("nothing", |s| s.item.name()),
+        );
+        ctx.report("view", if self.behind_view { "behind" } else { "eyes" });
+        ctx.report("help", self.show_help);
+        ctx.report(
+            "message",
+            if self.message_seconds > 0.0 {
+                self.message.as_str()
+            } else {
+                ""
+            },
+        );
+        ctx.report("gold", self.count(Item::Gold));
+        ctx.report("coal", self.count(Item::Coal));
+        ctx.report(
+            "holding",
+            self.holding().map_or("nothing", |s| s.item.name()),
+        );
         ctx.report("on_ground", self.on_ground);
         ctx.report("in_water", self.in_water);
         ctx.report(
             "looking_at",
-            self.target.map_or("nothing", |t| t.block.name()),
+            if self.aimed.is_some() {
+                "Duckling"
+            } else {
+                self.target.map_or("nothing", |t| t.name())
+            },
         );
     }
 
@@ -1582,20 +2225,20 @@ impl Game for DuckCraft {
         let camera = self.camera();
 
         // The sky, the sun or moon, and stars, all behind the world.
-        let day = self.time_of_day();
-        let angle = day * TAU;
-        let sun = vec3(angle.cos(), angle.sin(), 0.35).normalized();
-        let daylight = smooth(((sun.y + 0.15) / 0.4).clamp(0.0, 1.0));
-        let dusk = (1.0 - (sun.y.abs() / 0.3).min(1.0)) * 0.8;
-        let night_sky = Color::from_hex(0x0b1226);
+        let menus::Sky {
+            sun,
+            daylight,
+            dusk,
+        } = sky_at(self.time_of_day());
+        let night_sky = Color::from_hex(0x03040a);
         let day_sky = Color::from_hex(0x86c4f2);
         let sky = night_sky.lerp(day_sky, daylight);
-        let horizon_glow = Color::from_hex(0xf2a05a);
+        let horizon_glow = Color::from_hex(0xd8703a);
         canvas.clear(sky);
-        // A lighter band down to the horizon (orange at sunrise and sunset).
+        // A lighter band down to the horizon (red at sunrise and sunset).
         let horizon = camera
             .world_to_screen(
-                camera.position + vec3(self.yaw.sin(), 0.0, self.yaw.cos()) * 100.0,
+                camera.position + vec3(camera.yaw.sin(), 0.0, camera.yaw.cos()) * 100.0,
                 canvas,
             )
             .map_or(HEIGHT / 2.0, |p| p.y);
@@ -1608,16 +2251,31 @@ impl Game for DuckCraft {
             canvas.fill_rect(Rect::new(0.0, y, WIDTH, 8.0), sky.lerp(band_color, t));
         }
         canvas.fill_rect(Rect::new(0.0, horizon, WIDTH, HEIGHT), band_color);
-        // Far things fade into the horizon's colour: no hard edge where
-        // the world (or the sea) stops.
+        // Far things fade into the horizon's colour. By day you see across
+        // the sea; at night the dark comes in close; in a cave, closer.
+        let eye = camera.position;
+        let [ex, ey, ez] = [eye.x, eye.y, eye.z].map(|v| v.floor() as i32);
+        let underground = World::inside(ex, ey, ez)
+            && ey < self.world.sky[ez as usize * SIZE + ex as usize] - 2
+            && light(&self.world.grid, &self.world.sky, ex, ey, ez) < 0.7;
+        let (near, far) = if underground {
+            (3.0, 22.0)
+        } else {
+            (6.0 + 34.0 * daylight, 30.0 + 90.0 * daylight)
+        };
+        let fog_color = if underground {
+            Color::from_hex(0x050506)
+        } else {
+            band_color
+        };
         canvas.set_fog(Some(Fog {
-            color: band_color,
-            near: 40.0,
-            far: 120.0,
+            color: fog_color,
+            near,
+            far,
         }));
         if daylight < 0.9 {
-            let alpha = ((1.0 - daylight) * 255.0) as u8;
-            for i in 0..90 {
+            let alpha = ((1.0 - daylight) * 170.0) as u8;
+            for i in 0..60 {
                 let a = random01(i, 0, 0, 77) * TAU;
                 let h = random01(i, 1, 0, 77) * 0.9 + 0.08;
                 let star = vec3(
@@ -1641,41 +2299,44 @@ impl Game for DuckCraft {
             canvas.fill_rect(Rect::from_center(p, 12.0, 12.0), Color::from_hex(0xfffbe0));
         }
         if let Some(p) = camera.world_to_screen(camera.position - sun * 100.0, canvas) {
-            canvas.fill_rect(Rect::from_center(p, 9.0, 9.0), Color::from_hex(0xe8ecf4));
+            // A pale moon, with a dark bite out of it.
+            canvas.fill_rect(Rect::from_center(p, 9.0, 9.0), Color::from_hex(0xc8ccd4));
             canvas.fill_rect(
-                Rect::new(p.x - 2.0, p.y - 2.0, 2.0, 2.0),
-                Color::from_hex(0xc0c6d4),
+                Rect::new(p.x - 4.5, p.y - 4.5, 4.0, 9.0),
+                sky.lerp(Color::from_hex(0xc8ccd4), 0.15),
             );
         }
-
-        // The light: the sun by day, the moon (weak and blue) by night.
+        // The light: the sun by day, the moon (weak and cold) by night.
         let (direction, color) = if sun.y > -0.1 {
             (
                 sun,
                 Color::from_hex(0xfff4e0).lerp(horizon_glow, dusk * 0.6),
             )
         } else {
-            (sun * -1.0, Color::from_hex(0xa8b8e8))
+            (sun * -1.0, Color::from_hex(0x8090c0))
         };
         canvas.set_lighting(Lighting {
             sun_direction: direction,
             sun_color: color,
-            sun_strength: 0.25 + 0.75 * daylight,
-            ambient: 0.28 + 0.27 * daylight,
+            sun_strength: 0.16 + 0.84 * daylight,
+            ambient: 0.13 + 0.42 * daylight,
         });
-
         let still = Transform::default();
         canvas.draw_mesh(&art.ocean, &still, &camera);
         self.world.grid.draw(canvas, &camera);
+        canvas.draw_mesh(&self.plant_mesh, &Transform::default(), &camera);
         // Clouds glow (so their undersides aren't grey), dimmed for the night.
         let drift = (self.time * 0.8).rem_euclid(CLOUD_PERIOD);
         let shade = (90.0 + 165.0 * daylight) as u8;
-        let clouds = art.clouds.clone().with_color(Color::rgb(
-            shade,
-            shade,
-            (shade as f32 * 1.05).min(255.0) as u8,
-        ));
-        canvas.draw_mesh(&clouds, &Transform::at(vec3(drift, 0.0, 0.0)), &camera);
+        // (Tinted as it's drawn: copying the whole mesh every frame to
+        // colour it was slow.)
+        let tint = Color::rgb(shade, shade, (shade as f32 * 1.05).min(255.0) as u8);
+        canvas.draw_mesh_tinted(
+            &art.clouds,
+            &Transform::at(vec3(drift, 0.0, 0.0)),
+            &camera,
+            tint,
+        );
 
         // Cracks on the block being dug.
         if let (Some(cell), Some(hit)) = (self.digging, self.target) {
@@ -1688,6 +2349,16 @@ impl Game for DuckCraft {
                 );
                 let place = Transform::at(middle).sized(1.004);
                 canvas.draw_mesh(&art.cracks[stage.min(3)], &place, &camera);
+            }
+        }
+        for falling in &self.falling {
+            if let Some(cube) = &art.cubes[falling.block as usize] {
+                let middle = vec3(
+                    falling.x as f32 + 0.5,
+                    falling.y + 0.5,
+                    falling.z as f32 + 0.5,
+                );
+                canvas.draw_mesh(cube, &Transform::at(middle), &camera);
             }
         }
         for crumb in &self.crumbs {
@@ -1707,7 +2378,7 @@ impl Game for DuckCraft {
             let stride = (going / WALK_SPEED).min(1.5);
             let swing = (self.time * 9.0).sin() * 0.8 * stride;
             let airborne = !self.on_ground && !self.in_water;
-            let lift = if self.digging.is_some() || self.place_wait > 0.0 {
+            let lift = if self.digging.is_some() || self.place_wait > 0.0 || self.swing > 0.0 {
                 1.3 + (self.time * 18.0).sin() * 0.4
             } else if airborne {
                 0.6
@@ -1721,7 +2392,11 @@ impl Game for DuckCraft {
                 lift,
             };
             art.duck.draw(canvas, &camera, self.position, pose);
-            if let Some(rect) = screen_box(&camera, canvas, self.position, 1.0, 1.75) {
+            // (Labels only while playing: a menu over the world has its own.)
+            if let (Stage::Playing, Some(rect)) = (
+                &self.stage,
+                screen_box(&camera, canvas, self.position, 1.0, 1.75),
+            ) {
                 canvas.label("player", rect);
             }
         }
@@ -1730,22 +2405,11 @@ impl Game for DuckCraft {
         // them): the duck's shadow on the ground under it, and a faint
         // glassy box over the block you look at.
         if self.behind_view {
-            let [x, z] = [self.position.x, self.position.z];
-            let ground = (0..=self.position.y.floor() as i32).rev().find(|&y| {
-                self.world
-                    .get(x.floor() as i32, y - 1, z.floor() as i32)
-                    .solid()
-            });
-            if let Some(y) = ground {
-                let height = self.position.y - y as f32;
-                let size = (0.8 - height * 0.12).max(0.3);
-                let alpha = (110.0 - height * 18.0).max(20.0) as u8;
-                let place =
-                    Transform::at(vec3(x, y as f32 + 0.01, z)).scaled(vec3(size, 0.004, size));
-                canvas.draw_mesh_tinted(&art.shadow, &place, &camera, Color::rgba(0, 0, 0, alpha));
-            }
+            self.draw_shadow(canvas, &camera, self.position, 0.8);
         }
-        if let Some(hit) = self.target {
+        self.draw_ducklings(canvas, &camera);
+        self.draw_night(canvas, &camera);
+        if let Some(hit) = self.target.filter(|t| t.plant.is_none()) {
             let [x, y, z] = hit.cell.map(|v| v as f32);
             let place = Transform::at(vec3(x + 0.5, y + 0.5, z + 0.5)).sized(1.006);
             let glass = Color::rgba(255, 255, 255, 36);
@@ -1756,26 +2420,11 @@ impl Game for DuckCraft {
         if let Some(hit) = self.target {
             let [x, y, z] = hit.cell.map(|v| v as f32);
             let e = 0.002;
-            let corner = |i: usize| {
-                vec3(
-                    if i & 1 == 0 { x - e } else { x + 1.0 + e },
-                    if i & 2 == 0 { y - e } else { y + 1.0 + e },
-                    if i & 4 == 0 { z - e } else { z + 1.0 + e },
-                )
-            };
-            let points: Vec<Option<Vec2>> = (0..8)
-                .map(|i| camera.world_to_screen(corner(i), canvas))
-                .collect();
-            for a in 0..8 {
-                for bit in [1, 2, 4] {
-                    let b = a | bit;
-                    if b != a {
-                        if let (Some(p), Some(q)) = (points[a], points[b]) {
-                            canvas.draw_line(p, q, Color::rgba(20, 20, 24, 200));
-                        }
-                    }
-                }
-            }
+            // A plant's box is smaller than a block.
+            let (inset, height) = hit.plant.map_or((0.0, 1.0), |p| (0.15, p.height()));
+            let low = vec3(x + inset - e, y - e, z + inset - e);
+            let high = vec3(x + 1.0 - inset + e, y + height + e, z + 1.0 - inset + e);
+            draw_box_edges(canvas, &camera, low, high, Color::rgba(20, 20, 24, 200));
             if let Some((p, _)) = camera.project(vec3(x + 0.5, y + 0.5, z + 0.5), canvas) {
                 canvas.label("target", Rect::from_center(p, 4.0, 4.0));
             }
@@ -1795,14 +2444,69 @@ impl Game for DuckCraft {
             );
         }
 
+        if matches!(self.stage, Stage::Title { .. }) {
+            self.draw_title(canvas);
+            return;
+        }
         if !self.behind_view {
             self.draw_hand(canvas, &camera);
         }
+        self.draw_vignette(canvas);
         self.draw_hud(canvas);
+        if self.mode == Mode::Survival {
+            self.draw_body(canvas);
+        }
+        self.draw_announcement(canvas);
+        self.draw_inventory(canvas, &camera, self.mouse);
+        if self.scare > 0.0 {
+            // The Watcher, seen: a white flash, gone almost at once.
+            let alpha = ((self.scare - 0.45).max(0.0) / 0.15 * 200.0) as u8;
+            canvas.fill_rect(
+                Rect::new(0.0, 0.0, WIDTH, HEIGHT),
+                Color::rgba(255, 255, 255, alpha),
+            );
+        }
+        self.draw_pause(canvas);
     }
 }
 
 impl DuckCraft {
+    /// Where the game is (title, playing, paused) and how it's played.
+    fn report_stage(&self, ctx: &mut Context) {
+        let stage = match &self.stage {
+            Stage::Title { selected, .. } => format!("title {selected}"),
+            Stage::Playing => String::from("playing"),
+            Stage::Paused { selected } => format!("paused {selected}"),
+        };
+        ctx.report("stage", stage);
+        ctx.report("mode", self.mode.name());
+    }
+
+    /// A soft round shadow on the ground under something standing at
+    /// `feet`, `size` across, fainter and smaller the higher it is.
+    fn draw_shadow(&self, canvas: &mut Canvas, camera: &Camera3D, feet: Vec3, size: f32) {
+        let [x, z] = [feet.x, feet.z];
+        let ground = (0..=(feet.y.floor() as i32).min(TALL as i32))
+            .rev()
+            .find(|&y| {
+                self.world
+                    .get(x.floor() as i32, y - 1, z.floor() as i32)
+                    .solid()
+            });
+        if let Some(y) = ground {
+            let height = feet.y - y as f32;
+            let size = (size - height * 0.12).max(size * 0.35);
+            let alpha = (110.0 - height * 18.0).max(20.0) as u8;
+            let place = Transform::at(vec3(x, y as f32 + 0.01, z)).scaled(vec3(size, 0.004, size));
+            canvas.draw_mesh_tinted(
+                &self.art.shadow,
+                &place,
+                camera,
+                Color::rgba(0, 0, 0, alpha),
+            );
+        }
+    }
+
     /// Your own right arm, bottom right of the view, holding the block in
     /// hand. It bobs as you walk and swings when you dig or build.
     fn draw_hand(&self, canvas: &mut Canvas, camera: &Camera3D) {
@@ -1812,7 +2516,7 @@ impl DuckCraft {
         } else {
             0.0
         };
-        let swing = if self.digging.is_some() || self.place_wait > 0.0 {
+        let swing = if self.digging.is_some() || self.place_wait > 0.0 || self.swing > 0.0 {
             (self.time * 18.0).sin().max(0.0) * 0.7
         } else {
             0.0
@@ -1825,19 +2529,55 @@ impl DuckCraft {
         let reach = std::f32::consts::FRAC_PI_2 + 0.6 - swing;
         let arm = Transform::at(shoulder).rotated(vec3(reach, 0.0, 0.0));
         canvas.draw_mesh_in_view(&art.duck.arm, &arm, camera);
-        let block = self.holding();
-        if self.carried[block as usize] > 0 {
-            if let Some(cube) = &art.cubes[block as usize] {
-                // The hand is 10 pixels down the arm: the block sits just past it.
-                let hand = shoulder + vec3(0.0, -11.0 * SKIN_PIXEL, 0.0).rotate_x(reach);
-                let place = Transform::at(hand).rotated(vec3(0.0, 0.5, 0.0)).sized(0.24);
-                canvas.draw_mesh_in_view(cube, &place, camera);
+        // The hand is 10 pixels down the arm: what it holds sits just past it.
+        let hand = shoulder + vec3(0.0, -11.0 * SKIN_PIXEL, 0.0).rotate_x(reach);
+        match self.holding().map(|s| s.item) {
+            Some(Item::Block(block)) => {
+                if let Some(cube) = &art.cubes[block as usize] {
+                    let place = Transform::at(hand).rotated(vec3(0.0, 0.5, 0.0)).sized(0.24);
+                    canvas.draw_mesh_in_view(cube, &place, camera);
+                }
             }
+            Some(item) => {
+                if let Some(card) = art.item_cards.get(&item) {
+                    let eating = self.eating_seconds > 0.0;
+                    let nibble = if eating {
+                        (self.time * 30.0).sin() * 0.02
+                    } else {
+                        0.0
+                    };
+                    let at = if eating {
+                        vec3(0.05, -0.28 + nibble, 0.45)
+                    } else {
+                        hand + vec3(0.0, 0.08, 0.0)
+                    };
+                    let place = Transform::at(at).rotated(vec3(0.0, -0.6, 0.15)).sized(0.32);
+                    canvas.draw_mesh_in_view(card, &place, camera);
+                }
+            }
+            None => {}
+        }
+    }
+
+    /// A stack's picture with its count in the corner (none for one),
+    /// the picture's top left at `at`.
+    fn draw_stack(&self, canvas: &mut Canvas, stack: Option<Stack>, at: Vec2) {
+        let Some(stack) = stack else {
+            return;
+        };
+        if let Some(icon) = self.art.item_icons.get(&stack.item) {
+            canvas.blit_sprite(icon, at, Blit::default());
+        }
+        if stack.count > 1 {
+            let text = stack.count.to_string();
+            let w = Canvas::text_width(&text, 1);
+            let corner = at + vec2(17.0 - w, 11.0);
+            canvas.draw_text(&text, corner + vec2(1.0, 1.0), 1, Color::rgb(40, 40, 40));
+            canvas.draw_text(&text, corner, 1, Color::WHITE);
         }
     }
 
     fn draw_hud(&self, canvas: &mut Canvas) {
-        let art = &self.art;
         let shadow = Color::rgba(0, 0, 0, 160);
 
         // The crosshair.
@@ -1854,8 +2594,8 @@ impl DuckCraft {
         // (In first person the arm and the block in hand are drawn in 3D,
         // see `draw_hand`.)
 
-        // The hotbar.
-        let slot_size = 22.0;
+        // The hotbar: nine framed slots, the one in hand outlined.
+        let slot_size = HOTBAR_SLOT;
         let left = (WIDTH - slot_size * 9.0) / 2.0;
         let top = HEIGHT - slot_size - 3.0;
         canvas.fill_rect(
@@ -1865,31 +2605,14 @@ impl DuckCraft {
                 slot_size * 9.0 + 4.0,
                 slot_size + 4.0,
             ),
-            Color::rgba(0, 0, 0, 120),
+            Color::rgba(0, 0, 0, 140),
         );
-        for (i, &block) in HOTBAR.iter().enumerate() {
+        for i in 0..HOTBAR_SLOTS {
             let x = left + i as f32 * slot_size;
             let slot = Rect::new(x + 1.0, top + 1.0, slot_size - 2.0, slot_size - 2.0);
-            canvas.fill_rect(slot, Color::rgba(90, 90, 100, 150));
-            let count = self.carried[block as usize];
-            if let Some(icon) = &art.icons[block as usize] {
-                let opacity = if count > 0 { 1.0 } else { 0.3 };
-                canvas.blit_sprite(
-                    icon,
-                    vec2(x + 3.0, top + 3.0),
-                    Blit {
-                        opacity,
-                        ..Default::default()
-                    },
-                );
-            }
-            if count > 0 {
-                let text = count.to_string();
-                let w = Canvas::text_width(&text, 1);
-                let at = vec2(x + slot_size - 2.0 - w, top + slot_size - 9.0);
-                canvas.draw_text(&text, at + vec2(1.0, 1.0), 1, Color::BLACK);
-                canvas.draw_text(&text, at, 1, Color::WHITE);
-            }
+            canvas.fill_rect(slot, Color::rgba(110, 110, 120, 140));
+            canvas.draw_rect(slot, Color::rgba(40, 40, 46, 200));
+            self.draw_stack(canvas, self.inventory.slots[i], vec2(x + 3.0, top + 3.0));
             if i == self.slot {
                 canvas.draw_rect(
                     Rect::new(x - 1.0, top - 1.0, slot_size + 2.0, slot_size + 2.0),
@@ -1907,14 +2630,14 @@ impl DuckCraft {
             hours as u32,
             ((hours.fract()) * 60.0) as u32 / 10 * 10
         );
-        let status = format!("GOLD {}  COAL {}  {clock}", self.gold, self.coal);
+        let status = format!("Day {}  {clock}", self.day_number());
         canvas.draw_text(&status, vec2(5.0, 5.0), 1, Color::BLACK);
         canvas.draw_text(&status, vec2(4.0, 4.0), 1, Color::from_hex(0xfff2a0));
 
         // A message over the hotbar.
         if self.message_seconds > 0.0 {
             let alpha = (self.message_seconds.min(1.0) * 255.0) as u8;
-            let y = top - 14.0;
+            let y = top - 36.0; // above the hearts, bread and bubbles
             let w = Canvas::text_width(&self.message, 1);
             canvas.fill_rect(
                 Rect::new((WIDTH - w) / 2.0 - 3.0, y - 2.0, w + 6.0, 11.0),
@@ -1936,17 +2659,25 @@ impl DuckCraft {
             canvas.draw_text_centered(text, panel.y + 3.0, 1, Color::WHITE);
         }
 
-        if self.show_help {
+        let quiet = self.stage != Stage::Playing || self.vitals.fainted;
+        if self.show_help && self.screen.is_none() && !quiet {
+            let last = match self.mode {
+                Mode::Survival => "Lamps keep the dark away. Mostly.",
+                Mode::Creative => "Space twice: fly (Shift down)",
+            };
             let lines = [
                 "DUCK CRAFT",
                 "WASD walk   Shift run   Space jump",
-                "Mouse or arrows: look   Esc: free the mouse",
-                "Click / X: dig    Right click / C: build",
-                "1-9 or wheel: pick a block",
-                "V: view   H: hide this",
+                "Mouse or arrows: look   Esc: pause",
+                "Click / X: dig, hit   Right / C: build",
+                "1-9 or wheel: pick   E: bag and crafting",
+                "Hold right click with food: eat",
+                "Right click a duckling: it follows you",
+                "V: view   F5: save   H: hide this",
+                last,
             ];
-            let panel = Rect::new(52.0, 26.0, 216.0, 74.0);
-            canvas.fill_rect(panel, Color::rgba(0, 0, 0, 150));
+            let panel = Rect::new(46.0, 26.0, 228.0, 107.0);
+            canvas.fill_rect(panel, Color::rgba(0, 0, 0, 160));
             for (i, line) in lines.iter().enumerate() {
                 let color = if i == 0 {
                     Color::from_hex(0xffd45a)
@@ -1954,6 +2685,30 @@ impl DuckCraft {
                     Color::WHITE
                 };
                 canvas.draw_text_centered(line, panel.y + 6.0 + i as f32 * 11.0, 1, color);
+            }
+        }
+    }
+}
+
+/// The twelve edges of the box from `low` to `high`, as lines.
+fn draw_box_edges(canvas: &mut Canvas, camera: &Camera3D, low: Vec3, high: Vec3, color: Color) {
+    let corner = |i: usize| {
+        vec3(
+            if i & 1 == 0 { low.x } else { high.x },
+            if i & 2 == 0 { low.y } else { high.y },
+            if i & 4 == 0 { low.z } else { high.z },
+        )
+    };
+    let points: Vec<Option<Vec2>> = (0..8)
+        .map(|i| camera.world_to_screen(corner(i), canvas))
+        .collect();
+    for a in 0..8 {
+        for bit in [1, 2, 4] {
+            let b = a | bit;
+            if b != a {
+                if let (Some(p), Some(q)) = (points[a], points[b]) {
+                    canvas.draw_line(p, q, color);
+                }
             }
         }
     }
@@ -1980,8 +2735,22 @@ fn screen_box(
 }
 
 /// The game, with its world and art.
+/// A new island, never saved, already playing (for tests).
+#[cfg(test)]
 fn new_game() -> Result<DuckCraft, LoadError> {
-    Ok(DuckCraft::new(Rc::new(Art::load()?), World::generate()))
+    save::load_or_new(None)
+}
+
+/// The game as it starts: on the title screen. Without a save path it's
+/// the headless game (the same island every time, never saved), which
+/// replays and fuzz runs play.
+fn title_game(save: Option<std::path::PathBuf>) -> Result<DuckCraft, LoadError> {
+    let mut game = save::load_or_new(save)?;
+    game.stage = Stage::Title {
+        selected: 0,
+        confirm: false,
+    };
+    Ok(game)
 }
 
 fn config() -> Config {
@@ -1994,11 +2763,31 @@ fn config() -> Config {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    duckforge::run(config(), new_game()?)
+    // Only the game in a window saves: a headless run (a replay, a fuzz
+    // run, a video) always starts from the same new island.
+    let headless = std::env::args().any(|arg| arg == "--headless");
+    let save = (!headless).then(|| std::path::PathBuf::from(save::SAVE_FILE));
+    let game = title_game(save)?;
+    duckforge::run(config(), game)
 }
 
 // Play tests: `cargo test --example duck_craft`. The bot that records
 // playthroughs/duck_craft.json: `cargo test --example duck_craft -- --ignored`.
+mod ducklings;
+mod health;
+mod inventory;
+mod items;
+mod menus;
+mod night;
+mod plants;
+mod save;
+
+use ducklings::{Duckling, DucklingModel};
+use items::{HOTBAR_SLOTS, Inventory, Item, SLOTS, Stack};
+use menus::{Mode, Stage, sky_at};
+use night::{Hollow, Watcher};
+use plants::Plant;
+
 #[cfg(test)]
 mod tests;
 

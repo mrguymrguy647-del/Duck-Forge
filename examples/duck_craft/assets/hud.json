@@ -1,0 +1,17 @@
+{
+  "image": "hud.png",
+  "frame": { "width": 9, "height": 9 },
+  "columns": 1,
+  "rows": 7,
+  "scale": 1,
+  "pivot": [4.5,9.0],
+  "animations": {
+    "heart_full": {"row":0,"frames":[0],"fps":1.0,"loop":false},
+    "bread_full": {"row":1,"frames":[1],"fps":1.0,"loop":false},
+    "heart_half": {"row":2,"frames":[2],"fps":1.0,"loop":false},
+    "bread_half": {"row":3,"frames":[3],"fps":1.0,"loop":false},
+    "heart_empty": {"row":4,"frames":[4],"fps":1.0,"loop":false},
+    "bread_empty": {"row":5,"frames":[5],"fps":1.0,"loop":false},
+    "bubble": {"row":6,"frames":[6],"fps":1.0,"loop":false}
+  }
+}
