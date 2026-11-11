@@ -1,0 +1,164 @@
+# Makes the Windows download of Duck Forge Studio:
+# DuckForgeStudio-<version>-windows.zip.
+#
+# Three ways to make a release, none needing a terminal:
+# - Actions tab -> "Studio release" -> "Run workflow" (the "Make a release"
+#   button): reads the version from studio/Cargo.toml, makes the tag
+#   studio-vX.Y.Z on the chosen branch's newest commit, and publishes the
+#   release with the zip.
+# - Releases -> "Draft a new release" on the GitHub website with a new tag
+#   like studio-v0.1.0: this workflow runs on the tag and adds the zip.
+# - Pushing a tag like studio-v0.1.0.
+# If the release is already there, its zip is replaced instead of failing.
+# Changing this file (or studio/release/) on a branch only builds the zip
+# and keeps it as a downloadable "artifact" on the run's page, so it can be
+# checked before any release is made.
+#
+# Before it builds the zip it tests the Studio on Windows: the core's
+# tests build a real game, play it through the link, freeze and resume it,
+# and replay the saved session exactly. Then it plays three games through
+# the link for ten seconds each and prints their Timing lines. (GitHub's
+# Windows machines have no graphics card, so those numbers are for the
+# CPU; a real PC is faster.)
+name: Studio release
+
+on:
+  # The "Make a release" button in the Actions tab. (GitHub only shows it
+  # once this file is on the main branch.)
+  workflow_dispatch:
+  push:
+    tags: ["studio-v*"]
+    branches: ["**"]
+    # Branch pushes only run when the release itself changed (tags always run).
+    paths: [".github/workflows/studio-release.yml", "studio/release/**"]
+  pull_request:
+    paths: [".github/workflows/studio-release.yml", "studio/release/**"]
+
+env:
+  RUST_VERSION: "1.97.0"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write # to publish the release
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Rust
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            studio -> target
+
+      - name: Read the version
+        id: version
+        shell: bash
+        run: |
+          # The one place it's written: the Studio's workspace Cargo.toml.
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' studio/Cargo.toml | head -n 1)
+          echo "Version: $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != "studio-v$version" ]]; then
+            echo "The tag $GITHUB_REF_NAME doesn't match the version $version in studio/Cargo.toml."
+            exit 1
+          fi
+          # The tag to publish under: the pushed tag, or studio-v<version> for the button.
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=studio-v$version" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Test the Studio (builds a real game and plays it through the link)
+        shell: bash
+        working-directory: studio
+        run: cargo test --workspace -- --nocapture
+
+      - name: Build
+        shell: bash
+        working-directory: studio
+        run: cargo build --release -p studio_app
+
+      - name: Timing through the link, on this machine
+        shell: bash
+        run: |
+          # Each game is built with the link, started, and played for ten
+          # seconds exactly as the app plays it. No window is needed.
+          for game in duck_peaks starter_runner3d duck_craft; do
+            studio/target/release/DuckForgeStudio.exe --timing "$game" 10 > "timing-$game.txt" 2>&1 || true
+            cat "timing-$game.txt"
+          done
+          # Duck Craft again, drawn on the CPU for certain.
+          DUCKFORGE_RENDERER=cpu studio/target/release/DuckForgeStudio.exe --timing duck_craft 10 > timing-duck_craft-cpu.txt 2>&1 || true
+          cat timing-duck_craft-cpu.txt
+          ls -l studio/target/release/DuckForgeStudio.exe
+
+      - name: Put the zip together
+        shell: bash
+        run: |
+          name="DuckForgeStudio-${{ steps.version.outputs.version }}-windows"
+          folder="dist/Duck Forge Studio"
+          mkdir -p "$folder/brand" "$folder/duckforge"
+          cp studio/target/release/DuckForgeStudio.exe "$folder/"
+          cp studio/brand/duck-forge-icon-256.png "$folder/brand/"
+          cp "studio/release/READ ME FIRST.txt" "studio/release/Create desktop shortcut.bat" "$folder/"
+          # Duck Forge itself, as it is in this commit: the engine, the
+          # examples, the tools and the docs. Not the Studio's own code.
+          git archive --format=tar HEAD -- . ':(exclude)studio' ':(exclude).github' ':(exclude)docs/studio-screens' \
+            | tar -x -C "$folder/duckforge"
+          cd dist
+          7z a -tzip "../$name.zip" "Duck Forge Studio" > /dev/null
+          cd ..
+          ls -l "$name.zip"
+          echo "ZIP=$name.zip" >> "$GITHUB_ENV"
+
+      - name: Check what's in the zip
+        shell: bash
+        run: |
+          7z l -slt "$ZIP" | sed -n 's/^Path = //p' > contents.txt
+          echo "$(wc -l < contents.txt) entries; the top of the folder:"
+          grep -E '^Duck Forge Studio(/|\\)[^/\\]+$' contents.txt
+          for wanted in DuckForgeStudio.exe "READ ME FIRST.txt" "Create desktop shortcut.bat" \
+                        brand/duck-forge-icon-256.png duckforge/Cargo.toml duckforge/src/lib.rs \
+                        duckforge/examples/template/main.rs duckforge/tools/verify.bat; do
+            grep -qxF "Duck Forge Studio/$wanted" <(tr '\\' / < contents.txt) || { echo "missing: $wanted"; exit 1; }
+          done
+          if grep -q 'duckforge[/\\]studio[/\\]' contents.txt; then echo "the Studio's own code must not be shipped"; exit 1; fi
+          # The program starts and knows its version.
+          ver=$("dist/Duck Forge Studio/DuckForgeStudio.exe" --version)
+          echo "$ver"
+          [[ "$ver" == "Duck Forge Studio ${{ steps.version.outputs.version }}" ]]
+
+      - name: Keep the zip and the timings on this run's page
+        uses: actions/upload-artifact@v5
+        with:
+          name: ${{ env.ZIP }}
+          path: |
+            ${{ env.ZIP }}
+            timing-*.txt
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/studio-v') || github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            # Made on the website (or made before): add the zip, replacing
+            # an older one of the same name, instead of failing.
+            echo "The release $TAG is already there: adding the zip to it."
+            gh release upload "$TAG" "$ZIP" --clobber
+          else
+            # --target makes the tag on this run's commit if it doesn't exist.
+            gh release create "$TAG" "$ZIP" --target "$GITHUB_SHA" \
+              --title "Duck Forge Studio ${{ steps.version.outputs.version }}" \
+              --notes "Download $ZIP below, unzip it, and double-click DuckForgeStudio.exe. READ ME FIRST.txt inside says the rest."
+          fi
+          echo "Published: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"

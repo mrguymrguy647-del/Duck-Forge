@@ -1,0 +1,405 @@
+//! Every screen of the Studio, drawn with no window.
+//!
+//! `egui_kittest` runs the app's own drawing code against a pretend
+//! screen and renders it to a picture, so this needs no display. The
+//! Studio underneath is the real one: real games are built, played
+//! through the link, checked and clipped.
+//!
+//! The quick test below always runs. The screenshots take a few minutes
+//! (they build and play real games), so they only run when asked:
+//!
+//! ```sh
+//! STUDIO_SCREENSHOTS=../docs/studio-screens cargo test -p studio_app --test screens -- --nocapture
+//! ```
+
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+
+use eframe::egui;
+use egui_kittest::Harness;
+use egui_kittest::kittest::Queryable;
+use studio_app::{StudioApp, theme};
+use studio_core::build::{Build, BuildState, rust_is_missing};
+use studio_core::play::PlayState;
+use studio_core::settings::Settings;
+use studio_core::{Command, Problem, Studio};
+
+fn duck_forge() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../..")
+        .canonicalize()
+        .unwrap()
+}
+
+fn studio() -> Studio {
+    // SAFETY: tests only ever set this variable to a scratch file, so the
+    // person's own settings are never touched.
+    unsafe {
+        std::env::set_var(
+            "DUCK_FORGE_STUDIO_SETTINGS",
+            std::env::temp_dir().join("duck-forge-studio-screens-settings.json"),
+        );
+    }
+    let _ =
+        std::fs::remove_file(std::env::temp_dir().join("duck-forge-studio-screens-settings.json"));
+    Studio::new(Settings {
+        games_folder: Some(duck_forge()),
+        ..Settings::default()
+    })
+}
+
+/// The app on a pretend 1280 x 800 screen, run the way eframe runs it.
+fn harness(app: StudioApp, render: bool) -> Harness<'static, StudioApp> {
+    let builder = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .with_pixels_per_point(1.0)
+        .with_render_cursor(false)
+        .with_context_setup(|ctx| {
+            ctx.set_theme(egui::ThemePreference::Dark);
+            theme::apply_brand(ctx);
+        });
+    let builder = if render { builder.wgpu() } else { builder };
+    builder.build_eframe(|_| app)
+}
+
+#[test]
+fn home_shows_new_game_the_games_and_the_links() {
+    let mut harness = harness(StudioApp::new(studio()), false);
+    harness.step();
+    harness.get_by_label("+ New game");
+    harness.get_by_label("Duck Quill");
+    harness.get_by_label("Duck Echo");
+    harness.get_by_label("My games");
+    harness.get_by_label("Duck Peaks");
+    // New game opens its dialog: pick a starter, then name it.
+    harness.get_by_label("+ New game").click();
+    harness.run_steps(3);
+    harness.get_by_label("New game: pick a starter");
+    harness.get_by_label("Platformer");
+    harness.get_by_label("Next").click();
+    harness.run_steps(3);
+    harness.get_by_label("New game: name it");
+}
+
+/// Puts the repository back as it was after the screenshots made a game.
+struct PutBack {
+    root: PathBuf,
+    manifest: String,
+    game: &'static str,
+}
+
+impl Drop for PutBack {
+    fn drop(&mut self) {
+        let _ = std::fs::write(self.root.join("Cargo.toml"), &self.manifest);
+        let _ = std::fs::remove_dir_all(self.root.join("examples").join(self.game));
+        let _ = std::fs::remove_file(
+            self.root
+                .join("playthroughs")
+                .join(format!("{}.json", self.game)),
+        );
+        for folder in ["out/verify", "out/sessions"] {
+            let _ = std::fs::remove_dir_all(self.root.join(folder).join(self.game));
+        }
+    }
+}
+
+struct Shots {
+    folder: PathBuf,
+    harness: Harness<'static, StudioApp>,
+}
+
+impl Shots {
+    /// Runs the app's frames at sixty a second until `done`, or gives up
+    /// after `patience`.
+    fn until(&mut self, what: &str, patience: Duration, mut done: impl FnMut(&StudioApp) -> bool) {
+        let started = Instant::now();
+        loop {
+            let frame = Instant::now();
+            self.harness.step();
+            if done(self.harness.state()) {
+                return;
+            }
+            assert!(
+                started.elapsed() < patience,
+                "waited {patience:?} for {what}; the Studio's problem: {:?}",
+                self.harness.state().studio.problem
+            );
+            if let Some(rest) = Duration::from_micros(16_667).checked_sub(frame.elapsed()) {
+                std::thread::sleep(rest);
+            }
+        }
+    }
+
+    /// Runs for this long.
+    fn play_for(&mut self, time: Duration) {
+        let until = Instant::now() + time;
+        self.until("time to pass", time * 2 + Duration::from_secs(5), |_| {
+            Instant::now() >= until
+        });
+    }
+
+    fn run(&mut self, command: Command) {
+        let result = self.harness.state_mut().studio.run(command);
+        if let Err(problem) = result {
+            panic!("{problem}\n{}", problem.details);
+        }
+    }
+
+    fn input(&mut self, event: serde_json::Value) {
+        let mut command = event;
+        command["do"] = "game.input".into();
+        self.run(serde_json::from_value(command).unwrap());
+    }
+
+    /// Saves a picture of the screen as it is now.
+    fn shoot(&mut self, name: &str) {
+        // A few frames first: a panel that just appeared takes two to
+        // settle into its size.
+        self.harness.run_steps(3);
+        let picture = self.harness.render().expect("the screen can be drawn");
+        let path = self.folder.join(format!("{name}.png"));
+        picture.save(&path).unwrap();
+        println!("saved {}", path.display());
+    }
+
+    fn playing(&mut self) {
+        self.until("the game to play", Duration::from_secs(900), |app| {
+            app.studio.play().is_some_and(|play| {
+                play.state == PlayState::Playing && play.picture.is_some() && play.frame > 5
+            })
+        });
+    }
+
+    fn idle(&mut self) {
+        self.harness.step();
+        self.until("the Studio to finish", Duration::from_secs(900), |app| {
+            !app.studio.is_busy() && app.studio.making.is_none()
+        });
+    }
+}
+
+#[test]
+fn every_screen() {
+    let Some(folder) = std::env::var_os("STUDIO_SCREENSHOTS") else {
+        println!("set STUDIO_SCREENSHOTS=<folder> to save a picture of every screen");
+        return;
+    };
+    let folder = PathBuf::from(folder);
+    std::fs::create_dir_all(&folder).unwrap();
+    let root = duck_forge();
+    let _put_back = PutBack {
+        manifest: std::fs::read_to_string(root.join("Cargo.toml")).unwrap(),
+        root: root.clone(),
+        game: "bee_maze",
+    };
+    let mut shots = Shots {
+        folder,
+        harness: harness(StudioApp::new(studio()), true),
+    };
+
+    // New game: the two pages of the dialog, then the real thing.
+    shots.harness.step();
+    shots.harness.get_by_label("+ New game").click();
+    shots.harness.run_steps(3);
+    shots.shoot("02-new-game-starter");
+    shots.harness.get_by_label("Next").click();
+    shots.harness.run_steps(3);
+    shots.harness.state_mut().new_game.as_mut().unwrap().name = String::from("Bee Maze");
+    shots.harness.run_steps(3);
+    shots.shoot("03-new-game-name");
+    shots.harness.get_by_label("Make it").click();
+    shots.harness.run_steps(2);
+    // The new game is made, opened, built and starts playing by itself.
+    shots.playing();
+    assert_eq!(
+        shots
+            .harness
+            .state()
+            .studio
+            .open
+            .as_ref()
+            .unwrap()
+            .game
+            .name,
+        "bee_maze"
+    );
+    shots.input(serde_json::json!({"press": "Right"}));
+    shots.play_for(Duration::from_secs(2));
+    shots.input(serde_json::json!({"press": "Space"}));
+    shots.play_for(Duration::from_millis(250));
+    shots.harness.state_mut().studio.settings.show_timing = true;
+    shots.shoot("04-game-playing");
+
+    // Tab, mid-jump: frozen on that frame, with Build beside it.
+    shots.harness.key_press(egui::Key::Tab);
+    shots.harness.run_steps(2);
+    assert_eq!(
+        shots.harness.state().studio.play().unwrap().state,
+        PlayState::Frozen
+    );
+    shots.shoot("05-game-frozen-build");
+    shots.harness.state_mut().studio.settings.show_timing = false;
+
+    // A new game gets its first playthrough (from its bot) and its first
+    // Check by themselves. Check: the friendly list, then one line's picture.
+    shots.harness.get_by_label("Check").click();
+    shots.harness.run_steps(2);
+    shots.shoot("06-check-running");
+    shots.until("the first check", Duration::from_secs(600), |app| {
+        app.studio
+            .open
+            .as_ref()
+            .is_some_and(|open| open.check.is_some() || open.check_result.is_some())
+    });
+    shots.idle();
+    shots.shoot("07-check-list");
+    let result = shots
+        .harness
+        .state()
+        .studio
+        .open
+        .as_ref()
+        .unwrap()
+        .check_result
+        .clone()
+        .unwrap();
+    println!(
+        "the new game's check: {:?}",
+        result.rows.iter().map(|row| &row.say).collect::<Vec<_>>()
+    );
+    assert!(
+        result.passed,
+        "a new game passes its first check: {result:?}"
+    );
+    let with_picture = result.rows.iter().position(|row| row.picture.is_some());
+    assert!(
+        with_picture.is_some(),
+        "the playthrough's line has a picture"
+    );
+    shots.run(Command::CheckShowProblem { line: with_picture });
+    shots.shoot("08-check-line-picture");
+    shots.harness.state_mut().check_open = false;
+
+    // Tab again, play on, then a clip of the run. The Console shows the
+    // commands behind the buttons.
+    shots.harness.key_press(egui::Key::Tab);
+    shots.harness.run_steps(2);
+    shots.play_for(Duration::from_secs(2));
+    shots.harness.state_mut().studio.settings.show_console = true;
+    shots.harness.get_by_label("Clip").click();
+    shots.harness.run_steps(2);
+    shots.idle();
+    shots.harness.run_steps(3);
+    shots.shoot("09-clip-and-console");
+    shots.run(Command::ConsoleRun {
+        line: String::from("cargo test --no-default-features --example bee_maze"),
+    });
+    shots.idle();
+    shots.harness.run_steps(3);
+    shots.shoot("10-console-typed-command");
+    shots.harness.state_mut().studio.settings.show_console = false;
+    shots.harness.run_steps(2);
+    shots.harness.get_by_label("Close").click(); // the Clip window
+    shots.harness.run_steps(2);
+
+    // The game is ended from outside: "The game stopped".
+    let job = shots.harness.state().studio.play().unwrap().job;
+    shots.harness.state_mut().studio.console.stop(job);
+    shots.until(
+        "the game to be seen as stopped",
+        Duration::from_secs(20),
+        |app| app.studio.crashed().is_some(),
+    );
+    shots.shoot("11-the-game-stopped");
+
+    // A mistake in the code, as the Studio says it.
+    let mistake = Problem::new(
+        "There's a mistake in the code. examples/bee_maze/main.rs, line 186: cannot find value \
+         `jump_sped` in this scope. The compiler suggests: a local variable with a similar name \
+         exists: `jump_speed`",
+        "Open the file at that line and fix it; the game builds again by itself when you save. \
+         Or copy this for an agent.",
+    )
+    .with_details(
+        "error[E0425]: cannot find value `jump_sped` in this scope\n   --> \
+         examples/bee_maze/main.rs:186:42\n    |\n186 |             self.vel.y = -jump_sped;\n    \
+         |                           ^^^^^^^^^ help: a local variable with a similar name \
+         exists: `jump_speed`",
+    );
+    shots
+        .harness
+        .state_mut()
+        .studio
+        .open
+        .as_mut()
+        .unwrap()
+        .build = Some(Build::for_show(
+        "bee_maze",
+        BuildState::Failed(mistake),
+        0,
+        0,
+    ));
+    shots.harness.state_mut().studio.open.as_mut().unwrap().play = None;
+    shots.harness.run_steps(3);
+    shots.shoot("12-build-failed");
+    shots
+        .harness
+        .state_mut()
+        .studio
+        .open
+        .as_mut()
+        .unwrap()
+        .build = Some(Build::for_show("bee_maze", BuildState::Running, 9, 14));
+    shots.harness.run_steps(3);
+    shots.shoot("13-building");
+
+    // No Rust on the computer.
+    shots
+        .harness
+        .state_mut()
+        .studio
+        .open
+        .as_mut()
+        .unwrap()
+        .build = None;
+    shots.harness.state_mut().studio.rust = Err(rust_is_missing("cargo: program not found"));
+    shots.harness.run_steps(3);
+    shots.shoot("14-rust-missing");
+    shots.harness.state_mut().studio.rust = studio_core::build::find_rust();
+
+    // Two of the examples, checked, so Home shows both kinds of card.
+    for game in ["duck_peaks", "template"] {
+        shots.run(Command::GameOpen {
+            name: game.to_string(),
+        });
+        shots.run(Command::CheckRun);
+        shots.idle();
+    }
+
+    // Home, now with a game of one's own on it.
+    shots.run(Command::HomeOpen);
+    shots.harness.run_steps(3);
+    shots.shoot("01-home");
+
+    // Duck Craft inside the Studio: 3D, and its note about saving.
+    shots.run(Command::GameOpen {
+        name: String::from("duck_craft"),
+    });
+    shots.playing();
+    // Enter starts a new island from the title screen.
+    shots.input(serde_json::json!({"press": "Enter"}));
+    shots.play_for(Duration::from_millis(200));
+    shots.input(serde_json::json!({"release": "Enter"}));
+    shots.play_for(Duration::from_secs(3));
+    shots.input(serde_json::json!({"mouse_motion": [40, 6]}));
+    shots.input(serde_json::json!({"press": "W"}));
+    shots.play_for(Duration::from_secs(2));
+    shots.harness.state_mut().studio.settings.show_timing = true;
+    shots.shoot("15-duck-craft-playing");
+    let play = shots.harness.state().studio.play().unwrap();
+    println!(
+        "Duck Craft: wants the pointer: {}, notes: {:?}, drawn by: {}",
+        play.wants_pointer, play.notes, play.renderer
+    );
+    shots.run(Command::HomeOpen);
+}

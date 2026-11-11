@@ -11,3 +11,19 @@ path = "src/main.rs"
 
 [dependencies]
 studio_core.workspace = true
+duckforge.workspace = true
+serde_json.workspace = true
+# The window and everything in it: the same library as Duck Quill.
+eframe = "0.37"
+# The "choose a folder" dialog.
+rfd = "0.17"
+# Reads the pictures a Check saves, to show them.
+png = "0.18"
+
+[build-dependencies]
+# Puts the icon inside DuckForgeStudio.exe on Windows.
+winresource = "0.1"
+
+[dev-dependencies]
+# Draws every screen with no window, for the screenshot tests.
+egui_kittest = { version = "0.37", features = ["wgpu", "snapshot", "eframe"] }

@@ -2,9 +2,10 @@
 
 A friendly app for making games without a terminal, with the game playing
 **inside** it. The level sits in the middle; Tab flips between Build and
-Play on the same spot. Nothing here is built yet: this is the plan to
-approve. Numbers marked *measured* were measured for this document; the
-rest are targets that Step 2 measures.
+Play on the same spot. This is the plan as approved, with the answers and
+changes from the review folded in ("Decided", near the end). Numbers
+marked *measured* were measured for this document; `docs/decisions.md`
+has the numbers measured once each step was built.
 
 The rules this design keeps:
 
@@ -183,8 +184,10 @@ studio/                    its own cargo workspace, lock file and target
   Indigo for "chosen", Duck Yellow main button with Ink Navy text), dark
   or light or "Same as Windows", the same release workflow shape.
 - Games stay where they are, in `examples/<game>/`, with the tune file,
-  playthroughs and `out/` in their usual places. The Studio is pointed at
-  a Duck Forge folder. (See open question 1.)
+  playthroughs and `out/` in their usual places. Which folder that is, is
+  a Studio setting, and every path and command comes from one file
+  (`studio/crates/core/src/folder.rs`), so games can move out of the
+  engine's folder later by changing that one place.
 
 **Building.** The Studio runs `cargo build --example <game> --features
 studio --message-format=json` and reads cargo's messages:
@@ -195,9 +198,16 @@ studio --message-format=json` and reads cargo's messages:
   cargo replace a program that's running, and the next build must work
   while the game plays.
 - Builds happen by themselves: the Studio looks at the game's `.rs`
-  files, the engine and `Cargo.toml` twice a second. While you play, a
-  finished build waits behind a "New build ready" button with Restart and
-  "Restart and replay my moves". If the game wasn't running, it starts.
+  files, the engine and `Cargo.toml` twice a second. A build starts only
+  once they have stayed unchanged for a second, so a half-saved edit
+  never starts one. While you play, a finished build waits behind a "New
+  build ready" button with Restart and "Restart and replay my moves". If
+  the game wasn't running, it starts.
+- **The Console panel** shows the command behind every button, as you'd
+  type it, with its real output: the build, Check (`tools/verify`), Clip,
+  New game (`tools/new_game`), the game itself. You can type the usual
+  commands there too; they run in the games folder as in a terminal.
+  Every terminal command keeps working outside the Studio as before.
 - A mistake in the code shows one sentence, the file and the line, and
   the compiler's own hint if it has one: "main.rs, line 42: this name
   isn't known here. Did you mean `jump_speed`?" with Open the file and
@@ -232,6 +242,7 @@ problem (what happened, a next step, and the raw details).
 
 | Group | Commands |
 |---|---|
+| home | `open`, `choose_folder`, `check_again` |
 | game | `new`, `open`, `build`, `play`, `freeze`, `toggle` (Tab), `step`, `restart`, `replay_my_moves`, `pop_out`, `bring_back`, `stop`, `input` |
 | level | `paint`, `erase`, `fill`, `move_area`, `place_thing`, `move_thing`, `delete_thing`, `resize`, `play_from` |
 | feel | `set`, `preset`, `show_code` |
@@ -239,12 +250,15 @@ problem (what happened, a next step, and the raw details).
 | clip | `make` |
 | assets | `open_in_quill`, `play_sound`, `show_recipe` |
 | edit | `undo`, `redo`, `snapshot`, `go_back_to` |
-| studio | `screenshot`, `wait_frames` (for scripts and tests) |
+| console | `run` (a typed command) |
 
 One table gives each command its name, a plain title, what it needs, and
 whether Undo covers it. The MCP tool list is made from that table later,
 so a new command is one new entry. `DuckForgeStudio --run script.json`
-runs a list of commands with no window; Step 5 and agents use that.
+runs a list of commands with no window; Step 5 and agents use that. A
+script can also wait: `{"wait": "playing"}`, `{"wait": "frames",
+"frames": 120}`, `{"wait": "idle"}`. (The level, feel, assets and edit
+commands arrive with Steps 3 and 4.)
 
 ## 3. The game link
 
@@ -296,11 +310,20 @@ data into a paused game (`file`), changes recorded by frame, fast runs
 without drawing (`run`), and positions (`ask`).
 
 **Who keeps time: the Studio.** While playing, each time the Studio draws
-itself it works out how many 60-a-second updates are due (the engine's
-own `Pacer`, reused), sends one `tick`, lays out its panels, then waits
-for the frame just before it paints the game. One clock means no slow
-drift between two 60 Hz clocks, and the Studio always knows which frame
-each input landed on. That is also what exact freeze and resume need.
+itself it works out how many 60-a-second updates are due (the same rule
+as the engine's own `Pacer`), sends one `tick`, lays out its panels, then
+waits for the frame just before it paints the game. One clock means no
+slow drift between two 60 Hz clocks, and the Studio always knows which
+frame each input landed on. That is also what exact freeze and resume
+need.
+
+**When the Studio can't draw** (on Windows, dragging or resizing a window
+blocks its drawing), no ticks are sent, so the game simply waits on its
+frame: a clean freeze. The game holds its sound after a tenth of a second
+without a tick. When drawing comes back, a gap longer than a tenth of a
+second is skipped, not caught up on: the game carries on with one update.
+A shorter hiccup is caught up on, but never by more than three updates in
+one go.
 
 **Delay.** If the frame comes back before the Studio paints (the game's
 frame time plus 0.15 ms), the picture is on screen in the same refresh
@@ -433,16 +456,21 @@ the format (old scripts read exactly as before):
   named in the event (`"copy": "413-tiles.png"`).
 
 A replay gives the engine the same files, inputs and changes on the same
-frames, so it plays out the same. A test in Step 2 freezes mid-jump,
-changes the level, resumes, then replays the saved session headless and
-compares every reported value and the last picture, pixel for pixel.
+frames, so it plays out the same. A test in Step 2 freezes a real game,
+steps it, resumes, then replays the saved session headless and compares
+the last picture, pixel for pixel. Step 3 adds the level change in the
+middle to that test.
 
 A session with changes in the middle can be replayed and clipped, but it
 can't be saved as the game's playthrough (a playthrough is inputs on the
 level as it is now). "Keep this run" says so.
 
 **Clip** replays the session headless and saves its last ten seconds
-with the engine's own video code. (See open question 3 for the format.)
+(`--clip FILE`, a new engine option anyone can use). With `ffmpeg`
+installed it's an MP4 with sound. Without, it's a GIF: full size, sharp,
+at the game's own speed (a GIF can show at most 50 pictures a second, so
+a 60-a-second game leaves out every sixth frame), with a line saying
+"install ffmpeg for sound" and the official page. `ffmpeg` isn't bundled.
 
 ## 5. Levels as files
 
@@ -603,32 +631,34 @@ Room left for later phases, without building it now:
 - **Phase 7 (the Rubber Duck):** each command becomes an MCP tool from
   the command table. `--run` already drives the Studio with no person.
 
-## Open questions
+## Decided
 
-1. **Where your games live.** I suggest games stay in `examples/` of one
-   Duck Forge folder, and the release zip holds the Studio and that
-   folder together, so one download gives you everything. Updating would
-   then need a "bring my games over" step later. Is that right for how
-   you get Duck Forge onto your PC today?
+The open questions, as answered in the review:
+
+1. **Where games live.** In `examples/` of one Duck Forge folder, for
+   Phase 4. The folder is a Studio setting and isn't hard-coded, so games
+   can move out of the engine's folder later.
 2. **Tab always belongs to the Studio.** A game can't use Tab inside the
-   Studio (it still can in its own window). OK?
-3. **Clip's format.** A GIF always works with nothing installed but has
-   no sound. An MP4 with sound needs `ffmpeg`. I suggest: GIF by default,
-   MP4 when `ffmpeg` is found. Or should the zip carry `ffmpeg` (about
-   80 MB more)?
-4. **Duck Craft's save file.** Inside the Studio I'd have Duck Craft
-   start a fresh island and not save, like a headless run, so a session
-   always replays exactly. Popped out, the same. OK?
-5. **Which Rust to point people at.** The official installer wants
-   Microsoft's Build Tools (a big download). Rust's other Windows
-   flavour needs nothing from Microsoft. I suggest the official one, and
-   mention the other only in Show details. OK?
-6. **Duck Echo.** Is there a Duck Echo window app that can open a
-   recipe, and what is its program called? If not yet, Step 4 shows the
-   recipe as text only.
-7. **"My games" and the examples.** I'd list the 20 examples that come
-   with Duck Forge under "Examples that came with Duck Forge", and
-   everything else under My games. OK?
+   Studio (it still can in its own window).
+3. **Clip.** An MP4 with sound when `ffmpeg` is found; otherwise a
+   full-size, full-speed, sharp GIF and a line saying "install ffmpeg for
+   sound" with the official page. `ffmpeg` isn't bundled.
+4. **Duck Craft** starts a fresh island and doesn't save inside the
+   Studio, and says so on screen: "Inside the Studio, Duck Craft starts a
+   fresh island and doesn't save" (the game gives the line with
+   `ctx.studio_note`, and the Studio shows it under the top bar).
+5. **Rust.** The official installer; the other Windows flavour is only
+   mentioned in Show details.
+6. **Duck Echo** has no window app yet, only its command line. Recipes
+   are shown as text.
+7. **Home.** The examples that come with Duck Forge are under "Examples
+   that came with Duck Forge"; everything else is under My games.
+
+And four changes: the game never stutters or fast-forwards when the
+Studio can't draw (section 3); automatic builds wait for the files to
+have been unchanged for a second (section 1); every screen is
+screenshotted headless at each stop (`docs/decisions.md` says how); and
+the Console panel (section 1).
 
 ## What you test on Windows after Step 2
 
@@ -666,3 +696,8 @@ your PC:
 12. On a Windows account without Rust (if you have one to try): the
     "Duck Forge needs Rust" screen appears, and the button opens the
     official page.
+13. While the game plays, drag the Studio's window around for a few
+    seconds, then let go. Do the same resizing it. The game should
+    freeze cleanly while you drag (no stutter, and its sound goes quiet)
+    and carry on at normal speed the moment you let go, with no burst of
+    fast-forward. The frame number in the status bar should not jump.

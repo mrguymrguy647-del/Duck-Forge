@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Duck Forge, for small sizes (48 pixels and below): the duck's head
+       close up, with the glowing pixel and one spark. -->
+  <defs>
+    <clipPath id="tile"><rect width="1024" height="1024" rx="232" ry="232"/></clipPath>
+    <radialGradient id="night" cx="50%" cy="34%" r="80%">
+      <stop offset="0" stop-color="#7466F2"/>
+      <stop offset="0.45" stop-color="#5546D0"/>
+      <stop offset="1" stop-color="#1B1446"/>
+    </radialGradient>
+    <radialGradient id="duck" cx="38%" cy="30%" r="80%">
+      <stop offset="0" stop-color="#FFF0A0"/>
+      <stop offset="0.45" stop-color="#FFCC2E"/>
+      <stop offset="1" stop-color="#E89A00"/>
+    </radialGradient>
+    <linearGradient id="bill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFA940"/>
+      <stop offset="1" stop-color="#F0701A"/>
+    </linearGradient>
+    <linearGradient id="ember" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFF6C8"/>
+      <stop offset="0.5" stop-color="#FFCC2E"/>
+      <stop offset="1" stop-color="#FF8C22"/>
+    </linearGradient>
+    <path id="spark" d="M0,-1 C0.12,-0.3 0.3,-0.12 1,0 C0.3,0.12 0.12,0.3 0,1 C-0.12,0.3 -0.3,0.12 -1,0 C-0.3,-0.12 -0.12,-0.3 0,-1 Z"/>
+  </defs>
+  <g clip-path="url(#tile)">
+    <rect width="1024" height="1024" fill="url(#night)"/>
+    <!-- body, rising from the bottom -->
+    <ellipse cx="400" cy="980" rx="430" ry="300" fill="url(#duck)"/>
+    <!-- head -->
+    <circle cx="450" cy="500" r="300" fill="url(#duck)"/>
+    <ellipse cx="350" cy="380" rx="110" ry="70" fill="#FFF7C9" opacity="0.5" transform="rotate(-28 350 380)"/>
+    <!-- bill -->
+    <path d="M700,500 C820,470 930,505 950,555 C930,615 820,645 710,625 C680,585 680,535 700,500 Z" fill="url(#bill)"/>
+    <!-- eye -->
+    <circle cx="570" cy="430" r="52" fill="#1B1446"/>
+    <circle cx="588" cy="412" r="18" fill="#FFFFFF"/>
+    <!-- the glowing pixel and a spark -->
+    <rect x="720" y="150" width="170" height="170" rx="14" fill="url(#ember)"/>
+    <use href="#spark" transform="translate(190,190) scale(90)" fill="#46D6FF"/>
+  </g>
+</svg>

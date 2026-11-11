@@ -381,13 +381,50 @@ impl GamesFolder {
             return Some(named);
         }
         let mut others: Vec<PathBuf> = std::fs::read_dir(&folder)
-            .ok()?
+            .into_iter()
+            .flatten()
             .flatten()
             .map(|entry| entry.path().join("last.png"))
             .filter(|picture| picture.is_file())
             .collect();
         others.sort();
-        others.into_iter().next()
+        // Never checked with a playthrough: the picture in the docs, if
+        // the game has one.
+        let in_docs = self.root.join("docs").join(format!("{game}.png"));
+        others
+            .into_iter()
+            .next()
+            .or_else(|| in_docs.is_file().then_some(in_docs))
+    }
+
+    /// The command that records a game's first playthrough with its bot,
+    /// if it has one (`bot.rs` with a `record_playthrough` test), as
+    /// `tools/new_game` does.
+    pub fn first_playthrough_command(&self, cargo: &Path, game: &Game) -> Option<CommandLine> {
+        let bot = game.folder.as_ref()?.join("bot.rs");
+        if !bot.is_file() || !self.playthroughs(&game.name).is_empty() {
+            return None;
+        }
+        Some(
+            CommandLine::new(
+                cargo,
+                &[
+                    "test",
+                    "-q",
+                    "--no-default-features",
+                    "--example",
+                    &game.name,
+                    "--",
+                    "--ignored",
+                    "record_playthrough",
+                ],
+                &self.root,
+            )
+            .shown_as(format!(
+                "cargo test -q --no-default-features --example {} -- --ignored record_playthrough",
+                game.name
+            )),
+        )
     }
 }
 

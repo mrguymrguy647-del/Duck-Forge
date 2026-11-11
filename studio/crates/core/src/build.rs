@@ -164,6 +164,22 @@ impl Build {
         }
     }
 
+    /// A build that isn't running anything, in a given state: for
+    /// previews of the Studio's screens, and tests.
+    pub fn for_show(game: &str, state: BuildState, parts: u32, parts_expected: u32) -> Build {
+        Build {
+            game: game.to_string(),
+            job: JobId(0),
+            state,
+            parts,
+            parts_expected,
+            started: Instant::now(),
+            program: None,
+            mistakes: Vec::new(),
+            error_lines: Vec::new(),
+        }
+    }
+
     /// How far along it is, from 0 to 1, or `None` on a first build (when
     /// the Studio says "a few minutes" instead).
     pub fn progress(&self) -> Option<f32> {

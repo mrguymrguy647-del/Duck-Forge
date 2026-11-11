@@ -899,9 +899,20 @@ pub fn crash_reason(lines: &[String], frame: u64) -> String {
         };
         return format!("Its code hit a problem{on_frame}: \"{message}\" in {file}, line {line}.");
     }
-    match lines.iter().rev().find(|line| !line.trim().is_empty()) {
-        Some(last) => format!("The last thing it said: {}", last.trim()),
-        None => String::from("It didn't say why."),
+    // A game that couldn't start says why in a line starting "Error:".
+    match lines
+        .iter()
+        .rev()
+        .find(|line| line.trim_start().starts_with("Error:"))
+    {
+        Some(error) => format!(
+            "It said: {}",
+            error.trim().trim_start_matches("Error:").trim()
+        ),
+        None => String::from(
+            "It didn't say why. (That's what it looks like when a game is closed from outside \
+             the Studio.)",
+        ),
     }
 }
 
@@ -990,11 +1001,17 @@ mod tests {
             "Its code hit a problem on frame 412: \"index out of bounds: the len is 3 but the \
              index is 7\" in dodge.rs, line 210."
         );
-        let quiet = vec![String::from("Error: couldn't load examples/x/hero.png")];
+        let quiet = vec![
+            String::from("Error: couldn't load examples/x/hero.png"),
+            String::from("duckforge: sound: 0 late refills in 2 seconds"),
+        ];
         assert_eq!(
             crash_reason(&quiet, 0),
-            "The last thing it said: Error: couldn't load examples/x/hero.png"
+            "It said: couldn't load examples/x/hero.png"
         );
-        assert_eq!(crash_reason(&[], 0), "It didn't say why.");
+        // Lines that aren't about the ending aren't quoted as if they were.
+        let unrelated = vec![String::from("duckforge: no sound: no sound card")];
+        assert!(crash_reason(&unrelated, 0).starts_with("It didn't say why."));
+        assert!(crash_reason(&[], 0).starts_with("It didn't say why."));
     }
 }

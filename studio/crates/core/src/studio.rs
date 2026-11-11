@@ -230,6 +230,15 @@ pub struct Making {
     pub job: JobId,
 }
 
+/// What's still to do for a game that was just made, once it's open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FirstSteps {
+    /// Its first build is running: next, its bot records a playthrough.
+    WaitingForBuild,
+    /// The bot is recording the first playthrough: next, a first Check.
+    Recording(JobId),
+}
+
 /// The game that's open, and everything going on with it.
 pub struct OpenGame {
     pub game: Game,
@@ -255,6 +264,8 @@ pub struct OpenGame {
     looked: Instant,
     /// Start playing as soon as there's a build.
     play_when_built: bool,
+    /// For a game just made: its first playthrough and first Check.
+    first_steps: Option<FirstSteps>,
 }
 
 impl OpenGame {
@@ -276,6 +287,16 @@ impl OpenGame {
     pub fn play_state(&self) -> Option<&PlayState> {
         self.play.as_ref().map(|play| &play.state)
     }
+
+    /// For a game that was just made: what the Studio is still doing to
+    /// get it ready, in words. A first Check follows by itself.
+    pub fn getting_ready(&self) -> Option<&'static str> {
+        match self.first_steps {
+            Some(FirstSteps::WaitingForBuild) => Some("Building it for the first time"),
+            Some(FirstSteps::Recording(_)) => Some("Recording its first playthrough"),
+            None => None,
+        }
+    }
 }
 
 /// The Studio.
@@ -292,6 +313,11 @@ pub struct Studio {
     pub open: Option<OpenGame>,
     /// The last thing that went wrong with a command, for the app to show.
     pub problem: Option<Problem>,
+    /// The keys and mouse buttons really held right now, as the app sees
+    /// them. Play uses them when carrying on from a freeze: whatever the
+    /// game still thinks is held but isn't, is let go, so nothing sticks.
+    pub keys_down: Vec<Key>,
+    pub buttons_down: Vec<MouseButton>,
 }
 
 impl Studio {
@@ -309,6 +335,8 @@ impl Studio {
             making: None,
             open: None,
             problem: None,
+            keys_down: Vec::new(),
+            buttons_down: Vec::new(),
         };
         studio.console.path = studio.rust.as_ref().ok().and_then(|rust| rust.path.clone());
         let wanted = studio
@@ -440,6 +468,7 @@ impl Studio {
                     watched,
                     looked: Instant::now(),
                     play_when_built: true,
+                    first_steps: None,
                 });
                 self.screen = Screen::Game;
                 self.problem = None;
@@ -455,10 +484,11 @@ impl Studio {
                 Ok(String::from("Building"))
             }
             Command::GamePlay => {
+                let (keys, buttons) = (self.keys_down.clone(), self.buttons_down.clone());
                 let open = self.open_game()?;
                 match &mut open.play {
                     Some(play) if play.state == PlayState::Frozen => {
-                        play.resume(&[], &[]);
+                        play.resume(&keys, &buttons);
                         Ok(String::from("Playing"))
                     }
                     Some(play) if play.is_running() => Ok(String::from("Already playing")),
@@ -553,6 +583,10 @@ impl Studio {
             Command::CheckRun => {
                 let folder = self.folder()?;
                 self.rust()?;
+                if self.open_game()?.getting_ready().is_some() {
+                    // A game just made is checked by itself in a moment.
+                    return Ok(String::from("It's checked as soon as it's ready"));
+                }
                 let name = self.open_game()?.game.name.clone();
                 let check = Check::start(&mut self.console, &folder, &name);
                 let open = self.open_game()?;
@@ -785,6 +819,11 @@ impl Studio {
                         .map(|making| making.name)
                         .unwrap_or_default();
                     let _ = self.run(Command::GameOpen { name });
+                    // Once it's built: a first playthrough from its bot,
+                    // then a first Check, as tools/new_game does.
+                    if let Some(open) = &mut self.open {
+                        open.first_steps = Some(FirstSteps::WaitingForBuild);
+                    }
                 }
                 JobEvent::Ended(_) | JobEvent::CouldntStart(_) => {
                     self.making = None;
@@ -806,9 +845,17 @@ impl Studio {
         let Some(open) = &mut self.open else {
             return;
         };
+        if open.first_steps == Some(FirstSteps::Recording(job)) {
+            if matches!(event, JobEvent::Ended(_) | JobEvent::CouldntStart(_)) {
+                open.first_steps = None;
+                let _ = self.run(Command::CheckRun);
+            }
+            return;
+        }
         if let Some(build) = open.build.as_mut().filter(|build| build.job == job) {
             if build.take(event) {
                 let mut start = false;
+                let mut built = false;
                 if let BuildState::Done { program } = &build.state {
                     self.settings
                         .build_parts
@@ -816,6 +863,7 @@ impl Studio {
                     self.settings.save();
                     match build::copy_to_play(&folder, program) {
                         Ok(copy) => {
+                            built = true;
                             open.program = Some(copy);
                             let running = open.play.as_ref().is_some_and(Play::is_running);
                             open.new_build_ready = running;
@@ -829,11 +877,15 @@ impl Studio {
                         Err(problem) => build.state = BuildState::Failed(problem),
                     }
                 }
+                let first_steps = built && open.first_steps == Some(FirstSteps::WaitingForBuild);
                 if start {
                     open.play_when_built = false;
                     if let Err(problem) = self.start_play(AfterHello::Play, None) {
                         self.problem = Some(problem);
                     }
+                }
+                if first_steps {
+                    self.record_first_playthrough();
                 }
             }
             return;
@@ -854,6 +906,31 @@ impl Studio {
         {
             open.clip_result = clip.result.take();
             open.clip = None;
+        }
+    }
+
+    /// For a game just made: has its bot record a first playthrough (so
+    /// Check has something to replay), then checks it.
+    fn record_first_playthrough(&mut self) {
+        let (Some(folder), Ok(rust)) = (self.folder.clone(), self.rust.clone()) else {
+            return;
+        };
+        let Some(open) = &mut self.open else {
+            return;
+        };
+        match folder.first_playthrough_command(&rust.cargo, &open.game) {
+            Some(command) => {
+                let job = self.console.start(
+                    "First playthrough",
+                    &command,
+                    crate::console::Keep::Everything,
+                );
+                open.first_steps = Some(FirstSteps::Recording(job));
+            }
+            None => {
+                open.first_steps = None;
+                let _ = self.run(Command::CheckRun);
+            }
         }
     }
 
@@ -894,14 +971,6 @@ impl Studio {
         match self.open.as_mut().and_then(|open| open.play.as_mut()) {
             Some(play) => play.wait_for_picture(&self.console, patience),
             None => false,
-        }
-    }
-
-    /// Carries on from a freeze, letting go of whatever isn't really held
-    /// any more.
-    pub fn resume(&mut self, keys_down: &[Key], buttons_down: &[MouseButton]) {
-        if let Some(play) = self.open.as_mut().and_then(|open| open.play.as_mut()) {
-            play.resume(keys_down, buttons_down);
         }
     }
 

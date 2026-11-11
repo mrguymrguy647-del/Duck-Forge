@@ -1,0 +1,58 @@
+DUCK FORGE STUDIO
+Make games without a terminal. The game plays inside the Studio.
+
+
+TO START
+  Double-click DuckForgeStudio.exe.
+
+  The first time, Windows may say "Windows protected your PC". That's
+  because the program isn't signed with a (paid) certificate yet, not
+  because something is wrong. Click "More info", then "Run anyway".
+  Windows only asks once.
+
+  For a desktop icon, double-click "Create desktop shortcut.bat".
+  Keep this folder where it is afterwards: the shortcut points into it.
+
+
+WHAT YOU NEED
+  Rust, the free tool that turns a game's code into a program. If it
+  isn't on this computer, the Studio says so and offers the official
+  install page. It never installs anything by itself.
+
+  The first time a game is built it takes a few minutes and needs the
+  internet (it downloads the parts Duck Forge is built from). After
+  that, builds take seconds and need no internet.
+
+
+HOW IT WORKS
+  Home shows your games. Click one and it's built and starts playing in
+  the middle of the Studio.
+
+  Tab        freezes the game on the frame it's on (Build). Tab again
+             carries on from exactly there (Play).
+  Check      builds the game, runs its tests, replays its recorded
+             playthroughs and tries random keys. Click a line to see
+             its picture.
+  Clip       saves the last ten seconds as a video (with sound if
+             ffmpeg is installed, otherwise a GIF).
+  Pop out    plays the game in its own window, from the same frame.
+  Console    shows the command behind every button, with its real
+             output, and runs commands you type.
+
+
+WHAT'S IN THIS FOLDER
+  DuckForgeStudio.exe   the app
+  duckforge\            Duck Forge itself: the engine, the examples and
+                        your games (in duckforge\examples). Everything
+                        the Studio makes is plain files in here, the
+                        same ones an AI agent or a terminal uses.
+  brand\                the Duck Forge icon
+
+
+A NEW VERSION
+  Your games are in duckforge\examples, INSIDE this folder. Before you
+  replace the folder with a new download, copy your games somewhere
+  safe: each game's folder in duckforge\examples, its files in
+  duckforge\playthroughs, and its lines in duckforge\Cargo.toml.
+  (Or keep the folder and point the new Studio at it: Home, "Change"
+  next to the games folder.)
