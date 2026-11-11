@@ -400,6 +400,46 @@ fn the_playthrough_digs_builds_and_ends_behind_the_duck() {
     assert!(played.game().behind_view);
 }
 
+/// How long a frame takes with each renderer: replays the recorded
+/// playthrough, drawing every frame (a headless run only draws the frames
+/// it saves), and prints the usual frame and the slowest one. The GPU line
+/// is left out on a computer without a usable graphics card. Run it with:
+/// `cargo test --release --example duck_craft -- --ignored frame_time --nocapture`
+#[test]
+#[ignore]
+fn frame_time() {
+    use std::time::Instant;
+    for renderer in [Renderer::Cpu, Renderer::Gpu] {
+        let script = InputScript::load("playthroughs/duck_craft.json").unwrap();
+        let frames = script.last_event_frame();
+        let mut sim = Simulation::with_renderer(config(), title_game(None).unwrap(), renderer);
+        sim.follow(script);
+        sim.step();
+        sim.picture(); // warm up (and start the GPU)
+        let name = sim.context().renderer_name().to_string();
+        if renderer == Renderer::Gpu && !name.starts_with("GPU") {
+            println!("duck_craft bench: no GPU here ({name})");
+            break;
+        }
+        let mut times: Vec<f64> = Vec::new();
+        for _ in 1..frames {
+            let started = Instant::now();
+            sim.step();
+            sim.picture();
+            times.push(started.elapsed().as_secs_f64() * 1000.0);
+        }
+        let average = times.iter().sum::<f64>() / times.len() as f64;
+        times.sort_by(f64::total_cmp);
+        let (middle, slowest) = (times[times.len() / 2], times[times.len() - 1]);
+        let (width, height) = (sim.picture().width(), sim.picture().height());
+        println!(
+            "duck_craft bench: {} frames of the playthrough, {name} at {width}x{height}: \
+             {average:.2} ms per frame (middle {middle:.2}, slowest {slowest:.2})",
+            times.len()
+        );
+    }
+}
+
 /// Prints the island from above: `cargo test --example duck_craft -- --ignored print_map --nocapture`.
 #[test]
 #[ignore]
