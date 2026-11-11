@@ -779,7 +779,8 @@ has the rest.
 reports and sounds from it count as frame 1) and
 `fn resize(&mut self, ctx: &mut Context, width: f32, height: f32)` (the
 canvas changed size: only with `Config { resizable: true, .. }` in a
-window, or `sim.resize(w, h)` in a test).
+window, or `sim.resize(w, h)` in a test). Also `quit` and `reload`,
+below.
 
 **`Config`** (use `..Config::default()` for the rest): `title`, `width`,
 `height`, `scale` (window size multiplier, 3), `target_fps` (60),
@@ -803,8 +804,11 @@ nothing happens elsewhere). In `main`, before there's a `ctx`:
 `duckforge::is_headless()` and `duckforge::in_studio()`.
 
 **`Game`**: `update(ctx)` and `draw(canvas)` are required. Optional:
-`init(ctx)` (once, before the first update), `resize(ctx, width, height)`
-and `quit(ctx)`: runs once on every way out (the window's close button,
+`init(ctx)` (once, before the first update), `resize(ctx, width, height)`,
+`reload(ctx, file) -> bool` (a text file it read changed while it runs:
+its level, painted in Duck Forge Studio or edited by hand in a window;
+read it again and return `true`, or `false` if it can't without starting
+again; see the starters'), and `quit(ctx)`: runs once on every way out (the window's close button,
 `ctx.quit()`, `--frames`, the end of a headless run, the Studio stopping
 the game), which is the place to save. A test calls it with `sim.quit()`.
 
@@ -876,6 +880,30 @@ from above. In `draw`, between `push_camera` and `pop_camera`:
 `tile_at(column, row)` (`Option<(&str, TileKind)>`), `kind_at(point)`
 (`TileKind::Empty`, `Solid` or `OneWay`), `clear_tile(column, row)`,
 `set_tile(column, row, "brick", TileKind::Solid)`.
+
+**A level as files** (the starters and Duck Peaks do this): the letters
+in `examples/mygame/level.txt`, what they mean in
+`examples/mygame/level.legend.json`:
+`{"tile_size": 16, "tiles": "assets/tiles.json", "letters": {"#": {"kind": "solid", "name": "grass"}, "=": {"kind": "one_way", "name": "plank"}, "~": {"kind": "decoration", "name": "water"}, "p": {"kind": "thing", "name": "player", "label": "Start", "at_least": 1, "at_most": 1, "start": true}, "c": {"kind": "thing", "name": "coin"}}}`
+("thing" is a spawn point; `label` is what the Studio calls it).
+`let map = TileMap::load_level("examples/mygame/level.txt")?;` reads
+both. The engine notes the files a game reads this way, so a change
+while it runs calls the game's `reload`, and recordings keep each file's
+text (see input scripts' `"files"`): in `reload`, check
+`map.reads_from(file)`, read the level again, and keep what's been
+collected with `old.spawn_changes(&new, "coin")` (`.added`, `.removed`).
+`map.legend()` (`legend.letters()`, each a `Letter` with `letter`,
+`kind`, `name`, `label`, `at_least`, `at_most`, `start`, `title()`),
+`map.files()`, `Legend::load(path)`, `Legend::from_json(text)`.
+Test what must stay true of a level that people edit, not "8 coins":
+`map.broken_rules()` (the legend's `at_least`/`at_most`, in plain
+words; empty if kept), `map.reach(start, Jump { speed, gravity, run })`
+then `reach.can_reach(point)` / `reach.missing(&points)` (a platformer:
+cautious, so a miss is a warning; the Studio's Check shows it), and
+`map.reach_on_foot(start)` (top-down: exact). Test how the game plays
+on tiny levels written in the test (`TileMap::parse`), and that its bot
+still wins on the real level. A game that draws its own tiles calls
+`map.mark_drawn(canvas)` inside its camera, so the Studio's grid lines up.
 
 **Tilesets**: `Tileset::load("assets/tiles.json")?` (a Duck Quill sprite
 sheet, one animation per tile, named like the legend's tiles),
@@ -1535,6 +1563,18 @@ agent might meet:
   JSON list of the Studio's commands and waits, like
   `[{"do": "game.open", "name": "dodge"}, {"wait": "playing"}, {"wait": "frames", "frames": 120}, {"do": "game.toggle"}, {"do": "check.run"}, {"wait": "idle"}]`.
   `-- --commands` lists every command.
+- **Build mode, Feel and History** write the same files you would:
+  `level.txt` (painting), `examples/<game>.tune.json` (the Feel
+  sliders), and `history/<game>/NNNN title/` snapshots (plain folders:
+  the files changed since the one before, and `files.txt` listing every
+  file then). `examples/<game>.feel.json` describes the sliders (labels,
+  groups, ranges, presets):
+  `{"values": {"jump_speed": {"label": "Jump height", "group": "Duck", "from": 150, "to": 500, "step": 5}}, "presets": {"Floaty": {"gravity": 500}}}`.
+  Changes made while a game runs are in its session's recording as
+  `"file"` and `"tune"` events (`docs/input-format.md`), so a session
+  still replays exactly. `DUCKFORGE_GIVE_FILES=x.json` (a JSON object of
+  file name to text) starts a game reading those texts instead of the
+  disk ("Play from here").
 - **The `studio` feature** is the game's side of the link
   (`cargo build --example mygame --features studio`, then the Studio
   starts it with `--studio`). It's off by default: ordinary builds,

@@ -455,6 +455,85 @@ p.....
     Ok(())
 }
 
+/// A game whose level is two files, and which takes changes to them.
+struct LevelGame {
+    path: std::path::PathBuf,
+    map: TileMap,
+    coins: Vec<Vec2>,
+}
+
+impl Game for LevelGame {
+    fn update(&mut self, _: &mut Context) {}
+    fn draw(&self, canvas: &mut Canvas) {
+        canvas.push_camera(&Camera2D::new(64.0, 32.0));
+        self.map.mark_drawn(canvas);
+        canvas.pop_camera();
+    }
+    fn reload(&mut self, _: &mut Context, file: &std::path::Path) -> bool {
+        if !self.map.reads_from(file) {
+            return false;
+        }
+        let newer = TileMap::load_level(&self.path).unwrap();
+        let coins = self.map.spawn_changes(&newer, "coin");
+        self.coins.retain(|coin| !coins.removed.contains(coin));
+        self.coins.extend(coins.added);
+        self.map = newer;
+        true
+    }
+}
+
+#[test]
+fn levels_as_files_rules_reach_and_reload() -> Result<(), LoadError> {
+    let folder = std::env::temp_dir().join(format!("cheat-level-{}", std::process::id()));
+    std::fs::create_dir_all(&folder).unwrap();
+    let path = folder.join("level.txt");
+    std::fs::write(&path, "p.c.\n####\n").unwrap();
+    std::fs::write(
+        folder.join("level.legend.json"),
+        r##"{"tile_size": 16, "letters": {"#": {"kind": "solid", "name": "grass"},
+            "p": {"kind": "thing", "name": "player", "label": "Start", "at_least": 1, "at_most": 1, "start": true},
+            "c": {"kind": "thing", "name": "coin"}, "g": {"kind": "thing", "name": "flag", "at_least": 1}}}"##,
+    )
+    .unwrap();
+    let map = TileMap::load_level(&path)?;
+    assert_eq!(map.files().len(), 2);
+    let letters = map.legend().letters();
+    assert_eq!(letters[0].title(), "Grass");
+    assert_eq!(
+        map.broken_rules(),
+        ["The level needs at least 1 Flag; it has none."]
+    );
+    let reach = map.reach(
+        map.spawn("player"),
+        Jump {
+            speed: 330.0,
+            gravity: 900.0,
+            run: 110.0,
+        },
+    );
+    assert!(reach.can_reach(map.spawns("coin")[0]));
+    assert!(reach.missing(&map.spawns("coin")).is_empty());
+    assert!(
+        map.reach_on_foot(map.spawn("player"))
+            .can_reach(map.spawns("coin")[0])
+    );
+
+    let coins = map.spawns("coin");
+    let mut sim = Simulation::new(
+        Config::default(),
+        LevelGame {
+            path: path.clone(),
+            map,
+            coins,
+        },
+    );
+    let name = path.to_string_lossy().replace('\\', "/");
+    assert!(sim.change_file(&name, "p..c\n####\n"), "reload took it");
+    assert_eq!(sim.game().coins, [vec2(56.0, 16.0)]);
+    std::fs::remove_dir_all(folder).unwrap();
+    Ok(())
+}
+
 #[test]
 fn math_and_collisions() {
     let v = vec2(3.0, 4.0);

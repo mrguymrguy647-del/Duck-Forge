@@ -112,9 +112,22 @@ is made by the "Studio release" workflow.
   on the frame it's on, and Tab again carries on from exactly there. F1
   shows the debug overlay (frozen too), F3 the Timing line, and F12
   saves a screenshot in `out/screenshots/`.
+- **Build mode** (frozen): paint the level right on the game's own
+  picture (or the whole level), put coins and the Start where you want,
+  fill, move an area, and play from any tile. Every edit is saved to
+  `level.txt` at once and the frozen game takes it; Undo and Redo undo
+  paint strokes and Feel changes.
+- **Feel** shows the game's `ctx.tune` values as sliders (labels, ranges
+  and presets from `examples/<game>.feel.json`), saved to its tune file.
+  Its sounds can be played and their recipes read; its pictures open in
+  Duck Quill, and the game shows them when they're saved.
+- **History** keeps snapshots of the game's files in `history/<game>/`
+  (plain folders), and can go back to any of them.
 - **Check** runs `tools/verify` and shows its report as a friendly list;
-  click a line to see its picture. **Clip** saves the last ten seconds as
-  a video. **Pop out** plays the game in its own window.
+  click a line to see its picture. It also says when a coin looks out of
+  reach, and when a recorded playthrough is from an older level (with
+  "Record it again"). **Clip** saves the last ten seconds as a video.
+  **Pop out** plays the game in its own window.
 - **The Console panel** shows the command behind every button with its
   real output, and runs commands you type.
 

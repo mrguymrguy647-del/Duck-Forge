@@ -716,3 +716,33 @@ card or graphics card. These need your PC:
     how to get sound.
 17. Console: it shows the command behind each button you pressed. Type
     `cargo --version` and press Run: the version appears.
+
+## What you test on Windows after Steps 3 and 4
+
+The release workflow's tests now also paint a real level while the game
+is frozen, change its jump, undo both, and replay the session to the same
+picture. These need your PC and your mouse:
+
+18. Open the platformer you made (or Duck Peaks), press Tab, pick Brick
+    and drag across a few tiles: the bricks appear in the frozen picture
+    as you drag (a few times a second), on the grid's squares exactly.
+    Right-drag erases. Tab: the duck bumps into them.
+19. Things: pick Coin and click an empty tile; drag the Start somewhere
+    else. Select: drag a box, then drag the box. Fill: click the sky.
+    Ctrl+Z undoes each stroke, Ctrl+Y redoes it.
+20. Whole level: the whole level shows; painting there shows up in the
+    game view too. Zoom + and - keep the tiles sharp.
+21. Play from here: click a tile; the game starts again from there, and
+    `level.txt` is unchanged.
+22. Feel: move Jump height while frozen, Tab, jump: higher. The tune file
+    `examples/<game>.tune.json` has the new value. Presets work. "code"
+    shows the line, and Open the file opens it in your editor.
+23. Sounds: Play plays the game's sound; Recipe shows how it was made.
+24. Pictures: with Duck Quill next to the Studio (or chosen with
+    Choose...), clicking tiles.png opens it in Duck Quill. Change a tile
+    and save: the palette and the frozen game show it.
+25. History: after some edits and a Tab, History lists snapshots. Go back
+    to an earlier one: the level is as it was, and the game shows it.
+26. Edit `level.txt` in Notepad while the game is frozen in the Studio and
+    save: the Studio shows the change, and Undo says "Changed outside the
+    Studio".
