@@ -67,6 +67,8 @@ pub mod spritesheet;
 #[cfg(feature = "studio")]
 pub mod studio_link;
 mod summary;
+#[cfg(test)]
+mod test_folder;
 pub mod tilemap;
 pub mod tileset;
 mod tune;

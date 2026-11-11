@@ -28,6 +28,8 @@ pub mod problem;
 pub mod script;
 pub mod settings;
 pub mod studio;
+#[doc(hidden)]
+pub mod test_folder;
 
 pub use problem::Problem;
 pub use studio::{Command, Studio};

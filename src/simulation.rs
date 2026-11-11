@@ -1676,8 +1676,7 @@ mod tests {
 
     #[test]
     fn changes_while_running_are_replayed_on_their_frame() {
-        let folder = std::env::temp_dir().join(format!("duckforge-changes-{}", std::process::id()));
-        std::fs::create_dir_all(&folder).unwrap();
+        let folder = crate::test_folder::TestFolder::new("changes");
         let level = folder.join("level.txt");
         std::fs::write(&level, "c....\n#####").unwrap();
         std::fs::write(
@@ -1730,7 +1729,6 @@ mod tests {
 
         // After the run, the disk is read again.
         assert_eq!(Leveled::new(&level).map.spawns("coin").len(), 5);
-        std::fs::remove_dir_all(folder).unwrap();
     }
 
     #[test]

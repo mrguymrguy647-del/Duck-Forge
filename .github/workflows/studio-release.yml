@@ -38,16 +38,85 @@ on:
   push:
     tags: ["studio-v*"]
     branches: ["**"]
-    # Branch pushes only run when the release itself changed (tags always run).
-    paths: [".github/workflows/studio-release.yml", "studio/release/**", "studio/proof/**"]
+    # Branch pushes run when anything that ends up on a Windows PC changed:
+    # the engine, its tests and tools, the Studio and its release (tags
+    # always run).
+    paths:
+      - ".github/workflows/studio-release.yml"
+      - "src/**"
+      - "tests/**"
+      - "examples/**"
+      - "tools/**"
+      - "playthroughs/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "*.bat"
+      - "studio/**"
   pull_request:
-    paths: [".github/workflows/studio-release.yml", "studio/release/**", "studio/proof/**"]
+    paths:
+      - ".github/workflows/studio-release.yml"
+      - "src/**"
+      - "tests/**"
+      - "examples/**"
+      - "tools/**"
+      - "playthroughs/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "*.bat"
+      - "studio/**"
 
 env:
   RUST_VERSION: "1.97.0"
   CARGO_TERM_COLOR: always
 
 jobs:
+  # The engine's own tests on Windows, both ways ("cargo test" and "cargo
+  # test --no-default-features"), five times in a row: tests that share a
+  # file or depend on timing fail now and then, not every time, so one
+  # green run proves little.
+  engine-tests:
+    name: Engine tests on Windows, five times
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Rust
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: engine-tests
+      - name: Build the tests, both ways
+        shell: bash
+        run: |
+          cargo test --no-run
+          cargo test --no-default-features --no-run
+      - name: The engine's tests, five times in a row
+        shell: bash
+        run: |
+          failed=0
+          for run in 1 2 3 4 5; do
+            for features in "" "--no-default-features"; do
+              name="cargo test $features"
+              if cargo test $features > run.txt 2>&1; then result=passed; else result=FAILED; failed=1; fi
+              counts=$(grep "^test result" run.txt | awk '{p+=$4; f+=$6} END {print p" passed, "f" failed"}')
+              echo "Run $run, ${name% }: $result ($counts)"
+              if [[ $result == FAILED ]]; then
+                grep -E "^test .* FAILED|panicked at|os error" run.txt | head -40
+                cp run.txt "failed-run-$run${features:+-headless}.txt"
+              fi
+            done
+          done
+          exit $failed
+      - name: Keep the output of any failed run
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: engine-test-failures
+          path: failed-run-*.txt
+          if-no-files-found: ignore
+
   windows:
     runs-on: windows-latest
     permissions:

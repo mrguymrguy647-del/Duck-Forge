@@ -444,8 +444,7 @@ mod snapshot_tests {
 
     #[test]
     fn snapshots_keep_changes_and_going_back_puts_files_back() {
-        let root = std::env::temp_dir().join(format!("studio-history-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root = crate::test_folder::TestFolder::new("history");
         std::fs::create_dir_all(root.join("examples/bee/assets")).unwrap();
         std::fs::create_dir_all(root.join("playthroughs")).unwrap();
         let write = |name: &str, text: &str| std::fs::write(root.join(name), text).unwrap();
@@ -516,6 +515,5 @@ mod snapshot_tests {
             root.join("examples/bee/new.txt").exists(),
             "going back is undone"
         );
-        std::fs::remove_dir_all(root).unwrap();
     }
 }

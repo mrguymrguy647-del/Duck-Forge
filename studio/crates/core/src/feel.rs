@@ -280,8 +280,7 @@ mod tests {
 
     #[test]
     fn tune_values_are_written_whole_keeping_the_others() {
-        let folder = std::env::temp_dir().join(format!("studio-feel-{}", std::process::id()));
-        std::fs::create_dir_all(&folder).unwrap();
+        let folder = crate::test_folder::TestFolder::new("feel");
         let path = folder.join("a.tune.json");
         std::fs::write(&path, "{\"gravity\": 900}\n").unwrap();
         let (before, after) = write_tune_values(
@@ -295,6 +294,5 @@ mod tests {
             "{\n  \"gravity\": 900,\n  \"jump_speed\": 380.5\n}\n"
         );
         assert_eq!(read_tune_file(&path)["jump_speed"], 380.5);
-        std::fs::remove_dir_all(folder).unwrap();
     }
 }

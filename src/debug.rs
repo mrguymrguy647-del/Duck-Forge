@@ -355,18 +355,16 @@ mod tests {
 
     #[test]
     fn headless_debug_puts_the_overlay_in_the_saved_pictures() {
-        let folder = std::env::temp_dir()
-            .join(format!("duckforge-tests-{}", std::process::id()))
-            .join("debug-overlay");
+        let folder = crate::test_folder::TestFolder::new("debug-overlay");
         let options = HeadlessOptions {
             frames: 3,
-            out: Some(folder.clone()),
+            out: Some(folder.join("out")),
             debug: true,
             ..HeadlessOptions::default()
         };
         let mut sim = run_headless(Config::default(), game(), &options).unwrap();
         assert_eq!(sim.picture().get_pixel(160, 120), Some(MAGENTA));
-        let saved = Canvas::load_png_for_tests(&folder.join("last.png"));
+        let saved = Canvas::load_png_for_tests(&folder.join("out/last.png"));
         assert_eq!(saved.get_pixel(160, 120), Some(MAGENTA));
     }
 }

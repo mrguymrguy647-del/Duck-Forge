@@ -1714,10 +1714,10 @@ mod tests {
         canvas.set_pixel(0, 0, Color::rgb(255, 0, 0));
         canvas.set_pixel(4, 2, Color::rgb(1, 2, 3));
         canvas.set_pixel(2, 1, Color::WHITE);
-        let path = std::env::temp_dir().join(format!("duckforge-png-{}.png", std::process::id()));
+        let folder = crate::test_folder::TestFolder::new("png");
+        let path = folder.join("round-trip.png");
         canvas.save_png(&path).unwrap();
         let loaded = Canvas::load_png_for_tests(&path);
-        let _ = std::fs::remove_file(&path);
         assert_eq!((loaded.width(), loaded.height()), (5, 3));
         assert_eq!(loaded.pixels(), canvas.pixels());
     }

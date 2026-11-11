@@ -624,8 +624,7 @@ mod tests {
 
     #[test]
     fn png_round_trip_keeps_transparency() {
-        let dir = std::env::temp_dir().join(format!("duckforge-sprite-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::test_folder::TestFolder::new("sprite");
         let path = dir.join("rgba.png");
         // Write a 2 x 1 RGBA PNG: one opaque red pixel, one clear pixel.
         {
@@ -655,6 +654,5 @@ mod tests {
         std::fs::write(&not_png, b"hello").unwrap();
         let bad = Sprite::load_png(&not_png).unwrap_err().to_string();
         assert!(bad.contains("as a PNG image"), "{bad}");
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

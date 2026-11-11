@@ -8,6 +8,9 @@
 
 use std::collections::BTreeSet;
 
+mod common;
+use common::TestFolder;
+
 use duckforge::physics::{Body, BodyId, PhysicsWorld, Shape};
 use duckforge::prelude::*;
 use duckforge::{HeadlessOptions, LoadError, run_headless};
@@ -252,14 +255,14 @@ fn the_game_parts_of_the_cheat_sheet_work() {
     });
     assert_eq!(frame, sim.context().frame());
     let replay = sim.recording();
-    let file = std::env::temp_dir().join(format!("cheat-sheet-{}.json", std::process::id()));
+    let folder = TestFolder::new("cheat-sheet-script");
+    let file = folder.join("replay.json");
     replay.save(&file).unwrap();
     let loaded = InputScript::load(&file).unwrap();
     assert_eq!(InputScript::from_file(&file).unwrap(), loaded);
     let text = std::fs::read_to_string(&file).unwrap();
     assert_eq!(InputScript::parse(&text).unwrap(), loaded);
     assert_eq!(InputScript::from_json(&text).unwrap(), loaded);
-    let _ = std::fs::remove_file(file);
     let mut again = Simulation::new(config(), Everything::new());
     again.follow(loaded);
     again.run(6);
@@ -268,10 +271,10 @@ fn the_game_parts_of_the_cheat_sheet_work() {
 
 #[test]
 fn headless_and_play_tests() {
-    let folder = std::env::temp_dir().join(format!("duckforge-cheat-sheet-{}", std::process::id()));
+    let folder = TestFolder::new("cheat-sheet-headless");
     let options = HeadlessOptions {
         frames: 10,
-        out: Some(folder.clone()),
+        out: Some(folder.to_path_buf()),
         inputs: None,
         sheet: true,
         gif: true,
@@ -297,16 +300,13 @@ fn headless_and_play_tests() {
         .run();
     played.assert_sound("coin", 3, 1);
     assert_eq!(played.number("jump"), 400.0);
-    let tune_file =
-        std::env::temp_dir().join(format!("cheat-sheet-{}.tune.json", std::process::id()));
+    let tune_file = folder.join("game.tune.json");
     std::fs::write(&tune_file, r#"{"jump_speed": 350}"#).unwrap();
     let played = PlayTest::new(config(), Everything::new())
         .tune_file(&tune_file)
         .frames(2)
         .run();
     assert_eq!(played.number("jump"), 350.0);
-    let _ = std::fs::remove_file(tune_file);
-    let _ = std::fs::remove_dir_all(folder);
 }
 
 /// Plays a looping hum and a looping file, changes one's volume and stops it.
@@ -364,7 +364,8 @@ fn looping_sounds() {
 
 #[test]
 fn sprite_sheets_from_duck_quill() -> Result<(), LoadError> {
-    let sheet = SpriteSheet::load("tests/fixtures/quill/scale1/duck.json")?;
+    let fixtures = TestFolder::new("cheat-sheet-quill");
+    let sheet = SpriteSheet::load(fixtures.fixture("quill/scale1").join("duck.json"))?;
     let names: Vec<&str> = sheet.names().collect();
     assert_eq!(names, ["idle", "jump"]);
     let jump: &Animation = sheet.animation("jump");
@@ -430,7 +431,8 @@ p.....
     map.set_tile(0, 1, "grass", TileKind::Solid);
     assert_eq!(map.tile_at(4, 1), None);
 
-    let sheet = SpriteSheet::load("tests/fixtures/quill/scale1/duck.json")?;
+    let fixtures = TestFolder::new("cheat-sheet-quill");
+    let sheet = SpriteSheet::load(fixtures.fixture("quill/scale1").join("duck.json"))?;
     let mut tiles = Tileset::from_sheet(&sheet);
     let green = Sprite::from_pixels(16, 16, vec![Color::GREEN; 256]);
     let grid = Tileset::grid(&green, 16, 16, &["grass"]);
@@ -484,8 +486,7 @@ impl Game for LevelGame {
 
 #[test]
 fn levels_as_files_rules_reach_and_reload() -> Result<(), LoadError> {
-    let folder = std::env::temp_dir().join(format!("cheat-level-{}", std::process::id()));
-    std::fs::create_dir_all(&folder).unwrap();
+    let folder = TestFolder::new("cheat-sheet-level");
     let path = folder.join("level.txt");
     std::fs::write(&path, "p.c.\n####\n").unwrap();
     std::fs::write(
@@ -538,7 +539,6 @@ fn levels_as_files_rules_reach_and_reload() -> Result<(), LoadError> {
     let name = path.to_string_lossy().replace('\\', "/");
     assert!(sim.change_file(&name, "p..c\n####\n"), "reload took it");
     assert_eq!(sim.game().coins, [vec2(56.0, 16.0)]);
-    std::fs::remove_dir_all(folder).unwrap();
     Ok(())
 }
 
@@ -778,9 +778,10 @@ fn three_d_textures_light_and_billboards() -> Result<(), LoadError> {
     world.draw(&mut canvas, &camera);
     assert_eq!(world.draw_within(&mut canvas, &camera, 1000.0), 1);
     canvas.set_fog(None);
-    let picture = std::env::temp_dir().join(format!("cheat-sheet-{}.png", std::process::id()));
-    canvas.save_png(&picture).expect("the picture is saved");
-    let _ = std::fs::remove_file(&picture);
+    let pictures = TestFolder::new("cheat-sheet-png");
+    canvas
+        .save_png(pictures.join("fog.png"))
+        .expect("the picture is saved");
     let ghost = Color::rgba(160, 200, 255, 100);
     canvas.draw_mesh_tinted(
         &Mesh::cube(Color::WHITE),
@@ -790,7 +791,8 @@ fn three_d_textures_light_and_billboards() -> Result<(), LoadError> {
     );
     let held = Transform::at(vec3(0.3, -0.3, 0.6)).sized(0.2);
     canvas.draw_mesh_in_view(&Mesh::cube(Color::RED), &held, &camera);
-    let duck = SpriteSheet::load("tests/fixtures/quill/scale1/duck.json")?;
+    let fixtures = TestFolder::new("cheat-sheet-billboard");
+    let duck = SpriteSheet::load(fixtures.fixture("quill/scale1").join("duck.json"))?;
     let frame = duck.animation("idle").frame_at(0.0);
     canvas.draw_billboard(frame, vec3(0.0, 0.0, -1.0), 1.0, &camera);
     let look = Billboard {

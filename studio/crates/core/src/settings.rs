@@ -7,9 +7,14 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
+    /// The file these settings are saved in: the person's own settings
+    /// file for [`Settings::load`], nowhere for [`Settings::default`] (so a
+    /// test never touches a person's settings).
+    #[serde(skip)]
+    pub file: Option<PathBuf>,
     /// The folder the games are in: a Duck Forge folder. `None` means
     /// "look for one next to the Studio".
     pub games_folder: Option<PathBuf>,
@@ -23,6 +28,24 @@ pub struct Settings {
     pub show_console: bool,
     /// How many parts each game's last build had, for the progress bar.
     pub build_parts: BTreeMap<String, u32>,
+    /// Look for a newer Duck Forge Studio when it starts (Settings, "Tell
+    /// me about new versions"). On unless the person turns it off.
+    pub check_for_updates: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Settings {
+        Settings {
+            file: None,
+            games_folder: None,
+            theme: None,
+            duck_quill: None,
+            show_timing: false,
+            show_console: false,
+            build_parts: BTreeMap::new(),
+            check_for_updates: true,
+        }
+    }
 }
 
 /// Where the settings are saved. `DUCK_FORGE_STUDIO_SETTINGS` names
@@ -47,15 +70,20 @@ impl Settings {
     /// The saved settings, or fresh ones if there are none (or they can't
     /// be read: a broken settings file never stops the Studio).
     pub fn load() -> Settings {
-        settings_file()
+        let file = settings_file();
+        let mut settings: Settings = file
+            .as_ref()
             .and_then(|file| std::fs::read_to_string(file).ok())
             .and_then(|text| serde_json::from_str(&text).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        settings.file = file;
+        settings
     }
 
-    /// Saves them. Failing is fine: the Studio works without.
+    /// Saves them in their file, if they have one. Failing is fine: the
+    /// Studio works without.
     pub fn save(&self) {
-        let Some(file) = settings_file() else {
+        let Some(file) = &self.file else {
             return;
         };
         if let Some(folder) = file.parent() {
@@ -85,5 +113,24 @@ mod tests {
         let old: Settings = serde_json::from_str(r#"{"theme": "light"}"#).unwrap();
         assert_eq!(old.theme.as_deref(), Some("light"));
         assert!(!old.show_console && old.games_folder.is_none());
+        assert!(old.check_for_updates, "on unless it's turned off");
+        let off: Settings = serde_json::from_str(r#"{"check_for_updates": false}"#).unwrap();
+        assert!(!off.check_for_updates);
+    }
+
+    #[test]
+    fn settings_are_saved_in_their_own_file_and_nowhere_else() {
+        let folder = crate::test_folder::TestFolder::new("settings");
+        Settings::default().save(); // has no file: saves nothing
+        let mut settings = folder.settings();
+        settings.show_timing = true;
+        settings.save();
+        let text = std::fs::read_to_string(folder.join("settings.json")).unwrap();
+        let read: Settings = serde_json::from_str(&text).unwrap();
+        assert!(read.show_timing);
+        assert!(
+            !text.contains("\"file\""),
+            "where it's saved isn't saved: {text}"
+        );
     }
 }

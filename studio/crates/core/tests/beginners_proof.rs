@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 
 use studio_core::script::{Step, run_step};
 use studio_core::settings::Settings;
+use studio_core::test_folder::TestFolder;
 use studio_core::{Command, Studio};
 
 fn duck_forge() -> PathBuf {
@@ -55,14 +56,7 @@ fn a_beginner_can_make_paint_tune_check_and_clip_a_game() {
         manifest: std::fs::read_to_string(root.join("Cargo.toml")).unwrap(),
         root: root.clone(),
     };
-    // SAFETY: tests only ever set this variable to a scratch file, so the
-    // person's own settings are never touched.
-    unsafe {
-        std::env::set_var(
-            "DUCK_FORGE_STUDIO_SETTINGS",
-            std::env::temp_dir().join("duck-forge-studio-proof-settings.json"),
-        );
-    }
+    // Default settings are never saved: the person's own are never touched.
     let mut studio = Studio::new(Settings {
         games_folder: Some(root.clone()),
         ..Settings::default()
@@ -101,8 +95,8 @@ fn a_beginner_can_make_paint_tune_check_and_clip_a_game() {
     // The duck landed on the plank that was moved under it, with the coin
     // it took in the air, and ran on past the gap (which ends at x = 224):
     // replayed with no window, it never splashed.
-    let out = std::env::temp_dir().join(format!("duck-forge-proof-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&out);
+    let replays = TestFolder::new("proof-replay");
+    let out = replays.join("out");
     let replay = std::process::Command::new("cargo")
         .args([
             "run",
@@ -139,7 +133,6 @@ fn a_beginner_can_make_paint_tune_check_and_clip_a_game() {
         .and_then(|x| x.trim().parse().ok())
         .unwrap_or_else(|| panic!("{last}"));
     assert!(x > 224.0, "past the gap: {last}");
-    let _ = std::fs::remove_dir_all(&out);
 
     // A clip was made.
     let clip = std::fs::read_dir(root.join("out/clips"))

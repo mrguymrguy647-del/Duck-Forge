@@ -253,12 +253,12 @@ impl Canvas {
 mod tests {
     use super::*;
     use crate::color::Color;
-
-    const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/quill");
+    use crate::test_folder::TestFolder;
 
     #[test]
     fn a_quill_export_loads_with_its_animations() {
-        let sheet = SpriteSheet::load(format!("{FIXTURES}/scale1/duck.json")).unwrap();
+        let folder = TestFolder::new("sheet-loads");
+        let sheet = SpriteSheet::load(folder.fixture("quill/scale1").join("duck.json")).unwrap();
         assert_eq!(sheet.names().collect::<Vec<_>>(), ["idle", "jump"]);
         assert_eq!(sheet.frame_size(), (16, 16));
         assert_eq!(sheet.scale(), 1);
@@ -282,8 +282,9 @@ mod tests {
 
     #[test]
     fn a_scaled_export_has_scaled_frames_and_pivot() {
-        let one = SpriteSheet::load(format!("{FIXTURES}/scale1/duck.json")).unwrap();
-        let two = SpriteSheet::load(format!("{FIXTURES}/scale2/duck.json")).unwrap();
+        let folder = TestFolder::new("sheet-scaled");
+        let one = SpriteSheet::load(folder.fixture("quill/scale1").join("duck.json")).unwrap();
+        let two = SpriteSheet::load(folder.fixture("quill/scale2").join("duck.json")).unwrap();
         assert_eq!(two.scale(), 2);
         assert_eq!(two.frame_size(), (32, 32));
         assert_eq!(two.pivot(), vec2(16.0, 32.0));
@@ -325,19 +326,13 @@ mod tests {
     #[test]
     fn a_picture_of_the_wrong_size_is_a_clear_error() {
         // The scale-1 JSON with the scale-2 picture: like a quill render --zoom 2.
-        let folder = std::env::temp_dir().join(format!("duckforge-sheet-{}", std::process::id()));
-        fs::create_dir_all(&folder).unwrap();
-        fs::copy(
-            format!("{FIXTURES}/scale1/duck.json"),
-            folder.join("duck.json"),
-        )
-        .unwrap();
-        fs::copy(
-            format!("{FIXTURES}/scale2/duck.png"),
-            folder.join("duck.png"),
-        )
-        .unwrap();
-        let error = SpriteSheet::load(folder.join("duck.json"))
+        let folder = TestFolder::new("sheet-wrong-size");
+        let (one, two) = (
+            folder.fixture("quill/scale1"),
+            folder.fixture("quill/scale2"),
+        );
+        fs::rename(two.join("duck.png"), one.join("duck.png")).unwrap();
+        let error = SpriteSheet::load(one.join("duck.json"))
             .unwrap_err()
             .to_string();
         assert!(error.starts_with("duck.png is 96 x 64, but "), "{error}");
@@ -349,7 +344,6 @@ mod tests {
             error.contains("exactly 2 times too big: was it saved with quill render --zoom 2?"),
             "{error}"
         );
-        let _ = fs::remove_dir_all(folder);
         let missing = SpriteSheet::load("no/such/sheet.json").unwrap_err();
         assert_eq!(missing.kind(), io::ErrorKind::NotFound);
     }
@@ -357,7 +351,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "no animation \"run\"; it has: idle, jump")]
     fn a_misspelt_animation_names_the_ones_there_are() {
-        let sheet = SpriteSheet::load(format!("{FIXTURES}/scale1/duck.json")).unwrap();
+        let folder = TestFolder::new("sheet-misspelt");
+        let sheet = SpriteSheet::load(folder.fixture("quill/scale1").join("duck.json")).unwrap();
         sheet.animation("run");
     }
 

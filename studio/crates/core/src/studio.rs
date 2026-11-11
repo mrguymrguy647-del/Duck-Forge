@@ -2189,14 +2189,7 @@ mod tests {
 
     #[test]
     fn commands_that_need_a_game_say_so_plainly() {
-        // SAFETY: tests in this crate only ever set this variable to a
-        // scratch file, so the person's own settings are never touched.
-        unsafe {
-            std::env::set_var(
-                "DUCK_FORGE_STUDIO_SETTINGS",
-                std::env::temp_dir().join("duck-forge-studio-test-settings.json"),
-            );
-        }
+        // Default settings are never saved: the person's own are never touched.
         let mut studio = Studio::new(Settings::default());
         let problem = studio.run(Command::GameToggle).unwrap_err();
         assert_eq!(problem.what, "No game is open.");

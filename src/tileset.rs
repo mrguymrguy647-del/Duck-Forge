@@ -187,7 +187,8 @@ mod tests {
 
     #[test]
     fn a_duck_quill_sheet_is_a_tileset_with_animated_tiles() {
-        let tiles = Tileset::load("tests/fixtures/quill/scale1/duck.json").unwrap();
+        let folder = crate::test_folder::TestFolder::new("tileset-quill");
+        let tiles = Tileset::load(folder.fixture("quill/scale1").join("duck.json")).unwrap();
         assert_eq!(tiles.names().collect::<Vec<_>>(), ["idle", "jump"]);
         let idle = tiles.get("idle").unwrap();
         assert_eq!(idle.frames.len(), 2, "two frames: an animated tile");

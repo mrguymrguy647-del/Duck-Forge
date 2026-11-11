@@ -1183,8 +1183,7 @@ mod tests {
         mp3ish.extend_from_slice(b"data\0\0\0\0");
         assert!(decode_wav(&mp3ish).unwrap_err().contains("compressed"));
 
-        let dir = std::env::temp_dir().join(format!("duckforge-wav-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = crate::test_folder::TestFolder::new("wav");
         let missing = Wav::load(dir.join("nope.wav")).unwrap_err().to_string();
         assert!(
             missing.contains("couldn't find the sound file"),
@@ -1196,7 +1195,6 @@ mod tests {
             bad.contains("as a WAV sound") && bad.contains("16-bit PCM"),
             "{bad}"
         );
-        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

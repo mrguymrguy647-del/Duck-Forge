@@ -559,12 +559,8 @@ mod tests {
         "p": {"kind": "thing", "name": "player", "label": "Start", "at_most": 1, "at_least": 1, "start": true},
         "c": {"kind": "thing", "name": "coin"}}}"##;
 
-    fn level(text: &str) -> (PathBuf, Level) {
-        let folder = std::env::temp_dir().join(format!(
-            "studio-level-{}-{}",
-            std::process::id(),
-            text.len()
-        ));
+    fn level(text: &str) -> (crate::test_folder::TestFolder, Level) {
+        let folder = crate::test_folder::TestFolder::new("level");
         std::fs::create_dir_all(folder.join("examples/a")).unwrap();
         let path = folder.join("examples/a/level.txt");
         std::fs::write(&path, text).unwrap();
@@ -575,7 +571,7 @@ mod tests {
 
     #[test]
     fn edits_change_the_letters_and_are_saved_whole() {
-        let (folder, mut level) = level("\np...\n####\n");
+        let (_folder, mut level) = level("\np...\n####\n");
         assert_eq!(level.name, "examples/a/level.txt");
         assert_eq!((level.columns(), level.rows()), (4, 2));
         assert_eq!(level.letter_at((0, 0)), 'p');
@@ -606,13 +602,12 @@ mod tests {
         std::fs::write(&level.path, "p#\n").unwrap();
         assert!(level.reload_if_changed());
         assert_eq!(level.text(), "p#\n");
-        std::fs::remove_dir_all(folder).unwrap();
     }
 
     #[test]
     fn a_windows_level_keeps_its_line_endings() {
         let written = "\r\np...\r\n####\r\n";
-        let (folder, mut level) = level(written);
+        let (_folder, mut level) = level(written);
         assert_eq!(level.on_disk(), written, "exactly as read, for Undo");
         assert_eq!(level.paint(&[(1, 0)], 'c'), 1);
         assert_eq!(level.text(), "pc..\r\n####\r\n");
@@ -622,12 +617,11 @@ mod tests {
             "pc..\r\n####\r\n"
         );
         assert_eq!(level.on_disk(), "pc..\r\n####\r\n");
-        std::fs::remove_dir_all(folder).unwrap();
     }
 
     #[test]
     fn the_whole_level_and_the_palette_are_drawn() {
-        let (folder, level) = level("p.c\n###\n");
+        let (_folder, level) = level("p.c\n###\n");
         let art = LevelArt::load(&level);
         let picture = art.draw_level(&level);
         assert_eq!((picture.width, picture.height), (48, 32));
@@ -639,6 +633,5 @@ mod tests {
             0x00ff_cc00,
             "a yellow Start badge"
         );
-        std::fs::remove_dir_all(folder).unwrap();
     }
 }

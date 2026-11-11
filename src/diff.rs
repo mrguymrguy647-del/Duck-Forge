@@ -303,13 +303,8 @@ mod tests {
     use super::*;
     use crate::math::Rect;
 
-    fn folder(name: &str) -> std::path::PathBuf {
-        let path = std::env::temp_dir()
-            .join(format!("duckforge-diff-{}", std::process::id()))
-            .join(name);
-        let _ = fs::remove_dir_all(&path);
-        fs::create_dir_all(&path).unwrap();
-        path
+    fn folder(name: &str) -> crate::test_folder::TestFolder {
+        crate::test_folder::TestFolder::new(&format!("diff-{name}"))
     }
 
     fn picture(square_x: f32) -> Canvas {

@@ -13,6 +13,7 @@ use std::time::Instant;
 use studio_core::play::PlayState;
 use studio_core::script::{Step, Wait, frame, run_script, run_step};
 use studio_core::settings::Settings;
+use studio_core::test_folder::TestFolder;
 use studio_core::{Command, Studio};
 
 fn duck_forge() -> PathBuf {
@@ -23,14 +24,7 @@ fn duck_forge() -> PathBuf {
 }
 
 fn studio() -> Studio {
-    // SAFETY: tests in this crate only ever set this variable to a scratch
-    // file, so the person's own settings are never touched.
-    unsafe {
-        std::env::set_var(
-            "DUCK_FORGE_STUDIO_SETTINGS",
-            std::env::temp_dir().join("duck-forge-studio-test-settings.json"),
-        );
-    }
+    // Default settings are never saved: the person's own are never touched.
     let studio = Studio::new(Settings {
         games_folder: Some(duck_forge()),
         ..Settings::default()
@@ -180,8 +174,8 @@ fn a_game_is_built_played_frozen_resumed_and_its_session_replays_exactly() {
     assert_eq!(pressed(duckforge::prelude::Key::Left), 1);
 
     // Replay it with no window: the same game, to the last pixel.
-    let out = std::env::temp_dir().join(format!("duck-forge-studio-replay-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&out);
+    let replays = TestFolder::new("replay-dodge");
+    let out = replays.join("out");
     let replay = std::process::Command::new("cargo")
         .args([
             "run",
@@ -214,7 +208,6 @@ fn a_game_is_built_played_frozen_resumed_and_its_session_replays_exactly() {
         pixels == last.pixels,
         "the replay's last picture is the session's, pixel for pixel"
     );
-    let _ = std::fs::remove_dir_all(&out);
 }
 
 #[test]
@@ -355,8 +348,8 @@ fn a_level_painted_while_frozen_is_in_the_game_and_in_its_replay() {
     // Replayed with no window, with the old level on disk: the session
     // has the level as it was, and the change on its frame, so it ends on
     // the same picture, pixel for pixel.
-    let out = std::env::temp_dir().join(format!("duck-forge-studio-level-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&out);
+    let replays = TestFolder::new("replay-level");
+    let out = replays.join("out");
     let replay = std::process::Command::new("cargo")
         .args([
             "run",
@@ -385,5 +378,4 @@ fn a_level_painted_while_frozen_is_in_the_game_and_in_its_replay() {
         pixels == last.pixels,
         "the replay ends on the session's last picture"
     );
-    let _ = std::fs::remove_dir_all(&out);
 }

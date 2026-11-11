@@ -963,9 +963,7 @@ mod tests {
 
     #[test]
     fn idle_frames_are_not_a_freeze() {
-        let folder =
-            std::env::temp_dir().join(format!("duckforge-fuzz-idle-{}", std::process::id()));
-        fs::create_dir_all(&folder).unwrap();
+        let folder = crate::test_folder::TestFolder::new("fuzz-idle");
         let path = folder.join("log.json");
         let fuzz = settings(2000);
         let pressing = InputScript {
@@ -1009,14 +1007,11 @@ mod tests {
             fuzz.read_log(&path, &pressing_later).unwrap()[..],
             [Problem::Freeze { frame: 900, .. }]
         ));
-        let _ = fs::remove_dir_all(folder);
     }
 
     #[test]
     fn pressing_keys_the_game_never_reads_is_not_a_freeze() {
-        let folder =
-            std::env::temp_dir().join(format!("duckforge-fuzz-keys-{}", std::process::id()));
-        fs::create_dir_all(&folder).unwrap();
+        let folder = crate::test_folder::TestFolder::new("fuzz-keys");
         let path = folder.join("log.json");
         let fuzz = settings(2000);
         let pressing = InputScript {
@@ -1043,7 +1038,6 @@ mod tests {
             fuzz.read_log(&path, &pressing).unwrap()[..],
             [Problem::Freeze { frame: 601, .. }]
         ));
-        let _ = fs::remove_dir_all(folder);
     }
 
     #[test]

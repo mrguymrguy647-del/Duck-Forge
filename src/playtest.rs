@@ -256,13 +256,11 @@ mod tests {
 
     #[test]
     fn script_files_are_read() {
-        let path =
-            std::env::temp_dir().join(format!("duckforge-playtest-{}.json", std::process::id()));
-        std::fs::write(&path, SCRIPT).unwrap();
+        let folder = crate::test_folder::TestFolder::new("playtest");
+        let path = folder.file("script.json", SCRIPT);
         let played = PlayTest::new(config(), Counter { presses: 0 })
             .inputs(&path)
             .run();
-        let _ = std::fs::remove_file(&path);
         assert_eq!(played.number("presses"), 1.0);
     }
 

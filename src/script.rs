@@ -863,8 +863,8 @@ mod tests {
 
     #[test]
     fn files_are_saved_and_loaded() {
-        let path =
-            std::env::temp_dir().join(format!("duckforge-script-{}.json", std::process::id()));
+        let folder = crate::test_folder::TestFolder::new("script");
+        let path = folder.join("script.json");
         let script = InputScript::parse(EXAMPLE).unwrap();
         script.save(&path).unwrap();
         assert_eq!(InputScript::load(&path).unwrap(), script);

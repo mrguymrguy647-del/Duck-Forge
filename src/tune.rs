@@ -487,18 +487,12 @@ pub(crate) fn parse_set(text: &str) -> Result<(String, f32), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn temp_file(name: &str, text: &str) -> PathBuf {
-        let folder = std::env::temp_dir().join(format!("duckforge-tune-{}", std::process::id()));
-        fs::create_dir_all(&folder).unwrap();
-        let path = folder.join(name);
-        fs::write(&path, text).unwrap();
-        path
-    }
+    use crate::test_folder::TestFolder;
 
     #[test]
     fn a_recording_beats_the_games_file_but_not_the_command_line() {
-        let file = temp_file("order.tune.json", r#"{"a": 1, "b": 1, "c": 1}"#);
+        let folder = TestFolder::new("tune-order");
+        let file = folder.file("order.tune.json", r#"{"a": 1, "b": 1, "c": 1}"#);
         let recorded: BTreeMap<String, f32> = [("a", 5.0), ("b", 5.0), ("d", 5.0), ("e", 2.0)]
             .map(|(n, v)| (n.to_string(), v))
             .into();
@@ -532,7 +526,8 @@ mod tests {
 
     #[test]
     fn set_beats_file_beats_default() {
-        let path = temp_file("order.tune.json", r#"{"speed": 2, "gravity": 900.5}"#);
+        let folder = TestFolder::new("tune-set");
+        let path = folder.file("order.tune.json", r#"{"speed": 2, "gravity": 900.5}"#);
         let set = [(String::from("speed"), 3.0)];
         let tunes = Tunes::load(Some(&path), &set).unwrap();
         assert_eq!(tunes.get("speed", 1.0), 3.0);
@@ -551,13 +546,14 @@ mod tests {
             missing.contains("couldn't find the tune file no/such.tune.json"),
             "{missing}"
         );
-        let text = temp_file("text.tune.json", r#"{"speed": "fast"}"#);
+        let folder = TestFolder::new("tune-mistakes");
+        let text = folder.file("text.tune.json", r#"{"speed": "fast"}"#);
         let error = Tunes::load(Some(&text), &[]).unwrap_err();
         assert!(
             error.contains(r#""speed" is "fast", but tune values must be numbers"#),
             "{error}"
         );
-        let broken = temp_file("broken.tune.json", "{speed: 2");
+        let broken = folder.file("broken.tune.json", "{speed: 2");
         assert!(
             Tunes::load(Some(&broken), &[])
                 .unwrap_err()
@@ -575,14 +571,16 @@ mod tests {
             (String::from("jump_sped"), 3.0),
             (String::from("jump"), 1.0),
         ];
-        let tunes = Tunes::load(Some(&temp_file("empty.tune.json", "{}")), &set).unwrap();
+        let folder = TestFolder::new("tune-typos");
+        let tunes = Tunes::load(Some(&folder.file("empty.tune.json", "{}")), &set).unwrap();
         tunes.get("jump", 0.0);
         assert_eq!(tunes.unused_sets(), ["jump_sped"]);
     }
 
     #[test]
     fn writing_keeps_old_names_and_adds_new_ones() {
-        let path = temp_file("write.tune.json", r#"{"old": 1, "speed": 2}"#);
+        let folder = TestFolder::new("tune-write");
+        let path = folder.file("write.tune.json", r#"{"old": 1, "speed": 2}"#);
         let tunes = Tunes::load(Some(&path), &[]).unwrap();
         tunes.get("speed", 9.0);
         tunes.get("new", 0.25);
@@ -595,7 +593,8 @@ mod tests {
 
     #[test]
     fn edits_are_noticed() {
-        let path = temp_file("live.tune.json", r#"{"speed": 2}"#);
+        let folder = TestFolder::new("tune-live");
+        let path = folder.file("live.tune.json", r#"{"speed": 2}"#);
         let mut tunes = Tunes::load(Some(&path), &[]).unwrap();
         assert!(tunes.reload_if_changed().is_none(), "nothing changed yet");
         tunes.modified = Some(SystemTime::UNIX_EPOCH); // pretend it was read long ago

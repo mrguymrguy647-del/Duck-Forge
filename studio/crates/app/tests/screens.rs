@@ -32,16 +32,7 @@ fn duck_forge() -> PathBuf {
 }
 
 fn studio() -> Studio {
-    // SAFETY: tests only ever set this variable to a scratch file, so the
-    // person's own settings are never touched.
-    unsafe {
-        std::env::set_var(
-            "DUCK_FORGE_STUDIO_SETTINGS",
-            std::env::temp_dir().join("duck-forge-studio-screens-settings.json"),
-        );
-    }
-    let _ =
-        std::fs::remove_file(std::env::temp_dir().join("duck-forge-studio-screens-settings.json"));
+    // Default settings are never saved: the person's own are never touched.
     Studio::new(Settings {
         games_folder: Some(duck_forge()),
         ..Settings::default()

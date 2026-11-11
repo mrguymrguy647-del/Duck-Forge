@@ -1430,8 +1430,7 @@ p...===..
 
     #[test]
     fn a_level_and_its_legend_are_read_from_two_files() {
-        let folder = std::env::temp_dir().join(format!("duckforge-level-{}", std::process::id()));
-        std::fs::create_dir_all(&folder).unwrap();
+        let folder = crate::test_folder::TestFolder::new("level");
         let level = folder.join("level.txt");
         std::fs::write(&level, "p.c.\n####\n").unwrap();
         std::fs::write(folder.join("level.legend.json"), LEGEND_FILE).unwrap();
@@ -1488,7 +1487,6 @@ p...===..
         let error = Legend::from_json(r###"{"letters": {"##": {"kind": "solid", "name": "x"}}}"###)
             .unwrap_err();
         assert!(error.contains("one letter"), "{error}");
-        std::fs::remove_dir_all(folder).unwrap();
     }
 
     #[test]
@@ -1568,8 +1566,7 @@ c.........c
             error.to_string(),
             "row 2, column 3: 'x' isn't in the legend (it has # = f p c . and space)"
         );
-        let folder = std::env::temp_dir().join(format!("duckforge-map-{}", std::process::id()));
-        fs::create_dir_all(&folder).unwrap();
+        let folder = crate::test_folder::TestFolder::new("map");
         let file = folder.join("1.txt");
         fs::write(&file, "\n\n####\n#??#\n").unwrap();
         let error = TileMap::load(&file, 16.0, &legend())
@@ -1588,7 +1585,6 @@ c.........c
                 .starts_with("couldn't find the level file"),
             "{missing}"
         );
-        let _ = fs::remove_dir_all(folder);
         let panicked = std::panic::catch_unwind(|| {
             TileMap::parse(LEVEL, 16.0, &legend())
                 .unwrap()

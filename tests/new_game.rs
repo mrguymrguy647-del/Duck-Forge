@@ -12,6 +12,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+mod common;
+use common::TestFolder;
+
 const ROOT: &str = env!("CARGO_MANIFEST_DIR");
 
 /// (kind, starter, the starter's type, a folder starter?)
@@ -38,19 +41,16 @@ fn copy_dir(from: &Path, to: &Path) {
         if path.is_dir() {
             copy_dir(&path, &target);
         } else {
-            fs::copy(&path, &target).unwrap();
+            common::copy_file(&path, &target);
         }
     }
 }
 
 /// A copy of what building and verifying a game needs (no `target/`).
-fn project_copy(name: &str) -> PathBuf {
-    let copy =
-        std::env::temp_dir().join(format!("duckforge-new-game-{name}-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&copy);
-    fs::create_dir_all(&copy).unwrap();
+fn project_copy(name: &str) -> TestFolder {
+    let copy = TestFolder::new(&format!("new-game-{name}"));
     for file in ["Cargo.toml", "Cargo.lock"] {
-        fs::copy(Path::new(ROOT).join(file), copy.join(file)).unwrap();
+        common::copy_file(&Path::new(ROOT).join(file), &copy.join(file));
     }
     for dir in ["src", "examples", "tools", "playthroughs"] {
         copy_dir(&Path::new(ROOT).join(dir), &copy.join(dir));
@@ -178,7 +178,6 @@ fn each_starter_becomes_a_renamed_game() {
             .success()
     );
     assert!(!new_game(&project, "fine", "racing", false).status.success());
-    let _ = fs::remove_dir_all(project);
 }
 
 #[test]
@@ -203,5 +202,4 @@ fn each_starter_becomes_a_game_that_passes_verify() {
             "{kind}:\n{said}"
         );
     }
-    let _ = fs::remove_dir_all(project);
 }

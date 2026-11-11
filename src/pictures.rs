@@ -450,13 +450,13 @@ mod tests {
 
     #[test]
     fn gifs_are_written() {
-        let path = std::env::temp_dir().join(format!("duckforge-{}.gif", std::process::id()));
+        let folder = crate::test_folder::TestFolder::new("gif");
+        let path = folder.join("written.gif");
         let mut gif = GifWriter::create(&path, 40, 20, 2, 5).unwrap();
         gif.add(&checkerboard(40, 20)).unwrap();
         gif.add(&Canvas::new(40, 20)).unwrap();
         drop(gif); // finishes the file
         let bytes = std::fs::read(&path).unwrap();
-        let _ = std::fs::remove_file(&path);
         assert_eq!(&bytes[..6], b"GIF89a");
         assert_eq!(u16::from_le_bytes([bytes[6], bytes[7]]), 20); // width
         assert_eq!(u16::from_le_bytes([bytes[8], bytes[9]]), 10); // height

@@ -3,6 +3,9 @@
 //! of date once because only the first two were replayed), but not files
 //! that belong to another example with a longer name.
 
+#[cfg(unix)]
+mod common;
+
 const SH: &str = include_str!("../tools/verify.sh");
 const BAT: &str = include_str!("../tools/verify.bat");
 
@@ -42,10 +45,8 @@ fn both_scripts_look_for_the_same_playthroughs() {
 #[test]
 fn verify_sh_replays_every_playthrough_of_the_game_and_no_other() {
     use std::fs;
-    use std::path::Path;
 
-    let root = std::env::temp_dir().join(format!("duckforge-verify-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&root);
+    let root = common::TestFolder::new("verify-list");
     let touch = |path: &str| {
         let path = root.join(path);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -111,6 +112,4 @@ fn verify_sh_replays_every_playthrough_of_the_game_and_no_other() {
             "playthroughs/mini_craft.json"
         ]
     );
-    let _ = fs::remove_dir_all(&root);
-    assert!(!Path::new(&root).exists());
 }

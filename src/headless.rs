@@ -1012,14 +1012,9 @@ mod tests {
         }
     }
 
-    /// A fresh, empty path in the system's temporary folder for a test to write to.
-    fn test_folder(name: &str) -> PathBuf {
-        let folder = std::env::temp_dir()
-            .join(format!("duckforge-tests-{}", std::process::id()))
-            .join(name);
-        let _ = fs::remove_dir_all(&folder);
-        let _ = fs::remove_file(&folder);
-        folder
+    /// A new, empty folder of the test's own, in the system's temporary folder.
+    fn test_folder(name: &str) -> crate::test_folder::TestFolder {
+        crate::test_folder::TestFolder::new(name)
     }
 
     /// Plays a coin sound whenever Space is pressed, and random beeps.
@@ -1050,7 +1045,7 @@ mod tests {
         .unwrap();
         let options = HeadlessOptions {
             frames: 120,
-            out: Some(folder.clone()),
+            out: Some(folder.to_path_buf()),
             inputs: Some(script),
             seed: Some(seed),
             ..HeadlessOptions::default()
@@ -1097,7 +1092,7 @@ mod tests {
             let folder = test_folder(&format!("audio-start-{frame}-{ups}"));
             let options = HeadlessOptions {
                 frames: frame + 10,
-                out: Some(folder.clone()),
+                out: Some(folder.to_path_buf()),
                 ..HeadlessOptions::default()
             };
             let config = Config {
@@ -1435,7 +1430,6 @@ mod tests {
             warning.contains("it asked for: size, speed, wobble"),
             "{warning}"
         );
-        let _ = fs::remove_dir_all(folder);
     }
 
     #[test]
@@ -1483,7 +1477,7 @@ mod tests {
         let folder = test_folder("scenes");
         let options = HeadlessOptions {
             frames: 30,
-            out: Some(folder.clone()),
+            out: Some(folder.to_path_buf()),
             snapshot_every: Some(15),
             ..HeadlessOptions::default()
         };
@@ -1540,7 +1534,7 @@ mod tests {
         let folder = test_folder("scenes-clean");
         let options = HeadlessOptions {
             frames: 30,
-            out: Some(folder.clone()),
+            out: Some(folder.to_path_buf()),
             ..HeadlessOptions::default()
         };
         let (_, outcome) = run_and_save(config(), Mover { x: 0.0, quit_at: 0 }, &options).unwrap();
@@ -1557,7 +1551,7 @@ mod tests {
         };
         let options = HeadlessOptions {
             frames: 1,
-            out: Some(folder.clone()),
+            out: Some(folder.to_path_buf()),
             grid: Some(16),
             ..HeadlessOptions::default()
         };
@@ -1621,7 +1615,7 @@ mod tests {
         let folder = test_folder("checks");
         let options = HeadlessOptions {
             frames: 40,
-            out: Some(folder.clone()),
+            out: Some(folder.to_path_buf()),
             ..HeadlessOptions::default()
         };
         let sim = run_headless(config(), Breaker { x: 0 }, &options).unwrap();
@@ -1689,7 +1683,7 @@ mod tests {
         let folder = test_folder(name);
         let options = HeadlessOptions {
             frames: 2,
-            out: Some(folder.clone()),
+            out: Some(folder.to_path_buf()),
             ..options
         };
         run_headless(game_config, Zoomed, &options).unwrap();
@@ -1787,7 +1781,7 @@ mod tests {
         let folder = test_folder("audio-none");
         let options = HeadlessOptions {
             frames: 5,
-            out: Some(folder.clone()),
+            out: Some(folder.to_path_buf()),
             ..HeadlessOptions::default()
         };
         run_headless(config(), Mover { x: 0.0, quit_at: 0 }, &options).unwrap();
@@ -1817,7 +1811,7 @@ mod tests {
         let folder = test_folder("headless-last");
         let options = HeadlessOptions {
             frames: 30,
-            out: Some(folder.clone()),
+            out: Some(folder.to_path_buf()),
             ..HeadlessOptions::default()
         };
         let game = Mover { x: 0.0, quit_at: 0 };
@@ -1867,9 +1861,8 @@ mod tests {
         assert!(err.unwrap().contains("at least 1 x 1"));
 
         // A file where the folder should be.
-        let file = test_folder("headless-not-a-folder");
-        fs::create_dir_all(file.parent().unwrap()).unwrap();
-        fs::write(&file, "in the way").unwrap();
+        let folder = test_folder("headless-not-a-folder");
+        let file = folder.file("in-the-way", "in the way");
         let options = HeadlessOptions {
             frames: 1,
             out: Some(file.join("pictures")),
@@ -1983,7 +1976,6 @@ mod tests {
         assert!(tuned.problems()[0].starts_with(
             "playthrough tuned: recorded with other tune values (shade 2 to 3), and it still ends as expected"
         ));
-        let _ = fs::remove_dir_all(folder);
     }
 
     #[test]
@@ -2021,7 +2013,6 @@ mod tests {
         assert_eq!(sim.number("speed"), 10.0);
         // A recording keeps the values it was made with.
         assert_eq!(sim.recording().tune.unwrap()["speed"], 10.0);
-        let _ = fs::remove_dir_all(folder);
     }
 
     #[test]
@@ -2036,7 +2027,7 @@ mod tests {
         };
         let options = |script| HeadlessOptions {
             frames: 30,
-            out: Some(folder.clone()),
+            out: Some(folder.to_path_buf()),
             inputs: Some(script),
             ..HeadlessOptions::default()
         };
@@ -2062,7 +2053,6 @@ mod tests {
         shorter.frames = 20;
         let (_, summary) = run_and_save(config(), ReportingMover { x: 0.0 }, &shorter).unwrap();
         assert!(summary.changed.is_empty());
-        let _ = fs::remove_dir_all(folder);
     }
 
     #[test]
@@ -2085,7 +2075,7 @@ mod tests {
         let folder = test_folder("sheet-events");
         let options = HeadlessOptions {
             frames: 600,
-            out: Some(folder.clone()),
+            out: Some(folder.to_path_buf()),
             sheet_events: true,
             ..HeadlessOptions::default()
         };
@@ -2094,7 +2084,6 @@ mod tests {
         let sheet = Canvas::load_png_for_tests(&folder.join("sheet.png"));
         // 16 frames of 64 x 8 in 4 rows, with a caption line each.
         assert_eq!(sheet.height(), 4 + 4 * (8 + 14 + 13 + 4));
-        let _ = fs::remove_dir_all(folder);
     }
 
     /// Both ways of making a video, in one test (the first changes an
@@ -2197,7 +2186,6 @@ mod tests {
             assert!(note.contains("30 frames, 0.5 s at 60 fps"), "{note}");
             assert!(folder.join("real-clip.mp4").exists());
         }
-        let _ = fs::remove_dir_all(folder);
     }
 
     #[test]
@@ -2210,7 +2198,7 @@ mod tests {
         .unwrap();
         let options = HeadlessOptions {
             frames: 600,
-            out: Some(folder.clone()),
+            out: Some(folder.to_path_buf()),
             inputs: Some(script.clone()),
             inputs_file: Some(PathBuf::from("playthroughs/hand.json")),
             ..HeadlessOptions::default()
@@ -2233,7 +2221,6 @@ mod tests {
         };
         let (_, summary) = run_and_save(config(), mover(), &options).unwrap();
         assert!(summary.warnings.is_empty(), "{:?}", summary.warnings);
-        let _ = fs::remove_dir_all(folder);
     }
 
     #[test]
@@ -2303,7 +2290,7 @@ mod tests {
 
         let options = HeadlessOptions {
             frames: 30,
-            out: Some(folder.clone()),
+            out: Some(folder.to_path_buf()),
             snapshot_every: Some(10),
             sheet: true,
             gif: true,

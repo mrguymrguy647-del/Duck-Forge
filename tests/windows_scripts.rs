@@ -4,9 +4,25 @@
 //! `call` to a label that doesn't exist, a PowerShell parameter the helper
 //! doesn't have, and Windows line endings (cmd needs them for labels).
 
-const SCRIPTS: [(&str, &str); 2] = [
+const SCRIPTS: [(&str, &str); 6] = [
     ("tools/verify.bat", include_str!("../tools/verify.bat")),
     ("tools/new_game.bat", include_str!("../tools/new_game.bat")),
+    (
+        "tools/rust_check.bat",
+        include_str!("../tools/rust_check.bat"),
+    ),
+    (
+        "tools/Run tests (for developers).bat",
+        include_str!("../tools/Run tests (for developers).bat"),
+    ),
+    (
+        "Start Duck Forge Studio.bat",
+        include_str!("../Start Duck Forge Studio.bat"),
+    ),
+    (
+        "studio/release/Create desktop shortcut.bat",
+        include_str!("../studio/release/Create desktop shortcut.bat"),
+    ),
 ];
 
 /// The lines that are commands: not comments.
@@ -93,6 +109,44 @@ fn new_game_passes_only_parameters_the_helper_has() {
             "new_game.bat passes {parameter}, but new_game.ps1 has no {declared}"
         );
     }
+}
+
+#[test]
+fn every_script_has_windows_line_endings_here_too() {
+    for (name, text) in SCRIPTS {
+        let lines = text.split_inclusive('\n');
+        for (number, line) in lines.enumerate() {
+            assert!(
+                line.ends_with("\r\n") || !line.ends_with('\n'),
+                "{name}: line {} ends without \\r\\n (cmd can lose its place in a file like that)",
+                number + 1
+            );
+        }
+    }
+}
+
+#[test]
+fn double_click_files_check_for_rust_first() {
+    for (name, text) in SCRIPTS {
+        if !name.contains("Start ") && !name.contains("Run tests") {
+            continue;
+        }
+        let lines: Vec<&str> = commands(text).collect();
+        let check = lines
+            .iter()
+            .position(|l| l.contains("tools\\rust_check.bat"));
+        let cargo = lines.iter().position(|l| l.starts_with("cargo "));
+        assert!(
+            check.expect(name) < cargo.expect(name),
+            "{name} checks for Rust before it runs cargo"
+        );
+    }
+    let check = SCRIPTS[2].1;
+    assert!(check.contains("https://www.rust-lang.org/tools/install"));
+    assert!(
+        !check.to_ascii_lowercase().contains("rustup-init.exe -y"),
+        "never installs by itself"
+    );
 }
 
 #[test]

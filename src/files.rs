@@ -199,8 +199,7 @@ mod tests {
 
     #[test]
     fn a_file_is_noted_and_can_be_given_newer_text() {
-        let folder = std::env::temp_dir().join(format!("duckforge-files-{}", std::process::id()));
-        std::fs::create_dir_all(&folder).unwrap();
+        let folder = crate::test_folder::TestFolder::new("files");
         let path = folder.join("level.txt");
         std::fs::write(&path, "p..#").unwrap();
         let name = name_of(&path);
@@ -226,14 +225,11 @@ mod tests {
         );
         assert_eq!(read_text(&path).unwrap(), "p..#");
         forget_given();
-        std::fs::remove_dir_all(folder).unwrap();
     }
 
     #[test]
     fn lines_end_the_same_on_every_system() {
-        let folder =
-            std::env::temp_dir().join(format!("duckforge-files-crlf-{}", std::process::id()));
-        std::fs::create_dir_all(&folder).unwrap();
+        let folder = crate::test_folder::TestFolder::new("files-crlf");
         let path = folder.join("level.txt");
         // As Git on Windows checks it out.
         std::fs::write(&path, "p..#\r\n####\r\n").unwrap();
@@ -248,7 +244,6 @@ mod tests {
         give(&name, "p.=#\r\n####\r\n");
         assert_eq!(read_text(&path).unwrap(), "p.=#\n####\n");
         forget_given();
-        std::fs::remove_dir_all(folder).unwrap();
     }
 
     #[test]
