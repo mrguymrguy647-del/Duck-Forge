@@ -3543,12 +3543,32 @@ New numbers, for next time:
 
 ## What Windows has shown
 
-The release workflow on GitHub's Windows machine (commit 25e628b): the
-Studio's tests pass there, including the real-game test that paints the
-template's level (checked out with `\r\n`) while frozen, changes the
-jump, undoes both and replays the session to the same picture; then the
-release build, the timing run and the zip check. The two runs before it
-failed on the line endings described above; both are fixed.
+The release workflow passed on GitHub's Windows machine (commit
+25e628b): the Studio's tests, including the real-game test that paints
+the template's level (checked out with `\r\n`) while frozen, changes the
+jump, undoes both and replays the session to the same picture; the
+release build; the timings; the zip; and the beginner's path from the
+unzipped folder, which ended with "Checks pass" (it builds, its 9 play
+tests pass, its playthrough plays out as before, 50 random runs) and a
+clip, in 2 min 52 s (2 min 10 s at Step 2). The two runs before it failed
+on the line endings described above; both are fixed.
+
+Its timings, as in Step 2's table:
+
+| Game | Drawn by | Updates a second | Pictures a second | Game | Link | Late |
+|---|---|---|---|---|---|---|
+| Duck Peaks | the CPU | 60.1 | 58.6 to 58.7 | 0.36 ms | 0.67 to 0.84 ms | 0 or 2 of 293 |
+| 3D runner | Microsoft Basic Render Driver | 59.9 to 60.1 | 55.5 to 56.3 | 3.57 ms | 0.70 to 0.96 ms | 9 to 13 of about 280 |
+| Duck Craft | the CPU | 59.9 to 60.0 | 57.2 to 57.9 | 12.7 to 13.9 ms | 0.59 to 0.76 ms | 58 to 83 of about 290 |
+| Duck Craft | Microsoft Basic Render Driver | 59.8 to 59.9 | 27.8 | 27.4 to 28.0 ms | 0.77 ms | all |
+
+Duck Peaks and Duck Craft are as they were. The 3D runner showed more
+late pictures than in Step 2 (0 to 2): the game itself took longer there
+(3.6 ms against 2.8 to 3.0) and its slowest round trips were near 40 ms,
+which looks like the shared machine: nothing in how 3D is drawn
+changed, and on the cloud machine it is 0 or 1 late, as before. It's one
+run, so it's on the list to watch. `DuckForgeStudio.exe` is 17,300,480
+bytes (16,284,672 at Step 2) and the download 13,534,302 bytes.
 
 ## What isn't proved yet
 
