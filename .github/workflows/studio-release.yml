@@ -15,8 +15,9 @@
 # so it can be tried before any release is made.
 #
 # Before it builds the zip it tests the Studio on Windows: the core's
-# tests build a real game, play it through the link, freeze and resume it,
-# and replay the saved session exactly. Then it plays three games through
+# tests build real games, play them through the link, freeze and resume
+# them, paint a level and change the jump while frozen, undo both, and
+# replay each saved session to the same last picture. Then it plays three games through
 # the link for ten seconds each and prints their Timing lines. (GitHub's
 # Windows machines have no graphics card, so those numbers are for the
 # CPU; a real PC is faster.)
