@@ -1128,7 +1128,10 @@ impl Studio {
             },
             Command::EditGoBackTo { number } => {
                 let open = self.open_game()?;
-                let before = (open.level.as_ref().map(Level::text), open.tune_text.clone());
+                let before = (
+                    open.level.as_ref().map(|level| level.on_disk().to_string()),
+                    open.tune_text.clone(),
+                );
                 let changed = open.history.go_back_to(number)?;
                 open.snapshots = open.history.snapshots();
                 let title = open
@@ -1145,7 +1148,7 @@ impl Studio {
                     files.push(FileEdit {
                         path: level.path.clone(),
                         before: old,
-                        after: level.text(),
+                        after: level.on_disk().to_string(),
                     });
                     open.level_unsent = true;
                 }
@@ -1441,7 +1444,8 @@ impl Studio {
         change: impl FnOnce(&mut Level) -> (usize, String),
     ) -> Result<String, Problem> {
         let level = self.level()?;
-        let before = level.text();
+        // The file exactly as it is (Undo puts back every byte of it).
+        let before = level.on_disk().to_string();
         let (changed, said) = change(level);
         if changed == 0 {
             return Ok(String::from("Nothing changed"));
@@ -1454,7 +1458,7 @@ impl Studio {
             files: vec![FileEdit {
                 path: level.path.clone(),
                 before,
-                after: level.text(),
+                after: level.on_disk().to_string(),
             }],
             stroke,
         };
@@ -1492,7 +1496,7 @@ impl Studio {
             .map(|map| map.file.clone())
             .filter(|file| !file.is_empty())
             .unwrap_or_else(|| level.name.clone());
-        play.send_file(&name, &level.text());
+        play.send_file(&name, level.on_disk());
     }
 
     /// Writes a step's files back (Undo: the "before" texts; Redo: the
@@ -1598,7 +1602,7 @@ impl Studio {
         if let Some(level) = &open.level {
             let legend = std::fs::read_to_string(&level.legend_path).unwrap_or_default();
             play.note_files_at_start(std::collections::BTreeMap::from([
-                (level.name.clone(), level.text()),
+                (level.name.clone(), level.on_disk().to_string()),
                 (level.legend_name.clone(), legend),
             ]));
         }
@@ -1958,14 +1962,14 @@ impl Studio {
             }
         }
         if let Some(level) = &mut open.level {
-            let before = level.text();
+            let before = level.on_disk().to_string();
             if level.reload_if_changed() {
                 open.undo.push(Step {
                     title: String::from("Changed outside the Studio"),
                     files: vec![FileEdit {
                         path: level.path.clone(),
                         before,
-                        after: level.text(),
+                        after: level.on_disk().to_string(),
                     }],
                     stroke: None,
                 });

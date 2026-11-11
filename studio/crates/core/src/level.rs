@@ -44,6 +44,9 @@ pub struct Level {
     columns: usize,
     /// The text as last read or written, to notice changes made outside.
     on_disk: String,
+    /// The file's lines end with `\r\n` (a Windows checkout): saving keeps
+    /// them that way, so only the cells that changed are a change.
+    crlf: bool,
 }
 
 /// A picture the Studio drew itself (the whole level, a tile for the
@@ -92,6 +95,7 @@ impl Level {
             grid: Vec::new(),
             columns: 0,
             on_disk: String::new(),
+            crlf: false,
         };
         level.take_text(&text);
         Ok(level)
@@ -108,6 +112,13 @@ impl Level {
         self.grid = lines.iter().map(|l| l.chars().collect()).collect();
         self.columns = self.grid.iter().map(Vec::len).max().unwrap_or(0);
         self.on_disk = text.to_string();
+        self.crlf = text.contains("\r\n");
+    }
+
+    /// The file's text exactly as last read or written: what Undo puts
+    /// back, and what the game reads.
+    pub fn on_disk(&self) -> &str {
+        &self.on_disk
     }
 
     pub fn columns(&self) -> usize {
@@ -118,15 +129,17 @@ impl Level {
         self.grid.len()
     }
 
-    /// The level as the file's text: one line per row.
+    /// The level as the file's text: one line per row, ending the way the
+    /// file's lines end.
     pub fn text(&self) -> String {
+        let end = if self.crlf { "\r\n" } else { "\n" };
         let mut text: String = self
             .grid
             .iter()
             .map(|row| row.iter().collect::<String>())
             .collect::<Vec<_>>()
-            .join("\n");
-        text.push('\n');
+            .join(end);
+        text.push_str(end);
         text
     }
 
@@ -585,6 +598,22 @@ mod tests {
         std::fs::write(&level.path, "p#\n").unwrap();
         assert!(level.reload_if_changed());
         assert_eq!(level.text(), "p#\n");
+        std::fs::remove_dir_all(folder).unwrap();
+    }
+
+    #[test]
+    fn a_windows_level_keeps_its_line_endings() {
+        let written = "\r\np...\r\n####\r\n";
+        let (folder, mut level) = level(written);
+        assert_eq!(level.on_disk(), written, "exactly as read, for Undo");
+        assert_eq!(level.paint(&[(1, 0)], 'c'), 1);
+        assert_eq!(level.text(), "pc..\r\n####\r\n");
+        level.save().unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&level.path).unwrap(),
+            "pc..\r\n####\r\n"
+        );
+        assert_eq!(level.on_disk(), "pc..\r\n####\r\n");
         std::fs::remove_dir_all(folder).unwrap();
     }
 
