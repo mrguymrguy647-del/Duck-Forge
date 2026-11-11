@@ -10,9 +10,9 @@
 #   like studio-v0.1.0: this workflow runs on the tag and adds the zip.
 # - Pushing a tag like studio-v0.1.0.
 # If the release is already there, its zip is replaced instead of failing.
-# Changing this file (or studio/release/) on a branch only builds the zip
-# and keeps it as a downloadable "artifact" on the run's page, so it can be
-# checked before any release is made.
+# Changing this file (or studio/release/) on a branch only builds it and
+# keeps the Studio's folder as a download ("artifact") on the run's page,
+# so it can be tried before any release is made.
 #
 # Before it builds the zip it tests the Studio on Windows: the core's
 # tests build a real game, play it through the link, freeze and resume it,
@@ -141,14 +141,14 @@ jobs:
           echo "$ver"
           [[ "$ver" == "Duck Forge Studio ${{ steps.version.outputs.version }}" ]]
 
-      - name: Keep the zip and the timings on this run's page
+      - name: Keep the Studio's folder on this run's page
         uses: actions/upload-artifact@v5
         with:
-          # GitHub adds ".zip" to this name itself when it's downloaded.
+          # GitHub zips what's kept by itself, and adds ".zip" to this
+          # name. So the folder is kept, not the zip: one download, one
+          # unzip, and DuckForgeStudio.exe is there.
           name: ${{ env.NAME }}
-          path: |
-            ${{ env.ZIP }}
-            timing-*.txt
+          path: dist/Duck Forge Studio
 
       - name: The beginner's path, from the unzipped folder (a new game, its first Check, a clip)
         shell: bash
@@ -179,6 +179,16 @@ jobs:
           grep -q '"passed": true' "$check"
           ls -l "$folder/duckforge/out/clips"
           ls "$folder/duckforge/out/clips" | grep -Eq '^bee_maze-[0-9]+\.(mp4|gif)$'
+
+      - name: Keep the timings and the beginner's path on this run's page
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: timings
+          path: |
+            timing-*.txt
+            first-game.txt
+          if-no-files-found: ignore
 
       - name: Publish the release
         if: startsWith(github.ref, 'refs/tags/studio-v') || github.event_name == 'workflow_dispatch'

@@ -2959,3 +2959,296 @@ slow each other) and `duck_craft`; the sizes from
 bigger because they carry the graphics-card renderer. Windows `.exe`
 sizes aren't here: this machine can check a Windows build but can't link
 one, so Step 2's release workflow will be the first to give them.
+
+---
+
+# Phase 4, Step 2: the app, Home, and the game inside the Studio
+
+`docs/phase4-design.md` is the design, with the review's answers folded
+in. This is what was built, what was decided on the way, and the numbers.
+
+## What was built
+
+- **The engine's side** (`src/studio_link`, behind the new `studio`
+  feature): a game started with `--studio ADDRESS` opens no window. It
+  connects to the Studio and plays one "tick" at a time, sending each
+  picture back. It can also run fast without drawing, follow a script,
+  hand over its recording, and open its own window on the frame it's on.
+- **Three fixes from Duck Craft's list:** `Game::quit` (issue 17),
+  `ctx.is_headless()` and `ctx.in_studio()` (16), and a second `--` for a
+  game's own options (18). Duck Craft uses all three.
+- **`--clip FILE`**, the end of a headless run as a video or a GIF.
+- **`studio/crates/core`:** everything the Studio does, with no window.
+- **`studio/crates/app`:** the window: Home, New game, the game screen
+  (Build | Play, Check, Clip, Pop out, Timing, Console).
+- **The release workflow** (`.github/workflows/studio-release.yml`) with
+  a "Make a release" button, and the Duck Forge icon (`studio/brand`).
+
+## Decisions made on the way
+
+**The Studio is a second cargo workspace, not part of the engine's.**
+`studio/` has its own `Cargo.toml`, lock file and target folder, and the
+engine's `Cargo.toml` doesn't know it exists. So `cargo build` and
+`cargo test` at the top do exactly what they did, egui never reaches a
+game's dependency list, and the test that pins the headless build's
+crates (`tests/dependencies.rs`) is untouched. The Studio's core uses the
+engine as a library (headless, with `studio`), so it reads input scripts
+and link messages with the engine's own code.
+
+**The `studio` feature adds no libraries.** The link is `std`'s TCP on
+`127.0.0.1` and the JSON the engine already had. Without the feature, a
+game given `--studio` says so and stops; nothing of the link is in an
+ordinary, headless or exported build.
+
+**New game and Check run the tool scripts.** The Studio doesn't have its
+own copy of what `tools/new_game` and `tools/verify` do: it runs them
+(the `.bat` on Windows) and reads verify's short report into sentences.
+That keeps one implementation, and it's what the Console shows: the very
+command a person or an agent would type. The price is that Check is only
+as detailed as verify's report.
+
+**One command layer.** Every action is a `Command` in
+`studio/crates/core/src/studio.rs`, named like `game.toggle`, with one
+table listing them all. Buttons, Tab, tests, `--run` scripts and (later)
+an agent's tools all call `studio.run(command)`. A test reads every
+command from JSON and checks the table matches.
+
+**The games folder is one type.** `folder.rs` is the only place that
+knows games are `examples/<game>` with playthroughs, tune files and
+`out/` beside them, and the only place that builds a command line. Which
+folder it is, is a setting.
+
+**The Studio keeps the time, and never bursts.** Each of the Studio's own
+frames sends at most one tick. How many updates it asks for follows the
+same rule as the window's `Pacer`, with two limits of its own: a gap over
+0.1 s between two Studio frames (its window being dragged or resized, on
+Windows) is skipped and the game carries on with one update; and one tick
+never asks for more than 3 updates. If the game hasn't answered the last
+tick, no new one is sent; the next one asks for the updates owed (again,
+never more than 3), so a game that draws slowly still moves at its own
+speed, as in its own window. The game's side holds its sound when no tick
+has come for 0.1 s (it fades out over one block and waits), so a frozen
+or dragged Studio is quiet.
+
+**Zero or one frame of added delay.** After sending the tick, the Studio
+lays out its panels and then waits up to 10 ms for the picture before
+painting the game. If it comes (the game's frame time plus the link), it's
+shown in that same Studio frame, as in the game's own window. If not, the
+last picture stays one more frame. The Timing line counts those as "late".
+
+**Two recordings, one truth.** The Studio writes down every input it
+sends, with its frame, so a session survives the game crashing. While the
+game is alive, the Studio asks it for its own recording instead (that one
+also has the reported values at the end, so a replay that ends
+differently is noticed). A test checks the two hold the same events.
+
+**A press and its release never cancel.** Both arriving between two
+updates would cancel in the engine, and the game would never see the key.
+The Studio holds the release back one tick, so the game sees a one-frame
+tap, as in its own window.
+
+**The Studio holds the pointer, not the game.** The game only says it
+wants it (`ctx.lock_pointer`). The Studio takes it when you click in the
+game, and lets go on Tab, when its window isn't the active one, and when
+the game stops asking or stops. Mouse movement is divided by the scale
+the game is shown at, the same numbers `window.rs` gives.
+
+**A new game gets its first playthrough and its first Check by
+themselves.** The first screenshot run showed why: a fresh platformer's
+Check said "Some of its play tests fail", because one test replays a
+playthrough the bot hadn't recorded yet. `tools/new_game` does both when
+run by hand; the Studio skipped them to open the game sooner. Now it opens
+the game, builds it, and then has the bot record and Check run in the
+background. The card says "Checks pass" a few seconds later.
+
+**A crash is explained from what the game printed.** Rust's own
+"panicked at file:line" and the line after it become "Its code hit a
+problem on frame 412: "..." in main.rs, line 210". Without one, a line
+starting "Error:" is quoted. Otherwise the Studio says the game didn't
+say why (an early version quoted the last line printed, which was about
+the sound card).
+
+**A GIF clip shows 50 pictures a second, not 60.** GIF timing is in
+hundredths of a second and viewers slow anything under 2 down, so the
+fastest a GIF plays everywhere is 50 a second. A 60-a-second game's clip
+keeps five frames of every six, at its real speed. The MP4 keeps them all.
+
+## How every screen is screenshotted with no window
+
+`studio/crates/app/tests/screens.rs` uses `egui_kittest`: it runs the
+app's own drawing code against a pretend 1280 x 800 screen at 100%
+scaling and renders the result to a picture with wgpu, which needs no
+display (here it draws with llvmpipe, a graphics card pretended by the
+CPU). The Studio underneath is the real one. The run makes a real new
+game from the platformer starter, builds it, plays it through the link
+(pressing its keys), presses Tab, runs a real Check, makes a real clip,
+types a command into the Console, ends the game from outside, and plays
+Duck Craft. Three screens can't be reached honestly on a working
+computer, so their state is put in place by hand: a build that failed
+(the message is a real compiler error's words), a build in progress, and
+no Rust. Pop out isn't in the pictures: it opens a real window.
+
+```sh
+cd studio
+STUDIO_SCREENSHOTS=../docs/studio-screens cargo test -p studio_app --test screens -- --nocapture
+```
+
+It takes about 40 seconds once everything is built, saves the
+pictures in `docs/studio-screens/`, and puts the repository back as it
+was (the game it made is deleted, `Cargo.toml` restored). Without
+`STUDIO_SCREENSHOTS` only a quick test runs, which checks Home and the
+New game dialog by their words, with no rendering.
+
+## The numbers
+
+**How the frame rate and the delay were measured.**
+`DuckForgeStudio --timing <game> 20` plays a game through the link with
+no window. It runs the same code the app runs on each of its frames
+(`Studio::begin_frame`, then `Studio::wait_for_picture`), sixty times a
+second, and prints the app's own Timing line every five seconds (after one
+second to settle). The same line is in the app, under the Timing button,
+so the numbers can be read on any PC. In it:
+
+- **updates a second** is how fast the game's world moves (60 is right);
+- **pictures a second** is how many new pictures arrived;
+- **longest gap** is the longest wait between two pictures;
+- **game** is the game's own time for a tick, updating and drawing, as it
+  says in each picture's header;
+- **link** is the rest of the round trip: sending the tick, and the
+  picture coming back (320 x 240 pixels, 307 KB, every frame);
+- **late** counts the pictures that weren't there within 10 ms, and so
+  were shown one Studio frame later.
+
+So the **added delay** is 0 frames for every picture that isn't late, and
+1 frame (16.7 ms) for one that is. It's never 2: a tick isn't sent until
+the last one is answered.
+
+What this doesn't measure is the Studio painting the picture on a real
+screen (copying 320 x 240 pixels to the graphics card and one textured
+rectangle), and the monitor. With no window, the measuring loop's own
+frames come a little slower than 60 a second (it sleeps between them, and
+sleeps run long), which is why "pictures a second" reads 58 or 59 while
+the game still gets its 60 updates: about one tick in forty carries two.
+In the app the frames come from the screen itself.
+
+On the 4-core cloud machine (Linux, no real graphics card; games built
+the way the Studio builds them, the Studio in release):
+
+| Game | Drawn by | Updates a second | Pictures a second | Game | Link | Late |
+|---|---|---|---|---|---|---|
+| Duck Peaks | the CPU | 59.9 to 60.0 | 59.2 to 59.4 | 0.39 ms | 0.53 to 0.61 ms | 0 or 1 of 296 |
+| 3D runner | llvmpipe (a pretend graphics card) | 59.9 to 60.0 | 59.0 to 59.4 | 1.6 ms | 0.47 to 0.52 ms | 0 or 1 of 296 |
+| Duck Craft | the CPU | 59.9 to 60.0 | 55.7 to 59.3 | 10.7 to 13.3 ms | 0.47 to 0.52 ms | 208 to 277 of about 290 |
+| Duck Craft | llvmpipe | 59.8 to 60.0 | 28.6 to 29.4 | 23.6 to 25.6 ms | 0.49 to 0.55 ms | all |
+
+On GitHub's Windows machine (the release workflow prints these on every
+run; it has no graphics card either, so "Microsoft Basic Render Driver"
+is Windows' pretend one):
+
+| Game | Drawn by | Updates a second | Pictures a second | Game | Link | Late |
+|---|---|---|---|---|---|---|
+| Duck Peaks | the CPU | 59.9 to 60.1 | 58.3 to 58.5 | 0.36 ms | 0.58 to 0.64 ms | 2 of 292 |
+| 3D runner | Microsoft Basic Render Driver | 60.0 to 60.1 | 58.1 to 58.7 | 2.8 to 3.0 ms | 0.61 to 0.75 ms | 0 to 2 of 290 |
+| Duck Craft | the CPU | 59.9 to 60.2 | 58.0 to 58.3 | 12.6 to 13.8 ms | 0.61 ms | 61 to 83 of 290 |
+| Duck Craft | Microsoft Basic Render Driver | 59.9 to 60.0 | 27.6 to 27.8 | 26.7 to 28.5 ms | 0.55 to 0.78 ms | all |
+
+Read together: the link costs about half a millisecond a frame. Duck
+Peaks and the 3D runner play at a steady 60 with no added delay. Duck
+Craft's world always moves at 60; drawn by the CPU its pictures keep up
+but most arrive a frame late, because on these machines the game alone
+takes 11 to 14 ms and the Studio only waits 10; drawn by a pretend
+graphics card it shows 28 pictures a second, which is that card's speed
+(the game takes 25 ms a frame with or without the Studio). Neither machine
+says what an RTX 3090 does: that's the first thing to read off the Timing
+line on a real PC (the checklist's item 4).
+
+A prototype settled how the picture travels: a local TCP connection moved
+a 320 x 240 picture in 0.15 ms, a pair of pipes in 0.30 ms, so TCP it is.
+The first version of the link took 1.0 ms a frame; sending the canvas
+straight from the game's memory instead of copying it first halved that.
+
+**Before and after.** Same machine and same commands as Step 0's
+baseline:
+
+| | Step 0 | After Step 2 |
+|---|---|---|
+| Headless clean build of `dodge` | 13.1 s | 13.0 s |
+| ...after touching `src/lib.rs` | 0.8 s | 0.7 s |
+| Headless test suite from an empty target folder | 74.3 s, 529 tests | 65.5 s, 533 tests |
+| Headless test suite, already built | 21.0 s | 20.7 s |
+| All tests, already built | 18.0 s, 562 tests | 18.4 s, 567 tests |
+| stress3d, 500 objects, CPU | 2.5 to 3.5 ms | 2.5 to 2.9 ms |
+| stress3d, 2,000 objects, CPU | 7.9 to 9.2 ms | 7.1 to 7.5 ms |
+| stress3d, 2,000 objects, GPU (llvmpipe) | 14.5 to 19.1 ms | 15.3 to 17.1 ms |
+| Block world, 4,096 textured blocks, CPU | 5.2 to 5.7 ms | 5.0 to 5.1 ms |
+| Duck Craft playthrough, CPU | 8.0 to 9.0 ms (slowest 15 to 21) | 8.5 to 8.7 ms (slowest 19 to 20) |
+| Duck Craft playthrough, GPU (llvmpipe) | 13.6 to 14.8 ms | 12.4 to 12.7 ms |
+| Release game: `dodge` | 6,078,912 bytes (4,319,328 stripped) | 6,069,304 (4,317,488) |
+| Release game: `duck_peaks` | 6,210,264 (4,422,496) | 6,203,944 (4,422,736) |
+| Release game: `starter_runner3d` | 11,450,680 (8,534,040) | 11,436,704 (8,531,976) |
+| Release game: `duck_craft` | 11,787,376 (8,831,592) | 11,780,264 (8,831,280) |
+| Release game, headless only: `dodge`, `duck_craft` | 2,230,536 and 2,726,336 | 2,247,864 and 2,743,728 |
+| Examples passing `verify` | 20 | 20 |
+
+Nothing got noticeably worse. The headless programs are 17 KB bigger:
+that's `--clip`. The windowed ones were 180 KB bigger for a while: the
+pop-out work had split the window's event pump over two functions, and
+winit's event code is built once for every place that asks, so it was in
+the program twice. One function now does the asking (`pump` in
+`src/window.rs`) and the sizes are back.
+
+New numbers, for next time:
+
+| | |
+|---|---|
+| A release game built with the link (`--features studio`): `dodge`, `duck_craft` | 6,186,328 and 11,900,832 bytes (about 117 KB more than without) |
+| `DuckForgeStudio.exe` (Windows, release) | 16,284,672 bytes |
+| The download, `DuckForgeStudio-0.1.0-windows.zip`, with Duck Forge in it | 13,127,410 bytes |
+| The Studio's tests | 38, and the engine has 8 more with `--features studio` (575 in all) |
+| A new game from nothing to "Checks pass", from a freshly unzipped folder | 85 s on the cloud machine, 2 min 10 s on GitHub's Windows machine |
+
+## What Windows has and hasn't shown
+
+The release workflow runs on one of GitHub's Windows machines. There,
+with no screen: the Studio's tests pass (a real game is built, played
+through the link, frozen, stepped, resumed, and its saved session replays
+to the same picture, pixel for pixel); `DuckForgeStudio.exe` builds and
+starts; the three games play through the link at the speeds in the table
+above; the zip has what it should; and from the unzipped folder (whose
+name has spaces, and where nothing was built beforehand) a new platformer
+is made, built, played, given its first playthrough, checked ("Checks
+pass") and clipped. The clip is a GIF there, as that machine has no
+ffmpeg; here it's an MP4 with sound.
+
+What that machine can't show, and nothing else has yet:
+
+- **Anything on a real screen.** The Studio's window has never been
+  opened on Windows. The pictures in `docs/studio-screens` are drawn on
+  Linux with no window.
+- **The pointer hold, the window being dragged or resized, sound, Pop
+  out, and sharp pixels at 125% and 150%.** Their logic is tested (the
+  clock, the scaling arithmetic, the input mapping, the sound's fade),
+  but not the real thing. Pop out has only been tested through the link's
+  messages, never with a window on a screen.
+- **A real graphics card.** Both machines draw 3D with a pretend one.
+
+The checklist at the end of `docs/phase4-design.md` (17 short items)
+covers all of it.
+
+## Known gaps after Step 2
+
+- **Build mode has no editor yet.** Frozen, it offers "Play one frame",
+  "Play ten frames" and Restart. Painting the level is Step 3.
+- **F1, F3 and F12** (the debug overlay, the FPS counter, screenshots)
+  aren't handled inside the Studio yet; they reach the game as plain keys.
+- **While popped out**, the Studio's own recording doesn't see the inputs
+  (the game's own window takes them). The game's recording has them, so a
+  session is whole as long as the game doesn't crash while popped out.
+- **QUICKSTART.md and the skill** are at their line limits (125 and 150)
+  and say nothing about the Studio yet. They get their lines at the end
+  of the phase, when Step 3's level files need room there too. The
+  README and `docs/AI_GUIDE.md` (section 13) do cover it.
+- **The icon** is a plain flat duck and anvil, simpler than Duck Quill's.
+- **The "Make a release" button** only appears in the Actions tab once
+  the workflow file is on `main`. Until then, every push that touches the
+  workflow keeps the zip on its run's page.

@@ -326,7 +326,8 @@ A shorter hiccup is caught up on, but never by more than three updates in
 one go.
 
 **Delay.** If the frame comes back before the Studio paints (the game's
-frame time plus 0.15 ms), the picture is on screen in the same refresh
+frame time plus about half a millisecond for the link, as measured; the
+Studio waits up to 10 ms), the picture is on screen in the same refresh
 as in the game's own window: no added delay. If it's late, the last
 picture stays one more refresh and the new one shows next time: one frame
 of added delay, never more.
@@ -663,10 +664,15 @@ the Console panel (section 1).
 ## What you test on Windows after Step 2
 
 I can check that a Windows build compiles here, but not link or run it.
-The release workflow will build and test the Studio on a Windows machine
-and play a starter through the link there, with no screen, so linking
-and the link itself are proven before you download anything. These need
-your PC:
+So the release workflow does that on one of GitHub's Windows machines,
+every time it runs, with no screen: it runs the Studio's tests (they
+build a real game, play it through the link, freeze and resume it, and
+replay the session exactly), builds `DuckForgeStudio.exe`, plays three
+games through the link and prints their Timing lines, makes the zip, and
+then walks the beginner's path in the unzipped folder: a new game from a
+starter, its first build, its first playthrough and Check, and a clip.
+What that can't show is anything that needs a real screen, mouse, sound
+card or graphics card. These need your PC:
 
 1. The zip opens, `DuckForgeStudio.exe` starts, and no black console
    window appears. (Windows may say "Windows protected your PC" the first
@@ -676,8 +682,8 @@ your PC:
    Change a number in its `main.rs` and save: it rebuilds by itself while
    the game is still playing.
 4. Turn on Timing. For Duck Peaks, the 3D runner and Duck Craft, write
-   down: frames per second, longest gap, late frames, and the renderer's
-   name (it should name the RTX 3090, not the CPU).
+   down: updates and pictures a second, longest gap, late frames, and
+   the renderer's name (it should name the RTX 3090, not the CPU).
 5. The pixels are sharp squares with Windows scaling at 100%, 125% and
    150%, and after dragging the window to another screen.
 6. Duck Craft: click in the game. The pointer hides, and looking round
@@ -701,3 +707,12 @@ your PC:
     freeze cleanly while you drag (no stutter, and its sound goes quiet)
     and carry on at normal speed the moment you let go, with no burst of
     fast-forward. The frame number in the status bar should not jump.
+14. Home, New game: pick the platformer, give it a name. It opens and
+    plays, and a little later its card on Home says "Checks pass".
+15. Check: the list appears. Click the playthrough's line: its picture
+    shows.
+16. Clip: it says where the file is, and "Show it in its folder" opens
+    File Explorer there. Without ffmpeg it's a GIF, with a line about
+    how to get sound.
+17. Console: it shows the command behind each button you pressed. Type
+    `cargo --version` and press Run: the version appears.
