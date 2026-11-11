@@ -792,7 +792,19 @@ window, or `sim.resize(w, h)` in a test).
 `ctx.lock_pointer(true)` (hide the mouse pointer and hold it in the window,
 for first-person mouse look: read `mouse_delta()`, which keeps counting;
 `false` gives it back; give the player a way out, like Escape),
-`ctx.pointer_locked()`.
+`ctx.pointer_locked()`, `ctx.is_headless()` (true with `--headless`, in
+fuzz runs and in tests: don't load or save a save file then, or runs stop
+being repeatable), `ctx.in_studio()` (true inside Duck Forge Studio, where
+every session is recorded: start the same way every time there too),
+`ctx.studio_note("...")` (a line the Studio shows next to the game;
+nothing happens elsewhere). In `main`, before there's a `ctx`:
+`duckforge::is_headless()` and `duckforge::in_studio()`.
+
+**`Game`**: `update(ctx)` and `draw(canvas)` are required. Optional:
+`init(ctx)` (once, before the first update), `resize(ctx, width, height)`
+and `quit(ctx)`: runs once on every way out (the window's close button,
+`ctx.quit()`, `--frames`, the end of a headless run, the Studio stopping
+the game), which is the place to save. A test calls it with `sim.quit()`.
 
 **`ctx.input`**: `is_down(key)`, `was_pressed(key)` (one frame per
 press), `was_released(key)`, `axis(Key::Left, Key::Right)` (-1, 0 or 1),
@@ -1496,3 +1508,34 @@ Plan around these. Don't spend time looking for them:
 
 For anything else, read the source: it's small, commented, and the
 tutorial (`TUTORIAL.md`) explains every part.
+
+## 13. Duck Forge Studio
+
+Duck Forge Studio (`studio/`, its own cargo workspace) is an app for
+people: the game plays inside it, Tab freezes it on a frame and carries
+on from there, and buttons run Check (`tools/verify`), Clip and Pop out.
+It changes nothing for you: every game is still the same plain files,
+and every command in this guide works as before. What it adds that an
+agent might meet:
+
+- **The Console panel** shows the command behind each button with its
+  real output. A person may paste you that output.
+- **Sessions.** Everything played in the Studio is saved as an input
+  script in `out/sessions/<game>/` (`latest.json` is the newest). Replay
+  one like any playthrough:
+  `cargo run --no-default-features --example mygame -- --headless --inputs out/sessions/mygame/latest.json --sheet-events --out out/look`.
+- **Checks.** A check's result is saved as `out/verify/<game>/check.json`
+  (each line of `tools/verify`'s report, said plainly).
+- **Clips.** `--clip out/clips/x.mp4` (with `--headless`) saves a run's
+  last ten seconds; `--clip-seconds S` changes how many.
+- **Driving it yourself**, with no window:
+  `cargo run -p studio_app -- --run script.json` (from `studio/`) runs a
+  JSON list of the Studio's commands and waits, like
+  `[{"do": "game.open", "name": "dodge"}, {"wait": "playing"}, {"wait": "frames", "frames": 120}, {"do": "game.toggle"}, {"do": "check.run"}, {"wait": "idle"}]`.
+  `-- --commands` lists every command.
+- **The `studio` feature** is the game's side of the link
+  (`cargo build --example mygame --features studio`, then the Studio
+  starts it with `--studio`). It's off by default: ordinary builds,
+  headless runs and tests don't include it.
+
+`docs/phase4-design.md` has the whole design.

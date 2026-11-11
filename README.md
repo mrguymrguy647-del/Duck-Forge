@@ -99,6 +99,34 @@ cargo run --no-default-features --example breakout -- --headless --frames 600 --
 | `template` | Arrows or A/D run · Up, W or Space jumps · P pauses |
 | every game | **F1** debug overlay · **F3** shows the FPS · **F10** starts and stops recording · **F12** saves a screenshot (PNG) · Escape quits |
 
+## Duck Forge Studio
+
+For making games without a terminal: an app where the game plays *inside*
+it. It's in `studio/` (its own cargo workspace), and its Windows download
+is made by the "Studio release" workflow.
+
+- **Home** lists your games as cards ("Checks pass" or "Needs a look") and
+  makes new ones from a starter.
+- **The game screen** shows the game in the middle, exactly as it draws
+  itself (enlarged by a whole number, never smoothed). **Tab** freezes it
+  on the frame it's on, and Tab again carries on from exactly there.
+- **Check** runs `tools/verify` and shows its report as a friendly list;
+  click a line to see its picture. **Clip** saves the last ten seconds as
+  a video. **Pop out** plays the game in its own window.
+- **The Console panel** shows the command behind every button with its
+  real output, and runs commands you type.
+
+Everything the Studio makes is the same plain files described here, and
+every command in this README works as before. To try it from source:
+
+```sh
+cd studio
+cargo run --release -p studio_app
+```
+
+`docs/phase4-design.md` is the design, and `docs/studio-screens/` has a
+picture of every screen.
+
 ## Features
 
 - **2D drawing:** rectangles, circles, lines, triangles, text in a built-in

@@ -628,6 +628,9 @@ mod tests {
         "--list-playthroughs",
         // A made-up game's own option, in the example of options after `--`.
         "--new-world",
+        // Duck Forge Studio's own, for running it with no window.
+        "--run",
+        "--commands",
     ];
 
     #[test]
