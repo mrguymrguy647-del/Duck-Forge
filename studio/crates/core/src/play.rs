@@ -381,7 +381,9 @@ impl Play {
     /// started (for the session's recording if the game can't give its own).
     pub fn note_files_at_start(&mut self, files: BTreeMap<String, String>) {
         for (name, text) in files {
-            self.files_at_start.entry(name).or_insert(text);
+            self.files_at_start
+                .entry(name)
+                .or_insert_with(|| lines_end_with_newline(&text));
         }
     }
 
@@ -392,6 +394,8 @@ impl Play {
         if self.hello.is_none() || !self.is_running() {
             return;
         }
+        // As the game reads it, so the recording is the same on Windows.
+        let text = &lines_end_with_newline(text);
         self.send(&ToGame::File {
             path: name.to_string(),
             text: text.to_string(),
@@ -1105,6 +1109,12 @@ fn one_time_key() -> String {
         "{:x}",
         nanos ^ (here << 64) ^ u128::from(std::process::id())
     )
+}
+
+/// A text with every line ending `\n`, as the engine gives files to a
+/// game (a Windows checkout's files end their lines with `\r\n`).
+pub fn lines_end_with_newline(text: &str) -> String {
+    text.replace("\r\n", "\n")
 }
 
 #[cfg(test)]

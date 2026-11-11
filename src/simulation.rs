@@ -573,14 +573,17 @@ impl<G: Game> Simulation<G> {
     /// the coming frame, so a replay makes it at the same moment. Duck
     /// Forge Studio and the window (when a file changes on disk) use this.
     pub fn change_file(&mut self, name: &str, text: &str) -> bool {
+        // As the game will read it (lines ending `\n`), so the recording
+        // is the same on every system.
+        let text = crate::files::lines_end_with_newline(text);
         self.changes.push(ChangeEvent {
             frame: self.ctx.frame() + 1,
             change: Change::File {
                 path: name.to_string(),
-                text: text.to_string(),
+                text: text.clone(),
             },
         });
-        self.make_file_change(name, text)
+        self.make_file_change(name, &text)
     }
 
     /// Changes `ctx.tune` values from now on (Duck Forge Studio's Feel).

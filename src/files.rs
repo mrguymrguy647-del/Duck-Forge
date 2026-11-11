@@ -15,6 +15,11 @@
 //!
 //! What's noted belongs to the thread that read it: the engine runs a
 //! game, and its tests, one thread each.
+//!
+//! Lines always end with `\n` in the text the game gets, whatever the
+//! file has (Git on Windows checks files out with `\r\n`), so a recording
+//! made on Windows is the same as one made anywhere else, and a replay
+//! doesn't take a different line ending for a changed level.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -53,6 +58,11 @@ pub(crate) fn name_of(path: &Path) -> String {
     text.strip_prefix("./").unwrap_or(&text).to_string()
 }
 
+/// A text with every line ending `\n`.
+pub(crate) fn lines_end_with_newline(text: &str) -> String {
+    text.replace("\r\n", "\n")
+}
+
 /// Reads a text file the game needs, and notes it. If the Studio or a
 /// replay has given newer text for it, that's what's read.
 pub(crate) fn read_text(path: &Path) -> io::Result<String> {
@@ -69,7 +79,7 @@ pub(crate) fn read_text(path: &Path) -> io::Result<String> {
                     .on_disk
                     .insert(name.clone(), text.clone());
             });
-            text
+            lines_end_with_newline(&text)
         }
     };
     FILES.with(|files| {
@@ -98,7 +108,13 @@ fn take_given_from_variable() {
         .ok()
         .and_then(|text| serde_json::from_str(&text).ok());
     match texts {
-        Some(texts) => FILES.with(|files| files.borrow_mut().given.extend(texts)),
+        Some(texts) => FILES.with(|files| {
+            files.borrow_mut().given.extend(
+                texts
+                    .into_iter()
+                    .map(|(name, text)| (name, lines_end_with_newline(&text))),
+            );
+        }),
         None => eprintln!(
             "duckforge: {GIVE_FILES_VARIABLE} names {}, which isn't a JSON object of file texts; \
              reading the files from disk",
@@ -113,7 +129,7 @@ pub(crate) fn give(name: &str, text: &str) {
         files
             .borrow_mut()
             .given
-            .insert(name.to_string(), text.to_string());
+            .insert(name.to_string(), lines_end_with_newline(text));
     });
 }
 
@@ -126,11 +142,12 @@ pub(crate) fn start_with(texts: &BTreeMap<String, String>) -> Vec<String> {
         let mut files = files.borrow_mut();
         let mut differ = Vec::new();
         for (name, text) in texts {
-            if files.last.get(name).is_some_and(|last| last != text) {
+            let text = lines_end_with_newline(text);
+            if files.last.get(name).is_some_and(|last| *last != text) {
                 differ.push(name.clone());
             }
             files.given.insert(name.clone(), text.clone());
-            files.first.insert(name.clone(), text.clone());
+            files.first.insert(name.clone(), text);
         }
         differ
     })
@@ -208,6 +225,28 @@ mod tests {
             "the game read other text"
         );
         assert_eq!(read_text(&path).unwrap(), "p..#");
+        forget_given();
+        std::fs::remove_dir_all(folder).unwrap();
+    }
+
+    #[test]
+    fn lines_end_the_same_on_every_system() {
+        let folder =
+            std::env::temp_dir().join(format!("duckforge-files-crlf-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let path = folder.join("level.txt");
+        // As Git on Windows checks it out.
+        std::fs::write(&path, "p..#\r\n####\r\n").unwrap();
+        let name = name_of(&path);
+        assert_eq!(read_text(&path).unwrap(), "p..#\n####\n");
+        assert_eq!(first_texts()[&name], "p..#\n####\n", "and so recorded");
+        let differ = start_with(&BTreeMap::from([(
+            name.clone(),
+            String::from("p..#\n####\n"),
+        )]));
+        assert!(differ.is_empty(), "a recording made elsewhere is the same");
+        give(&name, "p.=#\r\n####\r\n");
+        assert_eq!(read_text(&path).unwrap(), "p.=#\n####\n");
         forget_given();
         std::fs::remove_dir_all(folder).unwrap();
     }

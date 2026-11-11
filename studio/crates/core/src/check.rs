@@ -329,7 +329,8 @@ pub fn level_rows(
             }
         }
     }
-    let now = level.text();
+    // Line endings don't count: a Windows checkout has `\r\n`.
+    let now = crate::play::lines_end_with_newline(&level.text());
     for playthrough in folder.playthroughs(game) {
         let Ok(script) = duckforge::InputScript::load(&playthrough) else {
             continue;
@@ -339,7 +340,7 @@ pub fn level_rows(
             .iter()
             .find(|(name, _)| name.ends_with(&level.name) || level.name.ends_with(name.as_str()));
         if let Some((_, text)) = recorded_on
-            && text.trim_end() != now.trim_end()
+            && crate::play::lines_end_with_newline(text).trim_end() != now.trim_end()
         {
             let name = playthrough
                 .file_stem()
