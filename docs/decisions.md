@@ -3807,6 +3807,11 @@ CPU showed 58.4 to 58.5 pictures a second with 34 to 53 late of 292,
 a little better than before. The 3D runner's line (the one to watch from
 last time) is in that run's "timings" download; it wasn't read here.
 
+The proof then grew to 87 steps (Duck Craft's mouse look on its own,
+with a picture before for comparison) and the workflow passed again at
+that commit (affcffd): the proof as a test with the stricter Duck Craft
+check, and the whole script from the unzipped folder in 3 min 29 s.
+
 ## What would still confuse a beginner
 
 Said plainly, from walking the proof and reading its pictures:
