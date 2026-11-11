@@ -887,7 +887,8 @@ in `examples/mygame/level.txt`, what they mean in
 `{"tile_size": 16, "tiles": "assets/tiles.json", "letters": {"#": {"kind": "solid", "name": "grass"}, "=": {"kind": "one_way", "name": "plank"}, "~": {"kind": "decoration", "name": "water"}, "p": {"kind": "thing", "name": "player", "label": "Start", "at_least": 1, "at_most": 1, "start": true}, "c": {"kind": "thing", "name": "coin"}}}`
 ("thing" is a spawn point; `label` is what the Studio calls it).
 `let map = TileMap::load_level("examples/mygame/level.txt")?;` reads
-both. The engine notes the files a game reads this way, so a change
+both (lines always reach the game ending `\n`, even from a Windows
+checkout's `\r\n` files). The engine notes the files a game reads this way, so a change
 while it runs calls the game's `reload`, and recordings keep each file's
 text (see input scripts' `"files"`): in `reload`, check
 `map.reads_from(file)`, read the level again, and keep what's been

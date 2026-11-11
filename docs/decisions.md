@@ -3252,3 +3252,319 @@ covers all of it.
 - **The "Make a release" button** only appears in the Actions tab once
   the workflow file is on `main`. Until then, every push that touches the
   workflow keeps the zip on its run's page.
+
+---
+
+# Phase 4, Steps 3 and 4: Build mode, levels as files, Feel, History
+
+`docs/phase4-design.md` sections 4 to 9 are the design. This is what was
+built, where it differs from the design and why, and the numbers.
+
+## The two fixes from the Step 2 review
+
+- **Home's cards showed the debug overlay's boxes.** Check replays
+  playthroughs with `--debug`, and the card used that run's `last.png`.
+  A headless run that draws the overlay or the grid on `last.png` now also
+  saves `last.plain.png` (the same frame as the game drew it), and the
+  cards use it. No existing picture changed; it's one more file.
+- **F1, F3 and F12 inside the Studio** do what they do in a game's own
+  window: F1 has the game draw its debug overlay (over the link; a frozen
+  game draws its frame again, so it shows at once), F3 shows the Timing
+  line (the Studio's frame counter), F12 saves the game's picture at its
+  own size in `out/screenshots/`. As in the window, the keys still reach
+  the game too, so recordings are the same either way.
+
+## Levels as files
+
+A level is `level.txt` (the letters, exactly as the `LEVEL` text was) and
+`level.legend.json` (what each letter means, the tile size, the tiles'
+sprite sheet, labels, and rules). `TileMap::load_level` reads both.
+`template`, `duck_peaks` and `starter_topdown` were converted; the top-down
+starter moved from its own wall grid onto `TileMap`. Each game's
+playthrough was recorded again by its own bot and has the same inputs, the
+same length and the same ending as before (compared field by field); the
+recordings now also carry the level they were made on.
+
+**A legend's letters come out tiles first, then things.** The JSON
+reader keeps an object's keys sorted, not in the file's order, so "in the
+order written" wasn't available without a new dependency feature. Tiles,
+then things, each sorted, is what the palette shows.
+
+**The engine notes the text files a game reads** (`src/files.rs`), per
+thread (the engine runs a game, and each test, on one thread). That's how
+`reload` knows which files matter and how a recording can keep them.
+Text given instead of the disk (by the Studio or a replay) is forgotten
+when the run ends, so the next game on that thread reads the disk again.
+
+**One new hook, `Game::reload(ctx, file) -> bool`,** called between two
+updates when a file the game read changes: in a window when it changes on
+disk (looked at twice a second, like the tune file), in the Studio through
+the link's new `file` message, and in a replay on its frame. The starters'
+`reload` keeps the duck where it is, keeps collected coins collected, and
+adds and removes only what changed (`spawn_changes`).
+
+**Changes made while running are part of the recording.** An input script
+can now have `"files"` (the texts on frame 1) and `file` and `tune` events
+(`docs/input-format.md`); on the same frame, changes come before inputs.
+`Simulation::change_file` and `change_tunes` make them, recordings keep
+them, replays apply them on their frame. Old scripts read exactly as
+before. A replay of a game that read a file before the replay could give
+it the recorded text calls `reload` before the first update (and warns if
+the game has none). A window records an edited tune file the same way now,
+so F10 recordings replay exactly too.
+
+**Each edit is its own event, not one per freeze.** The design merged the
+edits of one freeze into one change. But the game read each of them
+(`reload` runs at once, so the frozen picture shows it), and two reloads
+aren't always the same as one; recording each, in order, on the same frame
+is exact whatever the game's `reload` does. To keep sessions small, a
+paint stroke goes to the game at most five times a second (and once more
+at its end), not every frame.
+
+## Build mode
+
+**The picture is the game's own drawing.** Each picture the game sends
+says where its tile map was drawn (`TileMap::draw` notes it; a game that
+draws its own tiles, like the top-down starter, calls `map.mark_drawn`).
+The Studio puts its grid there, so the squares sit exactly on the game's
+tiles at any scale, and the pointer's square is the game's square.
+
+**Panning the game's own picture (the design's `view`) wasn't built.**
+The frozen frame shows what the game's camera saw. For the rest of the
+level, "Whole level" shows all of it drawn by the Studio with the engine's
+own sprites: the same pixels for tiles, and badges for things the tile
+sheet has no picture of, but none of the game's backgrounds. This is the
+fallback the design named. A game-drawn `view` needs every game to draw
+through a camera the engine can swap, which would be a change to how games
+are written; it's left for when it's clearly needed.
+
+**Tools:** Paint (drag; right-drag erases), Erase, Fill, Things (click to
+put, drag to move, right-click to take away; a thing the level has one of,
+like the Start, moves rather than doubles), Select (drag a box, drag it to
+move it), Play from here. Every click is a command (`level.paint`,
+`level.fill`...), the same ones a script or an agent uses.
+
+**Play from here starts the game again with the Start moved, without
+changing the file.** The design had the game take the moved level through
+`reload`, but `reload` keeps the duck where it is. Instead the Studio
+starts the game with `DUCKFORGE_GIVE_FILES` naming a small JSON file of
+texts; the engine reads those instead of the disk from the start, and the
+session's recording keeps them, so it replays.
+
+**Every edit is saved at once**, whole: written to a file beside it,
+which then takes its place, so a crash can't leave half a level.
+
+## Play tests that survive level edits
+
+The starters' tests now come in two kinds. How the game plays (running,
+jumping, planks, walls, water, pausing; walking, diagonals, hits, the last
+coin) is tested on tiny levels written in the test, with the real legend's
+letters. The real level is tested for what must stay true: its rules hold
+(`broken_rules`), the top-down level is closed and every coin can be
+walked to (`reach_on_foot`, exact), and the platformers' bot can still win
+on it, with every coin. Painting the level can't break the first kind,
+and breaks the second only when the level really changed what matters.
+
+**"A coin looks out of reach" is a warning in Check, not a test.**
+`map.reach` follows the arc a point takes at a few speeds, cautiously. A
+first version wrongly called most of Duck Peaks' coins unreachable (it
+checked for walls before checking for landing); fixed, it agrees with the
+bot on both platformers. But a cautious reckoning can still be wrong, and
+as a test it could block "Checks pass" for a level that plays fine. So
+Check shows it as a warning, with a picture of the spot ringed, and the
+bot winning is the test.
+
+**A recorded playthrough replays on the level it was made on** (its
+`"files"`), so painting the level doesn't make it fail. Check says "The
+recorded playthrough is from an older level" and offers "Record it again",
+which has the game's bot record it on the level as it is now.
+
+The games also start without a Start or a flag (a level being painted),
+and their cameras cope with a level smaller than the screen (they used to
+panic there).
+
+## Feel
+
+The game says its `ctx.tune` values when the Studio asks (a new `tunes`
+question: each value, its default in the code, and where it came from).
+Every one is a slider; `examples/<game>.feel.json` (optional) gives
+labels, groups, ranges and presets. A slider sends the value at once (a
+`tune` change in the session) and writes the tune file, whole. One drag is
+one step for Undo. Editing the tune file by hand moves the sliders.
+"code" finds `tune("name"` in the game's code and shows the lines around
+it. The recording's `"tune"` block keeps the values as they were on frame
+1, and the changes come after, on their frames, so a replay with Feel
+changes in the middle is exact (the real-game test changes the jump while
+frozen and replays to the same picture).
+
+The starters and Duck Peaks have feel files with presets, and
+`tools/new_game` copies a starter's.
+
+## Pictures and sounds
+
+**Pictures** open in Duck Quill (found next to the Studio, or chosen once
+with Choose...). The Studio watches the game's `assets` folder; when a
+picture changes, the game gets a `file` message for it and the starters'
+`reload` loads their art again, and the palette is drawn again. A
+replay knows a reload happened then, but not what the picture looked
+like: pictures aren't copied into the session (the design's `"copy"`), so
+a replay draws today's pictures. The game itself plays out the same.
+
+**Sounds:** the game keeps the latest of each sound it has played, by
+name, and says them when asked (`sounds`). Play asks the game to play it
+again, outside the game, so nothing it does changes. Recipe shows a
+synthesizer sound's values as code, or Duck Echo's `art/<name>.toml`, or
+the line of `art/README.md` that names the file.
+
+## Undo and History
+
+**Undo** steps name the files they changed, with their text before and
+after, so one kind of step covers the level and the tune file. A paint
+stroke or a slider drag is one step; a change made outside the Studio is a
+step called "Changed outside the Studio". Undoing the first Feel change
+removes the tune file it made, and the game gets its values from the code
+again.
+
+**History** is plain folders, `history/<game>/0007 Painted 14 tiles/`, each
+with `files.txt` (every file the game had then, with a short fingerprint),
+`about.json` (title and time), and copies of the files that changed since
+the one before. Any snapshot can be put back: each file comes from the
+newest copy at or before it. Snapshots are taken when the game is first
+opened in the Studio, when you play after changes, on a preset, before a
+Check, before going back, and every five minutes while there are changes;
+"Go back to here" takes one of now first. Snapshots older than a week are
+thinned to one a day (their copies move into the next one). It covers the
+game's folder (not `target` or `out`), its tune and feel files and its
+playthroughs. `history/` is in `.gitignore`. Times show in UTC: the Studio
+has no time-zone library.
+
+## Windows line endings
+
+The Windows workflow found two real problems the Linux tests couldn't:
+Git on Windows checks `level.txt` out with `\r\n` at the end of each
+line. The Studio wrote the level back with `\n`, so Undo didn't put back
+exactly what was there; and Check called every example's playthrough
+"from an older level", because the recordings, made on Linux, have `\n`.
+
+**Line endings don't count.** The engine gives a game every text file
+with its lines ending `\n`, whatever the file has (read from disk, given
+by the Studio or a replay, or changed while running), so a recording made
+on Windows is the same as one made on Linux, and a replay on Windows
+doesn't call `reload` for a level that only looks different. The Studio
+saves a level with the line endings its file had (painting changes only
+the cells painted, in Git's eyes too), Undo puts back the file's text
+exactly, and Check compares levels without regard to line endings. Both
+were tested here with the three games' level files given `\r\n`
+endings: the engine's and the Studio's whole test suites pass.
+
+## The link
+
+Version 2: `overlay` (F1), `file` (a changed file; answered with
+`changed`), `tune`, `play_sound`; questions `tunes`, `sounds`, `files`;
+and each picture says where its tile maps were drawn.
+
+## New commands
+
+`game.debug_overlay`, `game.screenshot`, `level.paint`, `level.erase`,
+`level.fill`, `level.place_thing`, `level.move_thing`,
+`level.delete_thing`, `level.move_area`, `level.resize`,
+`level.play_from`, `feel.set`, `feel.preset`, `feel.show_code`,
+`assets.open_in_quill`, `assets.play_sound`, `assets.show_recipe`,
+`check.record_again`, `edit.snapshot`, `edit.go_back_to`, `edit.undo`,
+`edit.redo`. `DuckForgeStudio --commands` lists them all.
+
+## The numbers
+
+**Through the link**, measured as in Step 2 (`DuckForgeStudio --timing
+<game> 20`, the Studio in release, on the 4-core cloud machine). The link
+now also says where tile maps were drawn, in every picture; it costs
+nothing you can see:
+
+| Game | Drawn by | Updates a second | Pictures a second | Game | Link | Late |
+|---|---|---|---|---|---|---|
+| Duck Peaks | the CPU | 60.0 | 59.4 | 0.44 ms | 0.59 to 0.63 ms | 0 of 297 |
+| 3D runner | llvmpipe | 59.9 to 60.2 | 59.0 to 59.4 | 1.8 to 2.0 ms | 0.53 to 0.57 ms | 0 or 1 of 296 |
+| Duck Craft | the CPU | 59.9 to 60.1 | 54.0 to 59.2 | 11.3 to 14.2 ms | 0.53 to 0.60 ms | 257 to 286 of about 290 |
+
+Duck Craft's late pictures are as in Step 2: the game alone takes longer
+than the 10 ms the Studio waits, on this machine.
+
+**Before and after.** Same machine and same commands as Step 0's
+baseline. The first measurement ran while the Studio was being built in
+the background, and was slower everywhere; these are from a second,
+quiet run.
+
+| | Step 0 | After Step 2 | After Steps 3 and 4 |
+|---|---|---|---|
+| Headless clean build of `dodge` | 13.1 s | 13.0 s | 13.8 s |
+| ...after touching `src/lib.rs` | 0.8 s | 0.7 s | 0.8 s |
+| Headless test suite from an empty target folder | 74.3 s, 529 tests | 65.5 s, 533 tests | 71.1 s, 544 tests |
+| Headless test suite, already built | 21.0 s | 20.7 s | 21.4 s |
+| All tests, already built | 18.0 s, 562 tests | 18.4 s, 567 tests | 22.4 s, 578 tests |
+| stress3d, 500 objects, CPU | 2.5 to 3.5 ms | 2.5 to 2.9 ms | 3.10 to 3.15 ms |
+| stress3d, 2,000 objects, CPU | 7.9 to 9.2 ms | 7.1 to 7.5 ms | 7.6 to 8.4 ms |
+| stress3d, 2,000 objects, GPU (llvmpipe) | 14.5 to 19.1 ms | 15.3 to 17.1 ms | 14.1 to 19.7 ms |
+| Block world, 4,096 textured blocks, CPU | 5.2 to 5.7 ms | 5.0 to 5.1 ms | 4.3 to 5.2 ms |
+| Duck Craft playthrough, CPU | 8.0 to 9.0 ms (slowest 15 to 21) | 8.5 to 8.7 ms (slowest 19 to 20) | 8.6 to 9.2 ms (slowest 18 to 27) |
+| Duck Craft playthrough, GPU (llvmpipe) | 13.6 to 14.8 ms | 12.4 to 12.7 ms | 13.2 to 14.0 ms |
+| Release game: `dodge` | 6,078,912 bytes (4,319,328 stripped) | 6,069,304 (4,317,488) | 6,218,200 (4,423,520) |
+| Release game: `duck_peaks` | 6,210,264 (4,422,496) | 6,203,944 (4,422,736) | 6,388,856 (4,557,416) |
+| Release game: `starter_runner3d` | 11,450,680 (8,534,040) | 11,436,704 (8,531,976) | 11,584,784 (8,639,288) |
+| Release game: `duck_craft` | 11,787,376 (8,831,592) | 11,780,264 (8,831,280) | 11,930,864 (8,941,256) |
+| Release game, headless only: `dodge`, `duck_craft` | 2,230,536 and 2,726,336 | 2,247,864 and 2,743,728 | 2,357,120 and 2,858,312 |
+| Examples passing `verify` | 20 | 20 | 20 |
+
+**The times** are the same within this machine's noise. "All tests,
+already built" is 4 s slower, and that is Duck Craft's own tests, which
+took between 14.5 and 18 s on this machine in both Step 2's build and
+this one, run after run; nothing in them changed. The frame times are
+within the spread Step 0 saw.
+
+**The programs are bigger: about 150 KB a game, 110 KB headless.** This
+is new code every game carries, not a copy of something: recordings that
+keep file and tune changes and replay them on their frame (the script
+reader and writer grew), the file layer (noting files, giving texts,
+`DUCKFORGE_GIVE_FILES`), the level legend and its rules, and `reach`.
+Looking at the program's functions, the growth is spread over many of
+them and nothing appears twice, which was what went wrong in Step 2.
+Duck Peaks grew a little more (185 KB) because it now reads its level
+from files and has a `reload`. That's 1 to 3 per cent of a windowed game
+and 4 to 5 per cent of a headless one; whether that is "noticeably
+worse" is a judgment call, so it's said plainly here.
+
+New numbers, for next time:
+
+| | |
+|---|---|
+| A release game built with the link: `dodge`, `duck_craft` | 6,372,256 and 12,076,216 bytes |
+| `DuckForgeStudio` (Linux, release) | 32,182,632 bytes (Windows: on the release workflow's page) |
+| The Studio's tests | 49 (38 after Step 2), and the engine has 8 more with `--features studio` |
+| The engine's tests now | 545 headless, 553 with `--features studio` |
+
+## What Windows has shown
+
+The release workflow on GitHub's Windows machine (commit 25e628b): the
+Studio's tests pass there, including the real-game test that paints the
+template's level (checked out with `\r\n`) while frozen, changes the
+jump, undoes both and replays the session to the same picture; then the
+release build, the timing run and the zip check. The two runs before it
+failed on the line endings described above; both are fixed.
+
+## What isn't proved yet
+
+- **Nothing here ran on a real Windows PC with a mouse.** The workflow
+  runs the Studio's tests on Windows (now including painting a real level
+  while frozen and replaying it exactly), but painting by hand, the
+  sliders, Duck Quill opening, sounds playing and History's buttons need
+  your PC: checklist items 18 to 26 in `docs/phase4-design.md`.
+- **Duck Quill wasn't available here**, so opening a picture in it was
+  tested only up to the command the Studio runs. Picking up a saved
+  picture was tested by the asset watch logic, not with Quill.
+- **No sound card here**: Play on a sound sends the message; hearing it
+  is on your list.
+- **The game-drawn `view`** (panning the game's own picture) isn't built;
+  Whole level is the Studio's drawing of the tiles.
+- **Pictures changed during a session** aren't copied into it: a replay
+  draws today's pictures.
+- **QUICKSTART.md and the skill** are still at their line limits; they get
+  the Studio in Step 5, with the beginner's walk-through.
