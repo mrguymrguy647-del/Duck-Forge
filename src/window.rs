@@ -201,7 +201,7 @@ pub(crate) fn run<G: Game>(
 
     while !screen.closed && !sim.quit_requested() && sim.context().frame() < frames {
         // Collect what happened since last frame: keys, mouse, resizing, closing.
-        if let PumpStatus::Exit(_) = event_loop.pump_app_events(Some(Duration::ZERO), &mut screen) {
+        if !pump(&mut event_loop, &mut screen, Duration::ZERO) {
             break;
         }
         if screen.closed {
@@ -355,6 +355,21 @@ pub(crate) fn run<G: Game>(
     Ok(())
 }
 
+/// Hands the window system's news (keys, the mouse, resizing, closing) to
+/// the screen, waiting up to `patience` for some. False once the window
+/// system says the program should end.
+///
+/// Every place that needs the news comes through here. winit's code for
+/// it is built afresh for each place that asks, and it's big: asking from
+/// one place keeps a game's program about 150 KB smaller.
+#[inline(never)]
+fn pump(event_loop: &mut EventLoop<()>, screen: &mut Screen, patience: Duration) -> bool {
+    !matches!(
+        event_loop.pump_app_events(Some(patience), screen),
+        PumpStatus::Exit(_)
+    )
+}
+
 /// Opens the game's window, or says why it couldn't.
 fn open_screen(config: &Config) -> Result<(EventLoop<()>, Screen), String> {
     let mut event_loop = new_event_loop()?;
@@ -368,9 +383,7 @@ fn open_screen(config: &Config) -> Result<(EventLoop<()>, Screen), String> {
     // The window is made during the first few events (winit says when it's ready).
     let opening = Instant::now();
     while screen.window.is_none() && screen.problem.is_none() {
-        if let PumpStatus::Exit(_) =
-            event_loop.pump_app_events(Some(Duration::from_millis(10)), &mut screen)
-        {
+        if !pump(&mut event_loop, &mut screen, Duration::from_millis(10)) {
             break;
         }
         if opening.elapsed() > Duration::from_secs(10) {
@@ -439,10 +452,7 @@ impl PoppedOut {
         &mut self,
         sim: &mut Simulation<G>,
     ) -> Result<Option<u32>, Box<dyn Error>> {
-        if let PumpStatus::Exit(_) = self
-            .event_loop
-            .pump_app_events(Some(Duration::ZERO), &mut self.screen)
-        {
+        if !pump(&mut self.event_loop, &mut self.screen, Duration::ZERO) {
             return Ok(None);
         }
         if self.screen.closed {
