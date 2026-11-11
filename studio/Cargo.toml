@@ -1,0 +1,35 @@
+# Duck Forge Studio: the app for making games without a terminal.
+#
+# Its own Cargo "workspace", apart from the engine in the folder above, with
+# its own lock file and target folder. So building or testing the engine
+# never builds the Studio, and the Studio's libraries (egui and friends)
+# never touch a game.
+#
+#   crates/core - studio_core: everything the Studio does, with no window:
+#                 commands, games, builds, the link to a running game,
+#                 Check, clips, the console. Tests run headless.
+#   crates/app  - studio_app: DuckForgeStudio itself, the window (egui).
+
+[workspace]
+resolver = "3"
+members = ["crates/core", "crates/app"]
+
+[workspace.package]
+# The one place the version number is written: the About box and the
+# release zip's name read it from here.
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+
+[workspace.dependencies]
+studio_core = { path = "crates/core" }
+# The engine itself, without a window, with its side of the link: the
+# Studio reads levels, scripts and link messages with the engine's own code.
+duckforge = { path = "..", default-features = false, features = ["studio"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# While developing, still optimise the libraries we use (egui and friends
+# run at full speed) and the engine; our own code stays quick to recompile.
+[profile.dev.package."*"]
+opt-level = 2

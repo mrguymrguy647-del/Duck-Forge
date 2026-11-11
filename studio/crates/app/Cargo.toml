@@ -1,0 +1,13 @@
+[package]
+name = "studio_app"
+description = "Duck Forge Studio: make games without a terminal"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "DuckForgeStudio"
+path = "src/main.rs"
+
+[dependencies]
+studio_core.workspace = true

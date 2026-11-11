@@ -1,0 +1,15 @@
+[package]
+name = "studio_core"
+description = "Everything Duck Forge Studio does, without a window"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+duckforge.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+# To read the pictures a headless replay saves, and compare them.
+png = "0.18"
