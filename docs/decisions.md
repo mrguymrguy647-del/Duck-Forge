@@ -3588,3 +3588,260 @@ bytes (16,284,672 at Step 2) and the download 13,534,302 bytes.
   draws today's pictures.
 - **QUICKSTART.md and the skill** are still at their line limits; they get
   the Studio in Step 5, with the beginner's walk-through.
+
+---
+
+# Phase 4, Step 5: two fixes, and the beginner's proof
+
+## Fix 1: the bots play the game as it feels today
+
+**What was wrong.** The platformer starters' bots were a handful of rules
+that happened to work with the Feel values in the code: "jump when a coin
+is above and near". With the starter's own "Floaty" preset the duck
+overshot a plank, came down beside it, and jumped on the spot under a
+coin for ever; `the_bot_can_still_win_on_the_level` failed, and Check
+with it. A faster run on a level with extra planks failed the same way.
+The top-down starter's bot was worse: it had never won at all. Its
+recorded playthrough ended "Lost" with 9 coins, and no test looked.
+
+**The bot now follows a route.** `TileMap::route(start, goal, jump)` is
+`reach` with memory: the fewest `Hop`s (a walk to the next tile, a walk
+off an edge, a jump) from the tile the character stands in to the thing
+it wants. The bot builds `jump` from `ctx.tune` every frame, so it plays
+with today's Feel; asks for the route to the next coin; and flies each
+hop along its arc (it steers by where the arc is at the height it's at,
+which stays right whatever the fall limit), braking in time to land
+still. When there's no route it says so in plain words, with the place
+and how high and far its jump goes.
+
+**Caution has to point the right way, each time.** The first version
+failed 28 times in about 400 winnable cases, and planning with "a
+slightly lower jump" made it worse: the real duck, jumping a few pixels
+higher, landed on planks the plan passed under. What works, found by
+tracing each failure:
+
+- The route is planned with the real jump, but a jump only counts if one
+  a tenth lower lands on the same level too. So a route never hangs on a
+  jump's last pixels.
+- `Jump` has a `width`. The jumper bumps into things as if it were an
+  eighth of a tile wider on each side and nearly a tile tall; it lands
+  only on what something a quarter of a tile narrower on each side would
+  catch, and reaches only what something four fifths of a tile tall
+  would. (One padding for both, the first try, sent the duck to jump from
+  under a brick, and to ledges only its padding could catch.)
+- An arc that passes within that margin of a ledge's edge isn't used: the
+  duck might catch it or might not.
+- The bot counts on nine tenths of its running speed (the duck takes an
+  eighth of a second to get going), starts a jump from the middle of its
+  tile and not while moving the wrong way, and on the hop that passes
+  through a coin keeps to the arc all the way down.
+
+`Jump { .. }` literals need the new field: `width: 0.0` is the old
+behaviour. `reach` (Check's "looks out of reach" warning) uses the same
+arcs, so with a width it's a little more cautious than it was.
+
+**How sure.** Swept while writing it, with the bot allowed to say "no
+way" but never to set off and fail: every combination of the three Feel
+sliders over their whole ranges on the starter's level (792: 367 won, 425
+no way, none failed); 5,500 randomly painted levels with random Feel
+(2,304 winnable, none failed); 2,000 on Duck Peaks' taller level (none
+failed). Duck Peaks keeps a 40-round version of that as a play test
+(under a second).
+
+**The top-down bot** takes the cheapest path to a coin where a tile near
+an enemy costs more (the nearer, the more), with the berth it gives them
+taken from the two speeds, and it never stands still. It wins with the
+code's values and with "Easy" and "Hard", and across the sliders wherever
+the player is clearly faster than the enemies; where they're as fast or
+faster it's caught, as a person would be.
+
+**Every preset is tested.** Each starter has
+`the_bot_can_win_with_every_feel_preset` (`feel_presets` reads the feel
+file), and `the_bot_can_still_win_on_the_level` tries the code's values
+when the current ones fail, so it can say which it is. Check shows the
+bot's own sentence as the line: "The bot can't win with the Feel values
+as they are now", "...with one of the Feel presets", or "...on the level
+as it is now" (the level first, if several are true), with what to do and
+a picture of the place.
+
+**The bot is cautious, on purpose.** It will say "no way" to a jump a
+practised player can make. That's the right way round for "can a
+beginner's level be finished", and the message gives the jump's height
+and length so it can be judged.
+
+## Fix 2: a new game never trips on a playthrough it doesn't have
+
+A game made and edited before its first playthrough was recorded (or
+whose bot couldn't win just then) showed "could not read
+playthroughs/pond_hop.json". Three things, any of which would have done:
+the starters' playthrough test passes when there's no recording yet;
+Check has the game's bot record one first when it's missing (once per
+Check); and if there still isn't one, Check's line is "No playthrough
+recorded yet", with a Record it button if the game has a bot. The
+playthrough tests also asserted "8 coins", which failed the moment a coin
+was added and the playthrough recorded again: they now ask for the flag
+and no coins left.
+
+## The proof
+
+`studio/proof/beginners-proof.json` is the brief's Step 5 as a list of the
+Studio's own commands, 83 steps: a new platformer ("Gap Dash"), its first
+build, playthrough and Check; a gap, planks and coins painted; a run and a
+jump; frozen in mid-air over the gap; a plank moved under the duck;
+carried on, landing on it; "Fast and bouncy" set while playing; Check,
+which finds a coin the bot can't get to; a plank painted to fix it; Check
+again, which passes and says the playthrough is from the older level;
+recorded again; a clip; then Duck Craft, with the mouse turning the view.
+
+Two step kinds were added so a script can prove itself: `{"expect":
+"check", "passed": false, "says": "..."}` stops the script if the last
+Check doesn't say that, and `{"shot": "a name"}` marks a picture.
+
+It runs three ways, from the one file:
+
+- **A test in the Studio's core** (`beginners_proof.rs`, about 20
+  seconds) runs it with no window, then replays the saved session of the
+  jump headless and reads its summary: no splash, both coins, on the
+  ground, past the gap. It also checks a clip was made and that the mouse
+  changed most of Duck Craft's picture. The release workflow runs it on
+  Windows with the other tests.
+- **The app's screenshot test** follows it and saves the Studio's screen
+  at each shot: `docs/studio-screens/proof-01...12`.
+- **The release workflow** runs it with the real `DuckForgeStudio.exe`
+  from the unzipped folder, in place of the shorter first-game script.
+
+**What the proof found** (fixed as it went):
+
+- Check's line was "one of the Feel presets" when the level couldn't be
+  won at all; the level now comes first.
+- With Check open, the game was squeezed to its smallest size between the
+  Build and Feel panels, just when the place Check names needs finding.
+  Check now takes Feel's place while it's open, and long lines are cut
+  short in the list rather than widening the panel.
+- The bot's line had no picture. It gets one of the place it names,
+  ringed, wide enough to show the ground and what's around.
+- Nine separate "looks out of reach" warnings for one low jump are now
+  one line.
+- Check says places as "column 14, row 3"; Build mode didn't show which
+  tile the pointer was on. The status bar does now.
+- A level that only works with the Feel it was painted for fails the
+  preset test, rightly, but the message didn't say what to do. It does
+  now: change the level, or change (or take out) that preset in the feel
+  file.
+- A script's keys: the Studio lets go of held keys when a frozen game
+  carries on, unless they're really held. Right for a person; a script
+  presses them again.
+
+## The numbers
+
+**Through the link** (`DuckForgeStudio --timing <game> 20`, the Studio
+in release, the cloud machine), as before:
+
+| Game | Drawn by | Updates a second | Pictures a second | Game | Link | Late |
+|---|---|---|---|---|---|---|
+| Duck Peaks | the CPU | 59.9 to 60.0 | 59.2 to 59.4 | 0.46 to 0.52 ms | 0.66 to 0.70 ms | 0 or 1 of 296 |
+| 3D runner | llvmpipe | 59.9 to 60.1 | 59.2 to 59.3 | 2.0 to 2.1 ms | 0.61 to 0.64 ms | 0 or 1 of 296 |
+| Duck Craft | the CPU | 60.0 | 53.8 to 55.6 | 11.9 to 12.8 ms | 0.63 to 0.69 ms | 246 to 270 of about 275 |
+
+**Before and after.** The same commands as Step 0's baseline. This time
+the whole machine was slower than on the day of Steps 3 and 4: the first
+column of today's figures looked 8 to 10 per cent worse everywhere,
+including 3D frame times in code this step didn't touch. So the commit
+from the end of Steps 3 and 4 was measured again today, turn and turn
+about with this one, twice each. Those are the last two columns, and the
+ones to compare.
+
+| | Step 0 | After Steps 3 and 4 (that day) | Steps 3 and 4, measured today | Step 5, measured today |
+|---|---|---|---|---|
+| Headless clean build of `dodge` | 13.1 s | 13.8 s | 13.9 and 15.5 s | 13.6 and 15.4 s |
+| ...after touching `src/lib.rs` | 0.8 s | 0.8 s | | 0.9 s |
+| Headless test suite from an empty target folder | 74.3 s, 529 tests | 71.1 s, 544 tests | | 77.4 s, 553 tests |
+| Headless test suite, already built | 21.0 s | 21.4 s | 21.3 and 23.1 s | 23.3 and 22.7 s |
+| All tests, already built | 18.0 s, 562 tests | 22.4 s, 578 tests | | 26.1 s, 587 tests |
+| stress3d, 500 objects, CPU | 2.5 to 3.5 ms | 3.10 to 3.15 ms | 3.12 and 3.18 ms | 3.04 and 3.12 ms |
+| stress3d, 2,000 objects, CPU | 7.9 to 9.2 ms | 7.6 to 8.4 ms | 8.48 and 9.06 ms | 8.25 and 8.37 ms |
+| stress3d, 2,000 objects, GPU (llvmpipe) | 14.5 to 19.1 ms | 14.1 to 19.7 ms | 22.6 and 21.4 ms | 19.7 and 20.8 ms |
+| Block world, 4,096 textured blocks, CPU | 5.2 to 5.7 ms | 4.3 to 5.2 ms | 4.77 and 5.09 ms | 5.05 and 5.05 ms |
+| Duck Craft playthrough, CPU | 8.0 to 9.0 ms | 8.6 to 9.2 ms | 9.23 and 9.22 ms | 9.08 and 8.46 ms |
+| Duck Craft playthrough, GPU (llvmpipe) | 13.6 to 14.8 ms | 13.2 to 14.0 ms | 13.5 and 14.4 ms | 13.6 and 14.1 ms |
+| Release game: `dodge` | 6,078,912 bytes (4,319,328 stripped) | 6,218,200 (4,423,520) | | 6,228,000 (4,428,424) |
+| Release game: `duck_peaks` | 6,210,264 (4,422,496) | 6,388,856 (4,557,416) | | 6,397,640 (4,561,768) |
+| Release game: `starter_runner3d` | 11,450,680 (8,534,040) | 11,584,784 (8,639,288) | | 11,594,552 (8,642,472) |
+| Release game: `duck_craft` | 11,787,376 (8,831,592) | 11,930,864 (8,941,256) | | 11,942,720 (8,945,520) |
+| Release game, headless only: `dodge`, `duck_craft` | 2,230,536 and 2,726,336 | 2,357,120 and 2,858,312 | | 2,343,704 and 2,844,744 |
+| Examples passing `verify` | 20 | 20 | | 20 |
+
+Side by side, nothing got slower: builds and frame times are the same
+within the two rounds' spread. The already-built test run is about a
+second longer, which is the nine new play tests (each starter's bot
+playing its level once for each Feel preset, and Duck Peaks' forty
+painted levels). The programs are about 10 KB bigger with a window (the
+route) and 13 KB smaller headless.
+
+New numbers:
+
+| | |
+|---|---|
+| A release game built with the link: `dodge`, `duck_craft` | 6,381,000 and 12,085,832 bytes |
+| `DuckForgeStudio` (Linux, release) | 32,240,584 bytes |
+| The engine's tests | 553 headless, 561 with `--features studio` |
+| The Studio's tests | 51 (49 after Steps 3 and 4) |
+| The beginner's proof, all 83 steps, with no window | about 20 s here once the games are built; 3 min 26 s on GitHub's Windows machine from the unzipped folder, building the new game and Duck Craft from nothing |
+
+## What Windows has shown
+
+The release workflow passed on GitHub's Windows machine at the proof's
+commit (1fb77be), first time: the Studio's tests (now with the proof as
+a test), the build, the timings, the zip, and all 83 steps of the proof
+run by `DuckForgeStudio.exe` from the unzipped folder, ending with
+"Checks pass" and a clip. The clip there is a GIF (366 KB): that machine
+has no ffmpeg, so it shows the fallback works. `DuckForgeStudio.exe` is
+17,356,800 bytes and the download 13,573,505. Duck Craft drawn by the
+CPU showed 58.4 to 58.5 pictures a second with 34 to 53 late of 292,
+a little better than before. The 3D runner's line (the one to watch from
+last time) is in that run's "timings" download; it wasn't read here.
+
+## What would still confuse a beginner
+
+Said plainly, from walking the proof and reading its pictures:
+
+1. **Before anything: Rust.** The Studio says so in plain words and links
+   to it, but installing a programming language is still the first thing
+   a non-programmer must do, and the first build takes a minute or two
+   with only "Building it for the first time" to look at.
+2. **The Studio doesn't edit code.** Painting, Feel, pictures and sounds
+   are covered; anything else (a new enemy, a double jump, a second
+   level) needs an agent or an editor. And once the game's rules change,
+   the bot doesn't know: it's code in `bot.rs`, and "the bot can't win"
+   then means "the bot needs teaching", which Check can't tell apart.
+3. **The bot is careful.** It may say a coin can't be got to when a
+   practised player can get it. The message gives the jump's height and
+   length, but a beginner may still read it as "my level is broken".
+4. **Presets are a file.** A level that needs "Fast and bouncy" fails
+   Check until the other presets are changed in `<game>.feel.json` by
+   hand; the Studio has no preset editor.
+5. **Feel doesn't change the code.** The sliders write a tune file; "code"
+   shows the line with the old default and says so, but "why does it
+   still say 330" is a fair question.
+6. **One level.** There's no list of levels, and no button for a new one.
+   Resizing the level is a command without a control in Build mode.
+7. **Only two starters have a level to paint** (the platformer and the
+   top-down one). In the shooter and the 3D runner, Build mode has Feel,
+   sounds and pictures, and nothing to paint.
+8. **Whole level** is the Studio's drawing of the tiles, without the
+   game's backgrounds, so it looks plainer than the game.
+9. **Sounds** lists only what the game has played so far; a sound that
+   hasn't happened yet isn't there.
+10. **Duck Quill** is a separate download the Studio has to be pointed at
+    once, and it wasn't here to try.
+11. **Check takes a few seconds and says "50 random runs"**: what those
+    are, and why "no problems found" doesn't mean the level is good, isn't
+    explained in the Studio.
+12. **History** shows times in UTC and keeps snapshots as numbered
+    folders: fine for an agent, odd for a person in another time zone.
+13. **A clip is the last ten seconds**, as a GIF if ffmpeg isn't
+    installed (much bigger, no sound).
+14. **Nothing here ran on a real Windows PC with a mouse, a sound card
+    and a graphics card.** The workflow proves the commands on Windows;
+    painting by hand, hearing sounds and the feel of mouse look are the
+    checklist in `docs/phase4-design.md`.
