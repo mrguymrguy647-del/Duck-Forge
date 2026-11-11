@@ -1,0 +1,15 @@
+# Temporary: does GitHub start new runs on this branch? Removed again.
+name: Probe
+on:
+  push:
+    branches: ["claude/studio-windows-installer"]
+    paths: [".github/workflows/probe.yml"]
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "GitHub started this run."
+  windows:
+    runs-on: windows-latest
+    steps:
+      - run: echo "GitHub started this Windows run."
