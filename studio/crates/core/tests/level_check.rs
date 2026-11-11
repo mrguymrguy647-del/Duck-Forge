@@ -39,19 +39,39 @@ fn the_level_says_its_broken_rules_far_coins_and_old_playthroughs() {
     let rows = level_rows(&folder, "template", &level, Some(jump));
     let said: Vec<(&str, RowStatus)> = rows.iter().map(|r| (r.say.as_str(), r.status)).collect();
     assert!(
-        said.contains(&("The level needs at least 1 Flag; it has none.", RowStatus::Failed)),
+        said.contains(&(
+            "The level needs at least 1 Flag; it has none.",
+            RowStatus::Failed
+        )),
         "{said:?}"
     );
     assert!(
-        said.contains(&("A coin looks out of reach (column 5, row 0)", RowStatus::Warning)),
+        said.contains(&(
+            "A coin looks out of reach (column 5, row 0)",
+            RowStatus::Warning
+        )),
         "{said:?}"
     );
     let far = rows.iter().find(|r| r.step == "level reach").unwrap();
-    assert!(far.picture.as_ref().is_some_and(|p| p.is_file()), "a picture of the spot");
-    let old = rows.iter().find(|r| r.action == Some(RowAction::RecordAgain)).unwrap();
+    assert!(
+        far.picture.as_ref().is_some_and(|p| p.is_file()),
+        "a picture of the spot"
+    );
+    let old = rows
+        .iter()
+        .find(|r| r.action == Some(RowAction::RecordAgain))
+        .unwrap();
     assert_eq!(old.status, RowStatus::Warning);
-    assert!(old.say.contains("\"template\" is from an older level"), "{}", old.say);
+    assert!(
+        old.say.contains("\"template\" is from an older level"),
+        "{}",
+        old.say
+    );
 
-    assert_eq!(std::fs::read_to_string(&file).unwrap(), on_disk, "never written");
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        on_disk,
+        "never written"
+    );
     let _ = std::fs::remove_file(far.picture.as_ref().unwrap());
 }

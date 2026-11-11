@@ -103,6 +103,10 @@ fn mark(status: RowStatus) -> (&'static str, Color32) {
 
 /// What might help with a line of the check, in a sentence.
 fn what_to_try(row: &CheckRow) -> Option<&'static str> {
+    // The level's own lines carry their advice in their text.
+    if row.step.starts_with("level ") || row.action.is_some() {
+        return None;
+    }
     match (row.status, row.step.as_str()) {
         (RowStatus::Failed, "build") => Some(
             "What to try: fix the line the details point at. The game builds again by itself \

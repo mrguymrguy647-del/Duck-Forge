@@ -280,6 +280,59 @@ fn every_screen() {
     shots.shoot("08-check-line-picture");
     shots.harness.state_mut().check_open = false;
 
+    // Build mode: a new plank with a coin on it, and a brick wall, painted
+    // on the frozen level. The game takes them and draws the same frame
+    // again with them.
+    shots.run(Command::LevelPaint {
+        cells: vec![(3, 10), (4, 10), (5, 10)],
+        tile: String::from("plank"),
+        stroke: Some(1),
+    });
+    shots.run(Command::LevelPlaceThing {
+        at: (4, 9),
+        thing: String::from("coin"),
+    });
+    shots.run(Command::LevelPaint {
+        cells: vec![(12, 12), (12, 11)],
+        tile: String::from("brick"),
+        stroke: Some(2),
+    });
+    shots.harness.state_mut().build.tile = Some('B');
+    shots.play_for(Duration::from_millis(600));
+    shots.shoot("16-build-painted");
+    shots.harness.state_mut().build.whole_level = true;
+    shots.harness.run_steps(3);
+    shots.shoot("17-build-whole-level");
+    shots.harness.state_mut().build.whole_level = false;
+
+    // Check again: the recorded playthrough is from the level as it was.
+    shots.harness.state_mut().check_open = true;
+    shots.run(Command::CheckRun);
+    shots.harness.run_steps(2);
+    shots.idle();
+    let result = shots
+        .harness
+        .state()
+        .studio
+        .open
+        .as_ref()
+        .unwrap()
+        .check_result
+        .clone()
+        .unwrap();
+    println!(
+        "the check after painting: {:?}",
+        result.rows.iter().map(|row| &row.say).collect::<Vec<_>>()
+    );
+    let older = result
+        .rows
+        .iter()
+        .position(|row| row.action.is_some())
+        .expect("a line saying the playthrough is from an older level");
+    shots.run(Command::CheckShowProblem { line: Some(older) });
+    shots.shoot("18-check-older-level");
+    shots.harness.state_mut().check_open = false;
+
     // Tab again, play on, then a clip of the run. The Console shows the
     // commands behind the buttons.
     shots.harness.key_press(egui::Key::Tab);
