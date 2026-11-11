@@ -1861,6 +1861,7 @@ impl Studio {
                             let jump = jump_from(&open.tunes);
                             let rows = check::level_rows(&folder, &open.game.name, level, jump);
                             check::add_level_rows(&mut result, rows);
+                            check::picture_the_place(&mut result, &folder, level);
                             let _ = check::save(&folder, &result);
                         }
                         open.check_result = Some(result);

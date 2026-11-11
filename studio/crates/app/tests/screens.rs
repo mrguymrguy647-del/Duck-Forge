@@ -82,6 +82,10 @@ fn home_shows_new_game_the_games_and_the_links() {
 }
 
 /// Puts the repository back as it was after the screenshots made a game.
+/// One at a time: each of the two long tests makes a game in the Duck
+/// Forge folder (and takes it out again).
+static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 struct PutBack {
     root: PathBuf,
     manifest: String,
@@ -191,6 +195,9 @@ fn every_screen() {
         println!("set STUDIO_SCREENSHOTS=<folder> to save a picture of every screen");
         return;
     };
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let folder = PathBuf::from(folder);
     std::fs::create_dir_all(&folder).unwrap();
     let root = duck_forge();
@@ -517,4 +524,86 @@ fn every_screen() {
         play.wants_pointer, play.notes, play.renderer
     );
     shots.run(Command::HomeOpen);
+}
+
+/// The beginner's proof (`studio/proof/beginners-proof.json`, the script
+/// the core's own test and the release workflow run), followed in the
+/// app: a picture of the Studio at each of its `"shot"`s.
+#[test]
+fn the_beginners_proof() {
+    use studio_core::script::{Step, run_step};
+    let Some(folder) = std::env::var_os("STUDIO_SCREENSHOTS") else {
+        println!("set STUDIO_SCREENSHOTS=<folder> to save pictures of the beginner's proof");
+        return;
+    };
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let folder = PathBuf::from(folder);
+    std::fs::create_dir_all(&folder).unwrap();
+    let root = duck_forge();
+    let _put_back = PutBack {
+        manifest: std::fs::read_to_string(root.join("Cargo.toml")).unwrap(),
+        root: root.clone(),
+        game: "gap_dash",
+    };
+    let mut shots = Shots {
+        folder,
+        harness: harness(StudioApp::new(studio()), true),
+    };
+    let script = std::fs::read_to_string(root.join("studio/proof/beginners-proof.json")).unwrap();
+    let steps: Vec<Step> = serde_json::from_str(&script).unwrap();
+    let mut pictures = 0;
+    for (number, step) in steps.iter().enumerate() {
+        match step {
+            Step::Shot(shot) => {
+                pictures += 1;
+                // "3 frozen in mid-jump over the gap" -> proof-03-frozen-in-mid-jump-over-the-gap
+                let words: String = shot
+                    .shot
+                    .trim_start_matches(|c: char| c.is_ascii_digit() || c == ' ')
+                    .chars()
+                    .map(|c| {
+                        if c.is_ascii_alphanumeric() {
+                            c.to_ascii_lowercase()
+                        } else {
+                            '-'
+                        }
+                    })
+                    .collect();
+                let words: Vec<&str> = words.split('-').filter(|word| !word.is_empty()).collect();
+                shots.shoot(&format!("proof-{pictures:02}-{}", words.join("-")));
+            }
+            _ => {
+                let app = shots.harness.state_mut();
+                // The Check panel is open while Check is the subject.
+                match step {
+                    Step::Do(Command::CheckRun | Command::CheckRecordAgain) => {
+                        app.check_open = true;
+                    }
+                    Step::Do(
+                        Command::GameRestart | Command::GamePlay | Command::GameOpen { .. },
+                    ) => {
+                        app.check_open = false;
+                    }
+                    _ => {}
+                }
+                if let Err(problem) = run_step(&mut app.studio, step) {
+                    panic!(
+                        "step {} ({step:?}): {problem}\n{}",
+                        number + 1,
+                        problem.details
+                    );
+                }
+            }
+        }
+    }
+    assert_eq!(pictures, 12);
+    for entry in std::fs::read_dir(root.join("out/clips")).unwrap().flatten() {
+        if entry.file_name().to_string_lossy().starts_with("gap_dash-") {
+            let path = entry.path();
+            let _ = std::fs::remove_file(&path);
+            let _ = std::fs::remove_dir_all(&path);
+        }
+    }
 }

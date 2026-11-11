@@ -14,7 +14,7 @@ use crate::console::{Console, JobEvent, JobId, Keep};
 use duckforge::prelude::LetterKind;
 
 use crate::folder::{Card, Game, GamesFolder};
-use crate::level::{Level, LevelArt};
+use crate::level::{Cell, Level, LevelArt};
 use crate::problem::Problem;
 
 /// How many random runs a Check plays (verify's own default).
@@ -211,7 +211,13 @@ pub fn read_report(lines: &[String], folder: &GamesFolder, game: &str) -> CheckR
 ///   it was made, say): a line that offers to record one.
 fn say_it_plainly(row: &mut CheckRow, folder: &GamesFolder, game: &str) {
     if row.step == "play tests" && row.status == RowStatus::Failed {
+        // The level first: if it can't be won with the code's own values,
+        // the presets failing too is only the same thing again.
         let cases = [
+            (
+                "On the level as it is now, ",
+                "The bot can't win on the level as it is now",
+            ),
             (
                 "With the Feel values as they are now, ",
                 "The bot can't win with the Feel values as they are now",
@@ -220,15 +226,15 @@ fn say_it_plainly(row: &mut CheckRow, folder: &GamesFolder, game: &str) {
                 "With the Feel preset ",
                 "The bot can't win with one of the Feel presets",
             ),
-            (
-                "On the level as it is now, ",
-                "The bot can't win on the level as it is now",
-            ),
         ];
         for (start, say) in cases {
             if let Some(why) = row.details.iter().find(|line| line.starts_with(start)) {
                 row.say = say.to_string();
                 row.text = why.clone();
+                if start.starts_with("On the level") {
+                    row.text += " What to try: put something to stand on nearer to it, or \
+                                 move it. The picture shows the place.";
+                }
                 row.action = Some(RowAction::Explained);
                 return;
             }
@@ -354,39 +360,59 @@ pub fn level_rows(
         if let Some(start) = start {
             let reach = map.reach(start, jump);
             let art = LevelArt::load(level);
+            // Everything that looks out of reach: what it is, and where.
+            let mut far: Vec<(String, (i32, i32))> = Vec::new();
             for letter in level
                 .letters
                 .iter()
                 .filter(|l| l.kind == LetterKind::Thing && !l.start)
             {
-                for (index, at) in reach
-                    .missing(&map.spawns(&letter.name))
-                    .into_iter()
-                    .enumerate()
-                {
+                for at in reach.missing(&map.spawns(&letter.name)) {
                     let cell = map.cell_at(duckforge::prelude::vec2(at.x, at.y - 1.0));
-                    let mut line = row(
-                        "level reach",
-                        RowStatus::Warning,
-                        format!(
-                            "A {} looks out of reach (column {}, row {})",
-                            letter.title().to_lowercase(),
-                            cell.0,
-                            cell.1
-                        ),
-                    );
-                    line.text = String::from(
-                        "Worked out from how high and far the duck jumps, cautiously: the bot may \
-                         still get there. What to try: move a plank closer, or lower it.",
-                    );
-                    let picture = folder
-                        .check_folder(game)
-                        .join(format!("reach-{}-{index}.png", letter.name));
-                    if art.save_spot(level, cell, &picture).is_ok() {
-                        line.picture = Some(picture);
-                    }
-                    rows.push(line);
+                    far.push((letter.title().to_lowercase(), cell));
                 }
+            }
+            far.sort_by_key(|(_, cell)| *cell);
+            let advice = "Worked out from how high and far the duck jumps, cautiously: the bot \
+                          may still get there. What to try: move a plank closer, or lower it.";
+            // One line each, or one line for them all when there are many
+            // (a jump too low for the whole level, say).
+            let lines: Vec<(String, Vec<(i32, i32)>)> = if far.len() <= 3 {
+                far.iter()
+                    .map(|(what, cell)| {
+                        (
+                            format!(
+                                "A {what} looks out of reach (column {}, row {})",
+                                cell.0, cell.1
+                            ),
+                            vec![*cell],
+                        )
+                    })
+                    .collect()
+            } else {
+                let places: Vec<String> = far
+                    .iter()
+                    .take(3)
+                    .map(|(what, cell)| format!("a {what} at column {}, row {}", cell.0, cell.1))
+                    .collect();
+                vec![(
+                    format!(
+                        "{} things look out of reach with this jump: {} and {} more",
+                        far.len(),
+                        places.join(", "),
+                        far.len() - 3
+                    ),
+                    far.iter().map(|(_, cell)| *cell).collect(),
+                )]
+            };
+            for (index, (say, cells)) in lines.into_iter().enumerate() {
+                let mut line = row("level reach", RowStatus::Warning, say);
+                line.text = advice.to_string();
+                let picture = folder.check_folder(game).join(format!("reach-{index}.png"));
+                if art.save_spot(level, cells[0], &picture).is_ok() {
+                    line.picture = Some(picture);
+                }
+                rows.push(line);
             }
         }
     }
@@ -409,17 +435,50 @@ pub fn level_rows(
             let mut line = row(
                 &format!("{name}.json older level"),
                 RowStatus::Warning,
-                format!(
-                    "The recorded playthrough \"{name}\" is from an older level. It still replays \
-                     on that one."
-                ),
+                format!("The recorded playthrough \"{name}\" is from an older level"),
             );
-            line.text = String::from("Record it again to play the level as it is now.");
+            line.text = String::from(
+                "It still replays on the level it was recorded on. Record it again to play the \
+                 level as it is now.",
+            );
             line.action = Some(RowAction::RecordAgain);
             rows.push(line);
         }
     }
     rows
+}
+
+/// The place a line of the check names ("at column 14, row 3"), if it
+/// names one: the bot says where the thing it can't get to is.
+fn place_named(text: &str) -> Option<Cell> {
+    let rest = &text[text.find("at column ")? + "at column ".len()..];
+    let number = |text: &str| -> Option<i32> {
+        let digits: String = text.chars().take_while(char::is_ascii_digit).collect();
+        digits.parse().ok()
+    };
+    let column = number(rest)?;
+    let row = number(&rest[rest.find(", row ")? + ", row ".len()..])?;
+    Some((column, row))
+}
+
+/// Gives the bot's line ("the bot can't get ... to the coin at column 14,
+/// row 3") a picture of that place in the level, ringed.
+pub fn picture_the_place(result: &mut CheckResult, folder: &GamesFolder, level: &Level) {
+    for row in &mut result.rows {
+        if row.step != "play tests" || row.picture.is_some() {
+            continue;
+        }
+        let Some(cell) = place_named(&row.text) else {
+            continue;
+        };
+        let picture = folder.check_folder(&result.game).join("bot-place.png");
+        if LevelArt::load(level)
+            .save_spot(level, cell, &picture)
+            .is_ok()
+        {
+            row.picture = Some(picture);
+        }
+    }
 }
 
 /// Adds the level's lines to a finished check, and counts them in.
@@ -578,6 +637,7 @@ mod tests {
             bot.text
                 .starts_with("With the Feel values as they are now, the bot can't get")
         );
+        assert_eq!(place_named(&bot.text), Some((34, 6)), "the coin's place");
         let none = &feel.rows[2];
         assert_eq!(none.say, "No playthrough recorded yet");
         assert_eq!(none.status, RowStatus::Warning);

@@ -72,9 +72,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 Bigger starts: `tools/new_game.sh mygame topdown` makes `examples/mygame/` from
-a starter (`platformer`, `topdown`, `shooter`, `runner3d` for 3D, or `tiny`) and
-verifies it. Built in (guide 7, 11): text tile maps, backgrounds, Quill sheets,
-music, 3D textures, billboards, block worlds, hands, glass, glow, fog, mouse look.
+a starter (`platformer`, `topdown`, `shooter`, `runner3d`, `tiny`) and verifies it;
+their levels are text files a person can also paint in Duck Forge Studio (`studio/`).
+Built in (guide 7, 11): tile maps, Quill sheets, music, 3D, block worlds, mouse look.
 
 ## The loop
 

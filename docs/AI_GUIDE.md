@@ -1572,7 +1572,21 @@ agent might meet:
   `cargo run -p studio_app -- --run script.json` (from `studio/`) runs a
   JSON list of the Studio's commands and waits, like
   `[{"do": "game.open", "name": "dodge"}, {"wait": "playing"}, {"wait": "frames", "frames": 120}, {"do": "game.toggle"}, {"do": "check.run"}, {"wait": "idle"}]`.
-  `-- --commands` lists every command.
+  `-- --commands` lists every command. A script can say what must be
+  true by now, and stops if it isn't:
+  `{"expect": "check", "passed": false, "says": "can't win"}` (the last
+  Check, and words in one of its lines); `{"shot": "a name"}` saves the
+  game's picture. `studio/proof/beginners-proof.json` is a whole worked
+  example (new game, painting, a plank moved under the duck in mid-jump,
+  Feel, Check, a fix, a clip). Keys held when the game is frozen are let
+  go when it carries on: press them again.
+- **Check and the bot**: a starter's `the_bot_can_still_win_on_the_level`
+  test fails with a sentence Check shows as its line: "With the Feel
+  values as they are now, the bot can't get from column 6, row 12 to the
+  coin at column 9, row 9 (its jump is 1.3 tiles high...)" or "On the
+  level as it is now, ...". Keep those openings if you change the test.
+  A game with no `playthroughs/<game>.json` yet gets one recorded by its
+  bot when it's checked, or the line "No playthrough recorded yet".
 - **Build mode, Feel and History** write the same files you would:
   `level.txt` (painting), `examples/<game>.tune.json` (the Feel
   sliders), and `history/<game>/NNNN title/` snapshots (plain folders:

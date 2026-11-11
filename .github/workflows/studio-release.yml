@@ -19,15 +19,15 @@
 # them, paint a level (checked out with Windows line endings, which the
 # engine and the Studio read as plain \n, so recordings match Linux ones)
 # and change the jump while frozen, undo both, and replay each saved
-# session to the same last picture. Then it plays three games through the link for ten
-# seconds each and prints their Timing lines. (GitHub's Windows machines
-# have no graphics card, so those numbers are for the CPU; a real PC is
-# faster.)
+# session to the same last picture; and the beginner's proof runs as a
+# test. Then it plays three games through the link for ten seconds each
+# and prints their Timing lines. (GitHub's Windows machines have no
+# graphics card, so those numbers are for the CPU; a real PC is faster.)
 #
-# After it builds the zip it walks the beginner's path in the unzipped
-# folder, with no window: a new game from a starter, its first build, its
-# first playthrough and Check, and a clip. A release is only published if
-# that works.
+# After it builds the zip it walks the beginner's proof in the unzipped
+# folder, with no window (studio/proof/beginners-proof.json): a new game
+# from a starter, painted, played, tuned, checked, fixed and clipped, and
+# Duck Craft with mouse look. A release is only published if that works.
 name: Studio release
 
 on:
@@ -153,35 +153,30 @@ jobs:
           name: ${{ env.NAME }}
           path: dist/Duck Forge Studio
 
-      - name: The beginner's path, from the unzipped folder (a new game, its first Check, a clip)
+      - name: The beginner's proof, from the unzipped folder
         shell: bash
         run: |
-          # What a person does after unzipping, with no window: the Studio
-          # finds the duckforge folder beside it, makes a platformer called
-          # Bee Maze, builds it, plays it, has its first playthrough
-          # recorded and checked, and makes a clip of the run. The folder's
-          # name has spaces in it, as it will on a person's PC.
-          cat > first-game.json <<'EOF'
-          [
-            {"do": "game.new", "starter": "platformer", "name": "Bee Maze"},
-            {"wait": "playing"},
-            {"wait": "idle"},
-            {"wait": "frames", "frames": 120},
-            {"do": "clip.make"},
-            {"wait": "idle"},
-            {"do": "game.stop"}
-          ]
-          EOF
+          # What a person does after unzipping, with no window, using only
+          # the Studio's commands (studio/proof/beginners-proof.json): the
+          # Studio finds the duckforge folder beside it; makes a platformer
+          # called Gap Dash, builds it, has its first playthrough recorded
+          # and checked; paints a gap, planks and coins; freezes in
+          # mid-jump, moves a plank under the duck and carries on onto it;
+          # sets Feel to "Fast and bouncy" while playing; checks, and fixes
+          # what Check finds; makes a clip; and plays Duck Craft with mouse
+          # look. The script itself says what Check must say at each point,
+          # and stops if it doesn't. The folder's name has spaces in it, as
+          # it will on a person's PC.
           # Fresh settings, so the Studio looks for the folder by itself.
           export DUCK_FORGE_STUDIO_SETTINGS="$PWD/first-game-settings.json"
           folder="dist/Duck Forge Studio"
-          "$folder/DuckForgeStudio.exe" --run first-game.json > first-game.txt 2>&1 || { cat first-game.txt; exit 1; }
+          "$folder/DuckForgeStudio.exe" --run studio/proof/beginners-proof.json > first-game.txt 2>&1 || { cat first-game.txt; exit 1; }
           cat first-game.txt
-          check="$folder/duckforge/out/verify/bee_maze/check.json"
+          check="$folder/duckforge/out/verify/gap_dash/check.json"
           grep '"say"' "$check"
           grep -q '"passed": true' "$check"
           ls -l "$folder/duckforge/out/clips"
-          ls "$folder/duckforge/out/clips" | grep -Eq '^bee_maze-[0-9]+\.(mp4|gif)$'
+          ls "$folder/duckforge/out/clips" | grep -Eq '^gap_dash-[0-9]+\.(mp4|gif)$'
 
       - name: Keep the timings and the beginner's path on this run's page
         if: always()

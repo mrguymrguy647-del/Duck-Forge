@@ -126,9 +126,9 @@ it presses the keys the game reads (`--fuzz-keys Left,Right,Space` picks others)
 
 A playthrough is an input script in `playthroughs/mygame.json`:
 `{"events": [{"frame": 10, "press": "Right"}, {"frame": 70, "release": "Right"}]}`
-(frames start at 1). Write one, press F10 in a window, or let a bot save
-`sim.recording()` (`cargo test --no-default-features --example mygame -- --ignored`).
-When `verify` says `changed`, add `--accept` to keep the new ending, or re-record.
+(frames start at 1). Write one, press F10 in a window, or let a bot save `sim.recording()`
+(`cargo test --no-default-features --example mygame -- --ignored`). On `changed`: `--accept`, or re-record.
+A person may change the same files in Duck Forge Studio (`level.txt`, Feel's `.tune.json`); its Check is this verify.
 
 ## 9. Common mistakes (and the quick start's five)
 

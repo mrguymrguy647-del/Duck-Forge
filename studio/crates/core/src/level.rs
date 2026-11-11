@@ -488,17 +488,25 @@ impl LevelArt {
 }
 
 impl LevelArt {
-    /// Saves a picture of the level around `cell` (five tiles each way),
-    /// enlarged three times, with the cell ringed: for a Check line.
+    /// Saves a picture of the level around `cell` (eight tiles each way,
+    /// and down to the ground where it's near, so the place can be told
+    /// from what's around it), enlarged twice, with the cell ringed: for
+    /// a Check line.
     pub fn save_spot(&self, level: &Level, cell: Cell, path: &Path) -> std::io::Result<()> {
         let whole = self.draw_level(level);
         let size = level.tile_size as i32;
-        let (left, top) = ((cell.0 - 5).max(0) * size, (cell.1 - 5).max(0) * size);
+        let (columns, rows) = (17, 15);
+        // Kept inside the level, so a place near an edge still gets a
+        // full picture.
+        let most_left = (level.columns() as i32 - columns).max(0);
+        let most_top = (level.rows() as i32 - rows).max(0);
+        let left = (cell.0 - columns / 2).clamp(0, most_left) * size;
+        let top = (cell.1 - rows / 2).clamp(0, most_top) * size;
         let (width, height) = (
-            (11 * size).min(whole.width as i32 - left).max(1),
-            (11 * size).min(whole.height as i32 - top).max(1),
+            (columns * size).min(whole.width as i32 - left).max(1),
+            (rows * size).min(whole.height as i32 - top).max(1),
         );
-        let zoom = 3;
+        let zoom = 2;
         let mut canvas = Canvas::new((width * zoom) as usize, (height * zoom) as usize);
         for y in 0..height * zoom {
             for x in 0..width * zoom {

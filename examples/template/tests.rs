@@ -189,7 +189,10 @@ fn the_bot_can_win_with_every_feel_preset() {
         feel.extend(values);
         sim.change_tunes(feel);
         if let Err(why) = super::bot::play(&mut sim) {
-            panic!("With the Feel preset \"{preset}\", {why}.");
+            panic!(
+                "With the Feel preset \"{preset}\", {why}. Change the level to suit it, or \
+                 change that preset (or take it out) in examples/template.feel.json."
+            );
         }
     }
 }

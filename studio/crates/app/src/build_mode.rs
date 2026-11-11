@@ -124,6 +124,9 @@ pub struct BuildMode {
     pub whole_level: bool,
     /// Screen pixels per level pixel in the whole-level view.
     pub zoom: u32,
+    /// The tile under the pointer, for the status bar ("column 14, row
+    /// 3", as Check's lines say places).
+    pub pointer_on: Option<Cell>,
     stroke: u64,
     last_cell: Option<Cell>,
     held_thing: Option<Cell>,
@@ -144,6 +147,7 @@ impl Default for BuildMode {
             thing: None,
             whole_level: false,
             zoom: 2,
+            pointer_on: None,
             stroke: 0,
             last_cell: None,
             held_thing: None,
@@ -415,6 +419,7 @@ impl BuildMode {
     ) -> Vec<Command> {
         let mut commands = Vec::new();
         let hovered = response.hover_pos().and_then(|place| grid.cell_at(place));
+        self.pointer_on = hovered;
         let (primary, secondary, pressed, released) = ui.input(|i| {
             (
                 i.pointer.primary_down(),

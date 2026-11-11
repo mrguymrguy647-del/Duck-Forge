@@ -16,6 +16,12 @@
 //!
 //! While it waits, the Studio runs just as it does with a window: sixty
 //! times a second it takes in what's new and sends the game its tick.
+//!
+//! A script can also say what must be true by now, and stops if it isn't
+//! (`{"expect": "check", "passed": false, "says": "can't win"}`: the last
+//! Check found a problem, and one of its lines has those words), and where
+//! to take a picture (`{"shot": "after painting"}`: with no window, the
+//! game's own picture is saved, as F12 does).
 
 use std::time::{Duration, Instant};
 
@@ -30,7 +36,29 @@ use crate::studio::{Command, Studio};
 #[serde(untagged)]
 pub enum Step {
     Wait(Wait),
+    Expect(Expect),
+    Shot(Shot),
     Do(Command),
+}
+
+/// Something that must be true by now.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(tag = "expect", rename_all = "snake_case")]
+pub enum Expect {
+    /// The last Check: whether it passed, and words one of its lines
+    /// says (in the line itself or its text).
+    Check {
+        passed: bool,
+        #[serde(default)]
+        says: Option<String>,
+    },
+}
+
+/// A place to take a picture, with a name for it.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Shot {
+    pub shot: String,
 }
 
 /// Something to wait for.
@@ -106,6 +134,50 @@ fn stopped_by_a_problem(studio: &Studio) -> Option<Problem> {
 pub fn run_step(studio: &mut Studio, step: &Step) -> Result<String, Problem> {
     match step {
         Step::Do(command) => studio.run(command.clone()),
+        Step::Shot(shot) => {
+            // With no window there's only the game's own picture.
+            let saved = studio.run(Command::GameScreenshot).unwrap_or_default();
+            Ok(format!("Picture \"{}\": {saved}", shot.shot))
+        }
+        Step::Expect(Expect::Check { passed, says }) => {
+            let result = studio
+                .open
+                .as_ref()
+                .and_then(|open| open.check_result.as_ref())
+                .ok_or_else(|| {
+                    Problem::new(
+                        "The script expected a Check, but the game hasn't been checked.",
+                        "Put {\"do\": \"check.run\"} and {\"wait\": \"idle\"} before it.",
+                    )
+                })?;
+            let lines: Vec<String> = result
+                .rows
+                .iter()
+                .map(|row| format!("{:?}: {} ({})", row.status, row.say, row.text))
+                .collect();
+            let said = says.as_ref().is_none_or(|words| {
+                result.rows.iter().any(|row| {
+                    row.say.contains(words.as_str()) || row.text.contains(words.as_str())
+                })
+            });
+            if result.passed != *passed || !said {
+                let wanted = match (passed, says) {
+                    (true, None) => String::from("to pass"),
+                    (false, None) => String::from("to find a problem"),
+                    (true, Some(words)) => format!("to pass and say \"{words}\""),
+                    (false, Some(words)) => format!("to find a problem and say \"{words}\""),
+                };
+                return Err(Problem::new(
+                    format!("The script expected Check {wanted}, and it didn't."),
+                    "The details have what Check said.",
+                )
+                .with_details(lines.join("\n")));
+            }
+            Ok(format!(
+                "Check {}, as expected",
+                if *passed { "passed" } else { "found a problem" }
+            ))
+        }
         Step::Wait(Wait::Playing) => {
             wait_until(studio, "the game to start playing", |studio| {
                 studio

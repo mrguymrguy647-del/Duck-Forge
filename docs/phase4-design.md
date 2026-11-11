@@ -746,3 +746,25 @@ picture. These need your PC and your mouse:
 26. Edit `level.txt` in Notepad while the game is frozen in the Studio and
     save: the Studio shows the change, and Undo says "Changed outside the
     Studio".
+
+## What you test on Windows after Step 5
+
+The release workflow now walks the whole beginner's proof on Windows with
+no window (`studio/proof/beginners-proof.json`). By hand, with your mouse:
+
+27. A new platformer, Feel preset "Floaty", then Check: Checks pass (the
+    bot plays with the Feel as it is).
+28. Drag Jump height down to about 150 and Check: "The bot can't win with
+    the Feel values as they are now", with why. The preset "As it was
+    made" puts it right.
+29. Put a coin high in the sky and Check: "The bot can't win on the level
+    as it is now". Click the line: a picture with the coin ringed, and
+    the game still at a good size beside it. Point at a tile in Build
+    mode: the status bar says its column and row, as Check does. Paint
+    planks up to the coin, Check again, then "Record it again".
+30. Make a new game and start painting at once, before it has finished
+    getting ready; then Check. It never says "could not read
+    playthroughs": the bot records one first.
+31. Run, jump, and press Tab in mid-air. With Select, drag a plank under
+    the duck. Tab: it lands on the plank.
+32. Duck Craft: the mouse turns the view; Tab gives the pointer back.

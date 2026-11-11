@@ -189,6 +189,9 @@ pub fn check(
         for (index, row) in result.rows.iter().enumerate() {
             let (text, color) = mark(row.status);
             ui.horizontal(|ui| {
+                // A long line is cut short here (it's whole below, when
+                // it's clicked) rather than making the panel wider.
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                 ui.label(
                     RichText::new(format!("{text:>2}"))
                         .monospace()

@@ -526,7 +526,11 @@ impl StudioApp {
         self.check_panel(ui);
         if frozen {
             self.build_panel(ui);
-            self.feel_panel(ui);
+            // Check takes Feel's place while it's open, so the game keeps
+            // its room (Check's lines name places in the level).
+            if !self.check_open {
+                self.feel_panel(ui);
+            }
         }
         egui::CentralPanel::no_frame().show(ui, |ui| self.game_area(ui));
     }
@@ -564,6 +568,12 @@ impl StudioApp {
                     Some((PlayState::Frozen, frame)) => {
                         ui.label(format!("Frozen on frame {frame}"));
                         ui.label(RichText::new("Tab: play on from here").weak());
+                        // Where the pointer is, said the way Check says
+                        // places.
+                        if let Some((column, row)) = self.build.pointer_on {
+                            ui.separator();
+                            ui.label(format!("column {column}, row {row}"));
+                        }
                     }
                     Some((PlayState::PoppedOut, _)) => {
                         ui.label("Playing in its own window");

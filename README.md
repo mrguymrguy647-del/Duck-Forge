@@ -124,15 +124,25 @@ is made by the "Studio release" workflow.
 - **History** keeps snapshots of the game's files in `history/<game>/`
   (plain folders), and can go back to any of them.
 - **Check** runs `tools/verify` and shows its report as a friendly list;
-  click a line to see its picture. It also says when a coin looks out of
-  reach, and when a recorded playthrough is from an older level (with
-  "Record it again"). **Clip** saves the last ten seconds as a video.
-  **Pop out** plays the game in its own window.
+  click a line to see its picture. The starters' bots find their way
+  with the level and the Feel as they are now, so Check says in plain
+  words when the game can't be won any more, and why: "The bot can't win
+  with the Feel values as they are now", or on the level as it is now
+  (with a picture of the place). It also says when a coin looks out of
+  reach, when a recorded playthrough is from an older level ("Record it
+  again"), and when there's none yet ("Record it"). **Clip** saves the
+  last ten seconds as a video. **Pop out** plays the game in its own
+  window.
 - **The Console panel** shows the command behind every button with its
   real output, and runs commands you type.
 
 Everything the Studio makes is the same plain files described here, and
-every command in this README works as before. To try it from source:
+every command in this README works as before. Every button is a command,
+and `DuckForgeStudio --run script.json` runs a list of them with no
+window: `studio/proof/beginners-proof.json` makes a platformer, paints
+it, moves a plank under the duck in mid-jump, changes its Feel, checks
+it, fixes what Check finds and makes a clip, that way. To try the Studio
+from source:
 
 ```sh
 cd studio
