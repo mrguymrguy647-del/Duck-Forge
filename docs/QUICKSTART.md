@@ -1,9 +1,8 @@
 # duckforge quick start
 
-duckforge is a small Rust game engine for 2D (and some 3D) games. Every game
-also runs **headless**: no window, as fast as possible, saving pictures, sound
-and a log you can read. This page is all you need to make a game. The full
-reference is [AI_GUIDE.md](AI_GUIDE.md); [TUTORIAL.md](../TUTORIAL.md) teaches Rust.
+duckforge is a small Rust game engine for 2D (and some 3D) games. Every game also runs **headless**:
+no window, as fast as possible, saving pictures, sound and a log you can read. This page is all you need to
+make a game. The full reference is [AI_GUIDE.md](AI_GUIDE.md); [TUTORIAL.md](../TUTORIAL.md) teaches Rust.
 
 ## Build without a screen
 
@@ -16,10 +15,9 @@ On a server always pass `--no-default-features`; game options go after `--`.
 
 ## A complete game
 
-A game is a struct with two methods: `update` (move things, 60 times a
-second; `ctx` has the time, input, random numbers, sound and reports) and
-`draw` (paint the canvas; it can't change the game). Save this as
-`examples/catch.rs` (it's `examples/quickstart.rs`):
+A game is a struct with two methods: `update` (move things, 60 times a second; `ctx` has the time,
+input, random numbers, sound and reports) and `draw` (paint the canvas; it can't change the game).
+Save this as `examples/catch.rs` (it's `examples/quickstart.rs`):
 
 ```rust
 use duckforge::prelude::*;
@@ -71,10 +69,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     duckforge::run(Config::default(), new_game())
 }
 ```
-Bigger starts: `tools/new_game.sh mygame topdown` makes `examples/mygame/` from
-a starter (`platformer`, `topdown`, `shooter`, `runner3d`, `tiny`) and verifies it;
-their levels are text files a person can also paint in Duck Forge Studio (`studio/`).
-Built in (guide 7, 11): tile maps, Quill sheets, music, 3D, block worlds, mouse look.
+Bigger starts: `tools/new_game.sh mygame topdown` makes `examples/mygame/` from a starter (`platformer`,
+`topdown`, `shooter`, `runner3d`, `tiny`) and verifies it. Built in (guide 7, 11): tile maps, levels as
+files, backgrounds, Quill sheets, music, 3D textures, billboards, block worlds, fog, mouse look.
 
 ## The loop
 
@@ -82,10 +79,9 @@ Built in (guide 7, 11): tile maps, Quill sheets, music, 3D, block worlds, mouse 
 2. **Run headless**, with inputs if the game needs them:
    `cargo run --no-default-features --example catch -- --headless --inputs out/start.json --sheet-events --out out/catch`.
    An input script is `{"events": [{"frame": 10, "press": "Right"}, {"frame": 70, "release": "Right"}]}`.
-3. **Read the summary** it prints (also in `summary.txt`; `--quiet` prints
-   only problems). `log.json` has every `ctx.report` change and sound.
-   Name things in `draw` with `canvas.label("star", rect)`, and add
-   `--describe` to get the last frame in words.
+3. **Read the summary** it prints (also in `summary.txt`; `--quiet` prints only problems). `log.json`
+   has every `ctx.report` change and sound. Name things in `draw` with `canvas.label("star", rect)`,
+   and add `--describe` to get the last frame in words.
 4. **Look at** `out/catch/sheet.png` (the frames where reports changed). Add
    `--debug` to see hitboxes you marked with `ctx.debug_rect(rect)`.
 5. **Pin it down with a play test** in the same file (and list the
@@ -107,19 +103,23 @@ mod tests {
 }
 ```
 
-6. **Verify**: `tools/verify.sh catch` (`tools\verify.bat` on Windows)
-   runs the play tests and `playthroughs/catch*.json`, plays 50 random
-   games (`--fuzz`) looking for crashes, broken `ctx.check("on screen", ok)`
-   rules and freezes, and ends with `VERIFY OK` or `VERIFY FAILED`. Fix
-   one thing and go round again (same command, same result).
+6. **Verify**: `tools/verify.sh catch` (`tools\verify.bat` on Windows) runs the play tests and
+   `playthroughs/catch*.json`, plays 50 random games (`--fuzz`) looking for crashes, broken
+   `ctx.check("on screen", ok)` rules and freezes, and ends with `VERIFY OK` or `VERIFY FAILED`.
+   Fix one thing and go round again (same command, same result).
+
+## With Duck Forge Studio
+
+A person can make and change the same games with no terminal in Duck Forge Studio (`studio/`, an app):
+the game plays inside it, Tab freezes it on its frame, and they paint the level (`level.txt`), move
+Feel sliders (`examples/<game>.tune.json`) and press Check, which is the verify above as a friendly
+list. It reads and writes only these plain files, so you and they can take turns, even while it's
+open. What they last played is `out/sessions/<game>/latest.json`: replay it with `--inputs`.
 
 ## Five common mistakes
 
-- `cargo run --example x --headless`: the flag goes to Cargo. Write
-  `cargo run --example x -- --headless`.
-- `is_down` for one-shot actions (start, shoot, sounds): they repeat every
-  frame. Use `was_pressed` for presses, `is_down` for holding.
+- `cargo run --example x --headless`: the flag goes to Cargo. Write `cargo run --example x -- --headless`.
+- `is_down` for one-shot actions (start, shoot, sounds) repeats every frame: use `was_pressed` for those.
 - Speeds without `ctx.dt()`: write `x += SPEED * ctx.dt()`, speeds per second.
 - Randomness or time not from `ctx`: runs stop being repeatable.
-- Drawing the score inside `push_camera` ... `pop_camera`: it moves with
-  the world. Draw the HUD after `pop_camera`.
+- Drawing the score inside `push_camera` ... `pop_camera`: it moves with the world. Draw it after.

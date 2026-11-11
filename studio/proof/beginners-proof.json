@@ -83,10 +83,14 @@
   {"do": "game.input", "release": "Enter"},
   {"wait": "frames", "frames": 150},
   {"shot": "11 Duck Craft in the Studio"},
+  {"wait": "frames", "frames": 20},
+  {"shot": "12 Duck Craft a moment later, nothing touched"},
   {"do": "game.input", "mouse_motion": [70, 10]},
+  {"wait": "frames", "frames": 20},
+  {"shot": "13 Duck Craft: the mouse alone turned the view"},
   {"do": "game.input", "press": "W"},
   {"wait": "frames", "frames": 90},
   {"do": "game.input", "release": "W"},
-  {"shot": "12 Duck Craft after looking round with the mouse"},
+  {"shot": "14 Duck Craft: walked on the new way"},
   {"do": "game.stop"}
 ]

@@ -10,8 +10,9 @@
 #   like studio-v0.1.0: this workflow runs on the tag and adds the zip.
 # - Pushing a tag like studio-v0.1.0.
 # If the release is already there, its zip is replaced instead of failing.
-# Changing this file (or studio/release/) on a branch only builds it and
-# keeps the Studio's folder as a download ("artifact") on the run's page,
+# Changing this file (or studio/release/, or the proof in studio/proof/)
+# on a branch only builds it and keeps the Studio's folder as a download
+# ("artifact") on the run's page,
 # so it can be tried before any release is made.
 #
 # Before it builds the zip it tests the Studio on Windows: the core's
@@ -38,9 +39,9 @@ on:
     tags: ["studio-v*"]
     branches: ["**"]
     # Branch pushes only run when the release itself changed (tags always run).
-    paths: [".github/workflows/studio-release.yml", "studio/release/**"]
+    paths: [".github/workflows/studio-release.yml", "studio/release/**", "studio/proof/**"]
   pull_request:
-    paths: [".github/workflows/studio-release.yml", "studio/release/**"]
+    paths: [".github/workflows/studio-release.yml", "studio/release/**", "studio/proof/**"]
 
 env:
   RUST_VERSION: "1.97.0"

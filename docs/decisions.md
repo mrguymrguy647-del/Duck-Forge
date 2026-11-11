@@ -3685,13 +3685,15 @@ and no coins left.
 ## The proof
 
 `studio/proof/beginners-proof.json` is the brief's Step 5 as a list of the
-Studio's own commands, 83 steps: a new platformer ("Gap Dash"), its first
+Studio's own commands, 87 steps: a new platformer ("Gap Dash"), its first
 build, playthrough and Check; a gap, planks and coins painted; a run and a
 jump; frozen in mid-air over the gap; a plank moved under the duck;
 carried on, landing on it; "Fast and bouncy" set while playing; Check,
 which finds a coin the bot can't get to; a plank painted to fix it; Check
 again, which passes and says the playthrough is from the older level;
-recorded again; a clip; then Duck Craft, with the mouse turning the view.
+recorded again; a clip; then Duck Craft: a picture, another a moment
+later with nothing touched, then the mouse moved and nothing else, then
+walking on.
 
 Two step kinds were added so a script can prove itself: `{"expect":
 "check", "passed": false, "says": "..."}` stops the script if the last
@@ -3702,11 +3704,15 @@ It runs three ways, from the one file:
 - **A test in the Studio's core** (`beginners_proof.rs`, about 20
   seconds) runs it with no window, then replays the saved session of the
   jump headless and reads its summary: no splash, both coins, on the
-  ground, past the gap. It also checks a clip was made and that the mouse
-  changed most of Duck Craft's picture. The release workflow runs it on
+  ground, past the gap. It also checks a clip was made, and that the
+  mouse alone turned Duck Craft's view: left alone, about a sixth of the
+  picture changes in a third of a second (water, clouds, the day's
+  title); with the mouse moved and nothing else, 86 per cent does. What
+  it can't show is the pointer being held and given back in a real
+  window. The release workflow runs it on
   Windows with the other tests.
 - **The app's screenshot test** follows it and saves the Studio's screen
-  at each shot: `docs/studio-screens/proof-01...12`.
+  at each shot: `docs/studio-screens/proof-01...14`.
 - **The release workflow** runs it with the real `DuckForgeStudio.exe`
   from the unzipped folder, in place of the shorter first-game script.
 
@@ -3786,7 +3792,7 @@ New numbers:
 | `DuckForgeStudio` (Linux, release) | 32,240,584 bytes |
 | The engine's tests | 553 headless, 561 with `--features studio` |
 | The Studio's tests | 51 (49 after Steps 3 and 4) |
-| The beginner's proof, all 83 steps, with no window | about 20 s here once the games are built; 3 min 26 s on GitHub's Windows machine from the unzipped folder, building the new game and Duck Craft from nothing |
+| The beginner's proof, with no window | about 20 s here once the games are built; 3 min 26 s on GitHub's Windows machine from the unzipped folder, building the new game and Duck Craft from nothing |
 
 ## What Windows has shown
 

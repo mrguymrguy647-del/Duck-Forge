@@ -6,7 +6,7 @@
 //! it; sets Feel to "Fast and bouncy" while playing; checks the game,
 //! fixes what Check finds (a coin the bot can't get to, then a playthrough
 //! from the older level), makes a clip; and plays Duck Craft with mouse
-//! look. The script says what Check must say at each point. This test
+//! look (the mouse alone, then walking). The script says what Check must say at each point. This test
 //! also replays the saved session of the jump, to see that the duck
 //! landed on the plank rather than in the gap.
 //!
@@ -158,15 +158,22 @@ fn a_beginner_can_make_paint_tune_check_and_clip_a_game() {
         }
     }
 
-    // Duck Craft: the mouse turned the view.
-    assert_eq!(craft.len(), 2);
-    let changed = craft[0]
-        .iter()
-        .zip(&craft[1])
-        .filter(|(before, after)| before != after)
-        .count();
+    // Duck Craft: with nothing touched most of the picture stays; the
+    // mouse alone then turns the view, which changes most of it.
+    assert_eq!(craft.len(), 4);
+    let differ = |a: &[u32], b: &[u32]| a.iter().zip(b).filter(|(a, b)| a != b).count();
+    let all = craft[0].len();
+    let (idle, turned) = (differ(&craft[0], &craft[1]), differ(&craft[1], &craft[2]));
+    println!(
+        "Duck Craft: {idle} of {all} pixels changed with nothing touched, {turned} with the mouse"
+    );
+    // (Water, clouds and the day's title move by themselves.)
     assert!(
-        changed > craft[0].len() / 4,
-        "mouse look should change most of the picture: {changed} pixels differ"
+        idle < all / 4,
+        "left alone, most of the picture should stay: {idle} of {all}"
+    );
+    assert!(
+        turned > all / 2 && turned > idle * 3,
+        "mouse look should change most of the picture: {turned} of {all} (idle: {idle})"
     );
 }

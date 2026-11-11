@@ -598,7 +598,7 @@ fn the_beginners_proof() {
             }
         }
     }
-    assert_eq!(pictures, 12);
+    assert_eq!(pictures, 14);
     for entry in std::fs::read_dir(root.join("out/clips")).unwrap().flatten() {
         if entry.file_name().to_string_lossy().starts_with("gap_dash-") {
             let path = entry.path();
