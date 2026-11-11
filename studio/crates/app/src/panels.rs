@@ -134,6 +134,7 @@ pub enum CheckChoice {
     CheckAgain,
     Close,
     Show(Option<usize>),
+    RecordAgain,
 }
 
 /// The Check panel: the friendly list, and the chosen line's picture.
@@ -216,6 +217,14 @@ pub fn check(
         };
         ui.label(RichText::new(&row.say).strong());
         ui.label(&row.text);
+        if row.action == Some(studio_core::check::RowAction::RecordAgain)
+            && ui
+                .add(crate::theme::primary_button("Record it again"))
+                .on_hover_text("The game's bot plays the level as it is now, and that's kept as its playthrough")
+                .clicked()
+        {
+            choice = Some(CheckChoice::RecordAgain);
+        }
         if let Some(advice) = what_to_try(row) {
             ui.add_space(4.0);
             ui.label(advice);

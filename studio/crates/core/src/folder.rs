@@ -413,8 +413,17 @@ impl GamesFolder {
     /// if it has one (`bot.rs` with a `record_playthrough` test), as
     /// `tools/new_game` does.
     pub fn first_playthrough_command(&self, cargo: &Path, game: &Game) -> Option<CommandLine> {
+        if !self.playthroughs(&game.name).is_empty() {
+            return None;
+        }
+        self.record_playthrough_command(cargo, game)
+    }
+
+    /// The command that has a game's bot record its playthrough (again),
+    /// if it has a bot: `bot.rs` with a `record_playthrough` test.
+    pub fn record_playthrough_command(&self, cargo: &Path, game: &Game) -> Option<CommandLine> {
         let bot = game.folder.as_ref()?.join("bot.rs");
-        if !bot.is_file() || !self.playthroughs(&game.name).is_empty() {
+        if !bot.is_file() {
             return None;
         }
         Some(

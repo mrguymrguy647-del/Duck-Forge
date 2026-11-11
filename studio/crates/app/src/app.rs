@@ -10,6 +10,7 @@ use studio_core::play::{Ending, PlayState};
 use studio_core::studio::Screen;
 use studio_core::{Command, Problem, Studio};
 
+use crate::build_mode::{self, BuildMode};
 use crate::game_view::{self, GameTexture};
 use crate::home::{self, HomeChoice, NewGame, NewGameChoice};
 use crate::keys::{self, Placement};
@@ -37,6 +38,8 @@ pub struct StudioApp {
     /// A short note in the status bar ("Saved a screenshot: ..."), and
     /// when it was said. It goes after a few seconds.
     said: Option<(String, Instant)>,
+    /// Build mode: the tool and tile picked.
+    pub build: BuildMode,
 }
 
 impl StudioApp {
@@ -55,6 +58,7 @@ impl StudioApp {
             show_details: false,
             clip_seen: false,
             said: None,
+            build: BuildMode::default(),
         }
     }
 
@@ -93,6 +97,24 @@ impl StudioApp {
             && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Tab))
         {
             self.run(Command::GameToggle);
+        }
+        // Undo and Redo, in Build mode (while playing, those keys are the game's).
+        let frozen = self.play_state() == Some(&PlayState::Frozen);
+        if self.studio.screen == Screen::Game && frozen && !dialog && !typing {
+            let (undo, redo) = ui.input_mut(|i| {
+                let redo = i.consume_key(egui::Modifiers::COMMAND, egui::Key::Y)
+                    || i.consume_key(
+                        egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+                        egui::Key::Z,
+                    );
+                (i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z), redo)
+            });
+            if undo {
+                self.run_and_say(Command::EditUndo);
+            }
+            if redo {
+                self.run_and_say(Command::EditRedo);
+            }
         }
         // The keys every game has in its own window. They still reach the
         // game too, as they do there.
@@ -348,6 +370,35 @@ impl StudioApp {
                 {
                     self.run(Command::GamePlay);
                 }
+                if frozen {
+                    ui.add_space(16.0);
+                    let undo = self
+                        .studio
+                        .open
+                        .as_ref()
+                        .and_then(|o| o.undo.next_undo().map(String::from));
+                    let redo = self
+                        .studio
+                        .open
+                        .as_ref()
+                        .and_then(|o| o.undo.next_redo().map(String::from));
+                    let undo_button = ui
+                        .add_enabled(undo.is_some(), egui::Button::new("Undo"))
+                        .on_hover_text(undo.map_or(String::from("Nothing to undo"), |what| {
+                            format!("Undo: {what} (Ctrl+Z)")
+                        }));
+                    if undo_button.clicked() {
+                        self.run_and_say(Command::EditUndo);
+                    }
+                    let redo_button = ui
+                        .add_enabled(redo.is_some(), egui::Button::new("Redo"))
+                        .on_hover_text(redo.map_or(String::from("Nothing to redo"), |what| {
+                            format!("Redo: {what} (Ctrl+Y)")
+                        }));
+                    if redo_button.clicked() {
+                        self.run_and_say(Command::EditRedo);
+                    }
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     self.console_toggle(ui);
                     let timing = self.studio.settings.show_timing;
@@ -508,10 +559,11 @@ impl StudioApp {
                     ui.label("Making a clip...");
                 }
                 if let Some((said, when)) = &self.said
-                    && when.elapsed().as_secs() < 5 {
-                        ui.separator();
-                        ui.label(RichText::new(said).color(theme::GOOD));
-                    }
+                    && when.elapsed().as_secs() < 5
+                {
+                    ui.separator();
+                    ui.label(RichText::new(said).color(theme::GOOD));
+                }
             });
             if self.studio.settings.show_timing {
                 let timing = self.studio.timing(Instant::now());
@@ -575,6 +627,7 @@ impl StudioApp {
         match choice {
             Some(CheckChoice::CheckAgain) => self.run(Command::CheckRun),
             Some(CheckChoice::Close) => self.check_open = false,
+            Some(CheckChoice::RecordAgain) => self.run_and_say(Command::CheckRecordAgain),
             Some(CheckChoice::Show(line)) => self.run(Command::CheckShowProblem { line }),
             None => {}
         }
@@ -583,32 +636,113 @@ impl StudioApp {
     /// Build mode's own panel, while the game is frozen. The level editor
     /// arrives in the next step; for now it steps the frozen game.
     fn build_panel(&mut self, ui: &mut egui::Ui) {
-        let mut command = None;
+        let mut commands = Vec::new();
+        let frame = self.studio.play().map_or(0, |play| play.frame);
         egui::Panel::left("build")
-            .default_size(190.0)
+            .default_size(230.0)
+            .min_size(200.0)
             .show(ui, |ui| {
-                ui.heading("Build");
-                ui.label("The game is frozen on this frame. Nothing moves until you press Tab.");
-                ui.add_space(8.0);
-                if ui.button("Play one frame").clicked() {
-                    command = Some(Command::GameStep { frames: 1 });
-                }
-                if ui.button("Play ten frames").clicked() {
-                    command = Some(Command::GameStep { frames: 10 });
-                }
-                ui.add_space(8.0);
-                if ui.button("Restart the game").clicked() {
-                    command = Some(Command::GameRestart);
-                }
-                ui.add_space(12.0);
-                ui.label(
-                    RichText::new("Painting the level, Feel and Undo come in the next steps.")
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.heading("Build");
+                    ui.label(
+                        RichText::new(format!(
+                            "Frozen on frame {frame}. Edits are saved as you make them. Tab plays on."
+                        ))
                         .weak(),
-                );
+                    );
+                    ui.add_space(6.0);
+                    if let Some(open) = &self.studio.open {
+                        if open.level_needs_restart {
+                            ui.label(
+                                RichText::new(
+                                    "This game reads its level only when it starts. Restart it to \
+                                     see your changes.",
+                                )
+                                .color(theme::LOOK),
+                            );
+                            if ui.add(theme::primary_button("Restart")).clicked() {
+                                commands.push(Command::GameRestart);
+                            }
+                        }
+                        if let Some(problem) = &open.level_problem {
+                            ui.label(RichText::new(&problem.what).color(theme::BAD));
+                            ui.label(&problem.next);
+                        }
+                        if open.level.is_some() {
+                            commands.extend(self.build.tools(ui, open));
+                        } else if open.level_problem.is_none() {
+                            ui.label(
+                                "This game has no tile level, so there's nothing to paint. You \
+                                 can still change how it feels.",
+                            );
+                        }
+                    }
+                    ui.separator();
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.button("Play one frame").clicked() {
+                            commands.push(Command::GameStep { frames: 1 });
+                        }
+                        if ui.button("Play ten frames").clicked() {
+                            commands.push(Command::GameStep { frames: 10 });
+                        }
+                        if ui.button("Restart the game").clicked() {
+                            commands.push(Command::GameRestart);
+                        }
+                    });
+                });
             });
-        if let Some(command) = command {
-            self.run(command);
+        for command in commands {
+            self.run_and_say(command);
         }
+    }
+
+    /// Build mode over the game's frozen picture (or the whole level): the
+    /// grid, the tile under the pointer, and the tools at work.
+    fn build_on_the_level(&mut self, ui: &mut egui::Ui, space: egui::Rect) -> bool {
+        let Some(open) = &self.studio.open else {
+            return false;
+        };
+        let Some(level) = &open.level else {
+            return false;
+        };
+        let (grid, response, clip) = if self.build.whole_level {
+            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(space));
+            child
+                .painter()
+                .rect_filled(space, 0.0, egui::Color32::BLACK);
+            match self.build.whole_level_view(&mut child, open) {
+                Some((grid, response)) => (grid, response, space),
+                None => return false,
+            }
+        } else {
+            let Some(placement) = self.placement else {
+                return false;
+            };
+            let Some(grid) = build_mode::Grid::over_the_game(open, placement) else {
+                return false;
+            };
+            let response = ui.interact(
+                placement.rect,
+                ui.scope_id().with("build mode level"),
+                egui::Sense::click_and_drag(),
+            );
+            (grid, response, placement.rect)
+        };
+        let hovered = response.hover_pos().and_then(|place| grid.cell_at(place));
+        self.build.draw_on_top(ui, clip, grid, hovered);
+        if let Some(cell) = hovered {
+            let what = level
+                .letter(level.letter_at(cell))
+                .map_or(String::from("empty"), |l| l.title());
+            response
+                .clone()
+                .on_hover_text(format!("Column {}, row {}: {what}", cell.0, cell.1));
+        }
+        let commands = self.build.use_tool(ui, &response, grid, level);
+        for command in commands {
+            self.run_and_say(command);
+        }
+        true
     }
 
     /// The middle of the game screen: the game, or what's in its way.
@@ -618,6 +752,15 @@ impl StudioApp {
         self.studio.wait_for_picture(studio_core::play::PATIENCE);
         let picture = self.studio.play().and_then(|play| play.picture.clone());
         let overlay = self.overlay();
+        let frozen = self.play_state() == Some(&PlayState::Frozen);
+        if frozen
+            && overlay.is_none()
+            && self.build.whole_level
+            && self.build_on_the_level(ui, space)
+        {
+            self.clip_result(ui.ctx());
+            return;
+        }
         match &picture {
             Some(picture) => {
                 let dimmed = overlay.is_some();
@@ -633,6 +776,9 @@ impl StudioApp {
                 ui.painter().rect_filled(space, 0.0, egui::Color32::BLACK);
                 self.placement = None;
             }
+        }
+        if frozen && overlay.is_none() {
+            self.build_on_the_level(ui, space);
         }
         if let Some(overlay) = overlay {
             self.show_overlay(ui, space, overlay);

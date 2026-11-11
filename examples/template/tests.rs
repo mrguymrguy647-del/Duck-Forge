@@ -6,8 +6,9 @@
 //!   is tested on tiny levels written right here, with the same letters.
 //!   Editing `level.txt` can't change them.
 //! - The real level is tested for what must stay true: its legend's rules
-//!   hold, every coin and the flag look reachable, and the bot can still
-//!   win on it as it is now.
+//!   hold, and the bot can still win on it as it is now. (Duck Forge
+//!   Studio's Check also says when a coin looks out of reach, with
+//!   `map.reach`: a cautious reckoning, so a warning rather than a test.)
 
 use super::*;
 
@@ -22,15 +23,6 @@ fn game_on(level: &str) -> Template {
     let legend = TileMap::load_level(LEVEL).unwrap().legend().clone();
     let map = TileMap::parse(level, TILE, &legend).unwrap();
     Template::on_map(Art::load().unwrap(), map)
-}
-
-/// How the duck jumps, from the same numbers the game uses.
-fn jump() -> Jump {
-    Jump {
-        speed: JUMP_SPEED,
-        gravity: GRAVITY,
-        run: RUN_SPEED,
-    }
 }
 
 #[test]
@@ -151,23 +143,6 @@ fn pausing_freezes_the_game() {
 fn the_level_keeps_its_rules() {
     let map = TileMap::load_level(LEVEL).unwrap();
     assert_eq!(map.broken_rules(), Vec::<String>::new());
-}
-
-#[test]
-fn every_coin_and_the_flag_look_reachable() {
-    let map = TileMap::load_level(LEVEL).unwrap();
-    let reach = map.reach(map.spawn("player"), jump());
-    let mut things = map.spawns("coin");
-    things.extend(map.spawns("flag"));
-    let missing: Vec<(i32, i32)> = reach
-        .missing(&things)
-        .iter()
-        .map(|at| map.cell_at(vec2(at.x, at.y - 1.0)))
-        .collect();
-    assert!(
-        missing.is_empty(),
-        "these look out of reach (column, row, counted from 0): {missing:?}"
-    );
 }
 
 #[test]

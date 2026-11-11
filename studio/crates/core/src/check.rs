@@ -11,7 +11,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::console::{Console, JobEvent, JobId, Keep};
+use duckforge::prelude::LetterKind;
+
 use crate::folder::{Card, Game, GamesFolder};
+use crate::level::{Level, LevelArt};
 use crate::problem::Problem;
 
 /// How many random runs a Check plays (verify's own default).
@@ -42,6 +45,17 @@ pub struct CheckRow {
     pub details: Vec<String>,
     /// A picture that shows it, if verify saved one.
     pub picture: Option<PathBuf>,
+    /// Something the Studio can do about it, as a button.
+    #[serde(default)]
+    pub action: Option<RowAction>,
+}
+
+/// What a check line's button does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RowAction {
+    /// Have the game's bot record its playthrough again, on the level as
+    /// it is now.
+    RecordAgain,
 }
 
 /// A finished check.
@@ -246,6 +260,121 @@ fn row(
         text,
         details: Vec::new(),
         picture,
+        action: None,
+    }
+}
+
+/// The Studio's own lines about a game's level, after verify's: the
+/// legend's rules it breaks (problems), things that look out of reach
+/// (warnings, with a picture of the spot: the reckoning is cautious), and
+/// recorded playthroughs made on an older version of it (warnings: they
+/// still replay on the level they were made on, so they still pass).
+pub fn level_rows(
+    folder: &GamesFolder,
+    game: &str,
+    level: &Level,
+    jump: Option<duckforge::prelude::Jump>,
+) -> Vec<CheckRow> {
+    let mut rows = Vec::new();
+    let row = |step: &str, status, say: String| CheckRow {
+        step: step.to_string(),
+        status,
+        say,
+        text: String::new(),
+        details: Vec::new(),
+        picture: None,
+        action: None,
+    };
+    for rule in level.broken_rules() {
+        rows.push(row("level rules", RowStatus::Failed, rule));
+    }
+    if let (Some(jump), Ok(map)) = (jump, level.map()) {
+        let start = map.spawns("player").first().copied();
+        if let Some(start) = start {
+            let reach = map.reach(start, jump);
+            let art = LevelArt::load(level);
+            for letter in level
+                .letters
+                .iter()
+                .filter(|l| l.kind == LetterKind::Thing && !l.start)
+            {
+                for (index, at) in reach
+                    .missing(&map.spawns(&letter.name))
+                    .into_iter()
+                    .enumerate()
+                {
+                    let cell = map.cell_at(duckforge::prelude::vec2(at.x, at.y - 1.0));
+                    let mut line = row(
+                        "level reach",
+                        RowStatus::Warning,
+                        format!(
+                            "A {} looks out of reach (column {}, row {})",
+                            letter.title().to_lowercase(),
+                            cell.0,
+                            cell.1
+                        ),
+                    );
+                    line.text = String::from(
+                        "Worked out from how high and far the duck jumps, cautiously: the bot may \
+                         still get there. What to try: move a plank closer, or lower it.",
+                    );
+                    let picture = folder
+                        .check_folder(game)
+                        .join(format!("reach-{}-{index}.png", letter.name));
+                    if art.save_spot(level, cell, &picture).is_ok() {
+                        line.picture = Some(picture);
+                    }
+                    rows.push(line);
+                }
+            }
+        }
+    }
+    let now = level.text();
+    for playthrough in folder.playthroughs(game) {
+        let Ok(script) = duckforge::InputScript::load(&playthrough) else {
+            continue;
+        };
+        let recorded_on = script
+            .files
+            .iter()
+            .find(|(name, _)| name.ends_with(&level.name) || level.name.ends_with(name.as_str()));
+        if let Some((_, text)) = recorded_on
+            && text.trim_end() != now.trim_end()
+        {
+            let name = playthrough
+                .file_stem()
+                .map_or(String::new(), |stem| stem.to_string_lossy().into_owned());
+            let mut line = row(
+                &format!("{name}.json older level"),
+                RowStatus::Warning,
+                format!(
+                    "The recorded playthrough \"{name}\" is from an older level. It still replays \
+                     on that one."
+                ),
+            );
+            line.text = String::from("Record it again to play the level as it is now.");
+            line.action = Some(RowAction::RecordAgain);
+            rows.push(line);
+        }
+    }
+    rows
+}
+
+/// Adds the level's lines to a finished check, and counts them in.
+pub fn add_level_rows(result: &mut CheckResult, rows: Vec<CheckRow>) {
+    result
+        .rows
+        .retain(|row| !row.step.starts_with("level ") && !row.step.ends_with(" older level"));
+    for row in rows {
+        match row.status {
+            RowStatus::Failed => {
+                result.problems += 1;
+                result.passed = false;
+            }
+            RowStatus::Warning => result.warnings += 1,
+            _ => {}
+        }
+        result.rows.push(row);
     }
 }
 

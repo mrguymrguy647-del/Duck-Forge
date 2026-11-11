@@ -474,6 +474,53 @@ impl LevelArt {
     }
 }
 
+impl LevelArt {
+    /// Saves a picture of the level around `cell` (five tiles each way),
+    /// enlarged three times, with the cell ringed: for a Check line.
+    pub fn save_spot(&self, level: &Level, cell: Cell, path: &Path) -> std::io::Result<()> {
+        let whole = self.draw_level(level);
+        let size = level.tile_size as i32;
+        let (left, top) = ((cell.0 - 5).max(0) * size, (cell.1 - 5).max(0) * size);
+        let (width, height) = (
+            (11 * size).min(whole.width as i32 - left).max(1),
+            (11 * size).min(whole.height as i32 - top).max(1),
+        );
+        let zoom = 3;
+        let mut canvas = Canvas::new((width * zoom) as usize, (height * zoom) as usize);
+        for y in 0..height * zoom {
+            for x in 0..width * zoom {
+                let pixel = whole.pixels
+                    [((top + y / zoom) * whole.width as i32 + left + x / zoom) as usize];
+                canvas.set_pixel(
+                    x,
+                    y,
+                    Color::rgb((pixel >> 16) as u8, (pixel >> 8) as u8, pixel as u8),
+                );
+            }
+        }
+        let centre = vec2(
+            ((cell.0 * size - left) as f32 + size as f32 / 2.0) * zoom as f32,
+            ((cell.1 * size - top) as f32 + size as f32 / 2.0) * zoom as f32,
+        );
+        let radius = size as f32 * zoom as f32;
+        for step in 0..360 {
+            let angle = (step as f32).to_radians();
+            for thick in 0..3 {
+                let r = radius + thick as f32;
+                canvas.set_pixel(
+                    (centre.x + r * angle.cos()) as i32,
+                    (centre.y + r * angle.sin()) as i32,
+                    Color::rgb(0xff, 0xcc, 0x2e),
+                );
+            }
+        }
+        if let Some(folder) = path.parent() {
+            std::fs::create_dir_all(folder)?;
+        }
+        canvas.save_png(path)
+    }
+}
+
 fn pixels_of(canvas: &Canvas) -> Pixels {
     Pixels {
         width: canvas.width() as u32,

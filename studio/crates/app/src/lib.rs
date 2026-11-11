@@ -6,6 +6,7 @@
 //! screen with no window and save a picture of it.
 
 pub mod app;
+pub mod build_mode;
 pub mod game_view;
 pub mod home;
 pub mod keys;

@@ -23,6 +23,16 @@ use crate::play::{AfterHello, Ending, Play, PlayState, Timing};
 use crate::problem::Problem;
 use crate::settings::Settings;
 
+/// How the game's character jumps, from its tune values (`jump_speed`,
+/// `gravity`, `run_speed`), if it has all three: the starters' names.
+fn jump_from(tunes: &std::collections::BTreeMap<String, f32>) -> Option<duckforge::prelude::Jump> {
+    Some(duckforge::prelude::Jump {
+        speed: *tunes.get("jump_speed")?,
+        gravity: *tunes.get("gravity")?,
+        run: *tunes.get("run_speed")?,
+    })
+}
+
 /// "1 tile", "3 tiles".
 fn count(n: usize, what: &str) -> String {
     if n == 1 {
@@ -107,6 +117,10 @@ pub enum Command {
     /// Show (or hide, with no line) one line of the check, with its picture.
     #[serde(rename = "check.show_problem")]
     CheckShowProblem { line: Option<usize> },
+    /// Have the game's bot record its playthrough again, on the level as
+    /// it is now, then check again.
+    #[serde(rename = "check.record_again")]
+    CheckRecordAgain,
     /// Make a ten-second clip of the last run.
     #[serde(rename = "clip.make")]
     ClipMake,
@@ -279,6 +293,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         needs: "line: which one, from 0 (none hides it)",
     },
     CommandInfo {
+        name: "check.record_again",
+        title: "Record the playthrough again with the bot",
+        needs: "",
+    },
+    CommandInfo {
         name: "clip.make",
         title: "Make a clip of the last run",
         needs: "",
@@ -421,6 +440,8 @@ pub struct OpenGame {
     level_looked: Instant,
     /// This session's edits, for Undo and Redo.
     pub undo: Undo,
+    /// The game's tune values as it last said them (name, value).
+    pub tunes: std::collections::BTreeMap<String, f32>,
 }
 
 impl OpenGame {
@@ -448,7 +469,7 @@ impl OpenGame {
     pub fn getting_ready(&self) -> Option<&'static str> {
         match self.first_steps {
             Some(FirstSteps::WaitingForBuild) => Some("Building it for the first time"),
-            Some(FirstSteps::Recording(_)) => Some("Recording its first playthrough"),
+            Some(FirstSteps::Recording(_)) => Some("Recording its playthrough with the bot"),
             None => None,
         }
     }
@@ -649,6 +670,7 @@ impl Studio {
                     level_sent_at: None,
                     level_looked: Instant::now(),
                     undo: Undo::default(),
+                    tunes: std::collections::BTreeMap::new(),
                 });
                 self.screen = Screen::Game;
                 self.problem = None;
@@ -885,6 +907,28 @@ impl Studio {
                 open.check = Some(check);
                 open.shown_line = None;
                 Ok(String::from("Checking"))
+            }
+            Command::CheckRecordAgain => {
+                let folder = self.folder()?;
+                let rust = self.rust()?;
+                let open = self.open_game()?;
+                let command = folder
+                    .record_playthrough_command(&rust.cargo, &open.game)
+                    .ok_or_else(|| {
+                        Problem::new(
+                            "This game has no bot to record a playthrough.",
+                            "Record one yourself: play it and press F10, or ask an agent to \
+                             write a bot (bot.rs).",
+                        )
+                    })?;
+                let job = self.console.start(
+                    "Record the playthrough",
+                    &command,
+                    crate::console::Keep::Everything,
+                );
+                // When it's done, the check runs again (as for a new game).
+                self.open_game()?.first_steps = Some(FirstSteps::Recording(job));
+                Ok(String::from("Recording the playthrough again"))
             }
             Command::CheckShowProblem { line } => {
                 let open = self.open_game()?;
@@ -1364,7 +1408,16 @@ impl Studio {
         if let Some(check) = open.check.as_mut().filter(|check| check.job == job) {
             if check.take(event, &folder) {
                 match check.result.take() {
-                    Some(Ok(result)) => open.check_result = Some(result),
+                    Some(Ok(mut result)) => {
+                        // The level's own lines: rules, reach, old playthroughs.
+                        if let Some(level) = &open.level {
+                            let jump = jump_from(&open.tunes);
+                            let rows = check::level_rows(&folder, &open.game.name, level, jump);
+                            check::add_level_rows(&mut result, rows);
+                            let _ = check::save(&folder, &result);
+                        }
+                        open.check_result = Some(result);
+                    }
                     Some(Err(problem)) => self.problem = Some(problem),
                     None => {}
                 }
@@ -1405,8 +1458,6 @@ impl Studio {
         }
     }
 
-    /// Twice a second, looks at the game's code. Once a change has stayed
-    /// unchanged for a second, the game is built again.
     /// Keeps the level and the game in step: sends the level after a
     /// paint stroke's last change, takes in the game's answers, and reads
     /// the file again if it was changed outside the Studio (an editor, an
@@ -1450,6 +1501,8 @@ impl Studio {
         }
     }
 
+    /// Twice a second, looks at the game's code. Once a change has stayed
+    /// unchanged for a second, the game is built again.
     fn watch_code(&mut self, now: Instant) {
         let Some(open) = &mut self.open else {
             return;
@@ -1572,6 +1625,7 @@ mod tests {
             r#"{"do": "game.input", "press": "Space"}"#,
             r#"{"do": "check.run"}"#,
             r#"{"do": "check.show_problem", "line": 2}"#,
+            r#"{"do": "check.record_again"}"#,
             r#"{"do": "clip.make"}"#,
             r#"{"do": "console.run", "line": "cargo test"}"#,
             r#"{"do": "level.paint", "cells": [[14, 9], [15, 9]], "tile": "plank", "stroke": 3}"#,
