@@ -115,6 +115,30 @@ pub enum ToStudio {
     },
 }
 
+/// The pixels as the bytes that travel: four per pixel, lowest first.
+#[cfg(target_endian = "little")]
+fn pixel_bytes(pixels: &[u32]) -> std::borrow::Cow<'_, [u8]> {
+    // SAFETY: a `u32` is four bytes with no padding, bytes can be read at
+    // any address, and the new slice covers exactly the same memory for
+    // the same lifetime. On a little-endian computer (every PC and Mac)
+    // those bytes are already in the order the link uses, so the picture
+    // is sent without being copied pixel by pixel.
+    let bytes = unsafe {
+        std::slice::from_raw_parts(pixels.as_ptr().cast::<u8>(), std::mem::size_of_val(pixels))
+    };
+    std::borrow::Cow::Borrowed(bytes)
+}
+
+/// The pixels as the bytes that travel: four per pixel, lowest first.
+#[cfg(not(target_endian = "little"))]
+fn pixel_bytes(pixels: &[u32]) -> std::borrow::Cow<'_, [u8]> {
+    let mut bytes = Vec::with_capacity(pixels.len() * 4);
+    for pixel in pixels {
+        bytes.extend_from_slice(&pixel.to_le_bytes());
+    }
+    std::borrow::Cow::Owned(bytes)
+}
+
 fn bad(message: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message.into())
 }
@@ -326,13 +350,16 @@ impl Frame {
 
     /// Sends the picture: the header's length, the header, then the pixels.
     fn write(&self, to: &mut impl Write) -> io::Result<()> {
+        self.write_with(to, &self.pixels)
+    }
+
+    /// Sends this frame's header with `pixels` after it, so the game can
+    /// send its canvas as it is, without copying it into a `Frame` first.
+    pub fn write_with(&self, to: &mut impl Write, pixels: &[u32]) -> io::Result<()> {
         let header = self.header();
-        let mut pixels = Vec::with_capacity(self.pixels.len() * 4);
-        for pixel in &self.pixels {
-            pixels.extend_from_slice(&pixel.to_le_bytes());
-        }
         let length = (header.len() as u32).to_le_bytes();
-        write_raw(to, b'F', &[&length, header.as_bytes(), &pixels])
+        let bytes = pixel_bytes(pixels);
+        write_raw(to, b'F', &[&length, header.as_bytes(), &bytes])
     }
 
     fn from_bytes(body: &[u8]) -> io::Result<Frame> {

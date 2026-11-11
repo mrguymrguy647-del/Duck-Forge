@@ -140,9 +140,7 @@ fn timing(game: Option<&String>, seconds: Option<&String>) -> i32 {
         }
     }
     lines.push(studio.timing(Instant::now()));
-    let renderer = studio
-        .play()
-        .map_or(String::new(), |play| play.renderer.clone());
+    let renderer = studio.play().map_or(String::new(), |play| play.drawn_by());
     println!("{game}, {seconds} s through the link, drawn by {renderer}:");
     for timing in lines {
         println!(

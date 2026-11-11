@@ -17,11 +17,6 @@ use crate::panels::{self, CheckChoice, ProblemChoice};
 use crate::pictures::Pictures;
 use crate::theme;
 
-/// How long the Studio waits, within one of its own frames, for the
-/// picture of the tick it just sent. If the game answers in time, the
-/// picture is shown in this very frame: no added delay.
-const PATIENCE: Duration = Duration::from_millis(10);
-
 /// Duck Forge Studio's window.
 pub struct StudioApp {
     pub studio: Studio,
@@ -486,7 +481,7 @@ impl StudioApp {
                 let renderer = self
                     .studio
                     .play()
-                    .map_or(String::new(), |play| play.renderer.clone());
+                    .map_or(String::new(), |play| play.drawn_by());
                 ui.label(
                     RichText::new(format!(
                         "Timing (last 5 s): {:.1} updates a second, {:.1} pictures a second, \
@@ -499,7 +494,7 @@ impl StudioApp {
                         timing.link,
                         timing.late,
                         timing.ticks,
-                        if renderer.is_empty() { "?" } else { &renderer }
+                        renderer
                     ))
                     .monospace()
                     .small(),
@@ -583,7 +578,7 @@ impl StudioApp {
     fn game_area(&mut self, ui: &mut egui::Ui) {
         let space = ui.available_rect_before_wrap();
         // Wait for this frame's picture, so it's shown without a frame's delay.
-        self.studio.wait_for_picture(PATIENCE);
+        self.studio.wait_for_picture(studio_core::play::PATIENCE);
         let picture = self.studio.play().and_then(|play| play.picture.clone());
         let overlay = self.overlay();
         match &picture {

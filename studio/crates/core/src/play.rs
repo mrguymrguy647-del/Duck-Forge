@@ -37,6 +37,12 @@ pub const STALL: Duration = Duration::from_millis(100);
 /// of a second) is caught up on; anything longer slows the game instead.
 pub const MOST_UPDATES: u32 = 3;
 
+/// How long the Studio waits, within one of its own frames, for the
+/// picture of the tick it just sent. If the game answers in time, the
+/// picture is shown in that very frame: no added delay. If not, the last
+/// picture stays for one more frame.
+pub const PATIENCE: Duration = Duration::from_millis(10);
+
 /// A tick unanswered for this long means the game isn't answering.
 pub const NOT_ANSWERING: Duration = Duration::from_secs(2);
 
@@ -168,9 +174,10 @@ pub struct Timing {
     pub ticks: u32,
 }
 
-/// A message from the game, or the end of the connection.
+/// A message from the game (and when it arrived), or the end of the
+/// connection.
 enum Heard {
-    Message(Box<ToStudio>),
+    Message(Box<ToStudio>, Instant),
     Closed,
 }
 
@@ -374,9 +381,11 @@ impl Play {
         self.pending.extend_from_slice(actions);
         if let Some(waiting) = self.waiting {
             // The game is still working on the last tick: don't pile up
-            // another, and don't save the time up either.
+            // another. The time isn't lost: the next tick asks for the
+            // updates owed (never more than three, and nothing at all
+            // after a gap longer than a stall), so a game that draws
+            // slowly still runs at its own speed, as in its own window.
             self.not_answering = now.saturating_duration_since(waiting.sent) > NOT_ANSWERING;
-            self.clock.restart();
             return;
         }
         let updates = self.clock.due(now);
@@ -651,6 +660,19 @@ impl Play {
         }
     }
 
+    /// What draws the game, in words for a person.
+    pub fn drawn_by(&self) -> String {
+        match self.renderer.strip_prefix("GPU: ") {
+            Some(card) => format!("the graphics card ({card})"),
+            None if self.renderer.starts_with("GPU") => {
+                // Asked for, never needed: the game has drawn no 3D.
+                String::from("the CPU (this game draws no 3D)")
+            }
+            None if self.renderer.is_empty() => String::from("nothing yet"),
+            None => String::from("the CPU"),
+        }
+    }
+
     /// The inputs sent so far, by frame.
     pub fn events(&self) -> &[InputEvent] {
         &self.events
@@ -697,7 +719,8 @@ impl Play {
             loop {
                 match ToStudio::read(&mut reader) {
                     Ok(Some(message)) => {
-                        if sender.send(Heard::Message(Box::new(message))).is_err() {
+                        let heard = Heard::Message(Box::new(message), Instant::now());
+                        if sender.send(heard).is_err() {
                             break;
                         }
                     }
@@ -714,8 +737,8 @@ impl Play {
 
     /// Takes in one thing heard from the game. Returns true for a new picture.
     fn take(&mut self, heard: Heard, console: &Console) -> bool {
-        let message = match heard {
-            Heard::Message(message) => *message,
+        let (message, arrived) = match heard {
+            Heard::Message(message, arrived) => (*message, arrived),
             Heard::Closed => {
                 self.end(console);
                 return false;
@@ -765,7 +788,7 @@ impl Play {
                 false
             }
             ToStudio::Frame(frame) => {
-                self.take_frame(frame);
+                self.take_frame(frame, arrived);
                 true
             }
             ToStudio::Answer { id, text, .. } => {
@@ -800,8 +823,8 @@ impl Play {
         }
     }
 
-    fn take_frame(&mut self, frame: Frame) {
-        let now = Instant::now();
+    /// Takes in a picture that arrived at `now`.
+    fn take_frame(&mut self, frame: Frame, now: Instant) {
         if let Some(waiting) = self.waiting.filter(|waiting| waiting.id == frame.tick) {
             self.waiting = None;
             self.not_answering = false;

@@ -154,14 +154,19 @@ impl Link {
     }
 }
 
-/// The picture of the game as it is now, as a message for the Studio.
-fn picture<G: Game>(sim: &mut Simulation<G>, tick: u64, update_micros: u32) -> ToStudio {
+/// Draws the game as it is now and sends the picture to the Studio,
+/// straight from the canvas.
+fn send_picture<G: Game>(
+    link: &mut Link,
+    sim: &mut Simulation<G>,
+    tick: u64,
+    update_micros: u32,
+) -> io::Result<()> {
     let started = Instant::now();
-    let canvas = sim.picture();
+    let canvas = sim.picture(); // draws, if this frame hasn't been drawn yet
     let (width, height) = (canvas.width() as u32, canvas.height() as u32);
-    let pixels = canvas.pixels().to_vec();
     let draw_micros = started.elapsed().as_micros().min(u32::MAX as u128) as u32;
-    ToStudio::Frame(Frame {
+    let header = Frame {
         frame: sim.context().frame(),
         tick,
         width,
@@ -170,8 +175,9 @@ fn picture<G: Game>(sim: &mut Simulation<G>, tick: u64, update_micros: u32) -> T
         draw_micros,
         wants_pointer: sim.context().pointer_locked(),
         renderer: sim.context().renderer_name().to_string(),
-        pixels,
-    })
+        pixels: Vec::new(),
+    };
+    header.write_with(&mut link.writer, sim.picture().pixels())
 }
 
 /// Plays `game` inside Duck Forge Studio, which is listening at `address`,
@@ -240,7 +246,7 @@ pub(crate) fn run<G: Game>(
                         open: false,
                         frame: sim.context().frame(),
                     })?;
-                    link.send(&picture(&mut sim, 0, 0))?;
+                    send_picture(&mut link, &mut sim, 0, 0)?;
                     continue;
                 }
             }
@@ -280,7 +286,7 @@ pub(crate) fn run<G: Game>(
                 }
                 let update_micros = started.elapsed().as_micros().min(u32::MAX as u128) as u32;
                 play_new_sounds(&mut sim, &speaker, true);
-                link.send(&picture(&mut sim, id, update_micros))?;
+                send_picture(&mut link, &mut sim, id, update_micros)?;
             }
             ToGame::Run {
                 id,
@@ -308,7 +314,7 @@ pub(crate) fn run<G: Game>(
                 }
                 let update_micros = started.elapsed().as_micros().min(u32::MAX as u128) as u32;
                 play_new_sounds(&mut sim, &speaker, false);
-                link.send(&picture(&mut sim, id, update_micros))?;
+                send_picture(&mut link, &mut sim, id, update_micros)?;
             }
             ToGame::Window { open } => {
                 #[cfg(feature = "window")]
@@ -341,7 +347,7 @@ pub(crate) fn run<G: Game>(
                         frame: sim.context().frame(),
                     })?;
                     if !popped_out {
-                        link.send(&picture(&mut sim, 0, 0))?;
+                        send_picture(&mut link, &mut sim, 0, 0)?;
                     }
                 }
                 #[cfg(not(feature = "window"))]

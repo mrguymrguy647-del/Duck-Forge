@@ -57,7 +57,7 @@ const PATIENCE: Duration = Duration::from_secs(900);
 /// send the tick, wait for the picture, then rest until the next frame.
 pub fn frame(studio: &mut Studio, started: Instant) {
     studio.begin_frame(started, &[]);
-    studio.wait_for_picture(Duration::from_millis(12));
+    studio.wait_for_picture(crate::play::PATIENCE);
     let spent = started.elapsed();
     if let Some(rest) = Duration::from_micros(16_667).checked_sub(spent) {
         std::thread::sleep(rest);
