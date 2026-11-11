@@ -898,12 +898,21 @@ collected with `old.spawn_changes(&new, "coin")` (`.added`, `.removed`).
 `map.files()`, `Legend::load(path)`, `Legend::from_json(text)`.
 Test what must stay true of a level that people edit, not "8 coins":
 `map.broken_rules()` (the legend's `at_least`/`at_most`, in plain
-words; empty if kept), `map.reach(start, Jump { speed, gravity, run })`
+words; empty if kept), `map.reach(start, Jump { speed, gravity, run, width })`
 then `reach.can_reach(point)` / `reach.missing(&points)` (a platformer:
 cautious, so a miss is a warning; the Studio's Check shows it), and
 `map.reach_on_foot(start)` (top-down: exact). Test how the game plays
 on tiny levels written in the test (`TileMap::parse`), and that its bot
-still wins on the real level. A game that draws its own tiles calls
+still wins on the real level. **A bot that survives level and Feel
+changes** follows `map.route(feet, goal, jump)`: `Some(Vec<Hop>)`, each
+`Hop { from, to, jump, speed }` a walk to the next tile, a walk off an
+edge, or a jump, from one tile to stand in to the next (it only counts
+on jumps with room to spare, and knows the jumper's `width`); `None` if
+there's no way. Build `jump` from `ctx.tune` each frame, so the bot plays
+with the Feel as it is now (the platformer starter's `bot.rs` does all
+this, and says in plain words why it can't win). `feel_presets("examples/mygame.feel.json")`
+gives each preset's name and values, to test that every one still lets
+the bot win (`sim.change_tunes(values)`). A game that draws its own tiles calls
 `map.mark_drawn(canvas)` inside its camera, so the Studio's grid lines up.
 
 **Tilesets**: `Tileset::load("assets/tiles.json")?` (a Duck Quill sprite

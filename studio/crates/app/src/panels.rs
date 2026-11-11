@@ -223,7 +223,11 @@ pub fn check(
         ui.label(&row.text);
         if row.action == Some(studio_core::check::RowAction::RecordAgain)
             && ui
-                .add(crate::theme::primary_button("Record it again"))
+                .add(crate::theme::primary_button(if row.step == "playthroughs" {
+                    "Record it"
+                } else {
+                    "Record it again"
+                }))
                 .on_hover_text("The game's bot plays the level as it is now, and that's kept as its playthrough")
                 .clicked()
         {

@@ -63,7 +63,7 @@
 //! when one changes while the game runs, the game's
 //! [`reload`](crate::engine::Game::reload) hook is called.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -467,6 +467,10 @@ pub struct Jump {
     pub gravity: f32,
     /// How fast it runs (world units a second).
     pub run: f32,
+    /// How wide it is (world units), so it isn't sent through gaps it
+    /// can't fit, or to jump from under a ledge its shoulder would hit
+    /// (with a little to spare). 0 follows a point.
+    pub width: f32,
 }
 
 /// Where a character can get to in a level: see [`TileMap::reach`].
@@ -501,6 +505,36 @@ impl Reach {
     pub fn has(&self, column: i32, row: i32) -> bool {
         self.cells.contains(&(column, row))
     }
+}
+
+/// One step of a [`route`](TileMap::route): from standing in one tile to
+/// standing in another.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Hop {
+    /// Where its feet are before: the bottom centre of the tile it stands
+    /// in.
+    pub from: Vec2,
+    /// Where its feet are after: the bottom centre of the tile it lands in.
+    pub to: Vec2,
+    /// It jumps. (Otherwise it walks there, or walks off an edge and
+    /// falls.)
+    pub jump: bool,
+    /// How fast it moves sideways on the way (left is negative): a part
+    /// of [`Jump::run`], or nothing for straight up or straight down.
+    pub speed: f32,
+}
+
+/// What an arc passed through (every tile it was in), and the tile it
+/// landed in, if it landed.
+type Flown = (Vec<(i32, i32)>, Option<(i32, i32)>);
+
+/// One thing a character can do from a tile, and where it takes it.
+struct Flight {
+    hop: Hop,
+    /// Every tile it's in on the way.
+    cells: Vec<(i32, i32)>,
+    /// The tile it lands in, if it lands.
+    landed: Option<(i32, i32)>,
 }
 
 /// How far inside a tile's edge something must be to count as in it: so
@@ -659,16 +693,15 @@ impl TileMap {
     /// let level = "c........\n.........\n.........\n.........\n.........\n.p......c\n#########";
     /// let map = TileMap::parse(level, 16.0, &legend).unwrap();
     /// // A jump about 60 pixels high, nearly four tiles.
-    /// let jump = Jump { speed: 330.0, gravity: 900.0, run: 110.0 };
+    /// let jump = Jump { speed: 330.0, gravity: 900.0, run: 110.0, width: 10.0 };
     /// let reach = map.reach(map.spawn("player"), jump);
     /// let coins = map.spawns("coin");
     /// assert!(!reach.can_reach(coins[0]), "five tiles up is too high");
     /// assert!(reach.can_reach(coins[1]), "a walk away");
     /// ```
     pub fn reach(&self, start: Vec2, jump: Jump) -> Reach {
-        let size = self.tile_size;
         let mut reach = Reach {
-            tile_size: size,
+            tile_size: self.tile_size,
             cells: HashSet::new(),
         };
         let Some(first) = self.land_below(start) else {
@@ -676,44 +709,140 @@ impl TileMap {
         };
         let mut queue = vec![first];
         let mut standing: HashSet<(i32, i32)> = HashSet::from([first]);
-        let fractions = [0.0, 0.25, 0.5, 0.75, 1.0];
-        while let Some((column, row)) = queue.pop() {
-            reach.cells.insert((column, row));
-            let feet = vec2((column as f32 + 0.5) * size, (row + 1) as f32 * size);
-            let mut landed = Vec::new();
-            for direction in [-1.0, 1.0] {
-                // Walking: to the next tile, or off the edge.
-                let next = (column + direction as i32, row);
-                if self.is_inside_column(next.0) && self.kind(next.0, next.1) != TileKind::Solid {
-                    if self.can_stand(next.0, next.1) {
-                        landed.push(next);
-                    } else {
-                        let edge = vec2(
-                            (column as f32 + 0.5 + direction * 0.5) * size + direction * 0.5,
-                            feet.y,
-                        );
-                        for fraction in fractions {
-                            let speed = vec2(direction * fraction * jump.run, 0.0);
-                            self.arc(edge, speed, jump.gravity, &mut reach, &mut landed);
-                        }
-                    }
-                }
-                // Jumping.
-                for fraction in fractions {
-                    if fraction == 0.0 && direction > 0.0 {
-                        continue; // straight up only once
-                    }
-                    let speed = vec2(direction * fraction * jump.run, -jump.speed);
-                    self.arc(feet, speed, jump.gravity, &mut reach, &mut landed);
-                }
-            }
-            for cell in landed {
-                if standing.insert(cell) {
-                    queue.push(cell);
+        while let Some(cell) = queue.pop() {
+            reach.cells.insert(cell);
+            for flight in self.flights_from(cell, jump) {
+                reach.cells.extend(flight.cells);
+                if let Some(landed) = flight.landed
+                    && standing.insert(landed)
+                {
+                    queue.push(landed);
                 }
             }
         }
         reach
+    }
+
+    /// The way from standing at `start` to the thing at `goal` (a spawn
+    /// point), as [`Hop`]s from one tile to stand in to the next: the
+    /// fewest hops, each one a walk to the next tile, a walk off an edge,
+    /// or a jump, landing somewhere it can stand. The last hop passes
+    /// through the goal's tile. It only counts on jumps with a little to
+    /// spare (one a tenth lower must land on the same level too). `None`
+    /// if there's no such way: [`reach`](TileMap::reach) can't get there,
+    /// or only by a jump with nothing to spare, or by falling out of the
+    /// level. A bot follows it: the starters' `bot.rs` do.
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// let legend = Legend::new().solid('#', "ground").one_way('=', "plank").spawn('c', "coin").spawn('p', "player");
+    /// let level = ".....c...\n....==...\n.........\n.p.......\n#########";
+    /// let map = TileMap::parse(level, 16.0, &legend).unwrap();
+    /// let jump = Jump { speed: 330.0, gravity: 900.0, run: 110.0, width: 10.0 };
+    /// let route = map.route(map.spawn("player"), map.spawn("coin"), jump).unwrap();
+    /// let last = route.last().unwrap();
+    /// assert!(last.jump, "up onto the plank");
+    /// assert_eq!(last.to.y, 16.0, "standing on it, by the coin");
+    /// ```
+    pub fn route(&self, start: Vec2, goal: Vec2, jump: Jump) -> Option<Vec<Hop>> {
+        let goal = self.cell_at(vec2(goal.x, goal.y - 0.5));
+        let first = self.land_below(start)?;
+        if first == goal {
+            return Some(Vec::new());
+        }
+        // Breadth first, so the first way found has the fewest hops.
+        let mut came: HashMap<(i32, i32), ((i32, i32), Hop)> = HashMap::new();
+        let mut queue = VecDeque::from([first]);
+        let mut seen: HashSet<(i32, i32)> = HashSet::from([first]);
+        while let Some(cell) = queue.pop_front() {
+            for flight in self.flights_from(cell, jump) {
+                let Some(landed) = flight.landed else {
+                    continue;
+                };
+                if flight.hop.jump && !self.lands_lower_too(&flight.hop, landed, jump) {
+                    continue;
+                }
+                if landed == goal || flight.cells.contains(&goal) {
+                    let mut hops = vec![flight.hop];
+                    let mut at = cell;
+                    while let Some((before, hop)) = came.get(&at) {
+                        hops.push(*hop);
+                        at = *before;
+                    }
+                    hops.reverse();
+                    return Some(hops);
+                }
+                if seen.insert(landed) {
+                    came.insert(landed, (cell, flight.hop));
+                    queue.push_back(landed);
+                }
+            }
+        }
+        None
+    }
+
+    /// A jump to count on: one a little lower (95% of the speed, so a
+    /// tenth less height) comes down on the same level, in the same tile
+    /// or the next. Otherwise the hop hangs on the jump's last pixels:
+    /// just clearing a wall, or just reaching (or just missing) a ledge.
+    fn lands_lower_too(&self, hop: &Hop, landed: (i32, i32), jump: Jump) -> bool {
+        let lower = vec2(hop.speed, -jump.speed * 0.95);
+        matches!(
+            self.arc(hop.from, lower, jump).1,
+            Some((column, row)) if row == landed.1 && (column - landed.0).abs() <= 1
+        )
+    }
+
+    /// Everything a character standing in `cell` can do next: walk to the
+    /// tile beside it, walk off an edge, or jump, at a few speeds each way.
+    fn flights_from(&self, (column, row): (i32, i32), jump: Jump) -> Vec<Flight> {
+        let size = self.tile_size;
+        let feet_of =
+            |(column, row): (i32, i32)| vec2((column as f32 + 0.5) * size, (row + 1) as f32 * size);
+        let feet = feet_of((column, row));
+        let fractions = [0.0, 0.25, 0.5, 0.75, 1.0];
+        let mut flights = Vec::new();
+        let mut add = |jumps: bool, speed: f32, (cells, landed): Flown| {
+            flights.push(Flight {
+                hop: Hop {
+                    from: feet,
+                    to: landed.map_or(feet, feet_of),
+                    jump: jumps,
+                    speed,
+                },
+                cells,
+                landed,
+            });
+        };
+        for direction in [-1.0, 1.0] {
+            // Walking: to the next tile, or off the edge.
+            let next = (column + direction as i32, row);
+            if self.is_inside_column(next.0) && self.kind(next.0, next.1) != TileKind::Solid {
+                if self.can_stand(next.0, next.1) {
+                    add(false, direction * jump.run, (vec![next], Some(next)));
+                } else {
+                    let edge = vec2(
+                        // It falls once all of it is past the edge.
+                        (column as f32 + 0.5 + direction * 0.5) * size
+                            + direction * (jump.width / 2.0 + 0.5),
+                        feet.y,
+                    );
+                    for fraction in fractions {
+                        let speed = direction * fraction * jump.run;
+                        add(false, speed, self.arc(edge, vec2(speed, 0.0), jump));
+                    }
+                }
+            }
+            // Jumping.
+            for fraction in fractions {
+                if fraction == 0.0 && direction > 0.0 {
+                    continue; // straight up only once
+                }
+                let speed = direction * fraction * jump.run;
+                add(true, speed, self.arc(feet, vec2(speed, -jump.speed), jump));
+            }
+        }
+        flights
     }
 
     /// Where a top-down character can walk to from `start`: every tile
@@ -771,20 +900,29 @@ impl TileMap {
         None
     }
 
-    /// Follows a point thrown from `from` at `speed`, marking every tile a
-    /// character there would be in, until it lands (the tile goes in
-    /// `landed`), hits something solid, or falls out of the level.
-    fn arc(
-        &self,
-        from: Vec2,
-        speed: Vec2,
-        gravity: f32,
-        reach: &mut Reach,
-        landed: &mut Vec<(i32, i32)>,
-    ) {
+    /// Follows a point thrown from `from` at `speed`: every tile a
+    /// character there would be in, and the tile it lands in (if it does,
+    /// rather than hitting something solid or falling out of the level).
+    fn arc(&self, from: Vec2, speed: Vec2, jump: Jump) -> Flown {
         let size = self.tile_size;
+        let (gravity, half) = (jump.gravity, jump.width / 2.0);
+        // The same for its height: it bumps its head as if it were a tile
+        // tall, nearly, and reaches things as if it were four fifths of one.
+        let tall = size - 0.5;
+        // A little to spare, each way: it's taken to bump into things as
+        // if it were an eighth of a tile wider on each side, and to land
+        // only on what something a quarter of a tile narrower on each
+        // side would catch.
+        let spare = if half > 0.0 { size / 8.0 } else { 0.0 };
+        let (bumps, lands) = (half + spare, (half - spare * 2.0).max(0.0));
         let dt = 1.0 / 120.0;
         let bottom = (self.rows + 1) as f32 * size;
+        let mut cells: Vec<(i32, i32)> = Vec::new();
+        let mut mark = |cell: (i32, i32)| {
+            if cells.last() != Some(&cell) && !cells.contains(&cell) {
+                cells.push(cell);
+            }
+        };
         let mut previous = from;
         for step in 1..=600 {
             let t = step as f32 * dt;
@@ -792,35 +930,47 @@ impl TileMap {
                 from.x + speed.x * t,
                 from.y + speed.y * t + gravity * t * t / 2.0,
             );
-            // Going down across the top of a tile it can land on: landed.
+            // Going down across the top of a tile it can land on (under
+            // its middle, or under either side of it): landed.
             if at.y > previous.y {
                 let top_row = (at.y / size).floor() as i32;
                 if (previous.y / size).floor() as i32 != top_row {
-                    let column = (at.x / size).floor() as i32;
-                    if matches!(
-                        self.kind(column, top_row),
-                        TileKind::Solid | TileKind::OneWay
-                    ) && self.kind(column, top_row - 1) != TileKind::Solid
-                    {
-                        reach.cells.insert((column, top_row - 1));
-                        landed.push((column, top_row - 1));
-                        return;
+                    let catches = |side: f32| {
+                        let column = ((at.x + side) / size).floor() as i32;
+                        (matches!(
+                            self.kind(column, top_row),
+                            TileKind::Solid | TileKind::OneWay
+                        ) && self.kind(column, top_row - 1) != TileKind::Solid)
+                            .then_some((column, top_row - 1))
+                    };
+                    if let Some(cell) = [0.0, -lands, lands].into_iter().find_map(catches) {
+                        mark(cell);
+                        return (cells, Some(cell));
+                    }
+                    // Passing so close to an edge that it might catch it
+                    // or might not: not an arc to count on.
+                    if [-bumps, bumps].into_iter().find_map(catches).is_some() {
+                        return (cells, None);
                     }
                 }
             }
             let (column, row) = self.cell_at(vec2(at.x, at.y - 0.5));
             let head = self.cell_at(vec2(at.x, at.y - size * 0.8));
-            if !self.is_inside_column(column)
-                || self.kind(column, row) == TileKind::Solid
-                || self.kind(head.0, head.1) == TileKind::Solid
-                || at.y > bottom
-            {
-                return;
+            // Its feet and its head, at its middle and at both sides.
+            let blocked = [0.0, -bumps, bumps].into_iter().any(|side| {
+                [at.y - 0.5, at.y - tall].into_iter().any(|y| {
+                    let (column, row) = self.cell_at(vec2(at.x + side, y));
+                    self.kind(column, row) == TileKind::Solid
+                })
+            });
+            if !self.is_inside_column(column) || blocked || at.y > bottom {
+                return (cells, None);
             }
-            reach.cells.insert((column, row));
-            reach.cells.insert(head);
+            mark((column, row));
+            mark(head);
             previous = at;
         }
+        (cells, None)
     }
 
     fn read(
@@ -1352,6 +1502,7 @@ p...===..
             speed: 330.0,
             gravity: 900.0,
             run: 110.0,
+            width: 0.0,
         };
         // A jump of about 60 pixels: three tiles up is fine, five isn't.
         let map = TileMap::parse(

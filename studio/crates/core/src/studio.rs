@@ -32,6 +32,8 @@ fn jump_from(tunes: &std::collections::BTreeMap<String, f32>) -> Option<duckforg
         speed: *tunes.get("jump_speed")?,
         gravity: *tunes.get("gravity")?,
         run: *tunes.get("run_speed")?,
+        // The starters' duck: a rough width is better than none.
+        width: 10.0,
     })
 }
 
@@ -517,6 +519,9 @@ pub struct OpenGame {
     play_when_built: bool,
     /// For a game just made: its first playthrough and first Check.
     first_steps: Option<FirstSteps>,
+    /// Check has just had the bot try to record a first playthrough: it
+    /// doesn't try again in the same Check.
+    tried_first_recording: bool,
     /// Its level, if it has one (`level.txt` in its folder).
     pub level: Option<Level>,
     /// Why its level couldn't be read.
@@ -813,6 +818,7 @@ impl Studio {
                     looked: Instant::now(),
                     play_when_built: true,
                     first_steps: None,
+                    tried_first_recording: false,
                     level,
                     level_problem,
                     level_art,
@@ -1199,6 +1205,26 @@ impl Studio {
                 if self.open_game()?.getting_ready().is_some() {
                     // A game just made is checked by itself in a moment.
                     return Ok(String::from("It's checked as soon as it's ready"));
+                }
+                // No playthrough yet (the bot couldn't win when the game was
+                // made, say): its bot records one first, once, so Check has
+                // something to replay.
+                let rust = self.rust()?;
+                let open = self.open_game()?;
+                let tried = std::mem::replace(&mut open.tried_first_recording, false);
+                if !tried
+                    && let Some(command) = folder.first_playthrough_command(&rust.cargo, &open.game)
+                {
+                    open.tried_first_recording = true;
+                    let job = self.console.start(
+                        "First playthrough",
+                        &command,
+                        crate::console::Keep::Everything,
+                    );
+                    self.open_game()?.first_steps = Some(FirstSteps::Recording(job));
+                    return Ok(String::from(
+                        "Recording its first playthrough with the bot, then checking",
+                    ));
                 }
                 let name = self.open_game()?.game.name.clone();
                 let check = Check::start(&mut self.console, &folder, &name);

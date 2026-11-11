@@ -54,8 +54,10 @@ pub struct CheckRow {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RowAction {
     /// Have the game's bot record its playthrough again, on the level as
-    /// it is now.
+    /// it is now (or for the first time).
     RecordAgain,
+    /// No button: the line's own text says what to do.
+    Explained,
 }
 
 /// A finished check.
@@ -177,6 +179,9 @@ pub fn read_report(lines: &[String], folder: &GamesFolder, game: &str) -> CheckR
             _ => {}
         }
     }
+    for row in &mut rows {
+        say_it_plainly(row, folder, game);
+    }
     let problems = rows
         .iter()
         .filter(|r| r.status == RowStatus::Failed)
@@ -194,6 +199,62 @@ pub fn read_report(lines: &[String], folder: &GamesFolder, game: &str) -> CheckR
         at: SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |since| since.as_secs()),
+    }
+}
+
+/// Once a line has its details: the cases worth their own plain words.
+///
+/// - The starters' "the bot can still win" tests say why the bot can't:
+///   the Feel values as they are now, one of the Feel presets, or the
+///   level. That sentence becomes the line, not "some play tests fail".
+/// - No playthrough recorded yet (a new game whose bot couldn't win when
+///   it was made, say): a line that offers to record one.
+fn say_it_plainly(row: &mut CheckRow, folder: &GamesFolder, game: &str) {
+    if row.step == "play tests" && row.status == RowStatus::Failed {
+        let cases = [
+            (
+                "With the Feel values as they are now, ",
+                "The bot can't win with the Feel values as they are now",
+            ),
+            (
+                "With the Feel preset ",
+                "The bot can't win with one of the Feel presets",
+            ),
+            (
+                "On the level as it is now, ",
+                "The bot can't win on the level as it is now",
+            ),
+        ];
+        for (start, say) in cases {
+            if let Some(why) = row.details.iter().find(|line| line.starts_with(start)) {
+                row.say = say.to_string();
+                row.text = why.clone();
+                row.action = Some(RowAction::Explained);
+                return;
+            }
+        }
+    }
+    if row.step == "playthroughs" {
+        row.say = String::from("No playthrough recorded yet");
+        row.status = RowStatus::Warning;
+        let bot = folder
+            .root()
+            .join("examples")
+            .join(game)
+            .join("bot.rs")
+            .is_file();
+        if bot {
+            row.text = String::from(
+                "Record one: the game's bot plays the level as it is now, and that's kept so \
+                 Check can replay it every time.",
+            );
+            row.action = Some(RowAction::RecordAgain);
+        } else {
+            row.text = String::from(
+                "Play the game and press F10 to record one, so Check can replay it every time.",
+            );
+            row.action = Some(RowAction::Explained);
+        }
     }
 }
 
@@ -494,6 +555,33 @@ mod tests {
         assert_eq!((result.problems, result.warnings), (2, 1));
         let tests = &result.rows[1];
         assert_eq!(tests.say, "Some of its play tests fail");
+
+        // The bot's own sentence becomes the line; and a game with no
+        // playthrough yet says so, rather than a test failing to read it.
+        let feel = read_report(
+            &lines(
+                "  build                        ok: built without a window\n\
+                 \x20 play tests                   FAILED: 9 passed; 1 failed; 1 ignored; all in out/verify/template/tests.txt\n\
+                 \x20     thread 'tests::the_bot_can_still_win_on_the_level' panicked at examples/template/tests.rs:171:13:\n\
+                 \x20     With the Feel values as they are now, the bot can't get from column 31, row 9 to the coin at column 34, row 6 (its jump is 3.0 tiles high and 5.2 tiles long). With the values in the code the bot wins: change Feel back (the preset \"As it was made\"), or change the level to suit the new Feel.\n\
+                 \x20 playthroughs                 ok: none (save one as playthroughs/template.json)\n",
+            ),
+            &duck_forge(),
+            "template",
+        );
+        let bot = &feel.rows[1];
+        assert_eq!(
+            bot.say,
+            "The bot can't win with the Feel values as they are now"
+        );
+        assert!(
+            bot.text
+                .starts_with("With the Feel values as they are now, the bot can't get")
+        );
+        let none = &feel.rows[2];
+        assert_eq!(none.say, "No playthrough recorded yet");
+        assert_eq!(none.status, RowStatus::Warning);
+        assert_eq!(none.action, Some(RowAction::RecordAgain), "it has a bot");
         assert_eq!(tests.details.len(), 2);
         assert!(tests.details[0].contains("tests.rs:84"));
         let playthrough = &result.rows[2];

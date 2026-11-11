@@ -503,15 +503,22 @@ fn levels_as_files_rules_reach_and_reload() -> Result<(), LoadError> {
         map.broken_rules(),
         ["The level needs at least 1 Flag; it has none."]
     );
-    let reach = map.reach(
-        map.spawn("player"),
-        Jump {
-            speed: 330.0,
-            gravity: 900.0,
-            run: 110.0,
-        },
-    );
+    let jump = Jump {
+        speed: 330.0,
+        gravity: 900.0,
+        run: 110.0,
+        width: 10.0,
+    };
+    let reach = map.reach(map.spawn("player"), jump);
     assert!(reach.can_reach(map.spawns("coin")[0]));
+    // The way there, hop by hop, for a bot to follow.
+    let hops: Vec<Hop> = map
+        .route(map.spawn("player"), map.spawns("coin")[0], jump)
+        .unwrap();
+    assert!(hops.iter().all(|hop| hop.from != hop.to));
+    // A feel file's presets, to test the bot with each.
+    let presets: Vec<FeelPreset> = feel_presets("examples/template.feel.json").unwrap();
+    assert_eq!(presets[2].0, "Floaty");
     assert!(reach.missing(&map.spawns("coin")).is_empty());
     assert!(
         map.reach_on_foot(map.spawn("player"))
@@ -527,6 +534,7 @@ fn levels_as_files_rules_reach_and_reload() -> Result<(), LoadError> {
             coins,
         },
     );
+    sim.change_tunes(presets[2].1.clone()); // from now on, kept in the recording
     let name = path.to_string_lossy().replace('\\', "/");
     assert!(sim.change_file(&name, "p..c\n####\n"), "reload took it");
     assert_eq!(sim.game().coins, [vec2(56.0, 16.0)]);

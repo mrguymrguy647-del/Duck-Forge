@@ -134,3 +134,66 @@ fn the_last_coin_wins() {
     assert_eq!(played.number("coins"), played.game().total_coins as f64);
     assert_eq!(played.sound_frames("coin").len(), 1);
 }
+
+/// The Feel values written in the code (the Studio's Feel sliders, a
+/// tune file or `--set` can change them).
+fn feel_in_the_code() -> std::collections::BTreeMap<String, f32> {
+    [
+        ("player_speed", PLAYER_SPEED),
+        ("enemy_speed", ENEMY_SPEED),
+        ("sight", SIGHT),
+    ]
+    .into_iter()
+    .map(|(name, value)| (name.to_string(), value))
+    .collect()
+}
+
+#[test]
+fn the_bot_can_still_win_on_the_level() {
+    // With the Feel values as they are now (the tune file, if there is one).
+    let mut sim = Simulation::new(config(), TopDown::new());
+    if let Err(why) = super::bot::play(&mut sim) {
+        // Is it the level, or the Feel? Try the values written in the code.
+        let mut plain = Simulation::new(config(), TopDown::new());
+        plain.change_tunes(feel_in_the_code());
+        if super::bot::play(&mut plain).is_ok() {
+            panic!(
+                "With the Feel values as they are now, {why}. With the values in the code the \
+                 bot wins: change Feel back (the preset \"As it was made\"), or change the level \
+                 to suit the new Feel."
+            );
+        }
+        panic!("On the level as it is now, {why}.");
+    }
+}
+
+#[test]
+fn the_bot_can_win_with_every_feel_preset() {
+    // The presets in the Studio's Feel panel: each must leave a game that
+    // can be won. (A preset changes some values; the rest are the code's.)
+    for (preset, values) in feel_presets("examples/starter_topdown.feel.json").unwrap() {
+        let mut sim = Simulation::new(config(), TopDown::new());
+        let mut feel = feel_in_the_code();
+        feel.extend(values);
+        sim.change_tunes(feel);
+        if let Err(why) = super::bot::play(&mut sim) {
+            panic!("With the Feel preset \"{preset}\", {why}.");
+        }
+    }
+}
+
+#[test]
+fn the_playthrough_ends_with_every_coin() {
+    // It replays on the level it was recorded on (it keeps a copy), so
+    // painting the level doesn't break it. Check says when it's from an
+    // older level, and the bot can record it again.
+    let recording = "playthroughs/starter_topdown.json";
+    if !std::path::Path::new(recording).exists() {
+        return; // not recorded yet: Check says so, and offers to record it
+    }
+    let played = PlayTest::new(config(), TopDown::new())
+        .inputs(recording)
+        .run();
+    assert_eq!(played.text("state"), "Won");
+    assert!(played.game().coins.is_empty(), "with every coin");
+}

@@ -145,20 +145,53 @@ fn the_level_keeps_its_rules() {
     assert_eq!(map.broken_rules(), Vec::<String>::new());
 }
 
+/// The Feel values written in the code (the Studio's Feel sliders, a
+/// tune file or `--set` can change them).
+fn feel_in_the_code() -> std::collections::BTreeMap<String, f32> {
+    [
+        ("run_speed", RUN_SPEED),
+        ("jump_speed", JUMP_SPEED),
+        ("gravity", GRAVITY),
+    ]
+    .into_iter()
+    .map(|(name, value)| (name.to_string(), value))
+    .collect()
+}
+
 #[test]
 fn the_bot_can_still_win_on_the_level() {
+    // With the Feel values as they are now (the tune file, if there is one).
     let mut sim = Simulation::new(config(), game());
     let coins = sim.game().coins.len() as f64;
-    super::bot::play(&mut sim);
-    let feet = sim.game().feet();
-    assert_eq!(
-        sim.text("state"),
-        "Won",
-        "the bot got stuck around column {} row {}",
-        (feet.x / TILE).floor(),
-        (feet.y / TILE).floor() - 1.0
-    );
+    if let Err(why) = super::bot::play(&mut sim) {
+        // Is it the level, or the Feel? Try the values written in the code.
+        let mut plain = Simulation::new(config(), game());
+        plain.change_tunes(feel_in_the_code());
+        if super::bot::play(&mut plain).is_ok() {
+            panic!(
+                "With the Feel values as they are now, {why}. With the values in the code the \
+                 bot wins: change Feel back (the preset \"As it was made\"), or change the level \
+                 to suit the new Feel."
+            );
+        }
+        panic!("On the level as it is now, {why}.");
+    }
     assert_eq!(sim.number("coins"), coins, "with every coin");
+}
+
+#[test]
+fn the_bot_can_win_with_every_feel_preset() {
+    // The presets in the Studio's Feel panel: each must leave a game that
+    // can be won. (A preset changes some values; the rest are the code's.)
+    for (preset, values) in feel_presets("examples/template.feel.json").unwrap() {
+        let mut sim = Simulation::new(config(), game());
+        let mut feel = feel_in_the_code();
+        feel.extend(values);
+        sim.change_tunes(feel);
+        if let Err(why) = super::bot::play(&mut sim) {
+            panic!("With the Feel preset \"{preset}\", {why}.");
+        }
+    }
 }
 
 #[test]
@@ -166,9 +199,11 @@ fn the_playthrough_reaches_the_flag_with_every_coin() {
     // It replays on the level it was recorded on (it keeps a copy), so
     // painting the level doesn't break it. Check says when it's from an
     // older level, and the bot can record it again.
-    let played = PlayTest::new(config(), game())
-        .inputs("playthroughs/template.json")
-        .run();
+    let recording = "playthroughs/template.json";
+    if !std::path::Path::new(recording).exists() {
+        return; // not recorded yet: Check says so, and offers to record it
+    }
+    let played = PlayTest::new(config(), game()).inputs(recording).run();
     assert_eq!(played.text("state"), "Won");
-    assert_eq!(played.number("coins"), 8.0);
+    assert!(played.game().coins.is_empty(), "with every coin");
 }

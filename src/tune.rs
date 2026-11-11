@@ -397,6 +397,55 @@ fn read_file(path: &Path) -> Result<HashMap<String, f32>, String> {
     Ok(values)
 }
 
+/// A preset in a game's feel file: its name, and the values it sets.
+pub type FeelPreset = (String, BTreeMap<String, f32>);
+
+/// The presets in a game's feel file (`examples/<game>.feel.json`, which
+/// Duck Forge Studio's Feel panel reads): each one's name and its values.
+/// None if there's no such file. A starter's play tests use it to check
+/// the level can still be won with every preset.
+///
+/// ```
+/// # use duckforge::prelude::*;
+/// let presets = feel_presets("examples/template.feel.json").unwrap();
+/// let (name, values) = &presets[0];
+/// assert_eq!(name, "As it was made");
+/// assert_eq!(values["jump_speed"], 330.0);
+/// ```
+pub fn feel_presets(path: impl AsRef<Path>) -> Result<Vec<FeelPreset>, String> {
+    let path = path.as_ref();
+    let Ok(text) = fs::read_to_string(path) else {
+        return Ok(Vec::new());
+    };
+    let wrong = |what: &str| format!("{}: {what}", path.display());
+    let file: Value = serde_json::from_str(&text).map_err(|error| wrong(&error.to_string()))?;
+    let Some(presets) = file.get("presets") else {
+        return Ok(Vec::new());
+    };
+    let presets = presets
+        .as_object()
+        .ok_or_else(|| wrong("\"presets\" should be an object of presets"))?;
+    let mut all = Vec::new();
+    for (name, values) in presets {
+        let values = values.as_object().ok_or_else(|| {
+            wrong(&format!(
+                "the preset \"{name}\" should be an object of values"
+            ))
+        })?;
+        let mut numbers = BTreeMap::new();
+        for (value, number) in values {
+            let number = number.as_f64().ok_or_else(|| {
+                wrong(&format!(
+                    "\"{value}\" in the preset \"{name}\" should be a number"
+                ))
+            })?;
+            numbers.insert(value.clone(), number as f32);
+        }
+        all.push((name.clone(), numbers));
+    }
+    Ok(all)
+}
+
 /// `examples/<game>.tune.json`, where `<game>` is this program's name
 /// (`target/debug/examples/dodge` is `dodge`; test programs, named like
 /// `dodge-1a2b3c4d5e6f7a8b`, lose the `-` and the hex number).

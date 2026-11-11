@@ -111,7 +111,8 @@ pub mod prelude {
     pub use crate::sprite::{Animation, Blit, Sprite};
     pub use crate::spritesheet::SpriteSheet;
     pub use crate::tilemap::{
-        Contacts, Jump, Legend, Letter, LetterKind, Reach, SpawnChanges, TileKind, TileMap,
+        Contacts, Hop, Jump, Legend, Letter, LetterKind, Reach, SpawnChanges, TileKind, TileMap,
     };
     pub use crate::tileset::Tileset;
+    pub use crate::tune::{FeelPreset, feel_presets};
 }

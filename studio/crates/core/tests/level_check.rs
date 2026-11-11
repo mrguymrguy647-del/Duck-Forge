@@ -26,6 +26,7 @@ fn the_level_says_its_broken_rules_far_coins_and_old_playthroughs() {
         speed: 330.0,
         gravity: 900.0,
         run: 110.0,
+        width: 10.0,
     };
 
     // As it is: nothing to say. (Its playthrough was recorded on it.)
