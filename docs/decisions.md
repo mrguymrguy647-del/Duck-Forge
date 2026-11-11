@@ -2898,3 +2898,64 @@ games clear to (or fog with) the sky's colour. A test draws the 144-chunk
 world level and looking straight down, and checks every pixel is the
 same as drawing everything, except fog-coloured ones that became
 background.
+
+---
+
+# Phase 4, Step 0: main brought up to date, and the baseline
+
+Before Duck Forge Studio, `main` (still at the end of Phase 3) needed
+everything since: `claude/duck-craft-audio` (all the engine fixes: the ten
+Duck Craft fixes, stereo sound, the fog culling, `Simulation::with_context`,
+the verify and replay fixes, the smoother sound in a window) and
+`claude/duck-craft-2` (the newest Duck Craft). The two were merged into one
+branch from `main`. Nothing clashed: one branch only touched the engine,
+the other only Duck Craft, and nothing needed fixing afterwards.
+
+Checked after the merge: it builds with and without the default features;
+every test passes both ways (529 headless, 562 with everything); clippy is
+clean both ways; `cargo check --target x86_64-pc-windows-gnu --all-targets`
+passes; and all 20 examples pass `tools/verify.sh` (50 fuzz runs each).
+
+One thing was added: Duck Craft had no way to time a frame, so
+`examples/duck_craft/tests.rs` has an ignored `frame_time` test like
+stress3d's. It replays `playthroughs/duck_craft.json`, drawing every frame
+with each renderer, and prints the usual frame and the slowest
+(`cargo test --release --example duck_craft -- --ignored frame_time
+--nocapture`).
+
+**The baseline.** Phase 4 must not make these noticeably worse. They were
+measured on the 4-core cloud machine the work is done on, which is slower
+and less steady than the one behind the Phase 3 table (so don't compare
+the two tables), and whose only "graphics card" is llvmpipe, a pretend
+one drawn by the CPU. Frame times were measured three times; the table
+gives the range.
+
+| | Baseline |
+|---|---|
+| Headless clean build of `dodge` | 13.1 s |
+| ...after touching `src/lib.rs` | 0.8 s |
+| Headless test suite from an empty target folder | 74.3 s, 529 tests |
+| Headless test suite, already built | 21.0 s (Duck Craft's 72 tests are 17.8 s of it) |
+| All tests, already built | 18.0 s, 562 tests |
+| stress3d, 500 objects, CPU, 320 x 240 | 2.5 to 3.5 ms per frame |
+| stress3d, 2,000 objects, CPU | 7.9 to 9.2 ms |
+| stress3d, 2,000 objects, GPU (llvmpipe) | 14.5 to 19.1 ms |
+| Block world, 4,096 textured blocks, CPU | 5.2 to 5.7 ms |
+| Duck Craft playthrough, CPU, 320 x 240 | 8.0 to 9.0 ms per frame (middle 7.6 to 8.5, slowest 15 to 21) |
+| Duck Craft playthrough, GPU (llvmpipe) | 13.6 to 14.8 ms (slowest 30 to 85) |
+| Release game, Linux: `dodge` | 6.1 MB (4.3 MB stripped) |
+| Release game, Linux: `duck_peaks` | 6.2 MB (4.4 MB stripped) |
+| Release game, Linux: `starter_runner3d` | 11.5 MB (8.5 MB stripped) |
+| Release game, Linux: `duck_craft` | 11.8 MB (8.8 MB stripped), plus 6.0 MB of assets |
+| Release game, headless only: `dodge`, `duck_craft` | 2.2 MB, 2.7 MB |
+| Examples passing `verify` | 20 |
+
+How each was measured: the build and suite times with `cargo clean`
+first, then `cargo build --no-default-features --example dodge` and
+`cargo test --no-default-features`; the frame times with the ignored
+tests in `stress3d` (run with `--test-threads=1`, so the two tests don't
+slow each other) and `duck_craft`; the sizes from
+`cargo build --release --example <game>` and `strip`. The 3D games are
+bigger because they carry the graphics-card renderer. Windows `.exe`
+sizes aren't here: this machine can check a Windows build but can't link
+one, so Step 2's release workflow will be the first to give them.
