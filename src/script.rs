@@ -366,7 +366,7 @@ pub(crate) fn timestep_warning(script: &InputScript, config: &Config) -> Option<
 }
 
 /// One event as a line of JSON, like `{"frame": 12, "press": "Space"}`.
-fn event_json(event: &InputEvent) -> String {
+pub(crate) fn event_json(event: &InputEvent) -> String {
     let (name, value) = match event.action {
         InputAction::Press(key) => ("press", quoted(key.name())),
         InputAction::Release(key) => ("release", quoted(key.name())),
@@ -412,7 +412,7 @@ const ACTIONS: [&str; 7] = [
     "scroll",
 ];
 
-fn parse_event(event: &Value) -> Result<InputEvent, String> {
+pub(crate) fn parse_event(event: &Value) -> Result<InputEvent, String> {
     let Value::Object(fields) = event else {
         return Err(String::from(
             "each event is an object like {\"frame\": 1, \"press\": \"Space\"}",

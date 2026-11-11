@@ -21,8 +21,8 @@ use crate::tune::Tunes;
 /// What every game must provide. The engine calls `update` and `draw` once
 /// per frame.
 ///
-/// `init` and `resize` are optional: they have empty bodies here (*default
-/// methods*), so a game only writes them if it needs them.
+/// `init`, `resize` and `quit` are optional: they have empty bodies here
+/// (*default methods*), so a game only writes them if it needs them.
 pub trait Game {
     /// Runs once, just before the first `update`. Use it for setup that
     /// needs the context, like reading `ctx.width()`, picking random
@@ -51,6 +51,31 @@ pub trait Game {
     /// This takes `&self`, not `&mut self`: drawing can look at the game but
     /// never change it, and the compiler enforces that for us.
     fn draw(&self, canvas: &mut Canvas);
+
+    /// Runs once when the game is about to end, however it ends: the
+    /// window's close button, [`Context::quit`], `--frames` running out,
+    /// the end of a headless run, or Duck Forge Studio stopping the game.
+    /// Use it to save. (It can't run if the program crashes or is killed.)
+    ///
+    /// Check [`Context::is_headless`] first: replays, fuzz runs and tests
+    /// must start the same way every time, so they shouldn't save.
+    fn quit(&mut self, ctx: &mut Context) {
+        let _ = ctx;
+    }
+}
+
+/// Where a game is running.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum RunMode {
+    /// With no window: `--headless`, fuzz runs, tests.
+    #[default]
+    Headless,
+    /// In its own window.
+    #[cfg_attr(not(feature = "window"), allow(dead_code))] // only the window uses it
+    Window,
+    /// Inside Duck Forge Studio.
+    #[cfg_attr(not(feature = "studio"), allow(dead_code))] // only the Studio link uses it
+    Studio,
 }
 
 /// How game time moves forward from one [`Game::update`] to the next.
@@ -251,6 +276,10 @@ pub struct Context {
     failed_checks: Vec<FailedCheck>,
     /// Whether the game said waiting is fine during this update.
     idle_ok: bool,
+    /// Where the game is running.
+    run_mode: RunMode,
+    /// Lines for Duck Forge Studio to show, not yet handed over.
+    studio_notes: Vec<String>,
 }
 
 /// A rule from [`Context::check`] that didn't hold.
@@ -286,6 +315,8 @@ impl Context {
             checked: HashSet::new(),
             failed_checks: Vec::new(),
             idle_ok: false,
+            run_mode: RunMode::Headless,
+            studio_notes: Vec::new(),
         }
     }
 
@@ -373,6 +404,54 @@ impl Context {
     /// [`lock_pointer`](Context::lock_pointer).
     pub fn pointer_locked(&self) -> bool {
         self.pointer_locked
+    }
+
+    /// Whether the game is running with no window and no person: a
+    /// `--headless` run, a replay, a fuzz run or a test. Those must play
+    /// out the same every time, so a game shouldn't load or save its save
+    /// file in them:
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// # fn save() {}
+    /// # fn quit(ctx: &mut Context) {
+    /// if !ctx.is_headless() && !ctx.in_studio() {
+    ///     save();
+    /// }
+    /// # }
+    /// ```
+    ///
+    /// Before the game exists (in `main`), [`duckforge::is_headless`](crate::is_headless)
+    /// answers the same question from the command line.
+    pub fn is_headless(&self) -> bool {
+        self.run_mode == RunMode::Headless
+    }
+
+    /// Whether the game is running inside Duck Forge Studio (false in its
+    /// own window, and in headless runs and tests). Every Studio session
+    /// is recorded so it can be replayed, so here too a game should start
+    /// the same way every time.
+    pub fn in_studio(&self) -> bool {
+        self.run_mode == RunMode::Studio
+    }
+
+    /// Gives Duck Forge Studio a line to show next to the game, like
+    /// `"Inside the Studio, Duck Craft starts a fresh island and doesn't
+    /// save"`. Outside the Studio it does nothing.
+    pub fn studio_note(&mut self, text: &str) {
+        if self.run_mode == RunMode::Studio {
+            self.studio_notes.push(text.to_string());
+        }
+    }
+
+    pub(crate) fn set_run_mode(&mut self, mode: RunMode) {
+        self.run_mode = mode;
+    }
+
+    /// The lines given to [`studio_note`](Context::studio_note) since last time.
+    #[cfg_attr(not(feature = "studio"), allow(dead_code))] // only the Studio link uses it
+    pub(crate) fn take_studio_notes(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.studio_notes)
     }
 
     /// Shares a value about the game, like `ctx.report("score", self.score)`.
@@ -701,7 +780,30 @@ pub fn run<G: Game>(config: Config, game: G) -> Result<(), Box<dyn Error>> {
         headless::run_from_command_line(config, game, &options).map_err(EngineError)?;
         return Ok(());
     }
+    if let Some(address) = &options.studio {
+        return run_in_studio(config, game, &options, address);
+    }
     run_window(config, game, &options)
+}
+
+#[cfg(feature = "studio")]
+fn run_in_studio<G: Game>(
+    config: Config,
+    game: G,
+    options: &Options,
+    address: &str,
+) -> Result<(), Box<dyn Error>> {
+    crate::studio_link::run(config, game, options, address)
+}
+
+#[cfg(not(feature = "studio"))]
+fn run_in_studio<G: Game>(_: Config, _: G, _: &Options, _: &str) -> Result<(), Box<dyn Error>> {
+    Err(EngineError(String::from(
+        "this game was built without the Studio link (the \"studio\" feature is off), so \
+         --studio can't be used. Duck Forge Studio builds games with it itself:\n  \
+         cargo build --example breakout --features studio",
+    ))
+    .into())
 }
 
 #[cfg(feature = "window")]

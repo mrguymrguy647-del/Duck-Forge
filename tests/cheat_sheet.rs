@@ -725,6 +725,45 @@ fn three_d_textures_light_and_billboards() -> Result<(), LoadError> {
 /// pointed behind the camera for want of it). Keep the words and the
 /// maths together.
 #[test]
+fn a_games_own_options_and_where_it_is_running() {
+    // The test program's own words (a test's name, say) aren't the
+    // engine's options, so they'd be the game's.
+    let own: Vec<String> = duckforge::game_args();
+    assert!(own.iter().all(|word| word != "--headless"));
+    // A test isn't started with --headless or by the Studio...
+    assert!(!duckforge::is_headless());
+    assert!(!duckforge::in_studio());
+    // ...but a game played by a test is headless, and can tell.
+    struct Asks {
+        headless: bool,
+        in_studio: bool,
+        goodbyes: u32,
+    }
+    impl Game for Asks {
+        fn update(&mut self, ctx: &mut Context) {
+            self.headless = ctx.is_headless();
+            self.in_studio = ctx.in_studio();
+            ctx.studio_note("only the Studio shows this");
+        }
+        fn draw(&self, _: &mut Canvas) {}
+        fn quit(&mut self, _: &mut Context) {
+            self.goodbyes += 1;
+        }
+    }
+    let game = Asks {
+        headless: false,
+        in_studio: true,
+        goodbyes: 0,
+    };
+    let mut sim = Simulation::new(Config::default(), game);
+    sim.step();
+    assert!(sim.game().headless && !sim.game().in_studio);
+    sim.quit();
+    sim.quit(); // once is enough: the second does nothing
+    assert_eq!(sim.game().goodbyes, 1);
+}
+
+#[test]
 fn the_guide_says_which_way_rotations_turn_and_it_is_true() {
     let guide = include_str!("../docs/AI_GUIDE.md");
     for sentence in [

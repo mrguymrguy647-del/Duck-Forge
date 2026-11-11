@@ -220,13 +220,39 @@ struct Voices {
     playing: Vec<Voice>,
     loops: Vec<Loop>,
     refills: Refills,
+    /// Held: the sound fades out over one block, then nothing plays or
+    /// moves on until it's let go (a game frozen in Duck Forge Studio).
+    paused: bool,
+    /// How far the sound is faded out: 0 is as loud as ever, 1 is silent.
+    hush: f32,
 }
 
 impl Voices {
+    /// Fills `out` with the next block of sound (left and right side by
+    /// side: left, right, left, right...). While paused that's silence,
+    /// reached and left by a fade across one block so it doesn't click.
+    fn fill(&mut self, out: &mut [f32]) {
+        let target = if self.paused { 1.0 } else { 0.0 };
+        if self.hush == 1.0 && target == 1.0 {
+            out.fill(0.0); // held: every sound waits where it is
+            return;
+        }
+        self.mix(out);
+        if self.hush != 0.0 || target != 0.0 {
+            let (from, frames) = (self.hush, (out.len() / 2).max(1));
+            for (n, pair) in out.chunks_exact_mut(2).enumerate() {
+                let hush = from + (target - from) * (n + 1) as f32 / frames as f32;
+                pair[0] *= 1.0 - hush;
+                pair[1] *= 1.0 - hush;
+            }
+            self.hush = target;
+        }
+    }
+
     /// Adds up every playing sound into `out` (left and right side by
     /// side: left, right, left, right...) and moves them all on. A mono
     /// sound plays the same on both sides; a stereo one keeps its own.
-    fn fill(&mut self, out: &mut [f32]) {
+    fn mix(&mut self, out: &mut [f32]) {
         out.fill(0.0);
         let frames = out.len() / 2;
         for voice in &mut self.playing {
@@ -344,6 +370,14 @@ impl Speaker {
             gains: pan_gains(pan),
             at: 0,
         });
+    }
+
+    /// Holds every sound where it is (`true`), fading out first, or lets
+    /// them carry on (`false`), fading back in. Duck Forge Studio's link
+    /// uses it while the game is frozen.
+    #[cfg_attr(not(feature = "studio"), allow(dead_code))]
+    pub(crate) fn pause(&self, paused: bool) {
+        self.voices.lock().unwrap_or_else(|e| e.into_inner()).paused = paused;
     }
 
     /// Starts, changes or stops a looping sound.
@@ -820,6 +854,34 @@ mod tests {
         }
         assert_eq!(warnings, 1);
         assert_eq!(refills.late, 21);
+    }
+
+    #[test]
+    fn pausing_fades_out_holds_everything_and_fades_back_in() {
+        let mut voices = Voices::default();
+        voices
+            .loops
+            .push(looping(1, Samples::mono(vec![0.5; 16]), 1.0));
+        let mut out = [0.0; 8]; // four moments
+        voices.fill(&mut out);
+        assert!(lefts(&out).iter().all(|&v| close(v, 0.5)), "{out:?}");
+        voices.paused = true;
+        voices.fill(&mut out);
+        let want = [0.375, 0.25, 0.125, 0.0];
+        for (got, want) in lefts(&out).iter().zip(want) {
+            assert!(close(*got, want), "fades to silence: {out:?}");
+        }
+        let at = voices.loops[0].at;
+        voices.fill(&mut out);
+        assert_eq!(out, [0.0; 8], "then silence");
+        assert_eq!(voices.loops[0].at, at, "and the loop waits where it was");
+        voices.paused = false;
+        voices.fill(&mut out);
+        let want = [0.125, 0.25, 0.375, 0.5];
+        for (got, want) in lefts(&out).iter().zip(want) {
+            assert!(close(*got, want), "fades back in: {out:?}");
+        }
+        assert_eq!(voices.loops[0].at, at + 4, "carrying on from there");
     }
 
     #[test]

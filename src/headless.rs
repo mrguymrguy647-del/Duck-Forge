@@ -25,7 +25,7 @@ use crate::sheet;
 use crate::simulation::Simulation;
 use crate::sound;
 use crate::summary::Summary;
-use crate::video::VideoWriter;
+use crate::video::{ClipWriter, VideoWriter};
 
 /// What a headless run should do. Make one with `HeadlessOptions::default()`
 /// and change what you need:
@@ -107,6 +107,11 @@ pub struct HeadlessOptions {
     /// with the sound. Needs `ffmpeg`; without it, the frames are saved as
     /// PNG files and the command to join them is printed.
     pub video: Option<PathBuf>,
+    /// Save the end of the run as a clip (`--clip FILE.mp4`): a video with
+    /// sound if `ffmpeg` is there, or else a full-size GIF next to it.
+    pub clip: Option<PathBuf>,
+    /// How many seconds of the run's end the clip keeps (`--clip-seconds`).
+    pub clip_seconds: f32,
 }
 
 impl Default for HeadlessOptions {
@@ -131,6 +136,8 @@ impl Default for HeadlessOptions {
             sheet_events: false,
             sheet_follow: None,
             video: None,
+            clip: None,
+            clip_seconds: 10.0,
         }
     }
 }
@@ -325,6 +332,22 @@ fn run_and_save<G: Game>(
     check_frames.insert(1);
     let mut scenes = Vec::new();
 
+    // The clip: the last seconds of the run.
+    let clip_frames = ((f64::from(options.clip_seconds) * updates_per_second).round() as u64)
+        .clamp(1, options.frames.max(1));
+    let clip_from = options.frames.saturating_sub(clip_frames) + 1;
+    let mut clip = match &options.clip {
+        Some(path) => Some(ClipWriter::start(
+            path,
+            width,
+            height,
+            updates_per_second,
+            folder,
+            (clip_from - 1) as f64 / updates_per_second,
+        )?),
+        None => None,
+    };
+
     let mut video = match &options.video {
         Some(path) => Some(VideoWriter::start(
             path,
@@ -384,6 +407,11 @@ fn run_and_save<G: Game>(
         }
         if let Some(video) = &mut video {
             video.add(sim.picture())?;
+        }
+        if let Some(clip) = &mut clip {
+            if frame >= clip_from {
+                clip.add(sim.picture())?;
+            }
         }
         if let Some(gif) = &mut gif {
             if (frame - 1).is_multiple_of(gif_every) {
@@ -470,6 +498,13 @@ fn run_and_save<G: Game>(
         }
         None => None,
     };
+    let clip_note = match clip {
+        Some(clip) => {
+            let wav = folder.join("audio.wav");
+            Some(clip.finish(has_sound.then_some(wav.as_path()))?)
+        }
+        None => None,
+    };
     warnings.extend(unused_set_warnings(&sim));
     // Did the playthrough end the way it's expected to? (Only when it ran
     // its own length: a different --frames ends somewhere else.)
@@ -526,9 +561,11 @@ fn run_and_save<G: Game>(
     summary.warnings = warnings;
     summary.notes.extend(note);
     summary.notes.extend(video_note);
+    summary.notes.extend(clip_note);
     summary.folder = Some(folder.clone());
     summary.files = saved;
     save_text(&summary.to_text(), &folder.join("summary.txt"))?;
+    sim.quit(); // the run is over: the game's own goodbye, last of all
     Ok((sim, summary))
 }
 
@@ -866,6 +903,8 @@ pub(crate) fn run_from_command_line<G: Game>(
         sheet_events: options.sheet_events,
         sheet_follow: options.sheet_follow.clone(),
         video: options.video.clone(),
+        clip: options.clip.clone(),
+        clip_seconds: options.clip_seconds.unwrap_or(10.0),
     };
     if let Some(corner) = options.debug_corner {
         config.debug_corner = corner;
@@ -2076,6 +2115,36 @@ mod tests {
             "64 x 8, 30 times: {note}"
         );
 
+        // A clip without ffmpeg: a GIF of the run's last half second, full
+        // size, 50 pictures a second (five of every six frames).
+        let clip = |name: &str| HeadlessOptions {
+            frames: 90,
+            out: Some(folder.join(name)),
+            clip: Some(folder.join(format!("{name}.mp4"))),
+            clip_seconds: 0.5,
+            ..HeadlessOptions::default()
+        };
+        unsafe { std::env::set_var("DUCKFORGE_FFMPEG", "no-such-ffmpeg-here") };
+        let result = run_and_save(config(), Mover { x: 0.0, quit_at: 0 }, &clip("gif-clip"));
+        unsafe { std::env::remove_var("DUCKFORGE_FFMPEG") };
+        let summary = result.unwrap().1;
+        let note = summary
+            .notes
+            .iter()
+            .find(|n| n.starts_with("clip:"))
+            .unwrap();
+        assert!(note.contains("gif-clip.gif (25 pictures, 0.5 s at 50 a second, full size"));
+        assert!(note.contains("install ffmpeg for a video with sound: https://ffmpeg.org"));
+        let gif = fs::File::open(folder.join("gif-clip.gif")).unwrap();
+        let mut decoder = gif::DecodeOptions::new().read_info(gif).unwrap();
+        assert_eq!((decoder.width(), decoder.height()), (64, 8), "full size");
+        let mut pictures = 0;
+        while let Some(frame) = decoder.read_next_frame().unwrap() {
+            assert_eq!(frame.delay, 2, "two hundredths of a second each");
+            pictures += 1;
+        }
+        assert_eq!(pictures, 25);
+
         // With ffmpeg (if this machine has it): a 1080p video, 30 frames.
         let has_ffmpeg = Command::new("ffmpeg").arg("-version").output().is_ok();
         if has_ffmpeg {
@@ -2098,6 +2167,17 @@ mod tests {
                     "1920,1080,30"
                 );
             }
+            // And a clip is a video too: the last 30 of 90 frames.
+            let (_, summary) =
+                run_and_save(config(), Mover { x: 0.0, quit_at: 0 }, &clip("real-clip")).unwrap();
+            let note = summary
+                .notes
+                .iter()
+                .find(|n| n.starts_with("clip:"))
+                .unwrap();
+            assert!(note.contains("real-clip.mp4"), "{note}");
+            assert!(note.contains("30 frames, 0.5 s at 60 fps"), "{note}");
+            assert!(folder.join("real-clip.mp4").exists());
         }
         let _ = fs::remove_dir_all(folder);
     }

@@ -154,29 +154,7 @@ pub(crate) fn run<G: Game>(
              On a computer without a screen, run the game with --headless instead."
         ))
     };
-    let mut event_loop = new_event_loop().map_err(no_window)?;
-    let mut screen = Screen::new(
-        &config.title,
-        LogicalSize::new(
-            (config.width * config.scale) as f64,
-            (config.height * config.scale) as f64,
-        ),
-    );
-    // The window is made during the first few events (winit says when it's ready).
-    let opening = Instant::now();
-    while screen.window.is_none() && screen.problem.is_none() {
-        if let PumpStatus::Exit(_) =
-            event_loop.pump_app_events(Some(Duration::from_millis(10)), &mut screen)
-        {
-            break;
-        }
-        if opening.elapsed() > Duration::from_secs(10) {
-            screen.problem = Some(String::from("the system never said the window was ready"));
-        }
-    }
-    if let Some(problem) = screen.problem.take() {
-        return Err(no_window(problem).into());
-    }
+    let (mut event_loop, mut screen) = open_screen(&config).map_err(no_window)?;
     let frame_budget = match config.target_fps {
         0 => Duration::ZERO, // no limit
         fps => Duration::from_secs_f64(1.0 / fps as f64),
@@ -190,6 +168,7 @@ pub(crate) fn run<G: Game>(
     )
     .map_err(EngineError)?;
     let mut sim = Simulation::start(&config, game, renderer);
+    sim.set_run_mode(crate::engine::RunMode::Window);
     sim.set_tunes(tunes);
     sim.forget_report_log();
     #[cfg(feature = "audio")]
@@ -358,6 +337,9 @@ pub(crate) fn run<G: Game>(
         }
     }
     screen.hold_pointer(false);
+    // Every way out of the loop ends here: the close button, ctx.quit(),
+    // --frames. The game gets to say goodbye (and save).
+    sim.quit();
 
     // Closing the window doesn't lose a recording.
     if recorder.on {
@@ -371,6 +353,142 @@ pub(crate) fn run<G: Game>(
         println!("duckforge: wrote the tune values to {}", path.display());
     }
     Ok(())
+}
+
+/// Opens the game's window, or says why it couldn't.
+fn open_screen(config: &Config) -> Result<(EventLoop<()>, Screen), String> {
+    let mut event_loop = new_event_loop()?;
+    let mut screen = Screen::new(
+        &config.title,
+        LogicalSize::new(
+            (config.width * config.scale) as f64,
+            (config.height * config.scale) as f64,
+        ),
+    );
+    // The window is made during the first few events (winit says when it's ready).
+    let opening = Instant::now();
+    while screen.window.is_none() && screen.problem.is_none() {
+        if let PumpStatus::Exit(_) =
+            event_loop.pump_app_events(Some(Duration::from_millis(10)), &mut screen)
+        {
+            break;
+        }
+        if opening.elapsed() > Duration::from_secs(10) {
+            screen.problem = Some(String::from("the system never said the window was ready"));
+        }
+    }
+    match screen.problem.take() {
+        Some(problem) => Err(problem),
+        None => Ok((event_loop, screen)),
+    }
+}
+
+/// A window for a game that's already running: Duck Forge Studio's "Pop
+/// out". The game carries on from the frame it was on, with the same loop
+/// as [`run`], one turn at a time, so the Studio's link can listen between
+/// turns. A program can only connect to the system's windows once, so
+/// "bring it back" hides the window and the next pop out shows it again.
+#[cfg(feature = "studio")]
+pub(crate) struct PoppedOut {
+    event_loop: EventLoop<()>,
+    screen: Screen,
+    pacer: Pacer,
+    last_frame: Instant,
+    frame_budget: Duration,
+    scale: usize,
+    resizable: bool,
+}
+
+#[cfg(feature = "studio")]
+impl PoppedOut {
+    pub(crate) fn open(config: &Config) -> Result<PoppedOut, String> {
+        let (event_loop, screen) = open_screen(config)?;
+        Ok(PoppedOut {
+            event_loop,
+            screen,
+            pacer: Pacer::new(config.timestep),
+            last_frame: Instant::now(),
+            frame_budget: match config.target_fps {
+                0 => Duration::ZERO,
+                fps => Duration::from_secs_f64(1.0 / fps as f64),
+            },
+            scale: config.scale,
+            resizable: config.resizable,
+        })
+    }
+
+    /// Shows the window (again) or hides it. Showing starts the clock
+    /// afresh, so the time it was hidden isn't caught up on.
+    pub(crate) fn set_visible(&mut self, visible: bool) {
+        self.screen.hold_pointer(false);
+        if let Some(window) = &self.screen.window {
+            window.set_visible(visible);
+            if visible {
+                window.focus_window();
+            }
+        }
+        self.screen.closed = false;
+        self.pacer = Pacer::new(self.pacer.timestep);
+        self.last_frame = Instant::now();
+    }
+
+    /// One turn of the game loop: read the player's keys and mouse, run
+    /// the updates that are due, draw and show. Says how many updates ran,
+    /// or `None` once the player has closed the window.
+    pub(crate) fn turn<G: Game>(
+        &mut self,
+        sim: &mut Simulation<G>,
+    ) -> Result<Option<u32>, Box<dyn Error>> {
+        if let PumpStatus::Exit(_) = self
+            .event_loop
+            .pump_app_events(Some(Duration::ZERO), &mut self.screen)
+        {
+            return Ok(None);
+        }
+        if self.screen.closed {
+            return Ok(None);
+        }
+        let now = Instant::now();
+        let frame_time = now.duration_since(self.last_frame).as_secs_f64();
+        self.last_frame = now;
+        sim.measure_frame(frame_time as f32);
+        let (updates, dt) = self.pacer.updates_due(frame_time);
+
+        let (window_w, window_h) = self.screen.logical_size();
+        if self.resizable && window_w > 0 && window_h > 0 {
+            sim.resize(window_w / self.scale, window_h / self.scale);
+        }
+        let canvas_size = (
+            sim.context().width() as usize,
+            sim.context().height() as usize,
+        );
+        let input = self.screen.take_input(canvas_size);
+        sim.hold_keys(&input.keys);
+        match input.mouse {
+            MouseInput::At(position) => sim.move_mouse(position),
+            MouseInput::Moved(amount) => sim.move_mouse_by(amount),
+            MouseInput::Nothing => {}
+        }
+        sim.hold_mouse_buttons(&input.buttons);
+        if input.scroll != 0.0 {
+            sim.scroll(input.scroll);
+        }
+        let mut ran = 0;
+        for _ in 0..updates {
+            sim.step_by(dt);
+            ran += 1;
+            if sim.quit_requested() {
+                break;
+            }
+        }
+        self.screen.hold_pointer(sim.context().pointer_locked());
+        let canvas = sim.draw_for_screen();
+        self.screen.show(canvas)?;
+        if let Some(spare) = self.frame_budget.checked_sub(now.elapsed()) {
+            std::thread::sleep(spare);
+        }
+        Ok(Some(ran))
+    }
 }
 
 /// Connects to the system's windows. On Linux, winit stops the program

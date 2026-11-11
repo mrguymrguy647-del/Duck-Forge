@@ -296,6 +296,8 @@ after `--` goes to the game, not to Cargo):
 | `--sheet-follow NAME` | Also save `sheet-follow.png`: the sheet's frames, each zoomed in three times around the label NAME (like `player`), to see small sprites |
 | `--gif` | Save `run.gif`: the run, shrunk, at about 20 pictures per second |
 | `--video FILE` | Save the run as a video (like `out/run.mp4`): every frame at the game's frame rate, each pixel a sharp square, enlarged by a whole number into 1920 x 1080 with black bars, with the sound. Needs `ffmpeg` (or `DUCKFORGE_FFMPEG`); without it the frames are saved as PNGs and the command to join them is printed |
+| `--clip FILE` | Save the end of the run as a clip (like `out/clip.mp4`), to watch or share: with `ffmpeg`, a video like `--video`'s, with the sound; without it, a GIF next to it (`out/clip.gif`), full size and sharp, at the game's own speed with up to 50 pictures a second, and a line saying where to get `ffmpeg` for sound |
+| `--clip-seconds S` | How many seconds of the run's end `--clip` keeps (default 10) |
 | `--crop X,Y,W,H` | Save `closeup.png`: that area of the last frame (and of each snapshot), enlarged |
 | `--zoom N` | How much close-ups are enlarged (default 4) |
 | `--accept` | With `--headless --inputs FILE`: write this run's final reported values into FILE's `"expect"` block, the ending the playthrough should show |
@@ -314,6 +316,7 @@ after `--` goes to the game, not to Cargo):
 | `--tune FILE` | Read `ctx.tune` values from FILE (default: `examples/<game>.tune.json`, if it exists) |
 | `--set NAME=N` | Set one `ctx.tune` value, over the file (repeat it for more) |
 | `--write-tune` | After the run, write every `ctx.tune` name the game used, with its value, to the tune file |
+| `--studio ADDRESS` | Play inside Duck Forge Studio. The Studio starts the game with this itself; it needs the game built with `--features studio` |
 | `--help` | List the options |
 
 ```sh

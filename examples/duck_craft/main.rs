@@ -2058,6 +2058,23 @@ impl DuckCraft {
 }
 
 impl Game for DuckCraft {
+    fn init(&mut self, ctx: &mut Context) {
+        if ctx.in_studio() {
+            ctx.studio_note("Inside the Studio, Duck Craft starts a fresh island and doesn't save");
+        }
+    }
+
+    /// Any way out of the game saves the island being played: the pause
+    /// menu, the window's close button, the end of a run. (Without a save
+    /// path, as in a replay or inside the Studio, saving does nothing.)
+    fn quit(&mut self, _ctx: &mut Context) {
+        if !matches!(self.stage, Stage::Title { .. }) {
+            if let Err(error) = self.save() {
+                eprintln!("duck_craft: couldn't save: {error}");
+            }
+        }
+    }
+
     fn update(&mut self, ctx: &mut Context) {
         self.mouse = ctx.input.mouse_position();
         self.update_music(ctx);
@@ -2763,10 +2780,11 @@ fn config() -> Config {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Only the game in a window saves: a headless run (a replay, a fuzz
-    // run, a video) always starts from the same new island.
-    let headless = std::env::args().any(|arg| arg == "--headless");
-    let save = (!headless).then(|| std::path::PathBuf::from(save::SAVE_FILE));
+    // Only the game in its own window saves: a headless run (a replay, a
+    // fuzz run, a video) and a game inside Duck Forge Studio always start
+    // from the same new island, so they can be replayed exactly.
+    let fresh = duckforge::is_headless() || duckforge::in_studio();
+    let save = (!fresh).then(|| std::path::PathBuf::from(save::SAVE_FILE));
     let game = title_game(save)?;
     duckforge::run(config(), game)
 }

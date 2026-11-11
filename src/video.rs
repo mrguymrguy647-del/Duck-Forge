@@ -63,6 +63,9 @@ pub(crate) struct VideoWriter {
     /// Without: where the PNG frames go.
     frames_folder: Option<PathBuf>,
     bytes: Vec<u8>,
+    /// Where in the sound the video starts, in seconds (a clip of a run's
+    /// end starts late).
+    sound_from: f64,
 }
 
 impl VideoWriter {
@@ -129,6 +132,7 @@ impl VideoWriter {
             encoder,
             frames_folder,
             bytes: Vec::with_capacity(width * height * 3),
+            sound_from: 0.0,
         })
     }
 
@@ -182,7 +186,7 @@ impl VideoWriter {
                         let joined = Command::new(ffmpeg())
                             .args(["-y", "-loglevel", "error", "-i"])
                             .arg(&silent)
-                            .arg("-i")
+                            .args(["-ss", &format!("{:.4}", self.sound_from), "-i"])
                             .arg(wav)
                             .args(["-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest"])
                             .arg(&self.path)
@@ -236,6 +240,128 @@ impl VideoWriter {
                 ))
             }
             (None, None) => Err(String::from("the video had nowhere to go")),
+        }
+    }
+}
+
+/// Is there an `ffmpeg` to make videos with?
+pub(crate) fn ffmpeg_works() -> bool {
+    Command::new(ffmpeg())
+        .arg("-version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+/// The fastest a GIF plays everywhere: 50 pictures a second. (Its timing
+/// is in hundredths of a second, and viewers slow anything under 2 down.)
+const GIF_FASTEST: f64 = 50.0;
+
+/// Where to get `ffmpeg`, for the note a clip without sound carries.
+pub(crate) const FFMPEG_PAGE: &str = "https://ffmpeg.org/download.html";
+
+/// Writes a clip: the end of a run, to watch or share (`--clip FILE`).
+///
+/// With `ffmpeg` it's a video like `--video`'s, with the sound. Without,
+/// it's a GIF next to where the video would be: full size, every pixel
+/// sharp, at the game's own speed. A GIF can show at most 50 pictures a
+/// second, so a 60-a-second game leaves out every sixth frame.
+pub(crate) enum ClipWriter {
+    Video(VideoWriter),
+    Gif {
+        writer: crate::pictures::GifWriter,
+        path: PathBuf,
+        /// Frames given so far, and pictures kept.
+        frames: u64,
+        kept: u64,
+        /// Pictures kept for each frame given: 1, or less for a fast game.
+        share: f64,
+        fps: f64,
+    },
+}
+
+impl ClipWriter {
+    /// Starts a clip to be saved as `path`, whose sound starts
+    /// `sound_from` seconds into the run's sound.
+    pub(crate) fn start(
+        path: &Path,
+        width: usize,
+        height: usize,
+        fps: f64,
+        folder: &Path,
+        sound_from: f64,
+    ) -> Result<ClipWriter, String> {
+        if ffmpeg_works() {
+            let mut video = VideoWriter::start(path, width, height, fps, folder)?;
+            video.sound_from = sound_from;
+            return Ok(ClipWriter::Video(video));
+        }
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("could not create the folder {}: {e}", parent.display()))?;
+        }
+        let path = path.with_extension("gif");
+        let shown = fps.min(GIF_FASTEST);
+        let delay = ((100.0 / shown).round() as u16).max(2);
+        let writer = crate::pictures::GifWriter::create(&path, width, height, 1, delay)
+            .map_err(|err| format!("could not save {}: {err}", path.display()))?;
+        Ok(ClipWriter::Gif {
+            writer,
+            path,
+            frames: 0,
+            kept: 0,
+            share: shown / fps,
+            fps: shown,
+        })
+    }
+
+    /// Adds one frame.
+    pub(crate) fn add(&mut self, picture: &Canvas) -> Result<(), String> {
+        match self {
+            ClipWriter::Video(video) => video.add(picture),
+            ClipWriter::Gif {
+                writer,
+                path,
+                frames,
+                kept,
+                share,
+                ..
+            } => {
+                *frames += 1;
+                // Keep a frame whenever the pictures owed so far reach the
+                // next whole number: at 60 a second that's five in every six.
+                if (*frames as f64 * *share + 1e-9).floor() as u64 > *kept {
+                    *kept += 1;
+                    writer
+                        .add(picture)
+                        .map_err(|err| format!("could not add to {}: {err}", path.display()))?;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// Finishes the clip, with `audio` (the run's WAV) if there's any
+    /// sound, and says what it made, in one line for the summary.
+    pub(crate) fn finish(self, audio: Option<&Path>) -> Result<String, String> {
+        match self {
+            ClipWriter::Video(video) => Ok(video.finish(audio)?.replacen("video:", "clip:", 1)),
+            ClipWriter::Gif {
+                writer,
+                path,
+                kept,
+                fps,
+                ..
+            } => {
+                drop(writer); // finishes the file
+                Ok(format!(
+                    "clip: {} ({kept} pictures, {:.1} s at {fps} a second, full size, no sound; \
+                     install ffmpeg for a video with sound: {FFMPEG_PAGE})",
+                    path.display(),
+                    kept as f64 / fps
+                ))
+            }
         }
     }
 }

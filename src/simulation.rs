@@ -116,6 +116,8 @@ pub struct Simulation<G> {
     /// The stretches of frames (first, last) on which the game called
     /// `ctx.idle_ok()`.
     idle: Vec<(u64, u64)>,
+    /// Whether the game's `quit` has run.
+    finished: bool,
 }
 
 impl<G: Game> Simulation<G> {
@@ -197,6 +199,31 @@ impl<G: Game> Simulation<G> {
             frame_camera: None,
             debug_box: None,
             idle: Vec::new(),
+            finished: false,
+        }
+    }
+
+    /// Says where the game is running, for `ctx.is_headless()` and
+    /// `ctx.in_studio()`. A new simulation is headless.
+    #[cfg_attr(not(any(feature = "window", feature = "studio")), allow(dead_code))]
+    pub(crate) fn set_run_mode(&mut self, mode: crate::engine::RunMode) {
+        self.ctx.set_run_mode(mode);
+    }
+
+    /// The lines the game gave `ctx.studio_note` since last time.
+    #[cfg(feature = "studio")]
+    pub(crate) fn with_notes(&mut self) -> Vec<String> {
+        self.ctx.take_studio_notes()
+    }
+
+    /// Ends the game: calls its [`Game::quit`], once. The window, headless
+    /// runs and Duck Forge Studio call this on every way out; a test that
+    /// wants to see what `quit` does calls it too. Calling it again does
+    /// nothing.
+    pub fn quit(&mut self) {
+        if !self.finished {
+            self.finished = true;
+            self.game.quit(&mut self.ctx);
         }
     }
 

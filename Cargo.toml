@@ -20,6 +20,12 @@ gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 # Windows and macOS use tinyaudio; Linux loads the system's ALSA library
 # when the game starts, so building needs no extra packages.
 audio = ["dep:tinyaudio", "dep:libc"]
+# The game's side of the link to Duck Forge Studio: started with
+# `--studio ADDRESS`, the game plays inside the Studio instead of opening a
+# window. Off by default, and it adds no libraries: exported games, headless
+# runs and agents' builds don't include it. The Studio turns it on when it
+# builds a game (`--features studio`).
+studio = []
 
 [dependencies]
 # Only the parts we use. On Linux that's X11, loaded when the game starts,

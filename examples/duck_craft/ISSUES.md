@@ -8,21 +8,6 @@ game copes; the tool still has the gap.
 
 ## Duck Forge
 
-16. **A game can't tell it's running headless.** Saving must never happen
-    in a replay or fuzz run (or the next replay would start from a saved
-    island and stop being repeatable), but `Context` doesn't say. `main`
-    looks for `--headless` in the command line itself. A
-    `ctx.is_headless()` (or a `Config` flag the CLI fills in) would do.
-17. **No hook when the window closes.** Closing the window with its X
-    button ends the program without calling the game, so the last moments
-    aren't saved. The pause menu saves when you quit from it, and the game
-    autosaves every 30 seconds, but the close button still loses up to
-    30 s. A `Game::quit(&mut self, ctx)` called on any way out would fix it.
-18. **The command line refuses the game's own options.** `duckforge::run`
-    parses the arguments and stops at any it doesn't know, so a game can't
-    offer options like `--new-world`. (Duck Craft no longer needs that one:
-    the title screen offers a new island.) Letting options after `--` (or
-    unknown `--game-*` ones) through to the game would help.
 19. **The fuzzer's freeze rule fires on menus.** Keys that do nothing in a
     menu look like a frozen game. Duck Craft gets round it (every menu key
     does something, and the menu's state is reported), but a game with a

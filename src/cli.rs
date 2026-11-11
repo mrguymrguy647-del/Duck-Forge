@@ -64,6 +64,16 @@ const OPTIONS: &[OptionInfo] = &[
         help: "with --headless, save run.gif: the whole run as a small animated GIF",
     },
     OptionInfo {
+        name: "--clip",
+        value: Some("FILE"),
+        help: "with --headless, save the end of the run as a clip (like out/clip.mp4): a video with sound if ffmpeg is there, or else a sharp full-size GIF",
+    },
+    OptionInfo {
+        name: "--clip-seconds",
+        value: Some("S"),
+        help: "how many seconds of the run's end --clip keeps (default 10)",
+    },
+    OptionInfo {
         name: "--crop",
         value: Some("X,Y,W,H"),
         help: "with --headless, also save an enlarged close-up of this area (closeup.png)",
@@ -164,6 +174,11 @@ const OPTIONS: &[OptionInfo] = &[
         help: "after the run, write every ctx.tune name the game used, with its value, to the tune file",
     },
     OptionInfo {
+        name: "--studio",
+        value: Some("ADDRESS"),
+        help: "play inside Duck Forge Studio, which starts the game with this itself (needs the \"studio\" feature)",
+    },
+    OptionInfo {
         name: "--help",
         value: None,
         help: "show this help and quit",
@@ -189,6 +204,10 @@ pub(crate) struct Options {
     pub sheet_follow: Option<String>,
     pub video: Option<PathBuf>,
     pub gif: bool,
+    pub clip: Option<PathBuf>,
+    pub clip_seconds: Option<f32>,
+    /// Where Duck Forge Studio is listening, when it started this game.
+    pub studio: Option<String>,
     pub crop: Option<Crop>,
     pub zoom: Option<usize>,
     pub debug: bool,
@@ -239,6 +258,20 @@ impl Options {
                 "--sheet-follow" => options.sheet_follow = Some(value.to_string()),
                 "--video" => options.video = Some(PathBuf::from(value)),
                 "--gif" => options.gif = true,
+                "--clip" => options.clip = Some(PathBuf::from(value)),
+                "--clip-seconds" => {
+                    let seconds = value
+                        .parse()
+                        .ok()
+                        .filter(|s: &f32| s.is_finite() && *s > 0.0)
+                        .ok_or_else(|| {
+                            format!(
+                                "--clip-seconds needs a number of seconds above 0, not {value:?}"
+                            )
+                        })?;
+                    options.clip_seconds = Some(seconds);
+                }
+                "--studio" => options.studio = Some(value.to_string()),
                 "--debug" => options.debug = true,
                 "--debug-corner" => options.debug_corner = Some(Corner::parse(value)?),
                 "--tune" => options.tune = Some(PathBuf::from(value)),
@@ -327,6 +360,7 @@ impl Options {
             ("--sheet-follow", options.sheet_follow.is_some()),
             ("--gif", options.gif),
             ("--video", options.video.is_some()),
+            ("--clip", options.clip.is_some()),
             ("--crop", options.crop.is_some()),
             ("--zoom", options.zoom.is_some()),
             ("--describe", options.describe),
@@ -354,6 +388,14 @@ impl Options {
                 return Err(format!("{name} only works with --fuzz N"));
             }
         }
+        if options.clip_seconds.is_some() && options.clip.is_none() {
+            return Err(String::from("--clip-seconds only works with --clip FILE"));
+        }
+        if options.studio.is_some() && options.headless {
+            return Err(String::from(
+                "use either --studio or --headless, not both (the Studio starts games itself)",
+            ));
+        }
         if options.accept && options.inputs.is_none() {
             return Err(String::from(
                 "--accept needs --inputs FILE: it writes the run's ending into that playthrough",
@@ -373,11 +415,36 @@ impl Options {
     }
 }
 
+/// Whether this program was started to run with no window: with
+/// `--headless` or `--fuzz`. It's for `main`, before the game exists (to
+/// decide whether to load a save file, say); once the game is running, ask
+/// [`Context::is_headless`](crate::engine::Context::is_headless), which is
+/// also true in tests.
+pub fn is_headless() -> bool {
+    Options::from_command_line().is_ok_and(|options| options.headless || options.fuzz.is_some())
+}
+
+/// Whether Duck Forge Studio started this program, to play the game
+/// inside it. Like [`is_headless`], it's for `main`; once the game is
+/// running, ask [`Context::in_studio`](crate::engine::Context::in_studio).
+pub fn in_studio() -> bool {
+    Options::from_command_line().is_ok_and(|options| options.studio.is_some())
+}
+
 /// The command-line words meant for the game: everything except the
 /// engine's own options and their values.
 ///
 /// A game with options of its own should read them from here instead of
 /// from `std::env::args()`, so it doesn't trip over `--headless` and friends.
+///
+/// A word the engine doesn't know is the game's, unless it looks like a
+/// slip of the keyboard (`--frame` for `--frames`), which stops the game
+/// with a hint. To be sure a word reaches the game whatever it looks like,
+/// put it after a `--` of its own: everything after that is the game's.
+///
+/// ```sh
+/// cargo run --example duck_craft -- --seed 3 -- --new-world --frames-of-mind
+/// ```
 pub fn game_args() -> Vec<String> {
     match try_split(std::env::args().skip(1)) {
         Ok((_, game)) => game,
@@ -400,6 +467,11 @@ fn try_split(args: impl IntoIterator<Item = String>) -> Result<Split, String> {
     let mut game = Vec::new();
     let mut words = args.into_iter();
     while let Some(word) = words.next() {
+        // After a `--`, every word is the game's, whatever it looks like.
+        if word == "--" {
+            game.extend(words);
+            break;
+        }
         // `--frames=600` works as well as `--frames 600`.
         let (name, attached) = match word.split_once('=') {
             Some((name, value)) => (name.to_string(), Some(value.to_string())),
@@ -554,6 +626,8 @@ mod tests {
         "--nocapture",
         // tools/verify's own: list the playthroughs it would replay.
         "--list-playthroughs",
+        // A made-up game's own option, in the example of options after `--`.
+        "--new-world",
     ];
 
     #[test]
@@ -655,9 +729,13 @@ mod tests {
             if option.value.is_some() {
                 words.extend(value(option.name).split(' ').map(String::from));
             }
-            // Most options are for --headless; --record only works in a window.
-            if option.name != "--record" {
+            // Most options are for --headless; --record only works in a
+            // window, and --studio is its own way of running.
+            if option.name != "--record" && option.name != "--studio" {
                 words.push(String::from("--headless"));
+            }
+            if option.name == "--clip-seconds" {
+                words.extend([String::from("--clip"), String::from("c.mp4")]);
             }
             if option.name == "--accept" {
                 words.extend([String::from("--inputs"), String::from("p.json")]);
@@ -848,5 +926,39 @@ mod tests {
         for option in OPTIONS {
             assert!(text.contains(option.name));
         }
+    }
+    #[test]
+    fn words_after_a_second_dash_dash_are_the_games_whatever_they_look_like() {
+        let words = ["--seed", "3", "--", "--frame", "--headless", "--new-world"];
+        let (engine, game) = try_split(words.iter().map(|w| w.to_string())).unwrap();
+        assert_eq!(engine, [("--seed", Some(String::from("3")))]);
+        assert_eq!(game, ["--frame", "--headless", "--new-world"]);
+        let options = Options::parse(words.iter().map(|w| w.to_string())).unwrap();
+        assert!(!options.headless, "that --headless was the game's own");
+        // Without the --, a near miss is still caught.
+        let problem = Options::parse([String::from("--frame")]).unwrap_err();
+        assert!(problem.contains("did you mean --frames"), "{problem}");
+    }
+
+    #[test]
+    fn the_clip_and_studio_options_are_read() {
+        let parse = |words: &[&str]| Options::parse(words.iter().map(|w| w.to_string()));
+        let options = parse(&["--headless", "--clip", "out/c.mp4", "--clip-seconds", "5"]).unwrap();
+        assert_eq!(options.clip, Some(PathBuf::from("out/c.mp4")));
+        assert_eq!(options.clip_seconds, Some(5.0));
+        assert!(
+            parse(&["--clip", "c.mp4"])
+                .unwrap_err()
+                .contains("--headless")
+        );
+        assert!(
+            parse(&["--headless", "--clip-seconds", "5"])
+                .unwrap_err()
+                .contains("only works with --clip")
+        );
+        assert!(parse(&["--headless", "--clip", "c.mp4", "--clip-seconds", "0"]).is_err());
+        let options = parse(&["--studio", "127.0.0.1:4000"]).unwrap();
+        assert_eq!(options.studio.as_deref(), Some("127.0.0.1:4000"));
+        assert!(parse(&["--studio", "127.0.0.1:4000", "--headless"]).is_err());
     }
 }

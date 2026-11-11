@@ -56,10 +56,15 @@ pub mod script;
 mod sheet;
 pub mod simulation;
 pub mod sound;
-#[cfg(all(feature = "audio", feature = "window"))]
+#[cfg(all(feature = "audio", any(feature = "window", feature = "studio")))]
 mod speaker;
 pub mod sprite;
 pub mod spritesheet;
+/// The link between a game and Duck Forge Studio. Games don't use it
+/// themselves: the Studio builds them with the `studio` feature and starts
+/// them with `--studio`.
+#[cfg(feature = "studio")]
+pub mod studio_link;
 mod summary;
 pub mod tilemap;
 pub mod tileset;
@@ -71,7 +76,7 @@ mod window;
 // Not `pub`: the font is an internal detail of `Canvas::draw_text`.
 mod font;
 
-pub use cli::game_args;
+pub use cli::{game_args, in_studio, is_headless};
 pub use engine::run;
 pub use error::LoadError;
 pub use headless::{HeadlessOptions, run_headless};

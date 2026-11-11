@@ -1055,6 +1055,8 @@ reports or checks counts as the last frame's). Scripts: `InputScript::load(path)
 **Command line**: `--headless`, `--frames N`, `--out DIR`, `--seed N`,
 `--inputs FILE`, `--snapshot-every N`, `--sheet`, `--gif`,
 `--video FILE` (every frame, sharp, 1080p, with sound; needs ffmpeg),
+`--clip FILE` (the run's last 10 seconds, or `--clip-seconds S`: a video
+with sound if ffmpeg is there, or else a full-size GIF next to it),
 `--crop X,Y,W,H`, `--zoom N`, `--grid N` (a coordinate grid on saved
 pictures), `--grid-world N` (the same in world units, through the
 camera), `--describe`, `--debug`, `--debug-corner top-right` (where
@@ -1063,8 +1065,11 @@ the overlay's box goes; bottom-right by default), `--tune FILE`,
 `--inputs FILE`: store this ending as the file's `"expect"`), `--record FILE` (window
 only), `--diff OLD_DIR NEW_DIR` (compare two runs; any example runs it,
 the game isn't started), `--fuzz N` (presses the keys the game reads, or
-`--fuzz-keys Left,Right,Space`; `--freeze-seconds S`; see section 4), `--help`.
+`--fuzz-keys Left,Right,Space`; `--freeze-seconds S`; see section 4), `--help`,
+`--studio ADDRESS` (Duck Forge Studio's own: it starts games with it).
 They go after `--` with `cargo run`: `cargo run --example x -- --headless`.
+A game's own options go after a second `--` (`-- --seed 3 -- --new-world`)
+and the game reads them with `duckforge::game_args()`.
 
 **Labels and scenes**: in `draw`, `canvas.label("name", rect)` (draws
 nothing; inside `push_camera` the rect is in the world). After a step,
