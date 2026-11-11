@@ -16,11 +16,12 @@
 #
 # Before it builds the zip it tests the Studio on Windows: the core's
 # tests build real games, play them through the link, freeze and resume
-# them, paint a level and change the jump while frozen, undo both, and
-# replay each saved session to the same last picture. Then it plays three games through
-# the link for ten seconds each and prints their Timing lines. (GitHub's
-# Windows machines have no graphics card, so those numbers are for the
-# CPU; a real PC is faster.)
+# them, paint a level (checked out with Windows line endings) and change
+# the jump while frozen, undo both, and replay each saved session to the
+# same last picture. Then it plays three games through the link for ten
+# seconds each and prints their Timing lines. (GitHub's Windows machines
+# have no graphics card, so those numbers are for the CPU; a real PC is
+# faster.)
 #
 # After it builds the zip it walks the beginner's path in the unzipped
 # folder, with no window: a new game from a starter, its first build, its
