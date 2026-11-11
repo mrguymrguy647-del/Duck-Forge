@@ -97,8 +97,15 @@ impl Drop for PutBack {
                 .join("playthroughs")
                 .join(format!("{}.json", self.game)),
         );
-        for folder in ["out/verify", "out/sessions"] {
+        for folder in ["out/verify", "out/sessions", "history"] {
             let _ = std::fs::remove_dir_all(self.root.join(folder).join(self.game));
+        }
+        for end in ["feel.json", "tune.json"] {
+            let _ = std::fs::remove_file(
+                self.root
+                    .join("examples")
+                    .join(format!("{}.{end}", self.game)),
+            );
         }
     }
 }
@@ -332,6 +339,61 @@ fn every_screen() {
     shots.run(Command::CheckShowProblem { line: Some(older) });
     shots.shoot("18-check-older-level");
     shots.harness.state_mut().check_open = false;
+
+    // Feel: the game's values as sliders (labels and presets from its feel
+    // file), its sounds, its pictures. A higher jump goes to the game at once.
+    shots.until("the game's tune values", Duration::from_secs(30), |app| {
+        app.studio.play().is_some_and(|play| !play.tunes.is_empty())
+    });
+    shots.run(Command::FeelSet {
+        name: String::from("jump_speed"),
+        value: 400.0,
+        stroke: Some(9),
+    });
+    shots.shoot("19-feel");
+    shots.run(Command::FeelShowCode {
+        name: String::from("jump_speed"),
+    });
+    shots.harness.state_mut().code_open = true;
+    shots.shoot("20-show-me-the-code");
+    shots.harness.state_mut().code_open = false;
+    let sound = shots
+        .harness
+        .state()
+        .studio
+        .open
+        .as_ref()
+        .unwrap()
+        .sounds()
+        .first()
+        .map(|s| s.name.clone());
+    if let Some(sound) = sound {
+        shots.run(Command::AssetsShowRecipe { name: sound });
+        shots.harness.state_mut().recipe_open = true;
+        shots.shoot("21-sound-recipe");
+        shots.harness.state_mut().recipe_open = false;
+    }
+    // History: snapshots, taken by themselves (the first when the game was
+    // first opened, one before the Check).
+    shots.run(Command::EditSnapshot {
+        title: String::from("Feel: Jump height"),
+    });
+    shots.harness.state_mut().history_open = true;
+    shots.shoot("22-history");
+    shots.harness.state_mut().history_open = false;
+    // Undo puts the jump back as it was.
+    shots.run(Command::EditUndo);
+    let jump = shots
+        .harness
+        .state()
+        .studio
+        .open
+        .as_ref()
+        .unwrap()
+        .tunes
+        .get("jump_speed")
+        .copied();
+    assert_eq!(jump, Some(330.0), "undone");
 
     // Tab again, play on, then a clip of the run. The Console shows the
     // commands behind the buttons.

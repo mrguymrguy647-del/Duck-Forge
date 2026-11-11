@@ -303,10 +303,24 @@ fn a_level_painted_while_frozen_is_in_the_game_and_in_its_replay() {
         "saved at once"
     );
 
-    // Carry on: the duck runs into the new wall.
+    // A higher jump (Feel), while frozen too.
+    say(
+        &mut studio,
+        Step::Do(Command::FeelSet {
+            name: String::from("jump_speed"),
+            value: 420.0,
+            stroke: None,
+        }),
+    );
+
+    // Carry on: the duck runs into the new wall, and jumps.
     say(&mut studio, Step::Do(Command::GameToggle));
     say(&mut studio, press("Right"));
-    say(&mut studio, Step::Wait(Wait::Frames { frames: 90 }));
+    say(&mut studio, Step::Wait(Wait::Frames { frames: 60 }));
+    say(&mut studio, press("Space"));
+    say(&mut studio, Step::Wait(Wait::Frames { frames: 2 }));
+    say(&mut studio, release("Space"));
+    say(&mut studio, Step::Wait(Wait::Frames { frames: 30 }));
     say(&mut studio, release("Right"));
     say(&mut studio, Step::Do(Command::GameFreeze));
     let last = studio.play().unwrap().picture.clone().unwrap();
@@ -315,12 +329,22 @@ fn a_level_painted_while_frozen_is_in_the_game_and_in_its_replay() {
     let script = duckforge::InputScript::load(&session).unwrap();
     assert_eq!(
         script.changes.len(),
-        1,
-        "one change, on the frame after the freeze"
+        2,
+        "the bricks and the jump, on the frame after the freeze"
     );
-    assert_eq!(script.changes[0].frame, frozen.frame + 1);
+    assert!(
+        script
+            .changes
+            .iter()
+            .all(|change| change.frame == frozen.frame + 1)
+    );
 
-    // Undo puts the file back as it was.
+    // Undo, twice (the jump, then the bricks), puts the files back.
+    say(&mut studio, Step::Do(Command::EditUndo));
+    assert!(
+        !duck_forge().join("examples/template.tune.json").exists(),
+        "there was no tune file before"
+    );
     say(&mut studio, Step::Do(Command::EditUndo));
     assert_eq!(
         std::fs::read_to_string(&level_file).unwrap(),

@@ -1,0 +1,12 @@
+{
+  "values": {
+    "player_speed": {"label": "Walking speed", "group": "Player", "from": 30, "to": 200, "step": 5},
+    "enemy_speed": {"label": "Enemy speed", "group": "Enemies", "from": 10, "to": 150, "step": 5},
+    "sight": {"label": "How far enemies see", "group": "Enemies", "from": 20, "to": 250, "step": 5}
+  },
+  "presets": {
+    "As it was made": {"player_speed": 90, "enemy_speed": 50, "sight": 100},
+    "Easy": {"enemy_speed": 35, "sight": 70},
+    "Hard": {"enemy_speed": 70, "sight": 140}
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "values": {
+    "run_speed": {"label": "Running speed", "group": "Duck", "from": 40, "to": 250, "step": 5},
+    "jump_speed": {"label": "Jump height", "group": "Duck", "from": 150, "to": 500, "step": 5},
+    "gravity": {"label": "Gravity", "group": "World", "from": 300, "to": 1500, "step": 10}
+  },
+  "presets": {
+    "As it was made": {"run_speed": 110, "jump_speed": 330, "gravity": 900},
+    "Fast and bouncy": {"run_speed": 150, "jump_speed": 380},
+    "Floaty": {"gravity": 500, "jump_speed": 260}
+  }
+}

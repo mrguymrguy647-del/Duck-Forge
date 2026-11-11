@@ -74,6 +74,8 @@ if errorlevel 1 (
 )
 rem Not the starter's tune file: its values would quietly win over the ones
 rem you write in the new game's code. Make one with --write-tune when you want one.
+rem Its feel file (the Studio's labels, ranges and presets) does come along.
+if exist "examples\%starter%.feel.json" copy /y "examples\%starter%.feel.json" "examples\%name%.feel.json" > nul
 
 rem -Title only when there is one: Windows PowerShell 5 can't take an
 rem empty "" argument with -File.

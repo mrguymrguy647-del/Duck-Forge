@@ -244,6 +244,10 @@ pub struct Play {
     /// The game's answers to changed files, not yet taken: the file's
     /// name, and whether the game took it.
     file_answers: Vec<(String, bool)>,
+    /// The game's `ctx.tune` values, as it last said them.
+    pub tunes: Vec<crate::feel::TuneValue>,
+    /// The sounds the game has played, as it last said them.
+    pub sounds: Vec<crate::assets::SoundInfo>,
 }
 
 /// What a new session does first.
@@ -343,7 +347,34 @@ impl Play {
             changes: Vec::new(),
             files_at_start: given.unwrap_or_default(),
             file_answers: Vec::new(),
+            tunes: Vec::new(),
+            sounds: Vec::new(),
         })
+    }
+
+    /// Asks the game for its tune values and the sounds it has played;
+    /// the answers land in `tunes` and `sounds`.
+    pub fn ask_about_feel(&mut self) {
+        if self.hello.is_none() || !self.is_running() {
+            return;
+        }
+        for what in ["tunes", "sounds"] {
+            let id = self.next_id;
+            self.next_id += 1;
+            self.send(&ToGame::Ask {
+                id,
+                what: what.to_string(),
+            });
+        }
+    }
+
+    /// Has the game play one of its sounds again (it isn't changed by it).
+    pub fn play_sound(&mut self, name: &str) {
+        if self.hello.is_some() && self.is_running() {
+            self.send(&ToGame::PlaySound {
+                name: name.to_string(),
+            });
+        }
     }
 
     /// The Studio's record of the game's level files as they were when it
@@ -899,8 +930,20 @@ impl Play {
                 self.take_frame(frame, arrived);
                 true
             }
-            ToStudio::Answer { id, text, .. } => {
-                self.answers.push((id, text));
+            ToStudio::Answer { id, what, text } => {
+                match what.as_str() {
+                    "tunes" => {
+                        if let Ok(tunes) = serde_json::from_str(&text) {
+                            self.tunes = tunes;
+                        }
+                    }
+                    "sounds" => {
+                        if let Ok(sounds) = serde_json::from_str(&text) {
+                            self.sounds = sounds;
+                        }
+                    }
+                    _ => self.answers.push((id, text)),
+                }
                 false
             }
             ToStudio::Note(note) => {

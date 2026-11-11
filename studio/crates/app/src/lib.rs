@@ -7,6 +7,7 @@
 
 pub mod app;
 pub mod build_mode;
+pub mod feel_panel;
 pub mod game_view;
 pub mod home;
 pub mod keys;

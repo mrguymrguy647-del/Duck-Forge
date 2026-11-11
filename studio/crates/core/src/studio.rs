@@ -12,12 +12,14 @@ use duckforge::prelude::{Key, MouseButton};
 use duckforge::{InputAction, InputScript};
 use serde::{Deserialize, Serialize};
 
+use crate::assets::{self, SoundInfo};
 use crate::build::{self, Build, BuildState, Rust, Watcher};
 use crate::check::{self, Check, CheckResult};
 use crate::clip::{Clip, ClipResult};
 use crate::console::{Console, JobEvent, JobId, JobState};
+use crate::feel::{self, CodeSpot, FeelFile, Slider};
 use crate::folder::{Card, Game, GamesFolder, STARTERS, name_from_title};
-use crate::history::{FileEdit, Step, Undo};
+use crate::history::{FileEdit, History, Snapshot, Step, Undo};
 use crate::level::{Cell, Level, LevelArt};
 use crate::play::{AfterHello, Ending, Play, PlayState, Timing};
 use crate::problem::Problem;
@@ -31,6 +33,25 @@ fn jump_from(tunes: &std::collections::BTreeMap<String, f32>) -> Option<duckforg
         gravity: *tunes.get("gravity")?,
         run: *tunes.get("run_speed")?,
     })
+}
+
+/// The files in a game's assets folder: when each was changed, and its size.
+fn assets_now(
+    game_folder: Option<&std::path::Path>,
+) -> std::collections::BTreeMap<PathBuf, (Option<std::time::SystemTime>, u64)> {
+    let Some(folder) = game_folder else {
+        return std::collections::BTreeMap::new();
+    };
+    std::fs::read_dir(folder.join("assets"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let data = entry.metadata().ok()?;
+            data.is_file()
+                .then(|| (entry.path(), (data.modified().ok(), data.len())))
+        })
+        .collect()
 }
 
 /// "1 tile", "3 tiles".
@@ -173,6 +194,39 @@ pub enum Command {
     /// this time only (the file isn't changed).
     #[serde(rename = "level.play_from")]
     LevelPlayFrom { at: Cell },
+    /// Change one Feel value: `{"do": "feel.set", "name": "jump_speed",
+    /// "value": 380}`. The game takes it at once; the tune file is saved.
+    /// Changes with the same `stroke` (one drag of a slider) are one step
+    /// for Undo.
+    #[serde(rename = "feel.set")]
+    FeelSet {
+        name: String,
+        value: f32,
+        #[serde(default)]
+        stroke: Option<u64>,
+    },
+    /// Use one of the feel file's presets: several values at once.
+    #[serde(rename = "feel.preset")]
+    FeelPreset { name: String },
+    /// Show where the code asks for a value, with the lines around it.
+    #[serde(rename = "feel.show_code")]
+    FeelShowCode { name: String },
+    /// Open a picture (a tile sheet, a sprite sheet) in Duck Quill.
+    #[serde(rename = "assets.open_in_quill")]
+    AssetsOpenInQuill { file: PathBuf },
+    /// Have the game play one of its sounds again.
+    #[serde(rename = "assets.play_sound")]
+    AssetsPlaySound { name: String },
+    /// Show how a sound was made: its values, or Duck Echo's recipe.
+    #[serde(rename = "assets.show_recipe")]
+    AssetsShowRecipe { name: String },
+    /// Take a snapshot of the game's files in its history.
+    #[serde(rename = "edit.snapshot")]
+    EditSnapshot { title: String },
+    /// Put the game's files back as they were in a snapshot (a snapshot
+    /// of now is taken first, so this can be undone too).
+    #[serde(rename = "edit.go_back_to")]
+    EditGoBackTo { number: u32 },
     /// Undo the last edit (a paint stroke, a Feel change...).
     #[serde(rename = "edit.undo")]
     EditUndo,
@@ -353,6 +407,46 @@ pub const COMMANDS: &[CommandInfo] = &[
         needs: "at: [column, row]",
     },
     CommandInfo {
+        name: "feel.set",
+        title: "Change a Feel value",
+        needs: "name, like jump_speed; value",
+    },
+    CommandInfo {
+        name: "feel.preset",
+        title: "Use a Feel preset",
+        needs: "name: one of the feel file's presets",
+    },
+    CommandInfo {
+        name: "feel.show_code",
+        title: "Show where the code asks for a value",
+        needs: "name, like jump_speed",
+    },
+    CommandInfo {
+        name: "assets.open_in_quill",
+        title: "Open a picture in Duck Quill",
+        needs: "file: the picture",
+    },
+    CommandInfo {
+        name: "assets.play_sound",
+        title: "Play one of the game's sounds",
+        needs: "name, like jump",
+    },
+    CommandInfo {
+        name: "assets.show_recipe",
+        title: "Show how a sound was made",
+        needs: "name, like music",
+    },
+    CommandInfo {
+        name: "edit.snapshot",
+        title: "Take a snapshot for the history",
+        needs: "title: a few words",
+    },
+    CommandInfo {
+        name: "edit.go_back_to",
+        title: "Go back to a snapshot",
+        needs: "number: the snapshot's number",
+    },
+    CommandInfo {
         name: "edit.undo",
         title: "Undo the last edit",
         needs: "",
@@ -442,6 +536,53 @@ pub struct OpenGame {
     pub undo: Undo,
     /// The game's tune values as it last said them (name, value).
     pub tunes: std::collections::BTreeMap<String, f32>,
+    /// The game's feel file (labels, ranges, presets), and what's wrong
+    /// with it if it can't be read.
+    pub feel: FeelFile,
+    pub feel_problem: Option<Problem>,
+    /// The tune file's text as last seen, to notice outside changes.
+    tune_text: String,
+    /// The game's history (snapshots), and its snapshots as last read.
+    pub history: History,
+    pub snapshots: Vec<Snapshot>,
+    /// Something was edited since the last snapshot.
+    edited_since_snapshot: bool,
+    last_autosave: Instant,
+    /// "Show me the code": where a value is asked for.
+    pub code_spot: Option<(String, CodeSpot)>,
+    /// A sound's recipe being shown: its name, and the recipe.
+    pub sound_recipe: Option<(String, String)>,
+    /// The game's picture and sound files as last seen (when each was
+    /// changed, and its size), to notice one saved in Duck Quill.
+    assets_seen: std::collections::BTreeMap<PathBuf, (Option<std::time::SystemTime>, u64)>,
+    /// Goes up when the level's pictures change, so the app draws its
+    /// palette again.
+    pub art_version: u64,
+}
+
+impl OpenGame {
+    /// The Feel panel's sliders: every value the game asked for.
+    pub fn sliders(&self) -> Vec<Slider> {
+        let tunes: Vec<feel::TuneValue> = self
+            .play
+            .as_ref()
+            .map(|play| play.tunes.clone())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|mut tune| {
+                if let Some(value) = self.tunes.get(&tune.name) {
+                    tune.value = *value;
+                }
+                tune
+            })
+            .collect();
+        feel::sliders(&tunes, &self.feel)
+    }
+
+    /// The sounds the game has played, as it last said them.
+    pub fn sounds(&self) -> &[SoundInfo] {
+        self.play.as_ref().map_or(&[], |play| &play.sounds)
+    }
 }
 
 impl OpenGame {
@@ -644,6 +785,16 @@ impl Studio {
                     None => (None, None),
                 };
                 let level_art = level.as_ref().map(LevelArt::load);
+                let game_folder = game.folder.clone();
+                let (feel, feel_problem) = match feel::load_feel(&folder, &name) {
+                    Ok(feel) => (feel, None),
+                    Err(problem) => (FeelFile::default(), Some(problem)),
+                };
+                // Its history starts the first time it's opened here.
+                let history = History::new(folder.root(), &game);
+                if history.snapshots().is_empty() {
+                    let _ = history.take("When it was first opened in the Studio");
+                }
                 self.open = Some(OpenGame {
                     check_result: check::load(&folder, &game.name),
                     game,
@@ -671,6 +822,18 @@ impl Studio {
                     level_looked: Instant::now(),
                     undo: Undo::default(),
                     tunes: std::collections::BTreeMap::new(),
+                    feel,
+                    feel_problem,
+                    tune_text: std::fs::read_to_string(feel::tune_file(&folder, &name))
+                        .unwrap_or_default(),
+                    snapshots: history.snapshots(),
+                    history,
+                    edited_since_snapshot: false,
+                    last_autosave: Instant::now(),
+                    code_spot: None,
+                    sound_recipe: None,
+                    assets_seen: assets_now(game_folder.as_deref()),
+                    art_version: 0,
                 });
                 self.screen = Screen::Game;
                 self.problem = None;
@@ -709,6 +872,15 @@ impl Studio {
                     self.open_game()?.play_state(),
                     Some(PlayState::Frozen) | Some(PlayState::Stopped { .. }) | None
                 );
+                if frozen {
+                    // Going from Build to Play after changes: a snapshot.
+                    let title = self
+                        .open_game()?
+                        .undo
+                        .next_undo()
+                        .map_or(String::from("Before playing"), String::from);
+                    self.snapshot_if_edited(&title);
+                }
                 self.do_command(if frozen {
                     Command::GamePlay
                 } else {
@@ -866,6 +1038,129 @@ impl Studio {
                 self.start_play(AfterHello::Play, None, Some(given))?;
                 Ok(format!("Playing from column {}, row {}", at.0, at.1))
             }
+            Command::FeelSet {
+                name,
+                value,
+                stroke,
+            } => self.set_feel(
+                std::collections::BTreeMap::from([(name.clone(), value)]),
+                stroke,
+                format!("Feel: {}", feel::tidy(&name)),
+            ),
+            Command::FeelPreset { name } => {
+                let values = self
+                    .open_game()?
+                    .feel
+                    .presets
+                    .get(&name)
+                    .cloned()
+                    .ok_or_else(|| {
+                        Problem::new(
+                            format!("The feel file has no preset called {name}."),
+                            "Pick one from the Presets list.",
+                        )
+                    })?;
+                let said = self.set_feel(values, None, format!("Feel: {name}"))?;
+                self.snapshot(&format!("Feel: {name}"));
+                Ok(said)
+            }
+            Command::FeelShowCode { name } => {
+                let folder = self.folder()?;
+                let open = self.open_game()?;
+                let spot = feel::find_code(&folder, &open.game, &name).ok_or_else(|| {
+                    Problem::new(
+                        format!("The Studio couldn't find tune(\"{name}\" in the game's code."),
+                        "The value may be asked for under another name, or in a file outside the game's folder.",
+                    )
+                })?;
+                let said = format!("{}, line {}", spot.file.display(), spot.line);
+                open.code_spot = Some((name, spot));
+                Ok(said)
+            }
+            Command::AssetsOpenInQuill { file } => {
+                let folder = self.folder()?;
+                let file = if file.is_absolute() {
+                    file
+                } else {
+                    folder.root().join(file)
+                };
+                let quill = assets::find_duck_quill(self.settings.duck_quill.as_deref())
+                    .ok_or_else(assets::no_duck_quill)?;
+                let command = assets::open_in_quill(&quill, &file, &folder);
+                self.console
+                    .start("Duck Quill", &command, crate::console::Keep::Everything);
+                Ok(format!("Opened {} in Duck Quill", file.display()))
+            }
+            Command::AssetsPlaySound { name } => {
+                let open = self.open_game()?;
+                match &mut open.play {
+                    Some(play) if play.is_running() => {
+                        play.play_sound(&name);
+                        Ok(format!("Played {name}"))
+                    }
+                    _ => Err(Problem::new(
+                        "The game isn't running.",
+                        "Play it, then try again: the game plays its own sounds.",
+                    )),
+                }
+            }
+            Command::AssetsShowRecipe { name } => {
+                let folder = self.folder()?;
+                let open = self.open_game()?;
+                let sound = open
+                    .sounds()
+                    .iter()
+                    .find(|sound| sound.name == name)
+                    .cloned()
+                    .ok_or_else(|| {
+                        Problem::new(
+                            format!("The game hasn't played a sound called {name} yet."),
+                            "Play the game until it does.",
+                        )
+                    })?;
+                let recipe = assets::recipe(&folder, open.game.folder.as_deref(), &sound);
+                open.sound_recipe = Some((name.clone(), recipe));
+                Ok(format!("The recipe for {name}"))
+            }
+            Command::EditSnapshot { title } => match self.snapshot(&title) {
+                true => Ok(format!("Snapshot: {title}")),
+                false => Ok(String::from("Nothing changed since the last snapshot")),
+            },
+            Command::EditGoBackTo { number } => {
+                let open = self.open_game()?;
+                let before = (open.level.as_ref().map(Level::text), open.tune_text.clone());
+                let changed = open.history.go_back_to(number)?;
+                open.snapshots = open.history.snapshots();
+                let title = open
+                    .snapshots
+                    .iter()
+                    .find(|s| s.number == number)
+                    .map_or(String::new(), |s| s.title.clone());
+                // Take the files in: the level, the Feel values. (Code changes
+                // build by themselves.)
+                let mut files = Vec::new();
+                if let (Some(level), Some(old)) = (&mut open.level, before.0)
+                    && level.reload_if_changed()
+                {
+                    files.push(FileEdit {
+                        path: level.path.clone(),
+                        before: old,
+                        after: level.text(),
+                    });
+                    open.level_unsent = true;
+                }
+                open.undo.push(Step {
+                    title: format!("Went back to: {title}"),
+                    files,
+                    stroke: None,
+                });
+                self.send_level();
+                self.take_in_tune_file(None);
+                Ok(format!(
+                    "Went back to \"{title}\" ({} files changed)",
+                    changed.len()
+                ))
+            }
             Command::EditUndo => {
                 let step = self.open_game()?.undo.undo().ok_or_else(|| {
                     Problem::new(
@@ -897,6 +1192,7 @@ impl Studio {
             Command::CheckRun => {
                 let folder = self.folder()?;
                 self.rust()?;
+                self.snapshot_if_edited("Before a Check");
                 if self.open_game()?.getting_ready().is_some() {
                     // A game just made is checked by itself in a moment.
                     return Ok(String::from("It's checked as soon as it's ready"));
@@ -997,6 +1293,116 @@ impl Studio {
     }
 
     /// Starts the built game. With no build yet, it starts when there is one.
+    /// Changes Feel values: the game takes them at once, the tune file is
+    /// saved, and it's a step for Undo.
+    fn set_feel(
+        &mut self,
+        values: std::collections::BTreeMap<String, f32>,
+        stroke: Option<u64>,
+        title: String,
+    ) -> Result<String, Problem> {
+        let folder = self.folder()?;
+        let open = self.open_game()?;
+        let path = feel::tune_file(&folder, &open.game.name);
+        let (before, after) = feel::write_tune_values(&path, &values)?;
+        open.tune_text = after.clone();
+        open.tunes
+            .extend(values.iter().map(|(name, value)| (name.clone(), *value)));
+        if let Some(play) = &mut open.play {
+            play.send_tunes(values);
+        }
+        open.undo.push(Step {
+            title: title.clone(),
+            files: vec![FileEdit {
+                path,
+                before,
+                after,
+            }],
+            stroke,
+        });
+        open.edited_since_snapshot = true;
+        Ok(title)
+    }
+
+    /// Reads the tune file again if it changed (Undo, going back, an
+    /// editor), and sends the game the values that changed. `before` is
+    /// its text before, for a step for Undo (a change made outside).
+    fn take_in_tune_file(&mut self, before: Option<String>) {
+        let Some(folder) = self.folder.clone() else {
+            return;
+        };
+        let Some(open) = &mut self.open else {
+            return;
+        };
+        let path = feel::tune_file(&folder, &open.game.name);
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        if text == open.tune_text {
+            return;
+        }
+        let old = std::mem::replace(&mut open.tune_text, text.clone());
+        let values = feel::read_tune_file(&path);
+        // A value the file doesn't have is the one in the code.
+        let defaults: std::collections::BTreeMap<String, f32> = open
+            .play
+            .as_ref()
+            .map(|play| {
+                play.tunes
+                    .iter()
+                    .map(|t| (t.name.clone(), t.default))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut wanted = defaults;
+        wanted.extend(values);
+        let changed: std::collections::BTreeMap<String, f32> = wanted
+            .into_iter()
+            .filter(|(name, value)| open.tunes.get(name) != Some(value))
+            .collect();
+        open.tunes
+            .extend(changed.iter().map(|(name, value)| (name.clone(), *value)));
+        if let Some(play) = &mut open.play {
+            play.send_tunes(changed);
+        }
+        if before.is_some() {
+            open.undo.push(Step {
+                title: String::from("Feel changed outside the Studio"),
+                files: vec![FileEdit {
+                    path,
+                    before: old,
+                    after: text,
+                }],
+                stroke: None,
+            });
+            open.edited_since_snapshot = true;
+        }
+    }
+
+    /// Takes a snapshot of the open game's files. True if anything had
+    /// changed since the last one.
+    fn snapshot(&mut self, title: &str) -> bool {
+        let Some(open) = &mut self.open else {
+            return false;
+        };
+        open.edited_since_snapshot = false;
+        open.last_autosave = Instant::now();
+        let taken = matches!(open.history.take(title), Ok(Some(_)));
+        if taken {
+            open.snapshots = open.history.snapshots();
+        }
+        taken
+    }
+
+    /// Takes a snapshot if something was edited since the last one.
+    fn snapshot_if_edited(&mut self, title: &str) {
+        if self
+            .open
+            .as_ref()
+            .is_some_and(|open| open.edited_since_snapshot)
+        {
+            self.snapshot(title);
+        }
+    }
+
     /// The open game's level, or why there isn't one.
     fn level(&mut self) -> Result<&mut Level, Problem> {
         let open = self.open_game()?;
@@ -1040,6 +1446,8 @@ impl Studio {
         if changed == 0 {
             return Ok(String::from("Nothing changed"));
         }
+        self.open_game()?.edited_since_snapshot = true;
+        let level = self.level()?;
         level.save()?;
         let step = Step {
             title: said.clone(),
@@ -1093,7 +1501,12 @@ impl Studio {
     fn apply_files(&mut self, step: &Step, before: bool) -> Result<(), Problem> {
         for edit in &step.files {
             let text = if before { &edit.before } else { &edit.after };
-            crate::level::write_whole(&edit.path, text)?;
+            if text.is_empty() {
+                // It wasn't there (a tune file made by the first Feel change).
+                let _ = std::fs::remove_file(&edit.path);
+            } else {
+                crate::level::write_whole(&edit.path, text)?;
+            }
         }
         let open = self.open_game()?;
         if let Some(level) = &mut open.level
@@ -1101,7 +1514,9 @@ impl Studio {
         {
             open.level_unsent = true;
         }
+        open.edited_since_snapshot = true;
         self.send_level();
+        self.take_in_tune_file(None);
         Ok(())
     }
 
@@ -1209,6 +1624,8 @@ impl Studio {
                 open.last_session = Some(path);
             }
         }
+        // For the Feel panel and the Sounds list.
+        play.ask_about_feel();
     }
 
     /// Stops the running game, keeping its session.
@@ -1483,6 +1900,63 @@ impl Studio {
             return;
         }
         open.level_looked = now;
+        // The game's tune values, as it said them.
+        if let Some(play) = &open.play {
+            for tune in &play.tunes {
+                open.tunes.entry(tune.name.clone()).or_insert(tune.value);
+            }
+        }
+        // An autosave every five minutes while there are changes.
+        if open.edited_since_snapshot
+            && now.saturating_duration_since(open.last_autosave) > Duration::from_secs(300)
+        {
+            self.snapshot("Autosave");
+            return;
+        }
+        let tune_text = std::fs::read_to_string(
+            self.folder
+                .as_ref()
+                .map(|f| feel::tune_file(f, &open.game.name))
+                .unwrap_or_default(),
+        )
+        .unwrap_or_default();
+        if tune_text != open.tune_text {
+            let before = open.tune_text.clone();
+            self.take_in_tune_file(Some(before));
+            return;
+        }
+        let Some(open) = &mut self.open else {
+            return;
+        };
+        // A picture saved in Duck Quill (or anything in its assets folder):
+        // the game loads its art again, and the palette is drawn again.
+        let assets = assets_now(open.game.folder.as_deref());
+        if assets != open.assets_seen {
+            let changed: Vec<PathBuf> = assets
+                .iter()
+                .filter(|(file, seen)| open.assets_seen.get(*file) != Some(seen))
+                .map(|(file, _)| file.clone())
+                .collect();
+            open.assets_seen = assets;
+            open.art_version += 1;
+            if let Some(level) = &open.level {
+                open.level_art = Some(LevelArt::load(level));
+            }
+            if let (Some(play), Some(root)) = (
+                &mut open.play,
+                self.folder.as_ref().map(|f| f.root().to_path_buf()),
+            ) {
+                for file in changed {
+                    let name = file
+                        .strip_prefix(&root)
+                        .unwrap_or(&file)
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    let text = std::fs::read_to_string(&file).unwrap_or_default();
+                    play.send_file(&name, &text);
+                }
+            }
+        }
         if let Some(level) = &mut open.level {
             let before = level.text();
             if level.reload_if_changed() {
@@ -1637,6 +2111,14 @@ mod tests {
             r#"{"do": "level.move_area", "from": [1, 1], "size": [3, 2], "to": [5, 1]}"#,
             r#"{"do": "level.resize", "columns": 90, "rows": 15}"#,
             r#"{"do": "level.play_from", "at": [20, 12]}"#,
+            r#"{"do": "feel.set", "name": "jump_speed", "value": 380, "stroke": 4}"#,
+            r#"{"do": "feel.preset", "name": "Floaty"}"#,
+            r#"{"do": "feel.show_code", "name": "gravity"}"#,
+            r#"{"do": "assets.open_in_quill", "file": "examples/template/assets/tiles.png"}"#,
+            r#"{"do": "assets.play_sound", "name": "jump"}"#,
+            r#"{"do": "assets.show_recipe", "name": "music"}"#,
+            r#"{"do": "edit.snapshot", "title": "Before a big change"}"#,
+            r#"{"do": "edit.go_back_to", "number": 3}"#,
             r#"{"do": "edit.undo"}"#,
             r#"{"do": "edit.redo"}"#,
         ];

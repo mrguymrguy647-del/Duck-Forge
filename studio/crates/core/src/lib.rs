@@ -14,10 +14,12 @@
 //! Nothing here opens a window, so all of it can be tested headless, and
 //! driven by a script or (later) an agent exactly as the app drives it.
 
+pub mod assets;
 pub mod build;
 pub mod check;
 pub mod clip;
 pub mod console;
+pub mod feel;
 pub mod folder;
 pub mod history;
 pub mod level;

@@ -293,8 +293,21 @@ impl Game for Template {
     /// The level's files changed (painted in Duck Forge Studio, or edited
     /// by hand while the game runs): read them again and carry on. The
     /// duck stays where it is, collected coins stay collected, new coins
-    /// appear and removed ones go.
+    /// appear and removed ones go. A picture changed (saved in Duck
+    /// Quill): the art is loaded again.
     fn reload(&mut self, _ctx: &mut Context, file: &std::path::Path) -> bool {
+        if file.starts_with(ASSETS) {
+            return match Art::load() {
+                Ok(art) => {
+                    self.art = art;
+                    true
+                }
+                Err(error) => {
+                    eprintln!("{error}"); // half saved, say: keep the old art
+                    false
+                }
+            };
+        }
         if !self.map.reads_from(file) {
             return false;
         }

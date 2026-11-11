@@ -11,6 +11,7 @@ use studio_core::studio::Screen;
 use studio_core::{Command, Problem, Studio};
 
 use crate::build_mode::{self, BuildMode};
+use crate::feel_panel::{self, FeelPanel};
 use crate::game_view::{self, GameTexture};
 use crate::home::{self, HomeChoice, NewGame, NewGameChoice};
 use crate::keys::{self, Placement};
@@ -40,6 +41,11 @@ pub struct StudioApp {
     said: Option<(String, Instant)>,
     /// Build mode: the tool and tile picked.
     pub build: BuildMode,
+    /// Build mode's right side: Feel, Sounds, Pictures.
+    feel: FeelPanel,
+    pub history_open: bool,
+    pub code_open: bool,
+    pub recipe_open: bool,
 }
 
 impl StudioApp {
@@ -59,13 +65,71 @@ impl StudioApp {
             clip_seen: false,
             said: None,
             build: BuildMode::default(),
+            feel: FeelPanel::default(),
+            history_open: false,
+            code_open: false,
+            recipe_open: false,
         }
     }
 
     /// Does a command and shows what it said in the status bar.
     fn run_and_say(&mut self, command: Command) {
+        let opens = match &command {
+            Command::FeelShowCode { .. } => Some(&mut self.code_open),
+            Command::AssetsShowRecipe { .. } => Some(&mut self.recipe_open),
+            _ => None,
+        };
+        if let Some(window) = opens {
+            *window = true;
+        }
         if let Ok(said) = self.studio.run(command) {
             self.said = Some((said, Instant::now()));
+        }
+    }
+
+    /// Build mode's right side: Feel, Sounds, Pictures.
+    fn feel_panel(&mut self, ui: &mut egui::Ui) {
+        let mut commands = Vec::new();
+        let mut choose_quill = false;
+        egui::Panel::right("feel")
+            .default_size(250.0)
+            .min_size(220.0)
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    if let (Some(open), Some(folder)) = (&self.studio.open, &self.studio.folder) {
+                        commands = self.feel.show(ui, open, folder.root());
+                    }
+                    let found = studio_core::assets::find_duck_quill(
+                        self.studio.settings.duck_quill.as_deref(),
+                    );
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(
+                            RichText::new(match &found {
+                                Some(_) => "Duck Quill is ready.",
+                                None => "Duck Quill isn't found yet.",
+                            })
+                            .weak(),
+                        );
+                        if ui
+                            .small_button("Choose...")
+                            .on_hover_text("Where DuckQuill.exe is")
+                            .clicked()
+                        {
+                            choose_quill = true;
+                        }
+                    });
+                });
+            });
+        if choose_quill
+            && let Some(file) = rfd::FileDialog::new()
+                .set_title("Where is Duck Quill?")
+                .pick_file()
+        {
+            self.studio.settings.duck_quill = Some(file);
+            self.studio.settings.save();
+        }
+        for command in commands {
+            self.run_and_say(command);
         }
     }
 
@@ -398,6 +462,13 @@ impl StudioApp {
                     if redo_button.clicked() {
                         self.run_and_say(Command::EditRedo);
                     }
+                    if ui
+                        .selectable_label(self.history_open, "History")
+                        .on_hover_text("Snapshots of the game's files: go back to any of them")
+                        .clicked()
+                    {
+                        self.history_open = !self.history_open;
+                    }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     self.console_toggle(ui);
@@ -455,6 +526,7 @@ impl StudioApp {
         self.check_panel(ui);
         if frozen {
             self.build_panel(ui);
+            self.feel_panel(ui);
         }
         egui::CentralPanel::no_frame().show(ui, |ui| self.game_area(ui));
     }
@@ -1039,6 +1111,25 @@ impl StudioApp {
     }
 
     fn dialogs(&mut self, ctx: &egui::Context) {
+        if self.studio.screen == Screen::Game
+            && let Some(open) = &self.studio.open
+        {
+            let mut command = None;
+            if self.history_open {
+                command = feel_panel::history(ctx, open, &mut self.history_open);
+            }
+            if self.code_open
+                && let Some(file) = feel_panel::code_spot(ctx, open, &mut self.code_open)
+            {
+                feel_panel::open_with_the_system(&file);
+            }
+            if self.recipe_open {
+                feel_panel::recipe(ctx, open, &mut self.recipe_open);
+            }
+            if let Some(command) = command {
+                self.run_and_say(command);
+            }
+        }
         if let Some(dialog) = &mut self.new_game {
             match home::new_game(ctx, dialog, &self.studio, &mut self.pictures) {
                 Some(NewGameChoice::Cancel) => self.new_game = None,

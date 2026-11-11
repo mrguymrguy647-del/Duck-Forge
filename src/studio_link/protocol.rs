@@ -65,8 +65,14 @@ pub enum ToGame {
     File { path: String, text: String },
     /// New `ctx.tune` values (Feel), from now on.
     Tune { values: BTreeMap<String, f32> },
+    /// Play a sound the game has played before, by its name, outside the
+    /// game (the Studio's Sounds list). The game isn't changed by it.
+    PlaySound { name: String },
     /// A question: `"recording"` asks for everything done so far as an
-    /// input script.
+    /// input script; `"tunes"` for the `ctx.tune` values (a JSON list of
+    /// name, value, default and source); `"sounds"` for the sounds played
+    /// so far (name, and a `.wav`'s file or a synthesizer sound's recipe);
+    /// `"files"` for the text files the game read.
     Ask { id: u64, what: String },
     /// Say goodbye (the game's `quit` runs) and end.
     Quit,
@@ -237,6 +243,7 @@ impl ToGame {
             ToGame::Overlay { debug } => json!({"overlay": {"debug": debug}}).to_string(),
             ToGame::File { path, text } => json!({"file": path, "text": text}).to_string(),
             ToGame::Tune { values } => json!({"tune": values}).to_string(),
+            ToGame::PlaySound { name } => json!({"play_sound": name}).to_string(),
             ToGame::Ask { id, what } => json!({"ask": id, "what": what}).to_string(),
             ToGame::Quit => json!({"quit": true}).to_string(),
         };
@@ -283,6 +290,10 @@ impl ToGame {
                     .iter()
                     .filter_map(|(name, value)| Some((name.clone(), value.as_f64()? as f32)))
                     .collect(),
+            }
+        } else if let Some(name) = value.get("play_sound").and_then(Value::as_str) {
+            ToGame::PlaySound {
+                name: name.to_string(),
             }
         } else if let Some(overlay) = value.get("overlay") {
             ToGame::Overlay {
@@ -523,6 +534,9 @@ mod tests {
         });
         there_and_back_to_game(ToGame::Window { open: true });
         there_and_back_to_game(ToGame::Overlay { debug: true });
+        there_and_back_to_game(ToGame::PlaySound {
+            name: String::from("jump"),
+        });
         there_and_back_to_game(ToGame::File {
             path: String::from("examples/a/level.txt"),
             text: String::from("p.\"\n##\n"),

@@ -53,7 +53,11 @@ else
 fi
 # Not the starter's tune file: its values would quietly win over the ones
 # you write in the new game's code. Make one when you want to tune, with
-# --write-tune.
+# --write-tune. Its feel file (the Studio's labels, ranges and presets for
+# those values) does come along.
+if [ -f "examples/$starter.feel.json" ]; then
+    cp "examples/$starter.feel.json" "examples/$name.feel.json"
+fi
 
 # The game's type: bee_maze -> BeeMaze (BeeMazeGame if the starter
 # already uses that word for something else).

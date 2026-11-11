@@ -52,9 +52,17 @@ fn pause_sound(speaker: &Speaker, paused: bool) {
 /// Sends the sounds the last updates played to the speakers. After a fast
 /// run only the loops are passed on: hundreds of old coin sounds at once
 /// would be a bang.
-fn play_new_sounds<G: Game>(sim: &mut Simulation<G>, speaker: &Speaker, one_shots: bool) {
+fn play_new_sounds<G: Game>(
+    sim: &mut Simulation<G>,
+    speaker: &Speaker,
+    one_shots: bool,
+    book: &mut SoundBook,
+) {
     let sounds = sim.take_new_sounds();
     let loops = sim.take_new_loop_commands();
+    for sound in &sounds {
+        book.note(sound);
+    }
     #[cfg(feature = "audio")]
     if let Some(speaker) = speaker {
         if one_shots {
@@ -68,6 +76,68 @@ fn play_new_sounds<G: Game>(sim: &mut Simulation<G>, speaker: &Speaker, one_shot
     }
     #[cfg(not(feature = "audio"))]
     let _ = (speaker, one_shots, sounds, loops);
+}
+
+/// Every sound the game has played, by name (the latest of each), so the
+/// Studio's Sounds list can show them and play one again.
+#[derive(Default)]
+struct SoundBook {
+    sounds: std::collections::BTreeMap<String, crate::sound::PlayedSound>,
+}
+
+impl SoundBook {
+    fn note(&mut self, sound: &crate::sound::PlayedSound) {
+        self.sounds.insert(sound.name.clone(), sound.clone());
+    }
+
+    /// The list for the Studio: each sound's name, its file if it's a
+    /// `.wav`, and how a synthesizer sound is made, as code.
+    fn to_json(&self) -> String {
+        let list: Vec<serde_json::Value> = self
+            .sounds
+            .values()
+            .map(|sound| match &sound.source {
+                crate::sound::SoundSource::Synth(made) => serde_json::json!({
+                    "name": sound.name,
+                    "recipe": format!("{made:#?}"),
+                }),
+                crate::sound::SoundSource::File(path) => serde_json::json!({
+                    "name": sound.name,
+                    "file": crate::files::name_of(path),
+                }),
+            })
+            .collect();
+        serde_json::Value::from(list).to_string()
+    }
+
+    /// Plays one again, outside the game (so the game isn't changed).
+    fn play(&self, name: &str, speaker: &Speaker) {
+        #[cfg(feature = "audio")]
+        if let (Some(sound), Some(speaker)) = (self.sounds.get(name), speaker) {
+            speaker.play(sound.samples.clone(), sound.pan);
+        }
+        #[cfg(not(feature = "audio"))]
+        let _ = (name, speaker);
+    }
+}
+
+/// The game's `ctx.tune` values, for the Studio's Feel panel: each name
+/// with its value, the default in the code, and where the value came from.
+fn tunes_json<G: Game>(sim: &Simulation<G>) -> String {
+    let tunes = sim.tunes();
+    let list: Vec<serde_json::Value> = tunes
+        .used()
+        .into_iter()
+        .map(|(name, value, source)| {
+            serde_json::json!({
+                "name": name,
+                "value": value,
+                "default": tunes.code_default(&name).unwrap_or(value),
+                "source": source.name(),
+            })
+        })
+        .collect();
+    serde_json::Value::from(list).to_string()
 }
 
 /// The connection, as the game uses it.
@@ -224,6 +294,7 @@ pub(crate) fn run<G: Game>(
         seed,
     }))?;
     let speaker = open_speaker();
+    let mut sounds = SoundBook::default();
 
     // The game's own window, once it has been popped out.
     #[cfg(feature = "window")]
@@ -238,7 +309,7 @@ pub(crate) fn run<G: Game>(
                 unreachable!("popped out means the window is open");
             };
             match own.turn(&mut sim)? {
-                Some(_) => play_new_sounds(&mut sim, &speaker, true),
+                Some(_) => play_new_sounds(&mut sim, &speaker, true, &mut sounds),
                 None => {
                     // The window's close button: come back inside the Studio.
                     own.set_visible(false);
@@ -286,7 +357,7 @@ pub(crate) fn run<G: Game>(
                     }
                 }
                 let update_micros = started.elapsed().as_micros().min(u32::MAX as u128) as u32;
-                play_new_sounds(&mut sim, &speaker, true);
+                play_new_sounds(&mut sim, &speaker, true, &mut sounds);
                 send_picture(&mut link, &mut sim, id, update_micros)?;
             }
             ToGame::Run {
@@ -314,7 +385,7 @@ pub(crate) fn run<G: Game>(
                     }
                 }
                 let update_micros = started.elapsed().as_micros().min(u32::MAX as u128) as u32;
-                play_new_sounds(&mut sim, &speaker, false);
+                play_new_sounds(&mut sim, &speaker, false, &mut sounds);
                 send_picture(&mut link, &mut sim, id, update_micros)?;
             }
             ToGame::Window { open } => {
@@ -365,9 +436,13 @@ pub(crate) fn run<G: Game>(
                 link.send(&ToStudio::Changed { path, reloaded })?;
             }
             ToGame::Tune { values } => sim.change_tunes(values),
+            ToGame::PlaySound { name } => sounds.play(&name, &speaker),
             ToGame::Ask { id, what } => {
                 let text = match what.as_str() {
                     "recording" => sim.recording().to_json(),
+                    "tunes" => tunes_json(&sim),
+                    "sounds" => sounds.to_json(),
+                    "files" => serde_json::Value::from(sim.files_read()).to_string(),
                     _ => String::new(),
                 };
                 link.send(&ToStudio::Answer { id, what, text })?;

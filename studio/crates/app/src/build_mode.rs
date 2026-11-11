@@ -169,7 +169,7 @@ impl BuildMode {
         let Some(level) = &open.level else {
             return commands;
         };
-        self.load_palette(ui.ctx(), level, open.level_art.as_ref());
+        self.load_palette(ui.ctx(), level, open.level_art.as_ref(), open.art_version);
         ui.label(RichText::new("Tools").strong());
         egui::Grid::new("build tools")
             .num_columns(2)
@@ -321,15 +321,28 @@ impl BuildMode {
             .clicked()
     }
 
-    fn load_palette(&mut self, ctx: &egui::Context, level: &Level, art: Option<&LevelArt>) {
-        let key = level.path.display().to_string();
+    fn load_palette(
+        &mut self,
+        ctx: &egui::Context,
+        level: &Level,
+        art: Option<&LevelArt>,
+        version: u64,
+    ) {
+        let key = format!("{} {version}", level.path.display());
         if self.palette_for == key {
             return;
         }
+        // Another level: nothing picked yet. New pictures: the same picks.
+        if !self
+            .palette_for
+            .starts_with(&format!("{} ", level.path.display()))
+        {
+            self.tile = None;
+            self.thing = None;
+        }
         self.palette.clear();
         self.palette_for = key;
-        self.tile = None;
-        self.thing = None;
+        self.level_texture_text.clear();
         let Some(art) = art else {
             return;
         };
