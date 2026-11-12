@@ -49,6 +49,10 @@ fn png_pixels(path: &Path) -> (u32, u32, Vec<u32>) {
     (info.width, info.height, pixels)
 }
 
+/// Two tests change the scene demo's scene file (and put it back): one at
+/// a time, or each would see the other's changes.
+static THE_SCENE_DEMOS_FILE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn press(key: &str) -> Step {
     Step::Do(serde_json::from_value(serde_json::json!({"do": "game.input", "press": key})).unwrap())
 }
@@ -386,6 +390,9 @@ fn a_level_painted_while_frozen_is_in_the_game_and_in_its_replay() {
 /// and the session replays to the same picture.
 #[test]
 fn a_scene_file_edited_while_frozen_is_in_the_game_and_in_its_replay() {
+    let _one = THE_SCENE_DEMOS_FILE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let mut studio = studio();
     let say = |studio: &mut Studio, step: Step| {
         run_step(studio, &step).unwrap_or_else(|problem| {
@@ -552,6 +559,9 @@ fn a_game_with_no_picture_gets_one_the_first_time_it_plays_or_is_checked() {
 /// game plays on, and its session replays to the same picture.
 #[test]
 fn objects_are_selected_and_moved_in_the_frozen_game_and_it_all_replays() {
+    let _one = THE_SCENE_DEMOS_FILE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     use duckforge::prelude::Vec2;
     use studio_core::scene_edit::{RowState, Show};
 

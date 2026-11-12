@@ -4378,6 +4378,30 @@ were run turn about. Lowest and highest of three to five runs each:
 - `main` gained Duck Mold's sockets while this step was built; it's
   merged in (no clashes), and the counts above include its tests.
 
+On GitHub's Windows machine (run 43248333794, release builds, the same
+`--headless --time`), after Step 2:
+
+| Game | Size | An update | Drawing a frame |
+|---|---|---|---|
+| Platformer starter | 3,876,864 bytes | 1.23 to 1.33 µs | 82.1 to 82.8 µs |
+| Shooter starter | 3,768,320 bytes | 1.67 to 1.74 µs | 16.4 to 16.7 µs |
+| 3D runner starter | 9,181,696 bytes | 1.43 to 1.64 µs | 1,165 to 1,184 µs |
+| Scene demo | 4,096,000 bytes | 3.06 to 3.17 µs | 85.3 to 86.6 µs |
+
+- Every game is smaller than after Step 1 there too (2,000 to 12,000
+  bytes).
+- GitHub gives a different machine each run (this one was about a fifth
+  faster than Step 1's; the run before it, on the same code, was
+  slower), so times are compared inside one run. The scene demo against
+  the Platformer starter: after Step 1 it drew a frame in the same time
+  (105 µs against 105); after Step 2 it takes 4% longer (86 against
+  82). That agrees with the 6% seen on Linux. It's the compiler's
+  arrangement of the same code, about 4 µs of a frame's 16,667, and
+  it's written down here so the next steps are measured against it.
+- That run's Studio tests found two tests changing the scene demo's file
+  at the same moment (each saw the other's edit). They take turns now.
+
+
 # Models from Duck Mold
 
 Duck Mold (a sister tool: 3D models from text recipes, no window) saves
