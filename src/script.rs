@@ -94,6 +94,17 @@ pub enum Change {
     File { path: String, text: String },
     /// New `ctx.tune` values: `{"frame": 413, "tune": {"jump_speed": 380}}`.
     Tune(BTreeMap<String, f32>),
+    /// An object of a scene changed as it is now, the scene's file left
+    /// alone (Duck Forge Studio moved it "for this run only"):
+    /// `{"frame": 413, "object": 9, "in": "examples/mygame/scenes/level1.json",
+    /// "set": {"at": [100, 208]}}`. The game's
+    /// [`reload`](crate::engine::Game::reload) hook is called with the
+    /// scene's file, and the scene takes the change.
+    Object {
+        file: String,
+        id: u64,
+        set: serde_json::Map<String, Value>,
+    },
 }
 
 /// A [`Change`], and the frame that sees it first.
@@ -274,7 +285,10 @@ impl InputScript {
         let mut changes = Vec::new();
         for (index, event) in list.iter().enumerate() {
             let place = |err: String| format!("event {} ({event}): {err}", index + 1);
-            if event.get("file").is_some() || event.get("tune").is_some() {
+            if ["file", "tune", "object"]
+                .iter()
+                .any(|key| event.get(key).is_some())
+            {
                 changes.push(parse_change(event).map_err(place)?);
             } else {
                 events.push(parse_event(event).map_err(place)?);
@@ -495,6 +509,12 @@ pub(crate) fn change_json(change: &ChangeEvent) -> String {
                 values.join(", ")
             )
         }
+        Change::Object { file, id, set } => format!(
+            "{{\"frame\": {}, \"object\": {id}, \"in\": {}, \"set\": {}}}",
+            change.frame,
+            Value::from(file.as_str()),
+            Value::Object(set.clone())
+        ),
     }
 }
 
@@ -519,6 +539,29 @@ pub(crate) fn parse_change(event: &Value) -> Result<ChangeEvent, String> {
         Change::File {
             path: path.to_string(),
             text: text.to_string(),
+        }
+    } else if let Some(id) = fields.get("object") {
+        check_keys(
+            fields,
+            &["frame", "object", "in", "set"],
+            "an object change",
+        )?;
+        let id = id
+            .as_u64()
+            .ok_or("\"object\" is the object's id, a whole number")?;
+        let file = fields
+            .get("in")
+            .and_then(Value::as_str)
+            .ok_or("an object change needs \"in\": its scene's file")?;
+        let Some(Value::Object(set)) = fields.get("set") else {
+            return Err(String::from(
+                "an object change needs \"set\": an object like {\"at\": [100, 208]}",
+            ));
+        };
+        Change::Object {
+            file: file.to_string(),
+            id,
+            set: set.clone(),
         }
     } else {
         check_keys(fields, &["frame", "tune"], "a tune change")?;

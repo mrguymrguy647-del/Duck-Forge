@@ -41,6 +41,16 @@ pub struct DrawnMap {
     pub rows: usize,
 }
 
+/// What Duck Forge Studio wants of the scenes drawn on a canvas.
+#[cfg(feature = "studio")]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct SceneLook {
+    /// Say where each object was drawn (a frozen picture).
+    pub(crate) note: bool,
+    /// Draw the scene as its file has it, not as it is now.
+    pub(crate) as_it_starts: bool,
+}
+
 pub struct Canvas {
     width: usize,
     height: usize,
@@ -66,6 +76,12 @@ pub struct Canvas {
     texts: Vec<OnScreenText>,
     /// Where tile maps were drawn since the last `take_scene`.
     maps: Vec<DrawnMap>,
+    /// For Duck Forge Studio: what scenes should do when they're drawn on
+    /// this canvas, and what they said.
+    #[cfg(feature = "studio")]
+    scene_look: SceneLook,
+    #[cfg(feature = "studio")]
+    scenes: Vec<crate::scene::drawn::DrawnScene>,
     /// The light 3D is drawn with.
     lighting: Lighting,
     /// Distance fog over 3D, if any.
@@ -121,6 +137,10 @@ impl Canvas {
             labels: Vec::new(),
             texts: Vec::new(),
             maps: Vec::new(),
+            #[cfg(feature = "studio")]
+            scene_look: SceneLook::default(),
+            #[cfg(feature = "studio")]
+            scenes: Vec::new(),
             lighting: Lighting::default(),
             fog: None,
             drawing_in_view: false,
@@ -317,6 +337,29 @@ impl Canvas {
     /// there in Build mode).
     pub(crate) fn note_map(&mut self, map: DrawnMap) {
         self.maps.push(map);
+    }
+
+    /// What scenes drawn on this canvas should do for the Studio.
+    #[cfg(feature = "studio")]
+    pub(crate) fn scene_look(&self) -> SceneLook {
+        self.scene_look
+    }
+
+    #[cfg(feature = "studio")]
+    pub(crate) fn set_scene_look(&mut self, look: SceneLook) {
+        self.scene_look = look;
+    }
+
+    /// A scene says where it drew its objects.
+    #[cfg(feature = "studio")]
+    pub(crate) fn note_scene(&mut self, scene: crate::scene::drawn::DrawnScene) {
+        self.scenes.push(scene);
+    }
+
+    /// What scenes said since this was last asked.
+    #[cfg(feature = "studio")]
+    pub(crate) fn take_scenes(&mut self) -> Vec<crate::scene::drawn::DrawnScene> {
+        std::mem::take(&mut self.scenes)
     }
 
     /// Where tile maps were drawn since this was last asked.

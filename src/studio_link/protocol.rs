@@ -20,10 +20,11 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 pub use crate::canvas::DrawnMap;
+pub use crate::scene::drawn::{DrawnObject, DrawnScene, Origin};
 use crate::script::{InputEvent, event_json, parse_event};
 
 /// The version of these messages. The game and the Studio must agree.
-pub const LINK_VERSION: u32 = 2;
+pub const LINK_VERSION: u32 = 3;
 
 /// The environment variable holding the one-time key the Studio gives the
 /// game it starts. The game says it back in its `hello`, so the Studio
@@ -65,6 +66,17 @@ pub enum ToGame {
     File { path: String, text: String },
     /// New `ctx.tune` values (Feel), from now on.
     Tune { values: BTreeMap<String, f32> },
+    /// An object of a scene changes as it is now, its file left alone
+    /// ("for this run only"): `set` is the keys of its line to set. The
+    /// game answers with [`ToStudio::Changed`], naming the scene's file.
+    Object {
+        file: String,
+        id: u64,
+        set: serde_json::Map<String, Value>,
+    },
+    /// How scenes are drawn on the pictures from now on: as their files
+    /// have them (`true`: Build mode's "As it starts"), or as they are now.
+    Show { as_it_starts: bool },
     /// Play a sound the game has played before, by its name, outside the
     /// game (the Studio's Sounds list). The game isn't changed by it.
     PlaySound { name: String },
@@ -108,6 +120,9 @@ pub struct Frame {
     pub renderer: String,
     /// Where tile maps were drawn on it (for Build mode's grid).
     pub maps: Vec<DrawnMap>,
+    /// Where scenes drew their objects, on a frozen picture (a tick with
+    /// no updates): for Build mode's Scene list, selecting and moving.
+    pub scenes: Vec<DrawnScene>,
     /// The pixels, row by row, each `0x00RRGGBB`.
     pub pixels: Vec<u32>,
 }
@@ -243,6 +258,12 @@ impl ToGame {
             ToGame::Overlay { debug } => json!({"overlay": {"debug": debug}}).to_string(),
             ToGame::File { path, text } => json!({"file": path, "text": text}).to_string(),
             ToGame::Tune { values } => json!({"tune": values}).to_string(),
+            ToGame::Object { file, id, set } => {
+                json!({"object": id, "in": file, "set": set}).to_string()
+            }
+            ToGame::Show { as_it_starts } => {
+                json!({"show": {"as_it_starts": as_it_starts}}).to_string()
+            }
             ToGame::PlaySound { name } => json!({"play_sound": name}).to_string(),
             ToGame::Ask { id, what } => json!({"ask": id, "what": what}).to_string(),
             ToGame::Quit => json!({"quit": true}).to_string(),
@@ -290,6 +311,16 @@ impl ToGame {
                     .iter()
                     .filter_map(|(name, value)| Some((name.clone(), value.as_f64()? as f32)))
                     .collect(),
+            }
+        } else if let Some(id) = value.get("object").and_then(Value::as_u64) {
+            ToGame::Object {
+                file: text_of(&value, "in")?,
+                id,
+                set: value["set"].as_object().cloned().unwrap_or_default(),
+            }
+        } else if let Some(show) = value.get("show") {
+            ToGame::Show {
+                as_it_starts: show["as_it_starts"].as_bool().unwrap_or(false),
             }
         } else if let Some(name) = value.get("play_sound").and_then(Value::as_str) {
             ToGame::PlaySound {
@@ -413,6 +444,7 @@ impl Frame {
                 "columns": map.columns,
                 "rows": map.rows,
             })).collect::<Vec<_>>(),
+            "scenes": self.scenes.iter().map(DrawnScene::to_json).collect::<Vec<_>>(),
         })
         .to_string()
     }
@@ -475,6 +507,10 @@ impl Frame {
                         })
                         .collect()
                 })
+                .unwrap_or_default(),
+            scenes: header["scenes"]
+                .as_array()
+                .map(|scenes| scenes.iter().map(DrawnScene::from_json).collect())
                 .unwrap_or_default(),
             pixels,
         })
@@ -580,6 +616,7 @@ mod tests {
                 columns: 80,
                 rows: 15,
             }],
+            scenes: Vec::new(),
             pixels: vec![0, 0x00FF_FFFF, 0x0012_3456, 1, 2, 3],
         }));
         there_and_back_to_studio(ToStudio::Changed {

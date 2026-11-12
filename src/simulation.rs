@@ -97,6 +97,10 @@ pub struct Simulation<G> {
     _forget_given_files: ForgetGivenFiles,
     /// Where tile maps were drawn in the last picture.
     drawn_maps: Vec<crate::canvas::DrawnMap>,
+    #[cfg(feature = "studio")]
+    drawn_scenes: Vec<crate::scene::drawn::DrawnScene>,
+    #[cfg(feature = "studio")]
+    scene_look: crate::canvas::SceneLook,
     /// What the game has reported with `ctx.report`.
     reports: ReportLog,
     /// Every sound the game played (in a window, only those not yet sent
@@ -211,6 +215,10 @@ impl<G: Game> Simulation<G> {
             replay_warnings: Vec::new(),
             _forget_given_files: ForgetGivenFiles,
             drawn_maps: Vec::new(),
+            #[cfg(feature = "studio")]
+            drawn_scenes: Vec::new(),
+            #[cfg(feature = "studio")]
+            scene_look: crate::canvas::SceneLook::default(),
             reports: ReportLog {
                 keep_changes: true,
                 ..ReportLog::default()
@@ -601,6 +609,63 @@ impl<G: Game> Simulation<G> {
         }
     }
 
+    /// Changes an object of a scene as it is now, leaving the scene's file
+    /// alone: `set` is the keys of its line to set (`{"at": [100, 208]}`).
+    /// Duck Forge Studio does this when an object is dragged "for this run
+    /// only". Returns whether the game's scene took it. Kept in the
+    /// recording, like [`change_file`](Simulation::change_file).
+    pub fn change_object(
+        &mut self,
+        file: &str,
+        id: u64,
+        set: &serde_json::Map<String, serde_json::Value>,
+    ) -> bool {
+        self.changes.push(ChangeEvent {
+            frame: self.ctx.frame() + 1,
+            change: Change::Object {
+                file: file.to_string(),
+                id,
+                set: set.clone(),
+            },
+        });
+        self.make_object_change(file, id, set)
+    }
+
+    fn make_object_change(
+        &mut self,
+        file: &str,
+        id: u64,
+        set: &serde_json::Map<String, serde_json::Value>,
+    ) -> bool {
+        // Left for the scene, which picks it up in the game's `reload`.
+        crate::scene::live::leave(file, id, set);
+        if !self.initialized {
+            self.initialized = true;
+            self.game.init(&mut self.ctx);
+        }
+        let taken = self.game.reload(&mut self.ctx, std::path::Path::new(file));
+        crate::scene::live::forget();
+        self.collect_what_the_game_did();
+        self.drawn_frame = None; // the game may look different now
+        taken
+    }
+
+    /// What scenes should do for Duck Forge Studio when the game is next
+    /// drawn (say where their objects are; draw as their files have them).
+    #[cfg(feature = "studio")]
+    pub(crate) fn set_scene_look(&mut self, look: crate::canvas::SceneLook) {
+        if self.scene_look != look {
+            self.scene_look = look;
+            self.drawn_frame = None;
+        }
+    }
+
+    /// What scenes said about the last picture.
+    #[cfg(feature = "studio")]
+    pub(crate) fn drawn_scenes(&self) -> &[crate::scene::drawn::DrawnScene] {
+        &self.drawn_scenes
+    }
+
     fn make_file_change(&mut self, name: &str, text: &str) -> bool {
         crate::files::give(name, text);
         if !self.initialized {
@@ -692,6 +757,9 @@ impl<G: Game> Simulation<G> {
                     for (name, value) in values {
                         self.ctx.tunes_mut().change(name, *value);
                     }
+                }
+                Change::Object { file, id, set } => {
+                    self.make_object_change(file, *id, set);
                 }
             }
             self.changes.push(change);
@@ -1122,7 +1190,16 @@ impl<G: Game> Simulation<G> {
         self.canvas.reset_view(); // every frame starts with no camera
         self.canvas.take_frame_camera();
         self.canvas.take_scene();
+        #[cfg(feature = "studio")]
+        {
+            self.canvas.set_scene_look(self.scene_look);
+            self.canvas.take_scenes();
+        }
         self.game.draw(&mut self.canvas);
+        #[cfg(feature = "studio")]
+        {
+            self.drawn_scenes = self.canvas.take_scenes();
+        }
         self.canvas.reset_view(); // so the engine's own drawing is in screen pixels
         let camera = self.canvas.take_frame_camera();
         let (labels, texts) = self.canvas.take_scene();

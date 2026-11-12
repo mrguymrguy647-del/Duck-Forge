@@ -246,6 +246,7 @@ fn send_picture<G: Game>(
         wants_pointer: sim.context().pointer_locked(),
         renderer: sim.context().renderer_name().to_string(),
         maps: sim.drawn_maps().to_vec(),
+        scenes: sim.drawn_scenes().to_vec(),
         pixels: Vec::new(),
     };
     header.write_with(&mut link.writer, sim.picture().pixels())
@@ -300,6 +301,9 @@ pub(crate) fn run<G: Game>(
     #[cfg(feature = "window")]
     let mut window: Option<crate::window::PoppedOut> = None;
     let mut popped_out = false;
+    // Build mode's "As it starts": frozen pictures show scenes as their
+    // files have them.
+    let mut as_it_starts = false;
     let why = loop {
         // In its own window the game keeps its own time, one turn of the
         // window's loop after another, listening in between.
@@ -349,6 +353,14 @@ pub(crate) fn run<G: Game>(
                 for event in events {
                     sim.apply(event.action);
                 }
+                // A tick with no updates is a frozen picture: scenes say
+                // where their objects are on it, for Build mode, and draw
+                // as their files have them if that's what's shown.
+                // Playing, they say nothing and draw as they are.
+                sim.set_scene_look(crate::canvas::SceneLook {
+                    note: updates == 0,
+                    as_it_starts: updates == 0 && as_it_starts,
+                });
                 let started = Instant::now();
                 for _ in 0..updates {
                     sim.step();
@@ -436,6 +448,16 @@ pub(crate) fn run<G: Game>(
                 link.send(&ToStudio::Changed { path, reloaded })?;
             }
             ToGame::Tune { values } => sim.change_tunes(values),
+            ToGame::Object { file, id, set } => {
+                let reloaded = sim.change_object(&file, id, &set);
+                link.send(&ToStudio::Changed {
+                    path: file,
+                    reloaded,
+                })?;
+            }
+            ToGame::Show {
+                as_it_starts: starts,
+            } => as_it_starts = starts,
             ToGame::PlaySound { name } => sounds.play(&name, &speaker),
             ToGame::Ask { id, what } => {
                 let text = match what.as_str() {

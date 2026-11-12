@@ -56,7 +56,10 @@
 //! moved in the file moves; the duck, who has walked away from where it
 //! starts, stays where it is.
 
+#[cfg(feature = "studio")]
+pub mod drawn;
 mod file;
+pub(crate) mod live;
 mod object;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -540,12 +543,142 @@ impl Scene {
     /// order. Call it in the game's `draw`, then draw what's the game's
     /// own (a score, say) on top.
     pub fn draw(&self, canvas: &mut Canvas) {
+        #[cfg(feature = "studio")]
+        {
+            // In Duck Forge Studio, frozen: the scene as its file has it
+            // if that's asked for, and where everything was drawn.
+            let look = canvas.scene_look();
+            if look.as_it_starts {
+                let starts = self.as_it_starts();
+                starts.draw_layers(canvas);
+                starts.note_for_studio(canvas, true);
+                return;
+            }
+            self.draw_layers(canvas);
+            if look.note {
+                self.note_for_studio(canvas, false);
+            }
+        }
+        #[cfg(not(feature = "studio"))]
+        self.draw_layers(canvas);
+    }
+
+    fn draw_layers(&self, canvas: &mut Canvas) {
         if let Some(colour) = self.background {
             canvas.clear(colour);
         }
         for layer in 0..self.starts.layers.len() {
             self.draw_layer_at(canvas, layer);
         }
+    }
+
+    /// The camera, sized to the canvas it's drawn on.
+    fn camera_on(&self, canvas: &Canvas) -> Camera2D {
+        let mut camera = self.camera.clone();
+        camera.screen_size = vec2(canvas.width() as f32, canvas.height() as f32);
+        if !self.camera_placed && camera.position == CAMERA_NOT_MOVED {
+            camera.position = camera.screen_size * 0.5;
+        }
+        camera
+    }
+
+    /// The scene with every object as the file has it: for the Studio's
+    /// "As it starts" view.
+    #[cfg(feature = "studio")]
+    fn as_it_starts(&self) -> Scene {
+        let mut scene = self.clone();
+        scene.objects = scene.starts.objects.clone();
+        scene.objects.extend(scene.painted_starts.values().cloned());
+        scene.background = scene.starts.background;
+        scene.arrange();
+        scene.load_new_pictures();
+        scene
+    }
+
+    /// Tells the Studio where each object was drawn, where it starts, and
+    /// what has changed since the start.
+    #[cfg(feature = "studio")]
+    fn note_for_studio(&self, canvas: &mut Canvas, as_it_starts: bool) {
+        use drawn::{DrawnObject, DrawnScene, Origin};
+        let camera = self.camera_on(canvas);
+        let on_screen = canvas.view();
+        canvas.push_camera(&camera);
+        let in_scene = canvas.view();
+        canvas.pop_camera();
+        let origin = |id: Id| {
+            if id.is_painted() {
+                Origin::Painted
+            } else if id.is_from_the_file() {
+                Origin::File
+            } else {
+                Origin::Made
+            }
+        };
+        let placed = |object: &Object| -> Option<Rect> {
+            if matches!(object.kind.as_str(), "tilemap" | "background") {
+                return None;
+            }
+            let picture = self.picture_rect_of(object);
+            let area = if picture.w > 0.0 && picture.h > 0.0 {
+                picture
+            } else {
+                self.rect_of(object)
+            };
+            let stays = self.starts.layers[self.layer_of(object)].stays_on_screen;
+            let view = if stays { on_screen } else { in_scene };
+            (area.w > 0.0 && area.h > 0.0).then(|| view.apply_rect(area))
+        };
+        let record = |object: &Object, start: Option<&Object>, gone: bool| {
+            let rect = if gone { None } else { placed(object) };
+            let start_rect = start
+                .and_then(placed)
+                .filter(|start| gone || Some(*start) != rect);
+            let now = match start {
+                Some(start) if !gone => {
+                    let (was, is) = (start.to_json(true), object.to_json(true));
+                    is.into_iter()
+                        .filter(|(key, value)| was.get(key) != Some(value))
+                        .collect()
+                }
+                Some(_) => serde_json::Map::new(),
+                None => object.to_json(false),
+            };
+            DrawnObject {
+                id: object.id.0,
+                name: object.name.clone(),
+                kind: object.kind.clone(),
+                layer: object.layer.clone(),
+                origin: origin(object.id),
+                stays_on_screen: self.starts.layers[self.layer_of(object)].stays_on_screen,
+                rect,
+                start_rect,
+                gone,
+                now,
+            }
+        };
+        let mut objects: Vec<DrawnObject> = self
+            .ids_as_drawn()
+            .into_iter()
+            .map(|id| {
+                let object = &self[id];
+                record(object, self.starts_as(id), false)
+            })
+            .collect();
+        // What the file has and the game has removed.
+        let gone = self
+            .starts
+            .objects
+            .iter()
+            .chain(self.painted_starts.values())
+            .filter(|start| !self.has(start.id));
+        objects.extend(gone.map(|start| record(start, Some(start), true)));
+        canvas.note_scene(DrawnScene {
+            file: self.file.clone(),
+            scale: in_scene.scale,
+            offset: in_scene.offset,
+            as_it_starts,
+            objects,
+        });
     }
 
     /// Draws one layer, to draw the game's own things between layers:
@@ -581,12 +714,7 @@ impl Scene {
 
     fn draw_layer_at(&self, canvas: &mut Canvas, layer: usize) {
         let stays = self.starts.layers[layer].stays_on_screen;
-        // The camera, sized to the canvas it's drawn on.
-        let mut camera = self.camera.clone();
-        camera.screen_size = vec2(canvas.width() as f32, canvas.height() as f32);
-        if !self.camera_placed && camera.position == CAMERA_NOT_MOVED {
-            camera.position = camera.screen_size * 0.5;
-        }
+        let camera = self.camera_on(canvas);
         let mut in_camera = false;
         let mut through_camera = |canvas: &mut Canvas, wanted: bool| {
             if wanted && !in_camera {
@@ -708,6 +836,17 @@ impl Scene {
     /// [`reload`](Scene::reload), for code with no `ctx` (tests, tools).
     pub fn reload_file(&mut self, file: &Path) -> bool {
         let name = crate::files::name_of(file);
+        // Changes to objects as they are now, left for this scene (the
+        // Studio moved one "for this run only", or a replay of that).
+        if !self.file.is_empty() && name == self.file {
+            let waiting = live::take_for(&name);
+            if !waiting.is_empty() {
+                for (id, set) in waiting {
+                    self.set_now(Id(id), &set);
+                }
+                return true;
+            }
+        }
         if !self.file.is_empty() && name == self.file {
             match crate::files::read_text(file) {
                 Ok(text) => self.take_text(&text),
@@ -749,6 +888,25 @@ impl Scene {
             return true;
         }
         false
+    }
+
+    /// Sets keys of an object's line as it is now, leaving the file's
+    /// alone: `{"at": [100, 208]}` moves it for this run only. Nothing
+    /// happens if the object isn't in the scene (any more).
+    pub fn set_now(&mut self, id: Id, set: &serde_json::Map<String, serde_json::Value>) {
+        let Some(live) = self.get(id) else {
+            return;
+        };
+        let mut line = live.to_json(true);
+        for (key, value) in set {
+            if key != "id" {
+                line.insert(key.clone(), value.clone());
+            }
+        }
+        let mut changed = Object::from_json(&line, &mut Vec::new());
+        changed.id = id;
+        self[id] = changed;
+        self.load_new_pictures();
     }
 
     /// Takes the scene file's new text, as [`reload`](Scene::reload) does

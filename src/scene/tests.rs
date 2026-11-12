@@ -523,3 +523,207 @@ fn what_cant_be_loaded_is_said_with_its_objects_line() {
     assert_eq!(scene.starts().line_of(Id(9)), None);
     crate::files::forget_given();
 }
+
+/// A game that is one scene, to play scenes through the engine.
+struct OneScene {
+    scene: Scene,
+}
+
+impl crate::engine::Game for OneScene {
+    fn update(&mut self, ctx: &mut Context) {
+        self.scene.update(ctx);
+        // The duck walks right, a pixel an update.
+        if let Some(duck) = self.scene.find("duck") {
+            self.scene[duck].at.x += 1.0;
+        }
+        // A coin the duck is on is taken.
+        if let Some(duck) = self.scene.find("duck") {
+            for coin in self.scene.touching(duck, "coin") {
+                self.scene.remove(coin);
+            }
+        }
+    }
+
+    fn draw(&self, canvas: &mut Canvas) {
+        self.scene.draw(canvas);
+    }
+
+    fn reload(&mut self, ctx: &mut Context, file: &Path) -> bool {
+        self.scene.reload(ctx, file)
+    }
+}
+
+fn small_screen() -> crate::engine::Config {
+    crate::engine::Config {
+        width: 128,
+        height: 64,
+        ..crate::engine::Config::default()
+    }
+}
+
+fn one_scene(folder: &TestFolder) -> (std::path::PathBuf, OneScene) {
+    let path = folder.file(
+        "scenes/level1.json",
+        r##"{"duckforge_scene": 1, "background": "#102030", "objects": [
+            {"id": 1, "name": "duck", "at": [20, 40], "picture": "assets/blue.png"},
+            {"id": 2, "name": "coin", "at": [34, 40], "picture": "assets/red.png"},
+            {"id": 3, "name": "lamp", "at": [100, 20], "picture": "assets/red.png"},
+            {"id": 4, "name": "score", "at": [2, 2], "anchor": "top_left", "picture": "assets/red.png", "layer": "hud"}]}"##,
+    );
+    let scene = Scene::load(&path).unwrap();
+    (path, OneScene { scene })
+}
+
+#[test]
+fn an_object_moved_for_this_run_only_keeps_its_start_and_replays_exactly() {
+    use crate::simulation::Simulation;
+    let folder = game("scene-move-now");
+    let (path, game) = one_scene(&folder);
+    let file = crate::files::name_of(&path);
+    let mut sim = Simulation::new(small_screen(), game);
+    sim.run(5);
+    assert_eq!(sim.game().scene[Id(1)].at, vec2(25.0, 40.0));
+
+    // Dragged "for this run only": the lamp moves now; the file's lamp,
+    // and so where it starts, stays.
+    let set: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(r#"{"at": [60, 30], "flip": true}"#).unwrap();
+    assert!(sim.change_object(&file, 3, &set), "the scene took it");
+    let scene = &sim.game().scene;
+    assert_eq!(scene[Id(3)].at, vec2(60.0, 30.0));
+    assert!(scene[Id(3)].flip);
+    assert_eq!(scene.starts_as(Id(3)).unwrap().at, vec2(100.0, 20.0));
+    // An object that isn't there, or a scene the game hasn't got: nothing.
+    assert!(sim.change_object(&file, 77, &set));
+    assert!(!sim.change_object("some/other/scene.json", 3, &set));
+    sim.run(5);
+    let last = sim.picture().pixels().to_vec();
+
+    // It's in the recording, on the frame after it was made, and a replay
+    // of the recording ends on the same picture.
+    let recording = sim.recording();
+    let json = recording.to_json();
+    assert!(
+        json.contains(&format!(
+            "{{\"frame\": 6, \"object\": 3, \"in\": {:?}, \"set\": {{\"at\":[60,30],\"flip\":true}}}}",
+            file
+        )),
+        "{json}"
+    );
+    let again = crate::script::InputScript::parse(&json).unwrap();
+    assert_eq!(again.changes, recording.changes, "written and read back");
+    crate::files::forget_given();
+    let (_, game) = one_scene(&folder);
+    let mut replay = Simulation::new(small_screen(), game);
+    replay.follow(again);
+    replay.run(10);
+    assert_eq!(replay.game().scene[Id(3)].at, vec2(60.0, 30.0));
+    assert!(replay.picture().pixels() == last, "the same last picture");
+    crate::files::forget_given();
+}
+
+#[cfg(feature = "studio")]
+#[test]
+fn a_frozen_picture_says_where_every_object_is_and_where_it_starts() {
+    use crate::canvas::SceneLook;
+    use crate::scene::drawn::Origin;
+    use crate::simulation::Simulation;
+    let folder = game("scene-drawn");
+    let (path, game) = one_scene(&folder);
+    let mut sim = Simulation::new(small_screen(), game);
+    sim.run(10); // the duck walks 10 pixels, onto the coin, and takes it
+    sim.with_context(|game, _| {
+        game.scene.camera.position.x += 4.0;
+        game.scene.add(
+            Object::new("spark")
+                .at(vec2(70.0, 40.0))
+                .with_picture("assets/red.png"),
+        );
+    });
+
+    // Playing, scenes say nothing.
+    sim.picture();
+    assert!(sim.drawn_scenes().is_empty());
+
+    // Frozen, each says where its objects are on the picture.
+    sim.set_scene_look(SceneLook {
+        note: true,
+        as_it_starts: false,
+    });
+    let frozen = sim.picture().pixels().to_vec();
+    let scenes = sim.drawn_scenes();
+    assert_eq!(scenes.len(), 1);
+    let scene = &scenes[0];
+    assert_eq!(scene.file, crate::files::name_of(&path));
+    assert!(!scene.as_it_starts);
+    assert_eq!(
+        (scene.scale, scene.offset),
+        (1.0, vec2(-4.0, 0.0)),
+        "the camera is 4 right"
+    );
+    assert_eq!(scene.to_scene(vec2(22.0, 40.0)), vec2(26.0, 40.0));
+
+    // The duck has moved: it's where it is, and its start is elsewhere.
+    let duck = scene.object(1).unwrap();
+    assert_eq!(duck.rect, Some(Rect::new(22.0, 32.0, 8.0, 8.0)));
+    assert_eq!(duck.start_rect, Some(Rect::new(12.0, 32.0, 8.0, 8.0)));
+    assert_eq!(duck.now.get("at"), Some(&serde_json::json!([30, 40])));
+    assert_eq!(duck.now.len(), 1, "only what changed: {:?}", duck.now);
+    assert_eq!(duck.origin, Origin::File);
+    // The lamp hasn't: one place, nothing changed.
+    let lamp = scene.object(3).unwrap();
+    assert_eq!(lamp.rect, Some(Rect::new(92.0, 12.0, 8.0, 8.0)));
+    assert!(lamp.start_rect.is_none() && lamp.now.is_empty() && !lamp.gone);
+    // The score stays on the screen whatever the camera does.
+    let score = scene.object(4).unwrap();
+    assert!(score.stays_on_screen);
+    assert_eq!(score.rect, Some(Rect::new(2.0, 2.0, 8.0, 8.0)));
+    // The coin was taken: gone, with where it starts.
+    let coin = scene.object(2).unwrap();
+    assert!(coin.gone && coin.rect.is_none());
+    assert_eq!(coin.start_rect, Some(Rect::new(26.0, 32.0, 8.0, 8.0)));
+    // The spark was made while playing: its whole line is "now".
+    let spark = scene
+        .objects
+        .iter()
+        .find(|object| object.name == "spark")
+        .unwrap();
+    assert_eq!(spark.origin, Origin::Made);
+    assert!(spark.start_rect.is_none() && spark.now.contains_key("picture"));
+    // In drawing order, the gone ones last.
+    let names: Vec<&str> = scene.objects.iter().map(|o| o.name.as_str()).collect();
+    assert_eq!(names, ["duck", "lamp", "spark", "score", "coin"]);
+    // It survives the link's JSON.
+    assert_eq!(
+        &crate::scene::drawn::DrawnScene::from_json(&scene.to_json()),
+        scene
+    );
+
+    // As it starts: the file's objects where the file has them, the coin
+    // back, no spark, on the same camera; and the game itself untouched.
+    sim.set_scene_look(SceneLook {
+        note: true,
+        as_it_starts: true,
+    });
+    let starts = sim.picture().pixels().to_vec();
+    assert_ne!(starts, frozen);
+    let scene = &sim.drawn_scenes()[0];
+    assert!(scene.as_it_starts);
+    let names: Vec<&str> = scene.objects.iter().map(|o| o.name.as_str()).collect();
+    assert_eq!(names, ["duck", "coin", "lamp", "score"]);
+    let duck = scene.object(1).unwrap();
+    assert_eq!(duck.rect, Some(Rect::new(12.0, 32.0, 8.0, 8.0)));
+    assert!(duck.start_rect.is_none() && duck.now.is_empty());
+    assert!(!scene.object(2).unwrap().gone);
+    assert_eq!(
+        sim.game().scene[Id(1)].at,
+        vec2(30.0, 40.0),
+        "the game hasn't changed"
+    );
+    sim.set_scene_look(SceneLook::default());
+    assert!(
+        sim.picture().pixels() == frozen,
+        "back to the frozen moment"
+    );
+    crate::files::forget_given();
+}
