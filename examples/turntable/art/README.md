@@ -2,9 +2,9 @@
 
 The robot is a model made with Duck Mold (`duck-mold`), which builds 3D
 models from text recipes and needs no window. `robot.toml` is its recipe
-(Duck Mold's own example, from its `claude/nifty-dirac-vt09ym` branch;
-`robot.glb` is from commit d029f9d); the file the game loads is
-`../assets/robot.glb`.
+(Duck Mold's own example, from its `claude/duck-mold-phase-1` branch;
+`robot.glb` is from commit 031e381, and keeps the robot's sockets); the
+file the game loads is `../assets/robot.glb`.
 
 | Source | Makes | With (run in `examples/turntable`) |
 |---|---|---|
@@ -12,7 +12,9 @@ models from text recipes and needs no window. `robot.toml` is its recipe
 
 `duck-mold inspect art/robot.toml` reports on it in words before you
 export: its size (0.90 wide, 1.83 tall, 0.39 deep, in metres), its parts,
-and whether any part floats or overlaps another.
+and whether any part floats or overlaps another. With `--sockets` it
+also lists the robot's sockets, by the names the game asks for:
+`head.top` is where the hat goes.
 
 The robot faces +z, as every Duck Mold model does, and stands on y = 0.
 Its own left is -x: its left arm is on your right as it faces you.
