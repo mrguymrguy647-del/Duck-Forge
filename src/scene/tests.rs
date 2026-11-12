@@ -490,3 +490,36 @@ fn a_scene_file_can_say_its_layers_and_keep_what_the_engine_doesnt_know() {
     // It's still drawn, on the last layer (this scene has no "world").
     assert_eq!(drawn(&scene).get_pixel(22, 14), Some(BLUE));
 }
+
+#[test]
+fn what_cant_be_loaded_is_said_with_its_objects_line() {
+    let folder = game("scene-problem-lines");
+    let path = folder.file(
+        "scenes/level1.json",
+        "{\n  \"duckforge_scene\": 1,\n  \"objects\": [\n    {\"id\": 1, \"name\": \"box\", \"picture\": \"assets/red.png\"},\n    {\"id\": 2, \"name\": \"ghost\", \"picture\": \"assets/nope.png\"},\n    {\"id\": 3, \"name\": \"duck\", \"picture\": \"assets/hero.json\", \"animation\": \"swim\"},\n    {\"id\": 4, \"name\": \"ground\", \"kind\": \"tilemap\", \"level\": \"nope.txt\"}\n  ]\n}\n",
+    );
+    let scene = Scene::load(&path).unwrap();
+    let file = scene.file().to_string();
+    let said = scene.problems().join("\n");
+    assert!(
+        said.contains(&format!(
+            "{file}, line 5: \"ghost\" has the picture \"assets/nope.png\""
+        )),
+        "{said}"
+    );
+    assert!(
+        said.contains(&format!(
+            "{file}, line 6: \"duck\" asks for the animation \"swim\""
+        )),
+        "{said}"
+    );
+    assert!(
+        said.contains(&format!(
+            "{file}, line 7: the tile map \"ground\" couldn't read its level"
+        )),
+        "{said}"
+    );
+    assert_eq!(scene.starts().line_of(Id(2)), Some(5));
+    assert_eq!(scene.starts().line_of(Id(9)), None);
+    crate::files::forget_given();
+}

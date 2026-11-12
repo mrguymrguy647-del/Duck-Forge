@@ -119,7 +119,7 @@ the spot, and "Show it in the scene" opens it selected.
 
 **The same panels in 3D.** The Studio flies its own camera through the
 frozen moment. Positions have three numbers. The Model box is the slot
-for Modular 3D's files.
+for Duck Mold's models.
 
 ![3D](phase5-mockups/12-3d.png)
 
@@ -270,7 +270,9 @@ the first is the one things walk on.
 **Paths** inside a scene are from the game's folder. **Colours** are
 `"#rrggbb"`. **A mistake in the file** is one sentence with the file and
 the line: "scenes/level1.json, line 9: "snail": "at" should be two
-numbers, like [40, 208]; it's 40". The game still starts: a key with a
+numbers, like [40, 208]; it's 40". What can't be loaded has its
+object's line too: "scenes/level1.json, line 12: "ghost" has the picture
+"assets/gohst.png", which couldn't be loaded". The game still starts: a key with a
 mistake is as if it weren't there, and a picture that can't be loaded is
 drawn as a marked box, so one typo never loses the scene. A file that
 isn't JSON at all, saved while the game runs, changes nothing: the scene
@@ -629,8 +631,8 @@ it needs the save-file rules the engine already has for Duck Craft
 ## 6. 2D first, then 3D
 
 Everything above is built for 2D. **3D is Phase 5b**, right after this
-phase: the two steps at the end of section 9, together with reading
-`.glb` models. What Phase 5 does now is keep the file ready: a scene
+phase: the steps at the end of section 9. (Reading `.glb` models is
+already built: see below.) What Phase 5 does now is keep the file ready: a scene
 that says `"space": "3d"` is read, kept and written back exactly as it
 is (three numbers, the `"model"` key and all), and the engine says it
 can't be drawn yet. So nothing written now will need changing.
@@ -666,43 +668,53 @@ block each letter is. That's plain text an agent can write and git can
 compare. Painting blocks by clicking in the editor is its own job and
 isn't in this phase.
 
-**3D models are glTF 2.0, as one `.glb` file** (agreed: Modular 3D will
-be built to write exactly this, with `extras.duckforge`, and rigid-part
-animation first).
+**3D models are glTF 2.0, as one `.glb` file, made with Duck Mold**
+(the tool this plan first called Modular 3D). The engine already reads
+them: `Mesh::load_glb(path)`, built on the `claude/duck-mold-models`
+branch and merged into Phase 5 at step 2. So Phase 5b doesn't build a
+reader; it uses this one.
 
-- It's the standard every 3D tool reads and writes (Blender, Windows'
-  own 3D viewer), so a model from Modular 3D can be checked anywhere,
-  and models from elsewhere can come in.
-- The engine can read it with what it already has (`serde_json` and
-  `png`). No new library.
-- Duck Forge would read a stated part of it, and say plainly about the
-  rest:
+What the plan asked a reader for, beside what the one that's built
+does:
 
-| | Read | Not read (the model still loads, with a note) |
-|---|---|---|
-| Shapes | Triangles with positions, normals, one set of texture points, vertex colours | Lines, points, morph targets |
-| Looks | One base colour and one base colour picture (a PNG inside the file), drawn with sharp pixels; "emissive" means it glows; see-through as the file says | Shiny or rough surfaces, normal maps: the Duck Forge look has no use for them |
-| Parts | The tree of named parts, each with a position, a turn and a size | Cameras and lights inside the file |
-| Animation (a later stage) | Named clips that move, turn and resize parts. Limbs as rigid parts first | Skinned, bending meshes: after that, if wanted |
-| Duck Forge's own | `extras.duckforge`: a collision box and where the feet are | |
+| | The plan | `Mesh::load_glb` today | Not yet |
+|---|---|---|---|
+| Which files | Any `.glb` that keeps to a stated part of glTF | Only `.glb` files written by Duck Mold (`duck-mold export`): they say so inside (`extras.duck_mold`, version 0). Any other file is refused with one sentence saying why, and so is a damaged one: no crash | Models from other tools (Blender). Only worth doing if you want them |
+| Shapes | Triangles with positions, normals, texture points, vertex colours | One mesh, one list of triangles: the corner points and one colour for each triangle. Corners in the same place are shared, so a box has 8. The engine lights flat faces itself, so it needs no normals | Texture points; lines and points |
+| Looks | A base colour and one picture, glow, see-through | The model's palette colours, exactly as the recipe has them (they're stored as linear light and turned back to the same 0 to 255) | Pictures on models, glow, see-through |
+| Parts | A tree of named parts, each with a position, a turn and a size | Parts, and parts made of parts ("assemblies": `left_arm`, with `left_arm/hand` inside it), each as a named run of the model's triangles: enough to recolour one. `GlbModel::load` gives them, with the model's name and its palette by name | Parts that keep a position and a turn of their own. Today a model is one solid mesh, so a part can't be moved by itself |
+| Animation | Named clips that move parts; limbs as rigid parts first | None | All of it. It needs the row above first, in Duck Mold and then here |
+| Duck Forge's own | `extras.duckforge`: a collision box and where the feet are | Not needed: a Duck Mold model stands on y = 0 and faces forward (+z), so its feet are at its own zero point, and its box is `mesh.bounds()`. What Duck Mold adds is under `extras.duck_mold` | |
+| Directions | Turned from glTF's to the engine's by the loader | Done: x is mirrored and each triangle's corners reordered, so left stays left and faces stay facing out. 1 unit is 1 block, about a metre | |
 
-- 1 unit is 1 block. The loader turns the model from glTF's directions
-  to the engine's, so Modular 3D exports the standard and doesn't need
-  to know.
-- **The slot left for it now:** an object's `"model"` key, kept as it
-  is by the engine and the Studio (built in step 1); Files calls `.glb`
-  files "Model". In Phase 5b: a Model box in the Inspector that takes a
-  dropped `.glb`, and `Mesh::load_model(path)` in the engine. So scene
-  files written now won't need changing.
+Three things to know about it:
+
+- The reader's code is Duck Mold's own, copied byte for byte between two
+  marker lines in `src/glb.rs`, so both projects read a file the same
+  way. A change is made in Duck Mold first, then copied here.
+- Its tests load Duck Mold's five example models and check them against
+  what `duck-mold inspect` said: the triangle counts, the size, the
+  colours, that every part is a closed solid, and which way each faces.
+  `examples/turntable` shows the robot.
+- There's a further branch, `claude/duck-mold-sockets` (named points on
+  a model, to put a hat on the robot's head), which isn't merged here:
+  you asked for the models branch only.
+
+**The slot in scenes:** an object's `"model"` key, kept as it is by the
+engine and the Studio (step 1), and Files calling `.glb` files "Model".
+In Phase 5b the Mesh kind draws its `"model"` with `Mesh::load_glb`, the
+Inspector gets a Model box that takes a dropped `.glb`, and a model
+saved again in Duck Mold shows in the frozen game, as a picture does. So
+scene files written now won't need changing.
 
 Sprites and 2D animation keep coming from Duck Quill's JSON and PNG,
 which the engine reads today.
 
 **Phase 5b, in order:** 3D scenes drawn (Mesh, Light, Camera, facing
-pictures, reload); the fly camera in the frozen game, clicking and
-moving in 3D; reading `.glb` models, then their rigid-part animation.
-Still later: painting block worlds, ready-made 3D behaviours, skinned
-meshes.
+pictures, models with the reader above, reload); the fly camera in the
+frozen game, clicking and moving in 3D. Still later: parts that move and
+their animation (once Duck Mold writes them), pictures on models,
+painting block worlds, ready-made 3D behaviours, skinned meshes.
 
 ## 7. Beginner and Expert
 
@@ -790,7 +802,7 @@ Then, as phases of their own:
 |---|---|---|---|
 | 5b.1 | **3D scenes.** Three numbers, Mesh, Light, Camera, facing pictures, drawing and reload | Open a 3D demo scene, edit its file, see the change | Stronger |
 | 5b.2 | **3D in the editor.** The fly camera in the frozen game, clicking and moving in 3D, the Model box | Fly round a frozen 3D game, move a crate, play on | Stronger |
-| 5b.3 | **Models.** Reading `.glb` as section 6 has it, then rigid-part animation | Drop a model from Modular 3D into a scene | Stronger |
+| 5b.3 | **Models in scenes.** The Mesh kind's `"model"`, the Model box, a changed `.glb` reloaded. The reader is built already (`Mesh::load_glb`) | Drop a model from Duck Mold into a scene | Cheaper |
 | Export | **One folder ready to send to a friend**: the game's program and everything it reads, with no Rust needed to play it | Press Export, zip the folder, send it | Cheaper, from a short design |
 
 After each step: a new section in the hand checklist (it carries on from
@@ -931,12 +943,12 @@ The questions, as answered in the review:
 2. **Rules as sentences.** Yes; their final shape is decided at step 10.
 3. **Rules stay in this phase**, as step 10, and are the first thing cut
    if it runs long.
-4. **3D is Phase 5b:** the two 3D steps move there, with reading `.glb`
-   models. The Model slot and the `"space": "3d"` key are in the file
-   now.
-5. **Models are glTF `.glb`**, as section 6 describes, with
-   `extras.duckforge` and rigid-part animation first. Modular 3D will be
-   built to write that.
+4. **3D is Phase 5b:** the two 3D steps move there. The Model slot and
+   the `"space": "3d"` key are in the file now.
+5. **Models are glTF `.glb`, made with Duck Mold.** The reader is built
+   (`Mesh::load_glb`, merged in at step 2), so Phase 5b uses it and
+   builds none. Section 6 says what it covers. Parts that move, and
+   their animation, come when Duck Mold writes them.
 6. **A flat list and one behaviour per object**, for now. `"parent"` and
    `"kinds"` are kept for later, so files made now never change.
 7. **The plain Code panel**, with "Open in my editor".

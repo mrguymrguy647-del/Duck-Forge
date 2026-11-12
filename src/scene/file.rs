@@ -84,6 +84,8 @@ pub struct SceneFile {
     pub rules: Vec<String>,
     /// Top-level keys the engine doesn't know, kept as they are.
     other: BTreeMap<String, Value>,
+    /// The line of the text each object starts on, beside `objects`.
+    lines: Vec<Option<usize>>,
     /// How many objects had no id of their own in the text.
     pub ids_missing: usize,
     /// What's wrong with it. The scene is still read: each problem's key
@@ -143,6 +145,7 @@ impl SceneFile {
             objects: Vec::new(),
             rules: Vec::new(),
             other: BTreeMap::new(),
+            lines: Vec::new(),
             ids_missing: 0,
             problems: Vec::new(),
         };
@@ -294,6 +297,7 @@ impl SceneFile {
                 );
             }
             scene.objects.push(object);
+            scene.lines.push(line);
         }
         // Objects without an id get one, the same way every time: the
         // numbers after the highest id in the file, going down the file.
@@ -400,6 +404,14 @@ impl SceneFile {
     /// The object with this id.
     pub fn object(&self, id: Id) -> Option<&Object> {
         self.objects.iter().find(|object| object.id == id)
+    }
+
+    /// The line of the file's text the object with this id starts on, for
+    /// a message about it. `None` if the scene wasn't read from text, or
+    /// has no such object.
+    pub fn line_of(&self, id: Id) -> Option<usize> {
+        let index = self.objects.iter().position(|object| object.id == id)?;
+        self.lines.get(index).copied().flatten()
     }
 
     /// An id no object of the file has: one more than the highest.

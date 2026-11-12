@@ -1092,14 +1092,31 @@ impl Scene {
             .iter()
             .map(|problem| problem.in_file(&file))
             .collect();
+        // Each with the line of its object (a painted thing's is its tile
+        // map's), like the file's own mistakes.
+        let mut say = |object: &Object, text: String| {
+            let from = if object.id.is_painted() {
+                Id((object.id.0 >> 32) & 0xffff)
+            } else {
+                object.id
+            };
+            let problem = Problem {
+                line: self.starts.line_of(from),
+                text,
+            };
+            problems.push(problem.in_file(&file));
+        };
         for object in &self.objects {
             let called = &object.name;
             if let Some(picture) = &object.picture {
                 match self.pictures.get(picture) {
-                    Some(Picture::Missing(why)) => problems.push(format!(
-                        "{file}: {called:?} has the picture {picture:?}, which couldn't be \
+                    Some(Picture::Missing(why)) => say(
+                        object,
+                        format!(
+                            "{called:?} has the picture {picture:?}, which couldn't be \
                          loaded, so it's drawn as a marked box ({why})"
-                    )),
+                        ),
+                    ),
                     Some(Picture::Sheet(sheet)) => {
                         let unknown = object
                             .animation
@@ -1107,12 +1124,15 @@ impl Scene {
                             .filter(|animation| sheet.get(animation).is_none());
                         if let Some(animation) = unknown {
                             let names: Vec<&str> = sheet.names().collect();
-                            problems.push(format!(
-                                "{file}: {called:?} asks for the animation {animation:?}, which \
+                            say(
+                                object,
+                                format!(
+                                    "{called:?} asks for the animation {animation:?}, which \
                                  {picture} doesn't have (it has {}); it shows {:?}",
-                                names.join(", "),
-                                usual_animation(sheet).unwrap_or_default()
-                            ));
+                                    names.join(", "),
+                                    usual_animation(sheet).unwrap_or_default()
+                                ),
+                            );
                         }
                     }
                     _ => {}
@@ -1120,28 +1140,37 @@ impl Scene {
             }
             if object.kind == "tilemap" {
                 match (object.text("level"), self.maps.get(&object.id)) {
-                    (None, _) => problems.push(format!(
-                        "{file}: the tile map {called:?} needs \"level\": the file with its \
+                    (None, _) => say(
+                        object,
+                        format!(
+                            "the tile map {called:?} needs \"level\": the file with its \
                          letters, like \"level.txt\""
-                    )),
+                        ),
+                    ),
                     (Some(level), None) => {
                         let why = TileMap::load_level(self.folder.join(level))
                             .err()
                             .map_or(String::new(), |error| format!(" ({error})"));
-                        problems.push(format!(
-                            "{file}: the tile map {called:?} couldn't read its level \
+                        say(
+                            object,
+                            format!(
+                                "the tile map {called:?} couldn't read its level \
                              {level:?}{why}"
-                        ));
+                            ),
+                        );
                     }
                     (Some(_), Some(part)) => {
                         if let Some(wrong) = &part.wrong {
-                            problems.push(format!("{file}: the tile map {called:?}: {wrong}"));
+                            say(object, format!("the tile map {called:?}: {wrong}"));
                         }
                         if object.at != Vec2::ZERO {
-                            problems.push(format!(
-                                "{file}: the tile map {called:?} has \"at\", but tile maps \
+                            say(
+                                object,
+                                format!(
+                                    "the tile map {called:?} has \"at\", but tile maps \
                                  can't be moved yet: it's drawn from the scene's corner"
-                            ));
+                                ),
+                            );
                         }
                     }
                 }
