@@ -780,3 +780,282 @@ fn the_beginners_proof() {
         }
     }
 }
+
+/// Puts one file back as it was.
+struct FileBack {
+    path: PathBuf,
+    text: String,
+}
+
+impl Drop for FileBack {
+    fn drop(&mut self) {
+        let _ = std::fs::write(&self.path, &self.text);
+    }
+}
+
+/// The scene editor, with the mouse and the keyboard, on the real scene
+/// demo: the Scene list, a click that selects, a drag that moves where an
+/// object starts, Undo, a drag that moves the duck for this run only, "As
+/// it starts", the Move tool, and the tile map's paint tools. With
+/// STUDIO_SCREENSHOTS set it saves a picture of each.
+#[test]
+fn the_scene_editor_selects_and_moves_objects_with_the_mouse() {
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let pictures = std::env::var_os("STUDIO_SCREENSHOTS").map(PathBuf::from);
+    if let Some(folder) = &pictures {
+        std::fs::create_dir_all(folder).unwrap();
+    }
+    let scene_file = duck_forge().join("examples/scene_demo/scenes/pond.json");
+    let _back = FileBack {
+        text: std::fs::read_to_string(&scene_file).unwrap(),
+        path: scene_file.clone(),
+    };
+    let plain = |text: &str| text.replace("\r\n", "\n");
+    let original = plain(&_back.text);
+    let on_disk = || plain(&std::fs::read_to_string(&scene_file).unwrap());
+    let mut shots = Shots {
+        folder: pictures.clone().unwrap_or_default(),
+        harness: harness(StudioApp::new(studio()), pictures.is_some()),
+    };
+    let shoot = |shots: &mut Shots, name: &str| {
+        if pictures.is_some() {
+            shots.shoot(name);
+        }
+    };
+    // Where an object (or where it starts) is on the screen.
+    let middle_of = |shots: &Shots, id: u64, start: bool| -> egui::Pos2 {
+        let app = shots.harness.state();
+        let placement = app.game_placement().expect("the game is on screen");
+        let drawn = app.studio.open.as_ref().unwrap().drawn_scene().unwrap();
+        let object = drawn.object(id).unwrap();
+        let rect = if start {
+            object.start_rect
+        } else {
+            object.rect
+        }
+        .unwrap();
+        let each = placement.scale / placement.pixels_per_point;
+        placement.rect.min + egui::vec2(rect.x + rect.w / 2.0, rect.y + rect.h / 2.0) * each
+    };
+    // Points on screen for each pixel of the scene.
+    let points_per_pixel = |shots: &Shots| -> f32 {
+        let app = shots.harness.state();
+        let placement = app.game_placement().unwrap();
+        let drawn = app.studio.open.as_ref().unwrap().drawn_scene().unwrap();
+        placement.scale / placement.pixels_per_point * drawn.scale
+    };
+    let click = |shots: &mut Shots, at: egui::Pos2| {
+        shots.harness.hover_at(at);
+        shots.harness.step();
+        shots.harness.drag_at(at);
+        shots.harness.step();
+        shots.harness.drop_at(at);
+        shots.harness.run_steps(4);
+    };
+    // Press at `from`, move to `to` in a few goes, and let go.
+    let drag = |shots: &mut Shots, from: egui::Pos2, to: egui::Pos2| {
+        shots.harness.hover_at(from);
+        shots.harness.step();
+        shots.harness.drag_at(from);
+        shots.harness.step();
+        for part in 1..=6 {
+            shots
+                .harness
+                .hover_at(from + (to - from) * (part as f32 / 6.0));
+            shots.play_for(Duration::from_millis(40));
+        }
+        shots.play_for(Duration::from_millis(150));
+    };
+    let let_go = |shots: &mut Shots, at: egui::Pos2| {
+        shots.harness.drop_at(at);
+        shots.play_for(Duration::from_millis(300));
+    };
+    let selected = |shots: &Shots| -> Vec<u64> {
+        shots
+            .harness
+            .state()
+            .studio
+            .open
+            .as_ref()
+            .unwrap()
+            .selected
+            .clone()
+    };
+
+    shots.harness.step();
+    shots.run(Command::GameOpen {
+        name: String::from("scene_demo"),
+    });
+    shots.playing();
+    shots.input(serde_json::json!({"press": "Right"}));
+    // A short walk: the duck stops before the sign, not in front of it.
+    shots.play_for(Duration::from_millis(300));
+    shots.input(serde_json::json!({"release": "Right"}));
+    shots.play_for(Duration::from_millis(300));
+    shots.run(Command::GameFreeze);
+    shots.until(
+        "the frozen picture's objects",
+        Duration::from_secs(20),
+        |app| {
+            let open = app.studio.open.as_ref().unwrap();
+            open.drawn_scene().is_some() && app.game_placement().is_some()
+        },
+    );
+    shots.harness.run_steps(4);
+
+    // The Scene list, and nothing selected.
+    shots.harness.get_by_label("Scene");
+    shots.harness.get_by_label("pond.json");
+    shots.harness.get_by_label("big crate");
+    shots.harness.get_by_label_contains("1 flag painted on it");
+    shots.harness.get_by_label("Frozen moment");
+    shots.harness.get_by_label("As it starts");
+    shoot(&mut shots, "23-scene-list");
+
+    // A click on the sign, in the game, selects it. The Inspector shows it.
+    let sign = middle_of(&shots, 4, false);
+    click(&mut shots, sign);
+    assert_eq!(selected(&shots), [4]);
+    assert_eq!(
+        shots.harness.state().right_tab,
+        studio_app::app::RightTab::Inspector
+    );
+    shots.harness.get_by_label_contains("line 9 of pond.json");
+    shots.harness.get_by_label("Picture");
+    shots.harness.get_by_label("Layer");
+    shoot(&mut shots, "24-an-object-selected");
+
+    // Dragging it moves where it starts: the file changes, on the grid.
+    let each = points_per_pixel(&shots);
+    let to = sign + egui::vec2(47.0 * each, 0.0);
+    drag(&mut shots, sign, to);
+    shoot(&mut shots, "25-dragging-an-object");
+    let_go(&mut shots, to);
+    assert!(
+        on_disk().contains(r#"{"id": 4, "name": "sign", "at": [168, 208]"#),
+        "47 pixels right lands on the grid at 168: {}",
+        on_disk()
+    );
+    assert_eq!(selected(&shots), [4]);
+    let app = shots.harness.state();
+    assert_eq!(
+        app.studio.open.as_ref().unwrap().undo.next_undo(),
+        Some("Move sign"),
+        "one drag is one step"
+    );
+
+    // Ctrl+Z puts it back.
+    shots
+        .harness
+        .key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    shots.play_for(Duration::from_millis(300));
+    assert_eq!(on_disk(), original, "undone");
+
+    // The duck has walked: it shows where it starts. Dragging the duck
+    // itself moves it for this run only, and the file stays.
+    let duck = middle_of(&shots, 9, false);
+    click(&mut shots, duck);
+    assert_eq!(selected(&shots), [9]);
+    shots.harness.get_by_label("Starts at");
+    shots.harness.get_by_label("Now");
+    shots.harness.get_by_label("Start here");
+    shoot(&mut shots, "26-moved-since-the-start");
+    let was = middle_of(&shots, 9, false);
+    let to = was + egui::vec2(40.0 * each, 0.0);
+    drag(&mut shots, was, to);
+    let_go(&mut shots, to);
+    assert_eq!(on_disk(), original, "the file is left alone");
+    let now = middle_of(&shots, 9, false);
+    assert!(
+        now.x > was.x + 30.0 * each,
+        "the duck moved: {was:?} to {now:?}"
+    );
+    assert_eq!(
+        shots
+            .harness
+            .state()
+            .studio
+            .open
+            .as_ref()
+            .unwrap()
+            .undo
+            .next_undo(),
+        Some("Move duck for this run")
+    );
+
+    // Dragging the dashed outline moves where it starts.
+    let outline = middle_of(&shots, 9, true);
+    let to = outline + egui::vec2(16.0 * each, 0.0);
+    drag(&mut shots, outline, to);
+    let_go(&mut shots, to);
+    assert!(
+        on_disk().contains(r#"{"id": 9, "name": "duck", "at": [56, 208]"#),
+        "{}",
+        on_disk()
+    );
+    shoot(
+        &mut shots,
+        "27-the-duck-moved-for-this-run-and-its-start-moved",
+    );
+
+    // As it starts: the scene as the file has it.
+    shots.harness.get_by_label("As it starts").click();
+    shots.until("the scene as it starts", Duration::from_secs(10), |app| {
+        let open = app.studio.open.as_ref().unwrap();
+        open.drawn_scene().is_some_and(|drawn| drawn.as_it_starts)
+    });
+    shoot(&mut shots, "28-as-it-starts");
+    shots.harness.get_by_label("Frozen moment").click();
+    shots.until("the frozen moment again", Duration::from_secs(10), |app| {
+        let open = app.studio.open.as_ref().unwrap();
+        open.drawn_scene().is_some_and(|drawn| !drawn.as_it_starts)
+    });
+
+    // G is the Move tool: an arrow keeps the drag to one direction.
+    shots.harness.hover_at(sign + egui::vec2(0.0, -80.0));
+    shots.harness.key_press(egui::Key::G);
+    shots.harness.run_steps(3);
+    assert_eq!(
+        shots
+            .harness
+            .state()
+            .studio
+            .open
+            .as_ref()
+            .unwrap()
+            .view
+            .tool,
+        studio_core::scene_edit::Tool::Move
+    );
+    click(&mut shots, sign);
+    assert_eq!(selected(&shots), [4]);
+    shoot(&mut shots, "29-the-move-tool");
+    let arrow = sign + egui::vec2(24.0, 0.0);
+    let to = arrow + egui::vec2(16.0 * each, 30.0);
+    drag(&mut shots, arrow, to);
+    let_go(&mut shots, to);
+    assert!(
+        on_disk().contains(r#"{"id": 4, "name": "sign", "at": [136, 208]"#),
+        "across only, whatever the pointer did up and down: {}",
+        on_disk()
+    );
+
+    // The tile map, picked in the list: the paint tools are back.
+    shots.harness.get_by_label("ground").click();
+    shots.harness.run_steps(4);
+    shots.harness.get_by_label("Tiles");
+    shoot(&mut shots, "30-the-tile-map-selected");
+
+    // Escape lets go of everything; Tab plays on from the same frame.
+    shots.harness.key_press(egui::Key::Escape);
+    shots.harness.run_steps(3);
+    assert!(selected(&shots).is_empty());
+    let frame = shots.harness.state().studio.play().unwrap().frame;
+    shots.harness.key_press(egui::Key::Tab);
+    shots.until("the game to play on", Duration::from_secs(20), |app| {
+        app.studio.play().is_some_and(|play| play.frame > frame + 5)
+    });
+    shots.run(Command::GameStop);
+}

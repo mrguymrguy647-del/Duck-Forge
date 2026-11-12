@@ -14,6 +14,7 @@ pub mod home;
 pub mod keys;
 pub mod panels;
 pub mod pictures;
+pub mod scene_panel;
 pub mod theme;
 pub mod update_banner;
 

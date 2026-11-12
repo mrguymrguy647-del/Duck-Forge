@@ -24,6 +24,8 @@ use crate::update_banner::{self, BannerChoice, UpdateState};
 /// Which side of Build mode's right panel shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RightTab {
+    /// The selected object's settings (a game with scenes).
+    Inspector,
     Feel,
     Files,
 }
@@ -54,6 +56,8 @@ pub struct StudioApp {
     feel: FeelPanel,
     /// ...or the game's files.
     files: FilesPanel,
+    /// The scene editor: the Scene list, the view's tools, the Inspector.
+    scene: crate::scene_panel::ScenePanel,
     pub right_tab: RightTab,
     /// Rename, Duplicate or Delete, from a card on Home.
     pub game_dialog: Option<home::GameDialog>,
@@ -84,6 +88,7 @@ impl StudioApp {
             build: BuildMode::default(),
             feel: FeelPanel::default(),
             files: FilesPanel::default(),
+            scene: crate::scene_panel::ScenePanel::default(),
             right_tab: RightTab::Feel,
             game_dialog: None,
             history_open: false,
@@ -109,6 +114,13 @@ impl StudioApp {
         ) {
             self.right_tab = RightTab::Files;
         }
+        // Picking something shows its settings.
+        if matches!(
+            command,
+            Command::SelectSet { .. } | Command::SelectAdd { .. } | Command::SelectAll
+        ) {
+            self.right_tab = RightTab::Inspector;
+        }
         let opens = match &command {
             Command::FeelShowCode { .. } => Some(&mut self.code_open),
             Command::AssetsShowRecipe { .. } => Some(&mut self.recipe_open),
@@ -130,15 +142,40 @@ impl StudioApp {
             .default_size(270.0)
             .min_size(220.0)
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                let has_scene = self
+                    .studio
+                    .open
+                    .as_ref()
+                    .is_some_and(|open| open.scene.is_some());
+                if self.right_tab == RightTab::Inspector && !has_scene {
+                    self.right_tab = RightTab::Feel;
+                }
+                ui.horizontal_wrapped(|ui| {
+                    if has_scene {
+                        ui.selectable_value(&mut self.right_tab, RightTab::Inspector, "Inspector")
+                            .on_hover_text("The selected object's settings");
+                    }
                     ui.selectable_value(
                         &mut self.right_tab,
                         RightTab::Feel,
-                        "Feel, sounds, pictures",
-                    );
+                        if has_scene {
+                            "Feel"
+                        } else {
+                            "Feel, sounds, pictures"
+                        },
+                    )
+                    .on_hover_text("Feel, sounds and pictures");
                     ui.selectable_value(&mut self.right_tab, RightTab::Files, "Files");
                 });
                 ui.separator();
+                if self.right_tab == RightTab::Inspector {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        if let Some(open) = &self.studio.open {
+                            commands = self.scene.inspector(ui, open);
+                        }
+                    });
+                    return;
+                }
                 if self.right_tab == RightTab::Files {
                     egui::ScrollArea::vertical().show(ui, |ui| {
                         if let Some(open) = &self.studio.open {
@@ -236,6 +273,16 @@ impl StudioApp {
             }
             if redo {
                 self.run_and_say(Command::EditRedo);
+            }
+        }
+        // The scene editor's keys: V and G pick the tool, Escape lets go.
+        if self.studio.screen == Screen::Game && frozen && !dialog && !typing {
+            let commands = match &self.studio.open {
+                Some(open) if open.scene.is_some() => self.scene.keys(ui, open),
+                _ => Vec::new(),
+            };
+            for command in commands {
+                self.run_and_say(command);
             }
         }
         // The keys every game has in its own window. They still reach the
@@ -639,6 +686,27 @@ impl StudioApp {
                 self.feel_panel(ui);
             }
         }
+        if frozen && self.overlay().is_none() {
+            let mut commands = Vec::new();
+            if let Some(open) = &self.studio.open
+                && open.scene.is_some()
+            {
+                egui::Panel::top("view tools").show(ui, |ui| {
+                    commands = self.scene.tool_bar(ui, open);
+                });
+                // Picking Select or Move while the tile map has the view
+                // gives the view back to the objects.
+                let picked = commands
+                    .iter()
+                    .any(|command| matches!(command, Command::ViewTool { .. }));
+                if picked && crate::scene_panel::tile_map_selected(open) {
+                    commands.push(Command::SelectNone);
+                }
+            }
+            for command in commands {
+                self.run_and_say(command);
+            }
+        }
         egui::CentralPanel::no_frame().show(ui, |ui| self.game_area(ui));
     }
 
@@ -891,7 +959,25 @@ impl StudioApp {
                             ui.label(RichText::new(&problem.what).color(theme::BAD));
                             ui.label(&problem.next);
                         }
-                        if open.level.is_some() {
+                        if open.scene.is_some() {
+                            // A game with scenes: its objects, and the
+                            // paint tools when the tile map is the one
+                            // selected.
+                            commands.extend(self.scene.list(ui, open));
+                            if crate::scene_panel::tile_map_selected(open) && open.level.is_some()
+                            {
+                                ui.separator();
+                                ui.label(
+                                    RichText::new(
+                                        "The tile map is selected: these tools paint on it. \
+                                         Esc, or a click on another object in the list, stops.",
+                                    )
+                                    .weak()
+                                    .small(),
+                                );
+                                commands.extend(self.build.tools(ui, open));
+                            }
+                        } else if open.level.is_some() {
                             commands.extend(self.build.tools(ui, open));
                         } else if open.level_problem.is_none() {
                             build_mode::no_level_to_paint(ui, open.game.folder.is_some());
@@ -925,6 +1011,9 @@ impl StudioApp {
         let Some(level) = &open.level else {
             return false;
         };
+        if open.scene.is_some() && !crate::scene_panel::tile_map_selected(open) {
+            return false; // the view belongs to the scene's objects
+        }
         let (grid, response, clip) = if self.build.whole_level {
             let mut child = ui.new_child(egui::UiBuilder::new().max_rect(space));
             child
@@ -997,13 +1086,28 @@ impl StudioApp {
                 self.placement = None;
             }
         }
-        if frozen && overlay.is_none() {
-            self.build_on_the_level(ui, space);
+        if frozen && overlay.is_none() && !self.build_on_the_level(ui, space) {
+            self.scene_on_the_view(ui);
         }
         if let Some(overlay) = overlay {
             self.show_overlay(ui, space, overlay);
         }
         self.clip_result(ui.ctx());
+    }
+
+    /// The scene editor over the game's frozen picture: selecting and
+    /// moving objects.
+    fn scene_on_the_view(&mut self, ui: &mut egui::Ui) {
+        let (Some(open), Some(placement)) = (&self.studio.open, self.placement) else {
+            return;
+        };
+        if open.scene.is_none() {
+            return;
+        }
+        let commands = self.scene.on_the_view(ui, open, placement);
+        for command in commands {
+            self.run_and_say(command);
+        }
     }
 
     /// What should be shown over the game, if anything.
@@ -1366,6 +1470,11 @@ impl StudioApp {
     }
 
     /// Whether the Studio is holding the pointer for the game right now.
+    /// Where the game's picture was drawn last frame (tests click on it).
+    pub fn game_placement(&self) -> Option<Placement> {
+        self.placement
+    }
+
     pub fn is_holding_pointer(&self) -> bool {
         self.holding_pointer
     }
