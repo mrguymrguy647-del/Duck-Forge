@@ -338,9 +338,18 @@ A camera with no turn looks along +z too, so it would see the model's
 back: put the camera on the model's +z side looking back at it, or turn
 the model half round with `.rotated(vec3(0.0, PI, 0.0))`.
 [examples/turntable/](examples/turntable/main.rs) shows the robot from
-Duck Mold's examples, facing you and slowly turning. For the model's
-palette and parts (to recolour one arm, say), load it with
-`duckforge::glb::GlbModel::load`. Only Duck Mold's own `.glb` files load
+Duck Mold's examples, facing you and slowly turning, in a top hat. For
+the model's palette and parts (to recolour one arm, say), and its
+*sockets* (the named points where its recipe joined its parts, to put
+something there: the hat on `head.top`), load it with
+`duckforge::glb::GlbModel::load`:
+
+```rust
+let model = duckforge::glb::GlbModel::load("examples/turntable/assets/robot.glb")?;
+let top = model.socket("head.top").unwrap(); // `duck-mold inspect robot.toml --sockets` lists them
+let hat_at = robot_place.apply(top.position()); // moved and turned with the robot
+```
+ Only Duck Mold's own `.glb` files load
 (not other glTF or OBJ files); anything else gives a one-sentence error
 saying so.
 

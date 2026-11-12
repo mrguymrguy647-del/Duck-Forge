@@ -1,6 +1,6 @@
 //! Models made with Duck Mold: `Mesh::load_glb` and `GlbModel`.
 //!
-//! The five models in `tests/fixtures/duck_mold/` are Duck Mold's own
+//! The six models in `tests/fixtures/duck_mold/` are Duck Mold's own
 //! golden files, each with the report `duck-mold inspect --json` gave for
 //! it. These tests load every one and check it against that report: the
 //! triangles, the size, where it stands, its colours. Then they draw the
@@ -18,7 +18,7 @@ use duckforge::LoadError;
 use duckforge::glb::GlbModel;
 use duckforge::prelude::*;
 
-const MODELS: [&str; 5] = ["crate", "table", "tree", "house", "robot"];
+const MODELS: [&str; 6] = ["crate", "table", "tree", "house", "robot", "snowman"];
 
 /// A private copy of the Duck Mold fixtures, for one test.
 fn fixtures(test: &str) -> (TestFolder, PathBuf) {
@@ -440,6 +440,93 @@ fn a_loaded_model_is_lit_like_any_mesh() -> Result<(), LoadError> {
         find(&canvas, Color::from_hex(0xB07A3F)).0 + find(&canvas, Color::from_hex(0x8A5A2B)).0;
     assert!(exact < drawn / 2, "{exact} of {drawn} pixels unlit");
     Ok(())
+}
+
+// ---- sockets -----------------------------------------------------------------------
+
+#[test]
+fn every_socket_is_where_duck_mold_said() -> Result<(), LoadError> {
+    let (_folder, models) = fixtures("duck-mold-sockets");
+    let model = GlbModel::load(models.join("robot.glb"))?;
+    let text = std::fs::read_to_string(models.join("robot.sockets.json")).unwrap();
+    let listed: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let listed = listed["sockets"].as_array().unwrap();
+    assert_eq!(model.sockets.len(), listed.len());
+    assert_eq!(model.sockets.len(), 187);
+    for expected in listed {
+        let name = expected["name"].as_str().unwrap();
+        let socket = model.socket(name).expect(name);
+        // The file keeps 32-bit numbers: they agree to about 0.00001.
+        for (found, want) in [
+            (socket.position(), three(&expected["at"])),
+            (socket.direction(), three(&expected["facing"])),
+        ] {
+            let off = (found - vec3(want[0], want[1], want[2])).length();
+            assert!(off < 1e-5, "{name}: {found:?} is not {want:?}");
+        }
+    }
+    assert!(model.socket("head.hat").is_none());
+
+    // The top of the head is the top of the head's own triangles, facing
+    // up; the left hand is on the model's left (-x), its grip facing down.
+    let mesh = model.to_mesh();
+    let head = model.part("head").unwrap();
+    let highest = mesh.triangles[head.range()]
+        .iter()
+        .flat_map(|triangle| triangle.corners.map(|at| mesh.vertices[at].y))
+        .fold(f32::NEG_INFINITY, f32::max);
+    let top = model.socket("head.top").unwrap();
+    assert_eq!(top.position().y, highest);
+    assert_eq!(top.direction(), vec3(0.0, 1.0, 0.0));
+    let grip = model.socket("left_arm.grip").unwrap();
+    assert!(grip.position().x < 0.0);
+    assert_eq!(grip.direction(), vec3(0.0, -1.0, 0.0));
+    // A part inside an assembly is found by its path.
+    assert_eq!(
+        model.socket("left_arm/hand.bottom").unwrap().position(),
+        grip.position()
+    );
+    Ok(())
+}
+
+#[test]
+fn a_socket_moves_and_turns_with_the_model() -> Result<(), LoadError> {
+    let (_folder, models) = fixtures("duck-mold-socket-moves");
+    let model = GlbModel::load(models.join("robot.glb"))?;
+    let grip = model.socket("left_arm.grip").unwrap();
+    // A quarter turn swings the robot's front (+z) round to +x, so its
+    // left hand (-x) comes round to +z, as every corner of the mesh does.
+    let place = Transform::at(vec3(3.0, 0.5, -2.0)).rotated(vec3(0.0, PI / 2.0, 0.0));
+    let moved = place.apply(grip.position());
+    assert!((moved.y - (grip.position().y + 0.5)).abs() < 1e-5);
+    assert!(
+        (moved.z - (-2.0 - grip.position().x)).abs() < 1e-4,
+        "{moved:?}"
+    );
+    assert!(
+        (moved.x - (3.0 + grip.position().z)).abs() < 1e-4,
+        "{moved:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_file_from_before_sockets_has_none() {
+    let old = with_json(&crate_bytes(), |json| {
+        let mut value: serde_json::Value = serde_json::from_str(json).unwrap();
+        value["extras"]["duck_mold"]
+            .as_object_mut()
+            .unwrap()
+            .remove("sockets");
+        serde_json::to_string(&value).unwrap()
+    });
+    let model = duckforge::glb::read_duck_mold_glb(&old).unwrap();
+    assert!(model.sockets.is_empty());
+    assert!(model.socket("top").is_none());
+    // And the crate as it is has the seven every model has, and its box's.
+    let model = duckforge::glb::read_duck_mold_glb(&crate_bytes()).unwrap();
+    assert_eq!(model.sockets.len(), 14);
+    assert_eq!(model.socket("top").unwrap().position(), vec3(0.0, 1.0, 0.0));
 }
 
 // ---- files that can't be loaded ----------------------------------------------------

@@ -1,0 +1,3132 @@
+{
+  "ok": true,
+  "summary": "robot: 0.90 x 1.83 x 0.39 m, 384 triangles, 19 parts, 4 colours, rests on the ground, nothing floating, nothing overlapping",
+  "source": "examples/robot.toml",
+  "name": "robot",
+  "size": [
+    0.9,
+    1.83,
+    0.39
+  ],
+  "bounds": {
+    "min": [
+      -0.45,
+      0.0,
+      -0.195
+    ],
+    "max": [
+      0.45,
+      1.83,
+      0.195
+    ]
+  },
+  "triangles": 384,
+  "vertices": 792,
+  "ground": {
+    "rests_on_ground": true,
+    "lowest_y": 0.0
+  },
+  "palette": [
+    {
+      "name": "steel",
+      "hex": "#8A939B",
+      "triangles": 96
+    },
+    {
+      "name": "dark",
+      "hex": "#3B4148",
+      "triangles": 180
+    },
+    {
+      "name": "red",
+      "hex": "#D0453A",
+      "triangles": 84
+    },
+    {
+      "name": "glow",
+      "hex": "#FFE08A",
+      "triangles": 24
+    }
+  ],
+  "parts": [
+    {
+      "name": "body",
+      "kind": "box",
+      "triangles": 12,
+      "size": [
+        0.6,
+        0.7,
+        0.36
+      ],
+      "bounds": {
+        "min": [
+          -0.3,
+          0.53,
+          -0.195
+        ],
+        "max": [
+          0.3,
+          1.23,
+          0.165
+        ]
+      },
+      "colors": [
+        "steel"
+      ],
+      "attached_to": null,
+      "parts": []
+    },
+    {
+      "name": "panel",
+      "kind": "box",
+      "triangles": 12,
+      "size": [
+        0.3,
+        0.2,
+        0.02
+      ],
+      "bounds": {
+        "min": [
+          -0.15,
+          0.885,
+          0.165
+        ],
+        "max": [
+          0.15,
+          1.085,
+          0.185
+        ]
+      },
+      "colors": [
+        "red"
+      ],
+      "attached_to": "body.chest",
+      "parts": []
+    },
+    {
+      "name": "head",
+      "kind": "box",
+      "triangles": 12,
+      "size": [
+        0.42,
+        0.32,
+        0.36
+      ],
+      "bounds": {
+        "min": [
+          -0.21,
+          1.23,
+          -0.195
+        ],
+        "max": [
+          0.21,
+          1.55,
+          0.165
+        ]
+      },
+      "colors": [
+        "steel"
+      ],
+      "attached_to": "body.neck",
+      "parts": []
+    },
+    {
+      "name": "left_eye",
+      "kind": "box",
+      "uses": "eye",
+      "triangles": 12,
+      "size": [
+        0.08,
+        0.08,
+        0.03
+      ],
+      "bounds": {
+        "min": [
+          -0.1345,
+          1.374,
+          0.165
+        ],
+        "max": [
+          -0.0545,
+          1.454,
+          0.195
+        ]
+      },
+      "colors": [
+        "glow"
+      ],
+      "attached_to": "head.left_eye",
+      "parts": []
+    },
+    {
+      "name": "right_eye",
+      "kind": "box",
+      "uses": "eye",
+      "triangles": 12,
+      "size": [
+        0.08,
+        0.08,
+        0.03
+      ],
+      "bounds": {
+        "min": [
+          0.0545,
+          1.374,
+          0.165
+        ],
+        "max": [
+          0.1345,
+          1.454,
+          0.195
+        ]
+      },
+      "colors": [
+        "glow"
+      ],
+      "attached_to": "head.right_eye",
+      "parts": []
+    },
+    {
+      "name": "antenna",
+      "kind": "cylinder",
+      "triangles": 28,
+      "size": [
+        0.03,
+        0.2,
+        0.03
+      ],
+      "bounds": {
+        "min": [
+          -0.015,
+          1.55,
+          -0.03
+        ],
+        "max": [
+          0.015,
+          1.75,
+          0.0
+        ]
+      },
+      "colors": [
+        "dark"
+      ],
+      "attached_to": "head.antenna",
+      "parts": []
+    },
+    {
+      "name": "antenna_tip",
+      "kind": "sphere",
+      "triangles": 48,
+      "size": [
+        0.08,
+        0.08,
+        0.08
+      ],
+      "bounds": {
+        "min": [
+          -0.04,
+          1.75,
+          -0.055
+        ],
+        "max": [
+          0.04,
+          1.83,
+          0.025
+        ]
+      },
+      "colors": [
+        "red"
+      ],
+      "attached_to": "antenna.top",
+      "parts": []
+    },
+    {
+      "name": "left_arm",
+      "kind": "assembly",
+      "uses": "arm",
+      "triangles": 84,
+      "size": [
+        0.16,
+        0.86,
+        0.16
+      ],
+      "bounds": {
+        "min": [
+          -0.45,
+          0.329,
+          -0.095
+        ],
+        "max": [
+          -0.29,
+          1.189,
+          0.065
+        ]
+      },
+      "colors": [
+        "steel",
+        "dark",
+        "red"
+      ],
+      "attached_to": "body.left_arm",
+      "parts": [
+        {
+          "name": "left_arm/upper",
+          "kind": "box",
+          "triangles": 12,
+          "size": [
+            0.14,
+            0.32,
+            0.14
+          ],
+          "bounds": {
+            "min": [
+              -0.44,
+              0.869,
+              -0.085
+            ],
+            "max": [
+              -0.3,
+              1.189,
+              0.055
+            ]
+          },
+          "colors": [
+            "steel"
+          ],
+          "attached_to": null,
+          "parts": []
+        },
+        {
+          "name": "left_arm/elbow",
+          "kind": "sphere",
+          "triangles": 48,
+          "size": [
+            0.14,
+            0.14,
+            0.14
+          ],
+          "bounds": {
+            "min": [
+              -0.44,
+              0.729,
+              -0.085
+            ],
+            "max": [
+              -0.3,
+              0.869,
+              0.055
+            ]
+          },
+          "colors": [
+            "dark"
+          ],
+          "attached_to": "upper.bottom",
+          "parts": []
+        },
+        {
+          "name": "left_arm/forearm",
+          "kind": "box",
+          "triangles": 12,
+          "size": [
+            0.12,
+            0.3,
+            0.12
+          ],
+          "bounds": {
+            "min": [
+              -0.43,
+              0.429,
+              -0.075
+            ],
+            "max": [
+              -0.31,
+              0.729,
+              0.045
+            ]
+          },
+          "colors": [
+            "steel"
+          ],
+          "attached_to": "elbow.bottom",
+          "parts": []
+        },
+        {
+          "name": "left_arm/hand",
+          "kind": "box",
+          "triangles": 12,
+          "size": [
+            0.16,
+            0.1,
+            0.16
+          ],
+          "bounds": {
+            "min": [
+              -0.45,
+              0.329,
+              -0.095
+            ],
+            "max": [
+              -0.29,
+              0.429,
+              0.065
+            ]
+          },
+          "colors": [
+            "red"
+          ],
+          "attached_to": "forearm.bottom",
+          "parts": []
+        }
+      ]
+    },
+    {
+      "name": "right_arm",
+      "kind": "assembly",
+      "uses": "arm",
+      "triangles": 84,
+      "size": [
+        0.16,
+        0.86,
+        0.16
+      ],
+      "bounds": {
+        "min": [
+          0.29,
+          0.329,
+          -0.095
+        ],
+        "max": [
+          0.45,
+          1.189,
+          0.065
+        ]
+      },
+      "colors": [
+        "steel",
+        "dark",
+        "red"
+      ],
+      "attached_to": "body.right_arm",
+      "mirrored": true,
+      "parts": [
+        {
+          "name": "right_arm/upper",
+          "kind": "box",
+          "triangles": 12,
+          "size": [
+            0.14,
+            0.32,
+            0.14
+          ],
+          "bounds": {
+            "min": [
+              0.3,
+              0.869,
+              -0.085
+            ],
+            "max": [
+              0.44,
+              1.189,
+              0.055
+            ]
+          },
+          "colors": [
+            "steel"
+          ],
+          "attached_to": null,
+          "mirrored": true,
+          "parts": []
+        },
+        {
+          "name": "right_arm/elbow",
+          "kind": "sphere",
+          "triangles": 48,
+          "size": [
+            0.14,
+            0.14,
+            0.14
+          ],
+          "bounds": {
+            "min": [
+              0.3,
+              0.729,
+              -0.085
+            ],
+            "max": [
+              0.44,
+              0.869,
+              0.055
+            ]
+          },
+          "colors": [
+            "dark"
+          ],
+          "attached_to": "upper.bottom",
+          "mirrored": true,
+          "parts": []
+        },
+        {
+          "name": "right_arm/forearm",
+          "kind": "box",
+          "triangles": 12,
+          "size": [
+            0.12,
+            0.3,
+            0.12
+          ],
+          "bounds": {
+            "min": [
+              0.31,
+              0.429,
+              -0.075
+            ],
+            "max": [
+              0.43,
+              0.729,
+              0.045
+            ]
+          },
+          "colors": [
+            "steel"
+          ],
+          "attached_to": "elbow.bottom",
+          "mirrored": true,
+          "parts": []
+        },
+        {
+          "name": "right_arm/hand",
+          "kind": "box",
+          "triangles": 12,
+          "size": [
+            0.16,
+            0.1,
+            0.16
+          ],
+          "bounds": {
+            "min": [
+              0.29,
+              0.329,
+              -0.095
+            ],
+            "max": [
+              0.45,
+              0.429,
+              0.065
+            ]
+          },
+          "colors": [
+            "red"
+          ],
+          "attached_to": "forearm.bottom",
+          "mirrored": true,
+          "parts": []
+        }
+      ]
+    },
+    {
+      "name": "left_leg",
+      "kind": "assembly",
+      "uses": "leg",
+      "triangles": 40,
+      "size": [
+        0.2,
+        0.53,
+        0.3
+      ],
+      "bounds": {
+        "min": [
+          -0.25,
+          0.0,
+          -0.105
+        ],
+        "max": [
+          -0.05,
+          0.53,
+          0.195
+        ]
+      },
+      "colors": [
+        "steel",
+        "dark"
+      ],
+      "attached_to": "body.left_leg",
+      "parts": [
+        {
+          "name": "left_leg/thigh",
+          "kind": "cylinder",
+          "triangles": 28,
+          "size": [
+            0.18,
+            0.45,
+            0.18
+          ],
+          "bounds": {
+            "min": [
+              -0.24,
+              0.08,
+              -0.105
+            ],
+            "max": [
+              -0.06,
+              0.53,
+              0.075
+            ]
+          },
+          "colors": [
+            "dark"
+          ],
+          "attached_to": null,
+          "parts": []
+        },
+        {
+          "name": "left_leg/foot",
+          "kind": "box",
+          "triangles": 12,
+          "size": [
+            0.2,
+            0.08,
+            0.3
+          ],
+          "bounds": {
+            "min": [
+              -0.25,
+              0.0,
+              -0.105
+            ],
+            "max": [
+              -0.05,
+              0.08,
+              0.195
+            ]
+          },
+          "colors": [
+            "steel"
+          ],
+          "attached_to": "thigh.bottom",
+          "parts": []
+        }
+      ]
+    },
+    {
+      "name": "right_leg",
+      "kind": "assembly",
+      "uses": "leg",
+      "triangles": 40,
+      "size": [
+        0.2,
+        0.53,
+        0.3
+      ],
+      "bounds": {
+        "min": [
+          0.05,
+          0.0,
+          -0.105
+        ],
+        "max": [
+          0.25,
+          0.53,
+          0.195
+        ]
+      },
+      "colors": [
+        "steel",
+        "dark"
+      ],
+      "attached_to": "body.right_leg",
+      "parts": [
+        {
+          "name": "right_leg/thigh",
+          "kind": "cylinder",
+          "triangles": 28,
+          "size": [
+            0.18,
+            0.45,
+            0.18
+          ],
+          "bounds": {
+            "min": [
+              0.06,
+              0.08,
+              -0.105
+            ],
+            "max": [
+              0.24,
+              0.53,
+              0.075
+            ]
+          },
+          "colors": [
+            "dark"
+          ],
+          "attached_to": null,
+          "parts": []
+        },
+        {
+          "name": "right_leg/foot",
+          "kind": "box",
+          "triangles": 12,
+          "size": [
+            0.2,
+            0.08,
+            0.3
+          ],
+          "bounds": {
+            "min": [
+              0.05,
+              0.0,
+              -0.105
+            ],
+            "max": [
+              0.25,
+              0.08,
+              0.195
+            ]
+          },
+          "colors": [
+            "steel"
+          ],
+          "attached_to": "thigh.bottom",
+          "parts": []
+        }
+      ]
+    }
+  ],
+  "floating": [],
+  "overlapping": [],
+  "sockets": [
+    {
+      "name": "top",
+      "at": [
+        0.0,
+        1.83,
+        0.0
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "bottom",
+      "at": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left",
+      "at": [
+        -0.45,
+        0.915,
+        0.0
+      ],
+      "facing": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right",
+      "at": [
+        0.45,
+        0.915,
+        0.0
+      ],
+      "facing": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "front",
+      "at": [
+        0.0,
+        0.915,
+        0.195
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "back",
+      "at": [
+        0.0,
+        0.915,
+        -0.195
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        -1.0
+      ]
+    },
+    {
+      "name": "center",
+      "at": [
+        0.0,
+        0.915,
+        0.0
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "body.top",
+      "at": [
+        0.0,
+        1.23,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "body.bottom",
+      "at": [
+        0.0,
+        0.53,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "body.left",
+      "at": [
+        -0.3,
+        0.88,
+        -0.015
+      ],
+      "facing": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "body.right",
+      "at": [
+        0.3,
+        0.88,
+        -0.015
+      ],
+      "facing": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "body.front",
+      "at": [
+        0.0,
+        0.88,
+        0.165
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "body.back",
+      "at": [
+        0.0,
+        0.88,
+        -0.195
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        -1.0
+      ]
+    },
+    {
+      "name": "body.center",
+      "at": [
+        0.0,
+        0.88,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "body.neck",
+      "at": [
+        0.0,
+        1.23,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "body.chest",
+      "at": [
+        0.0,
+        0.985,
+        0.165
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "body.left_arm",
+      "at": [
+        -0.3,
+        1.125,
+        -0.015
+      ],
+      "facing": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "body.right_arm",
+      "at": [
+        0.3,
+        1.125,
+        -0.015
+      ],
+      "facing": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "body.left_leg",
+      "at": [
+        -0.15,
+        0.53,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "body.right_leg",
+      "at": [
+        0.15,
+        0.53,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "panel.top",
+      "at": [
+        0.0,
+        1.085,
+        0.175
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "panel.bottom",
+      "at": [
+        0.0,
+        0.885,
+        0.175
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "panel.left",
+      "at": [
+        -0.15,
+        0.985,
+        0.175
+      ],
+      "facing": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "panel.right",
+      "at": [
+        0.15,
+        0.985,
+        0.175
+      ],
+      "facing": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "panel.front",
+      "at": [
+        0.0,
+        0.985,
+        0.185
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "panel.back",
+      "at": [
+        0.0,
+        0.985,
+        0.165
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        -1.0
+      ]
+    },
+    {
+      "name": "panel.center",
+      "at": [
+        0.0,
+        0.985,
+        0.175
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "head.top",
+      "at": [
+        0.0,
+        1.55,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "head.bottom",
+      "at": [
+        0.0,
+        1.23,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "head.left",
+      "at": [
+        -0.21,
+        1.39,
+        -0.015
+      ],
+      "facing": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "head.right",
+      "at": [
+        0.21,
+        1.39,
+        -0.015
+      ],
+      "facing": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "head.front",
+      "at": [
+        0.0,
+        1.39,
+        0.165
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "head.back",
+      "at": [
+        0.0,
+        1.39,
+        -0.195
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        -1.0
+      ]
+    },
+    {
+      "name": "head.center",
+      "at": [
+        0.0,
+        1.39,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "head.left_eye",
+      "at": [
+        -0.0945,
+        1.414,
+        0.165
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "head.right_eye",
+      "at": [
+        0.0945,
+        1.414,
+        0.165
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "head.antenna",
+      "at": [
+        0.0,
+        1.55,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_eye.top",
+      "at": [
+        -0.0945,
+        1.454,
+        0.18
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_eye.bottom",
+      "at": [
+        -0.0945,
+        1.374,
+        0.18
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_eye.left",
+      "at": [
+        -0.1345,
+        1.414,
+        0.18
+      ],
+      "facing": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_eye.right",
+      "at": [
+        -0.0545,
+        1.414,
+        0.18
+      ],
+      "facing": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_eye.front",
+      "at": [
+        -0.0945,
+        1.414,
+        0.195
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "left_eye.back",
+      "at": [
+        -0.0945,
+        1.414,
+        0.165
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        -1.0
+      ]
+    },
+    {
+      "name": "left_eye.center",
+      "at": [
+        -0.0945,
+        1.414,
+        0.18
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_eye.top",
+      "at": [
+        0.0945,
+        1.454,
+        0.18
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_eye.bottom",
+      "at": [
+        0.0945,
+        1.374,
+        0.18
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_eye.left",
+      "at": [
+        0.0545,
+        1.414,
+        0.18
+      ],
+      "facing": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_eye.right",
+      "at": [
+        0.1345,
+        1.414,
+        0.18
+      ],
+      "facing": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_eye.front",
+      "at": [
+        0.0945,
+        1.414,
+        0.195
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "right_eye.back",
+      "at": [
+        0.0945,
+        1.414,
+        0.165
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        -1.0
+      ]
+    },
+    {
+      "name": "right_eye.center",
+      "at": [
+        0.0945,
+        1.414,
+        0.18
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "antenna.top",
+      "at": [
+        0.0,
+        1.75,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "antenna.bottom",
+      "at": [
+        0.0,
+        1.55,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "antenna.left",
+      "at": [
+        -0.015,
+        1.65,
+        -0.015
+      ],
+      "facing": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "antenna.right",
+      "at": [
+        0.015,
+        1.65,
+        -0.015
+      ],
+      "facing": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "antenna.front",
+      "at": [
+        0.0,
+        1.65,
+        0.0
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "antenna.back",
+      "at": [
+        0.0,
+        1.65,
+        -0.03
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        -1.0
+      ]
+    },
+    {
+      "name": "antenna.center",
+      "at": [
+        0.0,
+        1.65,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "antenna_tip.top",
+      "at": [
+        0.0,
+        1.83,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "antenna_tip.bottom",
+      "at": [
+        0.0,
+        1.75,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "antenna_tip.left",
+      "at": [
+        -0.04,
+        1.79,
+        -0.015
+      ],
+      "facing": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "antenna_tip.right",
+      "at": [
+        0.04,
+        1.79,
+        -0.015
+      ],
+      "facing": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "antenna_tip.front",
+      "at": [
+        0.0,
+        1.79,
+        0.025
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "antenna_tip.back",
+      "at": [
+        0.0,
+        1.79,
+        -0.055
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        -1.0
+      ]
+    },
+    {
+      "name": "antenna_tip.center",
+      "at": [
+        0.0,
+        1.79,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm.top",
+      "at": [
+        -0.37,
+        1.189,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm.bottom",
+      "at": [
+        -0.37,
+        0.329,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm.left",
+      "at": [
+        -0.45,
+        0.759,
+        -0.015
+      ],
+      "facing": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm.right",
+      "at": [
+        -0.29,
+        0.759,
+        -0.015
+      ],
+      "facing": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm.front",
+      "at": [
+        -0.37,
+        0.759,
+        0.065
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "left_arm.back",
+      "at": [
+        -0.37,
+        0.759,
+        -0.095
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        -1.0
+      ]
+    },
+    {
+      "name": "left_arm.center",
+      "at": [
+        -0.37,
+        0.759,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm.shoulder",
+      "at": [
+        -0.3,
+        1.125,
+        -0.015
+      ],
+      "facing": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm.grip",
+      "at": [
+        -0.37,
+        0.329,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm/upper.top",
+      "at": [
+        -0.37,
+        1.189,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm/upper.bottom",
+      "at": [
+        -0.37,
+        0.869,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm/upper.left",
+      "at": [
+        -0.44,
+        1.029,
+        -0.015
+      ],
+      "facing": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm/upper.right",
+      "at": [
+        -0.3,
+        1.029,
+        -0.015
+      ],
+      "facing": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm/upper.front",
+      "at": [
+        -0.37,
+        1.029,
+        0.055
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "left_arm/upper.back",
+      "at": [
+        -0.37,
+        1.029,
+        -0.085
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        -1.0
+      ]
+    },
+    {
+      "name": "left_arm/upper.center",
+      "at": [
+        -0.37,
+        1.029,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm/upper.joint",
+      "at": [
+        -0.3,
+        1.125,
+        -0.015
+      ],
+      "facing": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm/elbow.top",
+      "at": [
+        -0.37,
+        0.869,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm/elbow.bottom",
+      "at": [
+        -0.37,
+        0.729,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm/elbow.left",
+      "at": [
+        -0.44,
+        0.799,
+        -0.015
+      ],
+      "facing": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm/elbow.right",
+      "at": [
+        -0.3,
+        0.799,
+        -0.015
+      ],
+      "facing": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm/elbow.front",
+      "at": [
+        -0.37,
+        0.799,
+        0.055
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "left_arm/elbow.back",
+      "at": [
+        -0.37,
+        0.799,
+        -0.085
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        -1.0
+      ]
+    },
+    {
+      "name": "left_arm/elbow.center",
+      "at": [
+        -0.37,
+        0.799,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm/forearm.top",
+      "at": [
+        -0.37,
+        0.729,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm/forearm.bottom",
+      "at": [
+        -0.37,
+        0.429,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm/forearm.left",
+      "at": [
+        -0.43,
+        0.579,
+        -0.015
+      ],
+      "facing": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm/forearm.right",
+      "at": [
+        -0.31,
+        0.579,
+        -0.015
+      ],
+      "facing": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm/forearm.front",
+      "at": [
+        -0.37,
+        0.579,
+        0.045
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "left_arm/forearm.back",
+      "at": [
+        -0.37,
+        0.579,
+        -0.075
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        -1.0
+      ]
+    },
+    {
+      "name": "left_arm/forearm.center",
+      "at": [
+        -0.37,
+        0.579,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm/hand.top",
+      "at": [
+        -0.37,
+        0.429,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm/hand.bottom",
+      "at": [
+        -0.37,
+        0.329,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm/hand.left",
+      "at": [
+        -0.45,
+        0.379,
+        -0.015
+      ],
+      "facing": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm/hand.right",
+      "at": [
+        -0.29,
+        0.379,
+        -0.015
+      ],
+      "facing": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_arm/hand.front",
+      "at": [
+        -0.37,
+        0.379,
+        0.065
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "left_arm/hand.back",
+      "at": [
+        -0.37,
+        0.379,
+        -0.095
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        -1.0
+      ]
+    },
+    {
+      "name": "left_arm/hand.center",
+      "at": [
+        -0.37,
+        0.379,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm.top",
+      "at": [
+        0.37,
+        1.189,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm.bottom",
+      "at": [
+        0.37,
+        0.329,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm.left",
+      "at": [
+        0.45,
+        0.759,
+        -0.015
+      ],
+      "facing": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm.right",
+      "at": [
+        0.29,
+        0.759,
+        -0.015
+      ],
+      "facing": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm.front",
+      "at": [
+        0.37,
+        0.759,
+        0.065
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "right_arm.back",
+      "at": [
+        0.37,
+        0.759,
+        -0.095
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        -1.0
+      ]
+    },
+    {
+      "name": "right_arm.center",
+      "at": [
+        0.37,
+        0.759,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm.shoulder",
+      "at": [
+        0.3,
+        1.125,
+        -0.015
+      ],
+      "facing": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm.grip",
+      "at": [
+        0.37,
+        0.329,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm/upper.top",
+      "at": [
+        0.37,
+        1.189,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm/upper.bottom",
+      "at": [
+        0.37,
+        0.869,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm/upper.left",
+      "at": [
+        0.44,
+        1.029,
+        -0.015
+      ],
+      "facing": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm/upper.right",
+      "at": [
+        0.3,
+        1.029,
+        -0.015
+      ],
+      "facing": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm/upper.front",
+      "at": [
+        0.37,
+        1.029,
+        0.055
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "right_arm/upper.back",
+      "at": [
+        0.37,
+        1.029,
+        -0.085
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        -1.0
+      ]
+    },
+    {
+      "name": "right_arm/upper.center",
+      "at": [
+        0.37,
+        1.029,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm/upper.joint",
+      "at": [
+        0.3,
+        1.125,
+        -0.015
+      ],
+      "facing": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm/elbow.top",
+      "at": [
+        0.37,
+        0.869,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm/elbow.bottom",
+      "at": [
+        0.37,
+        0.729,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm/elbow.left",
+      "at": [
+        0.44,
+        0.799,
+        -0.015
+      ],
+      "facing": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm/elbow.right",
+      "at": [
+        0.3,
+        0.799,
+        -0.015
+      ],
+      "facing": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm/elbow.front",
+      "at": [
+        0.37,
+        0.799,
+        0.055
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "right_arm/elbow.back",
+      "at": [
+        0.37,
+        0.799,
+        -0.085
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        -1.0
+      ]
+    },
+    {
+      "name": "right_arm/elbow.center",
+      "at": [
+        0.37,
+        0.799,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm/forearm.top",
+      "at": [
+        0.37,
+        0.729,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm/forearm.bottom",
+      "at": [
+        0.37,
+        0.429,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm/forearm.left",
+      "at": [
+        0.43,
+        0.579,
+        -0.015
+      ],
+      "facing": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm/forearm.right",
+      "at": [
+        0.31,
+        0.579,
+        -0.015
+      ],
+      "facing": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm/forearm.front",
+      "at": [
+        0.37,
+        0.579,
+        0.045
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "right_arm/forearm.back",
+      "at": [
+        0.37,
+        0.579,
+        -0.075
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        -1.0
+      ]
+    },
+    {
+      "name": "right_arm/forearm.center",
+      "at": [
+        0.37,
+        0.579,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm/hand.top",
+      "at": [
+        0.37,
+        0.429,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm/hand.bottom",
+      "at": [
+        0.37,
+        0.329,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm/hand.left",
+      "at": [
+        0.45,
+        0.379,
+        -0.015
+      ],
+      "facing": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm/hand.right",
+      "at": [
+        0.29,
+        0.379,
+        -0.015
+      ],
+      "facing": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_arm/hand.front",
+      "at": [
+        0.37,
+        0.379,
+        0.065
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "right_arm/hand.back",
+      "at": [
+        0.37,
+        0.379,
+        -0.095
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        -1.0
+      ]
+    },
+    {
+      "name": "right_arm/hand.center",
+      "at": [
+        0.37,
+        0.379,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_leg.top",
+      "at": [
+        -0.15,
+        0.53,
+        0.045
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_leg.bottom",
+      "at": [
+        -0.15,
+        0.0,
+        0.045
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_leg.left",
+      "at": [
+        -0.25,
+        0.265,
+        0.045
+      ],
+      "facing": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_leg.right",
+      "at": [
+        -0.05,
+        0.265,
+        0.045
+      ],
+      "facing": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_leg.front",
+      "at": [
+        -0.15,
+        0.265,
+        0.195
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "left_leg.back",
+      "at": [
+        -0.15,
+        0.265,
+        -0.105
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        -1.0
+      ]
+    },
+    {
+      "name": "left_leg.center",
+      "at": [
+        -0.15,
+        0.265,
+        0.045
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_leg.hip",
+      "at": [
+        -0.15,
+        0.53,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_leg/thigh.top",
+      "at": [
+        -0.15,
+        0.53,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_leg/thigh.bottom",
+      "at": [
+        -0.15,
+        0.08,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_leg/thigh.left",
+      "at": [
+        -0.24,
+        0.305,
+        -0.015
+      ],
+      "facing": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_leg/thigh.right",
+      "at": [
+        -0.06,
+        0.305,
+        -0.015
+      ],
+      "facing": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_leg/thigh.front",
+      "at": [
+        -0.15,
+        0.305,
+        0.075
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "left_leg/thigh.back",
+      "at": [
+        -0.15,
+        0.305,
+        -0.105
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        -1.0
+      ]
+    },
+    {
+      "name": "left_leg/thigh.center",
+      "at": [
+        -0.15,
+        0.305,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_leg/foot.top",
+      "at": [
+        -0.15,
+        0.08,
+        0.045
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_leg/foot.bottom",
+      "at": [
+        -0.15,
+        0.0,
+        0.045
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_leg/foot.left",
+      "at": [
+        -0.25,
+        0.04,
+        0.045
+      ],
+      "facing": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_leg/foot.right",
+      "at": [
+        -0.05,
+        0.04,
+        0.045
+      ],
+      "facing": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_leg/foot.front",
+      "at": [
+        -0.15,
+        0.04,
+        0.195
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "left_leg/foot.back",
+      "at": [
+        -0.15,
+        0.04,
+        -0.105
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        -1.0
+      ]
+    },
+    {
+      "name": "left_leg/foot.center",
+      "at": [
+        -0.15,
+        0.04,
+        0.045
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "left_leg/foot.ankle",
+      "at": [
+        -0.15,
+        0.08,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_leg.top",
+      "at": [
+        0.15,
+        0.53,
+        0.045
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_leg.bottom",
+      "at": [
+        0.15,
+        0.0,
+        0.045
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_leg.left",
+      "at": [
+        0.05,
+        0.265,
+        0.045
+      ],
+      "facing": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_leg.right",
+      "at": [
+        0.25,
+        0.265,
+        0.045
+      ],
+      "facing": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_leg.front",
+      "at": [
+        0.15,
+        0.265,
+        0.195
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "right_leg.back",
+      "at": [
+        0.15,
+        0.265,
+        -0.105
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        -1.0
+      ]
+    },
+    {
+      "name": "right_leg.center",
+      "at": [
+        0.15,
+        0.265,
+        0.045
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_leg.hip",
+      "at": [
+        0.15,
+        0.53,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_leg/thigh.top",
+      "at": [
+        0.15,
+        0.53,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_leg/thigh.bottom",
+      "at": [
+        0.15,
+        0.08,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_leg/thigh.left",
+      "at": [
+        0.06,
+        0.305,
+        -0.015
+      ],
+      "facing": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_leg/thigh.right",
+      "at": [
+        0.24,
+        0.305,
+        -0.015
+      ],
+      "facing": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_leg/thigh.front",
+      "at": [
+        0.15,
+        0.305,
+        0.075
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "right_leg/thigh.back",
+      "at": [
+        0.15,
+        0.305,
+        -0.105
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        -1.0
+      ]
+    },
+    {
+      "name": "right_leg/thigh.center",
+      "at": [
+        0.15,
+        0.305,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_leg/foot.top",
+      "at": [
+        0.15,
+        0.08,
+        0.045
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_leg/foot.bottom",
+      "at": [
+        0.15,
+        0.0,
+        0.045
+      ],
+      "facing": [
+        0.0,
+        -1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_leg/foot.left",
+      "at": [
+        0.05,
+        0.04,
+        0.045
+      ],
+      "facing": [
+        -1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_leg/foot.right",
+      "at": [
+        0.25,
+        0.04,
+        0.045
+      ],
+      "facing": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_leg/foot.front",
+      "at": [
+        0.15,
+        0.04,
+        0.195
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "right_leg/foot.back",
+      "at": [
+        0.15,
+        0.04,
+        -0.105
+      ],
+      "facing": [
+        0.0,
+        0.0,
+        -1.0
+      ]
+    },
+    {
+      "name": "right_leg/foot.center",
+      "at": [
+        0.15,
+        0.04,
+        0.045
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    {
+      "name": "right_leg/foot.ankle",
+      "at": [
+        0.15,
+        0.08,
+        -0.015
+      ],
+      "facing": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    }
+  ],
+  "warnings": [],
+  "errors": []
+}

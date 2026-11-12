@@ -4121,3 +4121,49 @@ said "no fog", though `canvas.set_fog` has existed since Phase 3.
 | Facing, drawn | the house's door seen only from its +z side, its chimney (on its own left, -x) on your right as you face it; the robot's eyes seen from in front, not from a camera with no turn until the robot is turned half round |
 | Engine tests on Linux | 607 pass with everything on, 572 headless (`--no-default-features`); none fail. The GPU tests ran on a software driver, not skipped |
 | GPU against CPU (Mesa's software Vulkan driver, lavapipe) | the turntable's first frame and frame 200: the same PNG, byte for byte; the robot under a coloured sun: within the GPU tests' usual 2% |
+
+# Sockets from Duck Mold
+
+Duck Mold's Phase 1 keeps a model's *sockets* in its `.glb`: the named
+points, each facing a way, where its recipe joined its parts. A game can
+now put things where the model says: a hat on `head.top`, a sword in
+`right_arm.grip`.
+
+## What was built
+
+- The reader went to Duck Mold's version 3, copied between the markers
+  byte for byte as before: `GlbModel.sockets`, none for older files, a
+  damaged entry refused with a sentence.
+- Duck Forge's own side: `GlbModel::socket(name)`, and
+  `GlbSocket::position()` and `direction()` as `Vec3`s.
+- `examples/turntable/`: the robot wears a top hat, put on its
+  `head.top` at run time and moved and turned with it. A test checks the
+  hat is centred on top of the robot, and still is half a turn later.
+- `tests/fixtures/duck_mold/`: Duck Mold's six golden models (a snowman
+  joined, and the house got a skylight), and `robot.sockets.json`, its
+  list of the robot's 187 sockets, which a test checks `socket()` finds
+  where it says.
+
+## Decisions made on the way
+
+**`position()` and `direction()` are in the model's own space.** The
+same space as the mesh's corners, so the transform the model is drawn
+with moves a socket the same way: `place.apply(socket.position())`.
+Nothing in the engine had to learn about sockets.
+
+**Names are Duck Mold's.** `head.top` is the part `head`'s built-in
+`top`; a part inside an assembly keeps its path (`left_arm/hand.bottom`),
+an assembly's own socket follows its name (`left_arm.grip`), and the
+whole model's are bare (`top`). Unnamed parts have none in the file. One
+lookup, `socket(name)`, takes them all, as `part(name)` takes parts and
+assemblies; `duck-mold inspect --sockets` lists every name.
+
+**The hat is a top hat.** The robot's antenna stands on `head.top` too,
+so a hat there must cover it: the crown is taller than the antenna.
+
+## The numbers
+
+| | |
+|---|---|
+| The robot's file | 35.7 KB before sockets, 50 KB with its 187 |
+| Engine tests on Linux | 620 pass with everything on, 577 headless (`--no-default-features`); none fail |
