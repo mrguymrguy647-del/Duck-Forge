@@ -4264,6 +4264,117 @@ also passed the engine's tests five times both ways, the Studio's tests
 (the scene edited while frozen, replayed exactly, among them), the zip,
 the installer, an upgrade over the top and the uninstall.
 
+## Step 2: selecting and moving objects in the Studio
+
+**The game says where its objects are, only when it's frozen.** A scene
+that's drawn on a tick with no updates (which is what a frozen game's
+picture is) notes, for each object, where it drew it on the canvas,
+where it would be if it were still as the file has it, which keys have
+changed since the start, and which objects are gone. That goes to the
+Studio with the picture (`Frame.scenes`; the link is version 3). While
+the game plays nothing is noted and nothing is sent, so playing costs
+what it did. All of it is behind the `studio` feature: an ordinary build
+has none of it. The Studio now makes sure a frozen game's picture is
+always one drawn while frozen (after "Play one frame" it asks for one
+more picture with no update), so the outlines never lag behind.
+
+**The Studio still draws nothing of the game.** "As it starts" could
+have been the Studio drawing the scene file itself. Instead the game
+draws it: a copy of its scene put back to the file's values, through the
+camera of the frozen moment. So the start looks exactly as the game
+would draw it, with the game's own pictures and tile map, and Build and
+Play still can't look different. The game's own scene isn't touched.
+
+**"For this run only" goes through `reload`.** A scene is a value the
+game holds; the engine can't reach into it. So a change to an object as
+it is now (`ToGame::Object`) is left on a waiting list, the game's
+`reload` hook is called with the scene's file, and `scene.reload` picks
+up what's waiting for it (`Scene::set_now` does the change). A game that
+already reloads its scene needs nothing new. The change is a new kind of
+event in a session's recording (`"object"`, `docs/input-format.md`), so
+a replay makes it on the same frame: the real-game test drags the duck,
+puts it on a coin, plays on, and the headless replay ends on the same
+picture.
+
+**The Studio writes scene files the engine's one way.** An edit reads
+the file with the engine's reader, sets keys on the object
+(`SceneFile::set`: the same checks as reading, so a wrong value is said
+in the same words), and writes the whole file as `tools/write_ids`
+does. So the first edit of a hand-spaced file tidies it, and writes any
+ids that were missing (they're the ids the engine gave anyway). A file
+with a mistake isn't written at all: writing drops what couldn't be
+read, and a silent loss is worse than a message. A missing
+`"duckforge_scene"` line doesn't count (`SceneFile::would_be_lost`).
+
+**What a drag changes is decided when it begins**, and the status bar
+says which. The dashed outline: the file. The object: the file if it's
+where it starts, this run only if the game has moved it. The other
+choice was a switch ("edit the start" / "edit this moment"), which is
+one more thing to be in the wrong state of.
+
+**Undo.** A change to the file is a step like a paint stroke (one drag
+is one step, by its stroke). A change for this run only is a step too,
+but only until the game plays on: after that there's no moment to put
+it back to, so those steps leave the list (a step that also changed a
+file keeps that part). Undo of "Start here" puts the old start back
+*and* leaves the object where it stands; without that, the game would
+see "it's still where it starts" and move it back with the start.
+
+**The tile map is picked in the list**, not by clicking the ground, and
+things painted on it aren't picked at all. Clicking empty ground
+selects nothing. Otherwise every missed click would switch to painting.
+
+**A click picks what's on top; clicking it again picks what's under.**
+With the scene demo's duck standing in front of the sign, that's the
+only way to reach the sign without the list.
+
+**Engine additions an agent might use:** `SceneFile::set`,
+`SceneFile::would_be_lost`, `Object::to_json`, `Object::setting`,
+`Scene::set_now`, and (with the `studio` feature) `scene::drawn`.
+
+## Step 2: the numbers
+
+Release builds with the usual features, on this Linux machine.
+
+| Game | Size after Step 1 | after Step 2 |
+|---|---|---|
+| Platformer starter | 6,393,376 | 6,380,712 |
+| Shooter starter | 6,259,768 | 6,252,512 |
+| 3D runner starter | 11,602,168 | 11,586,464 |
+| Scene demo | 6,612,816 | 6,606,040 |
+
+Every game is a little smaller (7,000 to 16,000 bytes). None has
+anything of the editor in it: the Studio's side of the link is only in
+builds with the `studio` feature, as before.
+
+Speed, with `--headless --time`. This machine was about a third slower
+on the day than when Step 1's table was made, and uneven (the same
+program varied by 10%), so Step 1's code was built again and the two
+were run turn about. Lowest and highest of three to five runs each:
+
+| Game | Drawing a frame, Step 1 | Step 2 | An update, Step 1 | Step 2 |
+|---|---|---|---|---|
+| Platformer starter | 104 to 110 µs | 102 to 115 µs | 1.46 to 1.67 µs | 1.40 to 1.78 µs |
+| Shooter starter | 25.1 to 26.7 µs | 24.8 to 25.7 µs | 1.53 to 1.74 µs | 1.60 to 1.71 µs |
+| 3D runner starter | 2,036 to 2,148 µs | 2,039 to 2,139 µs | 2.57 to 3.44 µs | 2.73 to 3.48 µs |
+| Scene demo | 104 to 112 µs | 116 to 119 µs | 2.97 to 3.48 µs | 3.43 to 3.57 µs |
+
+- The three games that existed before the phase: the same.
+- The scene demo: about 6% slower to draw and to update here, though
+  the code it runs in an ordinary build is the same as in Step 1
+  (drawing was split into two functions; nothing was added). Building
+  each commit in turn puts the change at the engine commit of this
+  step, and the compiled program shows the compiler arranging text
+  drawing differently (`Canvas::draw_text` is half the size it was).
+  Forcing the old arrangement of the scene's functions made no
+  difference. So it's the compiler's choice, not work the scene does,
+  and this machine can't settle 6% today. GitHub's Windows machine is
+  steadier: its numbers are below.
+- Tests: the engine 609 (headless) and 644 (with a window), 343 with the
+  link; the Studio's core 70 unit tests and 6 that play real games; the
+  app 11 unit tests and 9 screen tests, one of which drives the scene
+  editor with a pretend mouse.
+
 # Models from Duck Mold
 
 Duck Mold (a sister tool: 3D models from text recipes, no window) saves
