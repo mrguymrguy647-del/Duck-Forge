@@ -1,0 +1,186 @@
+{
+  "ok": true,
+  "summary": "table: 1.20 x 0.76 x 0.70 m, 60 triangles, 5 parts, 2 colours, rests on the ground, nothing floating, nothing overlapping",
+  "source": "examples/table.toml",
+  "name": "table",
+  "size": [
+    1.2,
+    0.76,
+    0.7
+  ],
+  "bounds": {
+    "min": [
+      -0.6,
+      0.0,
+      -0.35
+    ],
+    "max": [
+      0.6,
+      0.76,
+      0.35
+    ]
+  },
+  "triangles": 60,
+  "vertices": 120,
+  "ground": {
+    "rests_on_ground": true,
+    "lowest_y": 0.0
+  },
+  "palette": [
+    {
+      "name": "oak",
+      "hex": "#B88A4A",
+      "triangles": 12
+    },
+    {
+      "name": "dark_oak",
+      "hex": "#8C6432",
+      "triangles": 48
+    }
+  ],
+  "parts": [
+    {
+      "name": "top",
+      "kind": "box",
+      "triangles": 12,
+      "size": [
+        1.2,
+        0.06,
+        0.7
+      ],
+      "bounds": {
+        "min": [
+          -0.6,
+          0.7,
+          -0.35
+        ],
+        "max": [
+          0.6,
+          0.76,
+          0.35
+        ]
+      },
+      "colors": [
+        "oak"
+      ],
+      "attached_to": null,
+      "parts": []
+    },
+    {
+      "name": "leg_front_left",
+      "kind": "box",
+      "uses": "leg",
+      "triangles": 12,
+      "size": [
+        0.08,
+        0.7,
+        0.08
+      ],
+      "bounds": {
+        "min": [
+          -0.55,
+          0.0,
+          0.24
+        ],
+        "max": [
+          -0.47,
+          0.7,
+          0.32
+        ]
+      },
+      "colors": [
+        "dark_oak"
+      ],
+      "attached_to": "top.front_left",
+      "parts": []
+    },
+    {
+      "name": "leg_front_right",
+      "kind": "box",
+      "uses": "leg",
+      "triangles": 12,
+      "size": [
+        0.08,
+        0.7,
+        0.08
+      ],
+      "bounds": {
+        "min": [
+          0.47,
+          0.0,
+          0.24
+        ],
+        "max": [
+          0.55,
+          0.7,
+          0.32
+        ]
+      },
+      "colors": [
+        "dark_oak"
+      ],
+      "attached_to": "top.front_right",
+      "parts": []
+    },
+    {
+      "name": "leg_back_left",
+      "kind": "box",
+      "uses": "leg",
+      "triangles": 12,
+      "size": [
+        0.08,
+        0.7,
+        0.08
+      ],
+      "bounds": {
+        "min": [
+          -0.55,
+          0.0,
+          -0.32
+        ],
+        "max": [
+          -0.47,
+          0.7,
+          -0.24
+        ]
+      },
+      "colors": [
+        "dark_oak"
+      ],
+      "attached_to": "top.back_left",
+      "parts": []
+    },
+    {
+      "name": "leg_back_right",
+      "kind": "box",
+      "uses": "leg",
+      "triangles": 12,
+      "size": [
+        0.08,
+        0.7,
+        0.08
+      ],
+      "bounds": {
+        "min": [
+          0.47,
+          0.0,
+          -0.32
+        ],
+        "max": [
+          0.55,
+          0.7,
+          -0.24
+        ]
+      },
+      "colors": [
+        "dark_oak"
+      ],
+      "attached_to": "top.back_right",
+      "parts": []
+    }
+  ],
+  "floating": [],
+  "overlapping": [],
+  "warnings": [],
+  "errors": []
+}

@@ -66,6 +66,7 @@ Install Rust from <https://rustup.rs> (1.87 or newer), then:
 cargo run --example world3d    # 3D world with physics: fly around, throw balls
 cargo run --release --example duck_craft   # a Minecraft-style island: dig, build, day and night
 cargo run --release --example stress3d   # thousands of spinning 3D shapes
+cargo run --example turntable  # a robot made in Duck Mold, slowly turning
 cargo run --example physics    # 2D physics sandbox: click to drop balls and boxes
 cargo run --example breakout   # the classic game
 cargo run --example dodge      # dodge the falling rocks: sprites, shake and sound
@@ -96,6 +97,7 @@ cargo run --no-default-features --example breakout -- --headless --frames 600 --
 | `duckling_parade` | Arrows or WASD swim · Enter starts · P pauses · R restarts |
 | `hello`    | Arrow keys or WASD move · click to teleport |
 | `stress3d` | 1–6 pick 500 to 20,000 objects · O toggles orbit/fly |
+| `turntable` | Space stops and starts it · Left/Right turn it by hand |
 | `template` | Arrows or A/D run · Up, W or Space jumps · P pauses |
 | every game | **F1** debug overlay · **F3** shows the FPS · **F10** starts and stops recording · **F12** saves a screenshot (PNG) · Escape quits |
 
@@ -212,7 +214,9 @@ picture of every screen.
   and list it in `log.json`, so tests can check sounds too.
 - **3D rendering:** a camera with ready-made fly controls, meshes (cube,
   pyramid, sphere, cylinder, cone, quad, checkerboard, blocks from an
-  atlas, or build your own, and merge many into one), transforms, a depth
+  atlas, or build your own, and merge many into one), models made in
+  [Duck Mold](https://github.com/mrguymrguy647-del/Duck-Mold) (its `.glb`
+  files, with their colours), transforms, a depth
   buffer, and near-plane clipping. Textures with sharp pixels and
   see-through holes, drawn perspective-correct; a sun you can aim, colour
   and dim, and glowing meshes; sprites standing in the world
@@ -316,6 +320,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     duckforge::run(Config::default(), scene)
 }
 ```
+
+### A model made in Duck Mold
+
+[Duck Mold](https://github.com/mrguymrguy647-del/Duck-Mold) builds 3D
+models from short text recipes and saves them as `.glb` files. Load one
+once, when the game starts, and draw it like any mesh:
+
+```rust
+let robot = Mesh::load_glb("examples/turntable/assets/robot.glb")?; // in new()
+canvas.draw_mesh(&self.robot, &Transform::at(Vec3::ZERO), &self.camera); // in draw()
+```
+
+A model keeps its colours, is in metres, stands on the ground (y = 0)
+and **faces +z**: its front is on its +z side and its own left is at -x.
+A camera with no turn looks along +z too, so it would see the model's
+back: put the camera on the model's +z side looking back at it, or turn
+the model half round with `.rotated(vec3(0.0, PI, 0.0))`.
+[examples/turntable/](examples/turntable/main.rs) shows the robot from
+Duck Mold's examples, facing you and slowly turning. For the model's
+palette and parts (to recolour one arm, say), load it with
+`duckforge::glb::GlbModel::load`. Only Duck Mold's own `.glb` files load
+(not other glTF or OBJ files); anything else gives a one-sentence error
+saying so.
 
 ### With physics
 
@@ -849,6 +876,7 @@ On a computer with one (in PowerShell or cmd, in the project folder):
 | `src/debug.rs`    | The debug overlay (F1, `--debug`)                                   |
 | `src/error.rs`    | `LoadError`: a missing or broken file, in one sentence              |
 | `src/render3d.rs` | 3D: `Camera3D`, `Mesh`, `Transform`, `Renderer`, and the CPU renderer |
+| `src/glb.rs`      | Models made with Duck Mold: `Mesh::load_glb` and `GlbModel` read their `.glb` files |
 | `src/gpu.rs`      | The GPU renderer: wgpu setup, mesh cache, instancing, reading the picture back |
 | `src/gpu.wgsl`    | The shaders: the small programs that run on the graphics card       |
 | `src/physics.rs`  | `PhysicsWorld` and `Body`: collisions and an impulse solver, for `Vec2` or `Vec3` |
@@ -857,7 +885,7 @@ On a computer with one (in PowerShell or cmd, in the project folder):
 | `src/font.rs`     | A built-in 3-pixel-wide font: every printable ASCII character        |
 | `src/color.rs`    | Colors with alpha, and see-through blending                         |
 | `src/rng.rs`      | A tiny xorshift random number generator                             |
-| `examples/`       | `hello`, `shapes`, `template`, `starter_topdown`, `starter_shooter`, `pollen_run`, `breakout`, `dodge`, `duckling_parade`, `door_short`, `door_show_3d`, `physics`, `world3d` and `stress3d` |
+| `examples/`       | `hello`, `shapes`, `template`, `starter_topdown`, `starter_shooter`, `pollen_run`, `breakout`, `dodge`, `duckling_parade`, `door_short`, `door_show_3d`, `physics`, `world3d`, `stress3d` and `turntable` |
 | `Start Duck Forge Studio.bat` | Builds Duck Forge Studio from this folder and opens it, with a double-click |
 | `tools/Run tests (for developers).bat` | Runs every test on Windows with a double-click: the engine's both ways, then the Studio's |
 | `tools/rust_check.bat` | Used by both: checks that Rust is installed, and offers the official page if not |

@@ -1,0 +1,171 @@
+{
+  "ok": true,
+  "summary": "tree: 1.40 x 1.913 x 1.40 m, 70 triangles, 4 parts, 2 colours, rests on the ground, nothing floating, 2 overlaps",
+  "source": "examples/tree.toml",
+  "name": "tree",
+  "size": [
+    1.4,
+    1.9125,
+    1.4
+  ],
+  "bounds": {
+    "min": [
+      -0.7,
+      0.0,
+      -0.7
+    ],
+    "max": [
+      0.7,
+      1.9125,
+      0.7
+    ]
+  },
+  "triangles": 70,
+  "vertices": 144,
+  "ground": {
+    "rests_on_ground": true,
+    "lowest_y": 0.0
+  },
+  "palette": [
+    {
+      "name": "bark",
+      "hex": "#6B4A2B",
+      "triangles": 28
+    },
+    {
+      "name": "needle",
+      "hex": "#2F7D45",
+      "triangles": 42
+    }
+  ],
+  "parts": [
+    {
+      "name": "trunk",
+      "kind": "cylinder",
+      "triangles": 28,
+      "size": [
+        0.24,
+        0.5,
+        0.24
+      ],
+      "bounds": {
+        "min": [
+          -0.12,
+          0.0,
+          -0.12
+        ],
+        "max": [
+          0.12,
+          0.5,
+          0.12
+        ]
+      },
+      "colors": [
+        "bark"
+      ],
+      "attached_to": null,
+      "parts": []
+    },
+    {
+      "name": "low",
+      "kind": "cone",
+      "uses": "tier",
+      "triangles": 14,
+      "size": [
+        1.4,
+        0.9,
+        1.4
+      ],
+      "bounds": {
+        "min": [
+          -0.7,
+          0.5,
+          -0.7
+        ],
+        "max": [
+          0.7,
+          1.4,
+          0.7
+        ]
+      },
+      "colors": [
+        "needle"
+      ],
+      "attached_to": "trunk.top",
+      "parts": []
+    },
+    {
+      "name": "middle",
+      "kind": "cone",
+      "uses": "tier",
+      "triangles": 14,
+      "size": [
+        1.05,
+        0.675,
+        1.05
+      ],
+      "bounds": {
+        "min": [
+          -0.525,
+          1.05,
+          -0.525
+        ],
+        "max": [
+          0.525,
+          1.725,
+          0.525
+        ]
+      },
+      "colors": [
+        "needle"
+      ],
+      "attached_to": "low.next",
+      "parts": []
+    },
+    {
+      "name": "high",
+      "kind": "cone",
+      "uses": "tier",
+      "triangles": 14,
+      "size": [
+        0.7,
+        0.45,
+        0.7
+      ],
+      "bounds": {
+        "min": [
+          -0.35,
+          1.4625,
+          -0.35
+        ],
+        "max": [
+          0.35,
+          1.9125,
+          0.35
+        ]
+      },
+      "colors": [
+        "needle"
+      ],
+      "attached_to": "middle.next",
+      "parts": []
+    }
+  ],
+  "floating": [],
+  "overlapping": [
+    {
+      "a": "middle",
+      "b": "low",
+      "depth": 0.214879,
+      "hidden": false
+    },
+    {
+      "a": "high",
+      "b": "middle",
+      "depth": 0.161159,
+      "hidden": false
+    }
+  ],
+  "warnings": [],
+  "errors": []
+}

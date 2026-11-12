@@ -3,8 +3,10 @@
 
 #[test]
 fn the_quick_start_game_is_the_quickstart_example() {
-    let page = include_str!("../docs/QUICKSTART.md");
-    let example = include_str!("../examples/quickstart.rs");
+    // Git on Windows can check both files out with "\r\n" line endings
+    // (GitHub's Windows machines do): compare them with "\n" only.
+    let page = include_str!("../docs/QUICKSTART.md").replace("\r\n", "\n");
+    let example = include_str!("../examples/quickstart.rs").replace("\r\n", "\n");
     let blocks: Vec<&str> = page
         .split("```rust\n")
         .skip(1)

@@ -41,6 +41,7 @@ pub mod engine;
 pub mod error;
 mod files;
 mod fuzz;
+pub mod glb;
 #[cfg(feature = "gpu")]
 mod gpu;
 pub mod headless;

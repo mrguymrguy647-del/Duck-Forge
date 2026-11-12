@@ -36,6 +36,7 @@ pub const CAME_WITH_DUCK_FORGE: &[&str] = &[
     "starter_topdown",
     "stress3d",
     "template",
+    "turntable",
     "world3d",
 ];
 

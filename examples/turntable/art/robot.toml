@@ -1,0 +1,195 @@
+# A simple robot, assembled from parts with sockets.
+#
+#   duck-mold inspect examples/robot.toml
+#
+# It shows: parts defined once and used twice, assemblies inside the
+# model, sockets passed on from an inner part, and `mirror`, which makes
+# a right arm out of a left arm.
+#
+# A model faces forward (+z). `left` and `right` are the robot's own left
+# and right: its left arm is at -x.
+
+version = 0
+name = "robot"
+description = "A small robot, assembled from parts by their sockets."
+
+[palette]
+steel = "#8A939B"
+dark  = "#3B4148"
+red   = "#D0453A"
+glow  = "#FFE08A"
+
+# ---- parts defined once ------------------------------------------------------
+
+# An arm: upper arm, elbow, forearm and hand, each hanging from the one
+# above. `color` on an assembly is the colour of everything inside it that
+# has none of its own.
+[define.arm]
+color = "steel"
+
+# What the arm offers to the outside. `from` passes on a socket of a part
+# inside it: `shoulder` is the upper arm's `joint`, and `grip` is the
+# underside of the hand.
+[define.arm.sockets]
+shoulder = { from = "upper.joint" }
+grip     = { from = "hand.bottom" }
+
+[[define.arm.parts]]
+name = "upper"
+shape = "box"
+size = [0.14, 0.32, 0.14]
+
+# On the side that touches the body, near the top.
+[define.arm.parts.sockets]
+joint = { on = "right", shift = [0, 0.6, 0] }
+
+[[define.arm.parts]]
+name = "elbow"
+shape = "sphere"
+radius = 0.07
+segments = 8
+color = "dark"
+attach = "top"
+to = "upper.bottom"
+
+[[define.arm.parts]]
+name = "forearm"
+shape = "box"
+size = [0.12, 0.3, 0.12]
+attach = "top"
+to = "elbow.bottom"
+
+[[define.arm.parts]]
+name = "hand"
+shape = "box"
+size = [0.16, 0.1, 0.16]
+color = "red"
+attach = "top"
+to = "forearm.bottom"
+
+# A leg: a thigh and a foot that points forward.
+[define.leg]
+color = "dark"
+
+[define.leg.sockets]
+hip = { from = "thigh.top" }
+
+[[define.leg.parts]]
+name = "thigh"
+shape = "cylinder"
+radius = 0.09
+height = 0.45
+segments = 8
+
+[[define.leg.parts]]
+name = "foot"
+shape = "box"
+size = [0.2, 0.08, 0.3]
+color = "steel"
+attach = "ankle"
+to = "thigh.bottom"
+
+# Towards the back of the foot, so that the toes stick out in front.
+[define.leg.parts.sockets]
+ankle = { on = "top", shift = [0, 0, -0.4] }
+
+[define.eye]
+shape = "box"
+size = [0.08, 0.08, 0.03]
+color = "glow"
+
+# ---- the robot ---------------------------------------------------------------
+
+[[parts]]
+name = "body"
+shape = "box"
+size = [0.6, 0.7, 0.36]
+color = "steel"
+
+[parts.sockets]
+neck      = { on = "top" }
+chest     = { on = "front", shift = [0, 0.3, 0] }
+left_arm  = { on = "left", shift = [0, 0.7, 0] }
+right_arm = { on = "right", shift = [0, 0.7, 0] }
+left_leg  = { on = "bottom", shift = [-0.5, 0, 0] }
+right_leg = { on = "bottom", shift = [0.5, 0, 0] }
+
+[[parts]]
+name = "panel"
+shape = "box"
+size = [0.3, 0.2, 0.02]
+color = "red"
+attach = "back"
+to = "body.chest"
+
+[[parts]]
+name = "head"
+shape = "box"
+size = [0.42, 0.32, 0.36]
+color = "steel"
+attach = "bottom"
+to = "body.neck"
+
+[parts.sockets]
+left_eye  = { on = "front", shift = [-0.45, 0.15, 0] }
+right_eye = { on = "front", shift = [0.45, 0.15, 0] }
+antenna   = { on = "top" }
+
+[[parts]]
+name = "left_eye"
+use = "eye"
+attach = "back"
+to = "head.left_eye"
+
+[[parts]]
+name = "right_eye"
+use = "eye"
+attach = "back"
+to = "head.right_eye"
+
+[[parts]]
+name = "antenna"
+shape = "cylinder"
+radius = 0.015
+height = 0.2
+segments = 8
+color = "dark"
+attach = "bottom"
+to = "head.antenna"
+
+[[parts]]
+name = "antenna_tip"
+shape = "sphere"
+radius = 0.04
+segments = 8
+color = "red"
+attach = "bottom"
+to = "antenna.top"
+
+# The arm's `shoulder` socket is on its right side, so the arm hangs at
+# the body's left.
+[[parts]]
+name = "left_arm"
+use = "arm"
+attach = "shoulder"
+to = "body.left_arm"
+
+# The same arm, flipped: its shoulder socket is now on its left side.
+[[parts]]
+name = "right_arm"
+use = "arm"
+mirror = "x"
+attach = "shoulder"
+to = "body.right_arm"
+
+[[parts]]
+name = "left_leg"
+use = "leg"
+attach = "hip"
+to = "body.left_leg"
+
+[[parts]]
+name = "right_leg"
+use = "leg"
+attach = "hip"
+to = "body.right_leg"

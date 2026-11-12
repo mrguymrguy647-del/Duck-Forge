@@ -1,3 +1,6 @@
 # Windows scripts need Windows line endings to run.
 *.bat text eol=crlf
 *.iss text eol=crlf
+
+# Models (Duck Mold .glb files) are bytes, never text.
+*.glb binary
