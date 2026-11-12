@@ -544,3 +544,293 @@ fn a_game_with_no_picture_gets_one_the_first_time_it_plays_or_is_checked() {
         let _ = std::fs::remove_dir_all(folder.sessions_folder(game));
     }
 }
+
+/// The editor on a frozen game. The sign's start is moved (the file
+/// changes, the game shows it at once). The duck, which has walked, is
+/// moved for this run only (the file stays, the picture shows it in its
+/// new place and says where it starts). Undo takes each back. Then the
+/// game plays on, and its session replays to the same picture.
+#[test]
+fn objects_are_selected_and_moved_in_the_frozen_game_and_it_all_replays() {
+    use duckforge::prelude::Vec2;
+    use studio_core::scene_edit::{RowState, Show};
+
+    let mut studio = studio();
+    let say = |studio: &mut Studio, step: Step| {
+        run_step(studio, &step).unwrap_or_else(|problem| {
+            panic!("{problem}\n{}", problem.details);
+        })
+    };
+    let run = |studio: &mut Studio, command: serde_json::Value| {
+        let command: Command = serde_json::from_value(command).unwrap();
+        run_step(studio, &Step::Do(command)).unwrap_or_else(|problem| {
+            panic!("{problem}\n{}", problem.details);
+        })
+    };
+    let settle = |studio: &mut Studio| {
+        run_step(studio, &Step::Wait(Wait::Seconds { seconds: 0.3 })).unwrap();
+    };
+    let scene_file = duck_forge().join("examples/scene_demo/scenes/pond.json");
+    let _put_back = PutBack {
+        text: std::fs::read_to_string(&scene_file).unwrap(),
+        path: scene_file.clone(),
+    };
+    say(
+        &mut studio,
+        Step::Do(Command::GameOpen {
+            name: String::from("scene_demo"),
+        }),
+    );
+    say(&mut studio, Step::Wait(Wait::Playing));
+    say(&mut studio, press("Right"));
+    say(&mut studio, Step::Wait(Wait::Frames { frames: 20 }));
+    say(&mut studio, release("Right"));
+    say(&mut studio, Step::Wait(Wait::Frames { frames: 10 }));
+    say(&mut studio, Step::Do(Command::GameToggle));
+    settle(&mut studio);
+    let frozen = studio.play().unwrap().picture.clone().unwrap();
+
+    // The frozen picture says where every object is.
+    let open = studio.open.as_ref().unwrap();
+    let doc = open.scene.as_ref().expect("the scene the game is in");
+    assert_eq!(doc.short_name(), "pond.json");
+    let rows = open.scene_rows();
+    let labels: Vec<&str> = rows.iter().map(|row| row.label.as_str()).collect();
+    assert_eq!(
+        labels,
+        [
+            "sky",
+            "hills",
+            "ground",
+            "sign",
+            "crate",
+            "big crate",
+            "coin",
+            "coin",
+            "duck",
+            "bush",
+            "coin icon"
+        ]
+    );
+    assert_eq!(
+        rows[2].painted.as_deref(),
+        Some("4 coins, 1 flag"),
+        "what's painted on the tile map"
+    );
+    assert!(rows[8].moved, "the duck has walked since the start");
+    assert!(rows.iter().all(|row| row.state == RowState::There));
+    let drawn = open.drawn_scene().expect("a frozen picture has the scene");
+    let sign_was = drawn.object(4).unwrap().rect.unwrap();
+    let duck = drawn.object(9).unwrap();
+    let duck_was = duck.rect.unwrap();
+    let duck_started = duck.start_rect.expect("it shows where the duck starts");
+    assert!(duck_was.x > duck_started.x + 10.0);
+    assert!(
+        drawn.object(4).unwrap().start_rect.is_none(),
+        "the sign hasn't moved"
+    );
+
+    // A click on the sign picks it; its start moves 40 pixels right.
+    let middle = Vec2::new(sign_was.x + sign_was.w / 2.0, sign_was.y + sign_was.h / 2.0);
+    assert_eq!(
+        studio_core::scene_edit::object_at(drawn, middle, None),
+        Some(4)
+    );
+    assert_eq!(
+        run(
+            &mut studio,
+            serde_json::json!({"do": "select.set", "ids": [4]})
+        ),
+        "Selected sign"
+    );
+    assert_eq!(
+        run(
+            &mut studio,
+            serde_json::json!({"do": "object.move", "ids": [4], "by": [40, 0]})
+        ),
+        "Move sign"
+    );
+    settle(&mut studio);
+    let text = std::fs::read_to_string(&scene_file).unwrap();
+    assert!(
+        text.contains(r#"{"id": 4, "name": "sign", "at": [160, 208]"#),
+        "{text}"
+    );
+    assert_eq!(
+        text.replace("[160, 208]", "[120, 208]"),
+        _put_back.text.replace("\r\n", "\n"),
+        "nothing else in the file changed"
+    );
+    let open = studio.open.as_ref().unwrap();
+    let moved = open.drawn_scene().unwrap().object(4).unwrap().rect.unwrap();
+    assert_eq!(
+        moved.x,
+        sign_was.x + 40.0 * open.drawn_scene().unwrap().scale
+    );
+    let after_sign = studio.play().unwrap().picture.clone().unwrap();
+    assert_eq!(after_sign.frame, frozen.frame, "still the same frame");
+    assert_ne!(
+        after_sign.pixels, frozen.pixels,
+        "the sign shows in its new place"
+    );
+    assert!(!open.level_needs_restart);
+
+    // The duck, for this run only: the file is left alone.
+    assert_eq!(
+        run(
+            &mut studio,
+            serde_json::json!({"do": "object.move_now", "id": 9, "to": [200, 208]})
+        ),
+        "Move duck for this run"
+    );
+    settle(&mut studio);
+    assert_eq!(std::fs::read_to_string(&scene_file).unwrap(), text);
+    let open = studio.open.as_ref().unwrap();
+    let duck = open.drawn_scene().unwrap().object(9).unwrap().clone();
+    assert_eq!(duck.now["at"], serde_json::json!([200, 208]));
+    assert_eq!(
+        duck.start_rect,
+        Some(duck_started),
+        "it still starts where it did"
+    );
+    assert!(duck.rect.unwrap().x > duck_was.x);
+
+    // "As it starts" draws the scene as the file has it; the game is
+    // untouched.
+    run(
+        &mut studio,
+        serde_json::json!({"do": "view.show", "what": "start"}),
+    );
+    settle(&mut studio);
+    let open = studio.open.as_ref().unwrap();
+    assert_eq!(open.view.show, Show::Start);
+    let starts = open.drawn_scene().unwrap();
+    assert!(starts.as_it_starts);
+    assert_eq!(
+        starts.object(9).unwrap().rect.map(|r| r.w),
+        Some(duck_started.w)
+    );
+    assert!(starts.object(9).unwrap().now.is_empty());
+    let problem = studio
+        .run(
+            serde_json::from_value(
+                serde_json::json!({"do": "object.move_now", "id": 9, "to": [8, 8]}),
+            )
+            .unwrap(),
+        )
+        .unwrap_err();
+    assert!(problem.what.contains("as it starts"), "{problem:?}");
+    studio.problem = None;
+    run(
+        &mut studio,
+        serde_json::json!({"do": "view.show", "what": "frozen"}),
+    );
+    settle(&mut studio);
+
+    // Undo: the duck goes back, then the sign.
+    assert_eq!(
+        say(&mut studio, Step::Do(Command::EditUndo)),
+        "Undid: Move duck for this run"
+    );
+    settle(&mut studio);
+    let open = studio.open.as_ref().unwrap();
+    assert_eq!(
+        open.drawn_scene().unwrap().object(9).unwrap().rect,
+        Some(duck_was)
+    );
+    assert_eq!(
+        say(&mut studio, Step::Do(Command::EditUndo)),
+        "Undid: Move sign"
+    );
+    settle(&mut studio);
+    let back = studio.play().unwrap().picture.clone().unwrap();
+    assert!(
+        back.pixels == frozen.pixels,
+        "everything is as it was frozen"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&scene_file)
+            .unwrap()
+            .replace("\r\n", "\n"),
+        _put_back.text.replace("\r\n", "\n")
+    );
+
+    // Redo both, make the duck's new place its start, and play on.
+    say(&mut studio, Step::Do(Command::EditRedo));
+    say(&mut studio, Step::Do(Command::EditRedo));
+    settle(&mut studio);
+    assert_eq!(
+        run(
+            &mut studio,
+            serde_json::json!({"do": "object.start_here", "ids": [9]})
+        ),
+        "Start duck here"
+    );
+    settle(&mut studio);
+    let text = std::fs::read_to_string(&scene_file).unwrap();
+    assert!(
+        text.contains(r#"{"id": 9, "name": "duck", "at": [200, 208]"#),
+        "{text}"
+    );
+    let open = studio.open.as_ref().unwrap();
+    let duck = open.drawn_scene().unwrap().object(9).unwrap();
+    assert!(
+        duck.start_rect.is_none() && !duck.now.contains_key("at"),
+        "it is where it starts: {:?}",
+        duck.now
+    );
+
+    say(&mut studio, Step::Do(Command::GameToggle));
+    say(&mut studio, press("Right"));
+    say(&mut studio, Step::Wait(Wait::Frames { frames: 30 }));
+    say(&mut studio, release("Right"));
+    say(&mut studio, Step::Do(Command::GameFreeze));
+    settle(&mut studio);
+    assert!(
+        studio
+            .open
+            .as_ref()
+            .unwrap()
+            .undo
+            .steps()
+            .iter()
+            .all(|step| step.now.is_empty()),
+        "the game has played on: a move for that moment can't be undone any more"
+    );
+    let last = studio.play().unwrap().picture.clone().unwrap();
+    say(&mut studio, Step::Do(Command::GameStop));
+    let session = studio.open.as_ref().unwrap().last_session.clone().unwrap();
+
+    // The file goes back as it was before the replay, which must not
+    // need it: the session has the scene and every change on its frame.
+    std::fs::write(&scene_file, &_put_back.text).unwrap();
+    let replays = TestFolder::new("replay-objects");
+    let out = replays.join("out");
+    let replay = std::process::Command::new("cargo")
+        .args([
+            "run",
+            "-q",
+            "--no-default-features",
+            "--example",
+            "scene_demo",
+            "--",
+        ])
+        .args(["--headless", "--inputs"])
+        .arg(&session)
+        .arg("--out")
+        .arg(&out)
+        .current_dir(duck_forge())
+        .output()
+        .unwrap();
+    let said = String::from_utf8_lossy(&replay.stdout);
+    assert!(
+        replay.status.success(),
+        "{said}{}",
+        String::from_utf8_lossy(&replay.stderr)
+    );
+    let (_, _, pixels) = png_pixels(&out.join("last.png"));
+    assert!(
+        pixels == last.pixels,
+        "the replay ends on the session's last picture"
+    );
+}

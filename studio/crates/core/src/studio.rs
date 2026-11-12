@@ -99,6 +99,8 @@ fn count(n: usize, what: &str) -> String {
     }
 }
 
+mod objects;
+
 /// Everything the Studio can be asked to do. In a script file each is a
 /// JSON object whose `"do"` is the command's name:
 /// `{"do": "game.open", "name": "duck_peaks"}`.
@@ -316,6 +318,84 @@ pub enum Command {
     /// Move a file or folder to the Recycle Bin.
     #[serde(rename = "files.delete")]
     FilesDelete { path: String },
+    /// Change objects of the scene, by their keys as the scene file has
+    /// them: `{"do": "object.set", "ids": [7], "set": {"layer": "front"}}`.
+    /// It changes the file (how the scene starts); the game takes it at
+    /// once. A key set to `null` goes back to its usual value. Changes
+    /// with the same `stroke` (one drag) are one step for Undo.
+    #[serde(rename = "object.set")]
+    ObjectSet {
+        ids: Vec<u64>,
+        set: serde_json::Map<String, serde_json::Value>,
+        #[serde(default)]
+        stroke: Option<u64>,
+    },
+    /// Move where objects start: `by` so many pixels, or the first one
+    /// `to` a place with the others along.
+    #[serde(rename = "object.move")]
+    ObjectMove {
+        ids: Vec<u64>,
+        #[serde(default)]
+        by: Option<[f32; 2]>,
+        #[serde(default)]
+        to: Option<[f32; 2]>,
+        #[serde(default)]
+        stroke: Option<u64>,
+    },
+    /// Give an object a name (an empty one takes its name away).
+    #[serde(rename = "object.rename")]
+    ObjectRename { id: u64, name: String },
+    /// Change an object as it is on the frozen frame, for this run only:
+    /// its file is left alone, so the next run starts as before.
+    #[serde(rename = "object.set_now")]
+    ObjectSetNow {
+        id: u64,
+        set: serde_json::Map<String, serde_json::Value>,
+        #[serde(default)]
+        stroke: Option<u64>,
+    },
+    /// Move an object on the frozen frame, for this run only.
+    #[serde(rename = "object.move_now")]
+    ObjectMoveNow {
+        id: u64,
+        to: [f32; 2],
+        #[serde(default)]
+        stroke: Option<u64>,
+    },
+    /// Where each object is right now becomes where it starts.
+    #[serde(rename = "object.start_here")]
+    ObjectStartHere { ids: Vec<u64> },
+    /// Each object goes back to where it starts, on the frozen frame.
+    #[serde(rename = "object.back_to_start")]
+    ObjectBackToStart { ids: Vec<u64> },
+    /// Select these objects (and no others).
+    #[serde(rename = "select.set")]
+    SelectSet { ids: Vec<u64> },
+    /// Select these objects too.
+    #[serde(rename = "select.add")]
+    SelectAdd { ids: Vec<u64> },
+    /// Select every object that can be dragged.
+    #[serde(rename = "select.all")]
+    SelectAll,
+    #[serde(rename = "select.none")]
+    SelectNone,
+    /// The view's tool: `select` or `move`.
+    #[serde(rename = "view.tool")]
+    ViewTool { tool: crate::scene_edit::Tool },
+    /// Snap dragged objects to the grid, and how big its squares are.
+    #[serde(rename = "view.snap")]
+    ViewSnap {
+        on: bool,
+        #[serde(default)]
+        step: Option<f32>,
+    },
+    /// Show or hide the grid.
+    #[serde(rename = "view.grid")]
+    ViewGrid { on: bool },
+    /// What a frozen picture shows: `frozen` (the game as it is) or
+    /// `start` (the scene as its file has it).
+    #[serde(rename = "view.show")]
+    ViewShow { what: crate::scene_edit::Show },
 }
 
 /// One command, for lists of what the Studio can do (the Console's help
@@ -594,6 +674,81 @@ pub const COMMANDS: &[CommandInfo] = &[
         title: "Move a file or folder to the Recycle Bin",
         needs: "path: like assets/old.png (not main.rs)",
     },
+    CommandInfo {
+        name: "object.set",
+        title: "Change objects of the scene",
+        needs: "ids: like [7]; set: keys as the scene file has them, like {\"layer\": \"front\"}",
+    },
+    CommandInfo {
+        name: "object.move",
+        title: "Move where objects start",
+        needs: "ids: like [7]; by: like [8, 0], or to: like [96, 208]",
+    },
+    CommandInfo {
+        name: "object.rename",
+        title: "Name an object",
+        needs: "id: like 7; name: like snail",
+    },
+    CommandInfo {
+        name: "object.set_now",
+        title: "Change an object for this run only",
+        needs: "id: like 7; set: keys, like {\"at\": [96, 208]}",
+    },
+    CommandInfo {
+        name: "object.move_now",
+        title: "Move an object for this run only",
+        needs: "id: like 7; to: like [96, 208]",
+    },
+    CommandInfo {
+        name: "object.start_here",
+        title: "Start objects where they are now",
+        needs: "ids: like [7]",
+    },
+    CommandInfo {
+        name: "object.back_to_start",
+        title: "Put objects back where they start",
+        needs: "ids: like [7]",
+    },
+    CommandInfo {
+        name: "select.set",
+        title: "Select objects",
+        needs: "ids: like [7, 9]",
+    },
+    CommandInfo {
+        name: "select.add",
+        title: "Select objects too",
+        needs: "ids: like [4]",
+    },
+    CommandInfo {
+        name: "select.all",
+        title: "Select every object",
+        needs: "",
+    },
+    CommandInfo {
+        name: "select.none",
+        title: "Select nothing",
+        needs: "",
+    },
+    CommandInfo {
+        name: "view.tool",
+        title: "Pick the view's tool",
+        needs: "tool: select or move",
+    },
+    CommandInfo {
+        name: "view.snap",
+        title: "Snap to the grid",
+        needs: "on: true or false; step: the squares' size, like 8",
+    },
+    CommandInfo {
+        name: "view.grid",
+        title: "Show the grid",
+        needs: "on: true or false",
+    },
+    CommandInfo {
+        name: "view.show",
+        title: "Show the frozen moment, or the scene as it starts",
+        needs: "what: frozen or start",
+    },
 ];
 
 /// Which screen is showing.
@@ -699,6 +854,15 @@ pub struct OpenGame {
     /// The game's scene files as last seen, to notice one changed outside
     /// the Studio (in an editor, or by an agent).
     scenes_seen: std::collections::BTreeMap<PathBuf, String>,
+    /// The scene the editor shows: the one the frozen game is in, or the
+    /// game's first. `None` for a game with no scene files.
+    pub scene: Option<crate::scene_edit::SceneDoc>,
+    /// The selected objects, by id, in the order they were picked.
+    pub selected: Vec<u64>,
+    /// The view's tool, snapping, grid, and what it shows.
+    pub view: crate::scene_edit::SceneView,
+    /// The frame the game was on when last looked at.
+    frame_seen: Option<u64>,
     /// Goes up when the level's pictures change, so the app draws its
     /// palette again.
     pub art_version: u64,
@@ -1242,6 +1406,10 @@ impl Studio {
                     sound_recipe: None,
                     assets_seen: assets_now(game_folder.as_deref()),
                     scenes_seen: scenes_now(game_folder.as_deref()),
+                    scene: None,
+                    selected: Vec::new(),
+                    view: crate::scene_edit::SceneView::default(),
+                    frame_seen: None,
                     art_version: 0,
                     files_selected: None,
                     thumbnail_looked: false,
@@ -1567,6 +1735,7 @@ impl Studio {
                     title: format!("Went back to: {title}"),
                     files,
                     stroke: None,
+                    now: Vec::new(),
                 });
                 self.send_level();
                 self.take_in_tune_file(None);
@@ -1575,6 +1744,30 @@ impl Studio {
                     changed.len()
                 ))
             }
+            Command::ObjectSet { ids, set, stroke } => self.object_set(ids, set, stroke),
+            Command::ObjectMove {
+                ids,
+                by,
+                to,
+                stroke,
+            } => self.object_move(ids, by, to, stroke),
+            Command::ObjectRename { id, name } => self.object_rename(id, name),
+            Command::ObjectSetNow { id, set, stroke } => self.object_set_now(id, set, stroke),
+            Command::ObjectMoveNow { id, to, stroke } => {
+                let at = crate::scene_edit::pair(duckforge::prelude::Vec2::new(to[0], to[1]));
+                let set = serde_json::Map::from_iter([(String::from("at"), at)]);
+                self.object_set_now(id, set, stroke)
+            }
+            Command::ObjectStartHere { ids } => self.object_start_here(ids),
+            Command::ObjectBackToStart { ids } => self.object_back_to_start(ids),
+            Command::SelectSet { ids } => self.select(ids, false),
+            Command::SelectAdd { ids } => self.select(ids, true),
+            Command::SelectAll => self.select_all(),
+            Command::SelectNone => self.select(Vec::new(), false),
+            Command::ViewTool { tool } => self.view_tool(tool),
+            Command::ViewSnap { on, step } => self.view_snap(on, step),
+            Command::ViewGrid { on } => self.view_grid(on),
+            Command::ViewShow { what } => self.view_show(what),
             Command::EditUndo => {
                 let step = self.open_game()?.undo.undo().ok_or_else(|| {
                     Problem::new(
@@ -1583,6 +1776,7 @@ impl Studio {
                     )
                 })?;
                 self.apply_files(&step, true)?;
+                self.apply_now(&step, true);
                 Ok(format!("Undid: {}", step.title))
             }
             Command::EditRedo => {
@@ -1590,6 +1784,7 @@ impl Studio {
                     Problem::new("There's nothing to redo.", "Undo something first.")
                 })?;
                 self.apply_files(&step, false)?;
+                self.apply_now(&step, false);
                 Ok(format!("Redid: {}", step.title))
             }
             Command::GameInput { event } => {
@@ -1753,6 +1948,7 @@ impl Studio {
                 after,
             }],
             stroke,
+            now: Vec::new(),
         });
         open.edited_since_snapshot = true;
         Ok(title)
@@ -1806,6 +2002,7 @@ impl Studio {
                     after: text,
                 }],
                 stroke: None,
+                now: Vec::new(),
             });
             open.edited_since_snapshot = true;
         }
@@ -1892,6 +2089,7 @@ impl Studio {
                 after: level.on_disk().to_string(),
             }],
             stroke,
+            now: Vec::new(),
         };
         let open = self.open_game()?;
         open.undo.push(step);
@@ -2187,6 +2385,8 @@ impl Studio {
                 }
             }
         }
+        self.refresh_scene();
+        self.forget_moves_of_a_moment_gone();
     }
 
     fn take_job_event(&mut self, job: JobId, event: &JobEvent) {
@@ -2440,6 +2640,7 @@ impl Studio {
                         after: text.clone(),
                     }],
                     stroke: None,
+                    now: Vec::new(),
                 });
                 open.edited_since_snapshot = true;
                 if let (Some(play), Some(root)) = (&mut open.play, &root) {
@@ -2459,6 +2660,7 @@ impl Studio {
                         after: level.on_disk().to_string(),
                     }],
                     stroke: None,
+                    now: Vec::new(),
                 });
                 open.level_unsent = true;
                 self.send_level();
@@ -2648,6 +2850,21 @@ mod tests {
             r#"{"do": "files.new_folder", "path": "assets/music"}"#,
             r#"{"do": "files.rename", "path": "assets/duck.png", "to": "hero.png"}"#,
             r#"{"do": "files.delete", "path": "assets/old.png"}"#,
+            r#"{"do": "object.set", "ids": [7], "set": {"layer": "front", "speed": 60}}"#,
+            r#"{"do": "object.move", "ids": [7, 9], "by": [8, 0]}"#,
+            r#"{"do": "object.rename", "id": 7, "name": "snail"}"#,
+            r#"{"do": "object.set_now", "id": 7, "set": {"flip": true}}"#,
+            r#"{"do": "object.move_now", "id": 9, "to": [96, 208], "stroke": 3}"#,
+            r#"{"do": "object.start_here", "ids": [9]}"#,
+            r#"{"do": "object.back_to_start", "ids": [9]}"#,
+            r#"{"do": "select.set", "ids": [7, 9]}"#,
+            r#"{"do": "select.add", "ids": [4]}"#,
+            r#"{"do": "select.all"}"#,
+            r#"{"do": "select.none"}"#,
+            r#"{"do": "view.tool", "tool": "move"}"#,
+            r#"{"do": "view.snap", "on": true, "step": 16}"#,
+            r#"{"do": "view.grid", "on": false}"#,
+            r#"{"do": "view.show", "what": "start"}"#,
         ];
         let mut names = Vec::new();
         for text in written {

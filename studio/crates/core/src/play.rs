@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 
 use duckforge::prelude::{Key, MouseButton};
 use duckforge::script::{Change, ChangeEvent};
-use duckforge::studio_link::protocol::{DrawnMap, GIVE_FILES_VARIABLE};
+use duckforge::studio_link::protocol::{DrawnMap, DrawnScene, GIVE_FILES_VARIABLE};
 use duckforge::studio_link::protocol::{
     Frame, Hello, KEY_VARIABLE, LINK_VERSION, ToGame, ToStudio,
 };
@@ -235,6 +235,18 @@ pub struct Play {
     debug_overlay: bool,
     /// Where tile maps were drawn on the latest picture.
     pub maps: Vec<DrawnMap>,
+    /// The scenes on the latest picture, object by object. Only a frozen
+    /// picture has them: while the game plays, this is empty.
+    pub scenes: Vec<DrawnScene>,
+    /// Frozen pictures show scenes as their files have them, not as the
+    /// game has them now.
+    pub as_it_starts: bool,
+    /// The latest picture was drawn for a frozen game (a tick with no
+    /// updates), so it says where the scene's objects are.
+    frozen_picture: bool,
+    /// Something changed while a tick was on its way: a frozen game draws
+    /// its picture once more when that tick has landed.
+    redraw_wanted: bool,
     /// Files and tune values changed so far, by frame: the session's
     /// recording has them too.
     changes: Vec<ChangeEvent>,
@@ -344,6 +356,10 @@ impl Play {
             then,
             debug_overlay: false,
             maps: Vec::new(),
+            scenes: Vec::new(),
+            as_it_starts: false,
+            frozen_picture: false,
+            redraw_wanted: false,
             changes: Vec::new(),
             files_at_start: given.unwrap_or_default(),
             file_answers: Vec::new(),
@@ -407,8 +423,61 @@ impl Play {
                 text: text.to_string(),
             },
         });
-        if self.state == PlayState::Frozen {
-            self.step(0, &[]);
+        self.redraw();
+    }
+
+    /// An object of a scene changes as it is now, in this run only: its
+    /// scene file stays as it is, so the next run starts where it always
+    /// did. `set` has the keys to change, as the scene file would write
+    /// them. Kept in the session's recording.
+    pub fn send_object(
+        &mut self,
+        file: &str,
+        id: u64,
+        set: serde_json::Map<String, serde_json::Value>,
+    ) {
+        if self.hello.is_none() || !self.is_running() {
+            return;
+        }
+        self.send(&ToGame::Object {
+            file: file.to_string(),
+            id,
+            set: set.clone(),
+        });
+        self.changes.push(ChangeEvent {
+            frame: self.frame + 1,
+            change: Change::Object {
+                file: file.to_string(),
+                id,
+                set,
+            },
+        });
+        self.redraw();
+    }
+
+    /// Frozen pictures show scenes as their files have them ("As it
+    /// starts"), or as the game has them now. Nothing in the game changes.
+    pub fn show_as_it_starts(&mut self, on: bool) {
+        if self.as_it_starts == on {
+            return;
+        }
+        self.as_it_starts = on;
+        if self.hello.is_some() && self.is_running() {
+            self.send(&ToGame::Show { as_it_starts: on });
+            self.redraw();
+        }
+    }
+
+    /// A frozen game draws its picture again, now or as soon as the tick
+    /// on its way has landed.
+    fn redraw(&mut self) {
+        if self.state != PlayState::Frozen {
+            return;
+        }
+        if self.waiting.is_some() {
+            self.redraw_wanted = true;
+        } else {
+            self.send_tick(0, Instant::now());
         }
     }
 
@@ -424,9 +493,7 @@ impl Play {
             frame: self.frame + 1,
             change: Change::Tune(values),
         });
-        if self.state == PlayState::Frozen {
-            self.step(0, &[]);
-        }
+        self.redraw();
     }
 
     /// The game's answers about changed files since this was last asked:
@@ -441,9 +508,7 @@ impl Play {
         self.debug_overlay = on;
         if self.hello.is_some() {
             self.send(&ToGame::Overlay { debug: on });
-            if self.state == PlayState::Frozen {
-                self.step(0, &[]);
-            }
+            self.redraw();
         }
     }
 
@@ -469,7 +534,22 @@ impl Play {
             };
             new_picture |= self.take(heard, console);
         }
+        self.keep_the_frozen_picture_fresh();
         new_picture
+    }
+
+    /// A frozen game's picture is one drawn while frozen: it's the one
+    /// that says where the scene's objects are, and it has every change
+    /// made since.
+    fn keep_the_frozen_picture_fresh(&mut self) {
+        if self.state == PlayState::Frozen
+            && self.waiting.is_none()
+            && self.hello.is_some()
+            && self.picture.is_some()
+            && (self.redraw_wanted || !self.frozen_picture)
+        {
+            self.send_tick(0, Instant::now());
+        }
     }
 
     /// Waits up to `patience` for the picture of the tick just sent. If it
@@ -558,6 +638,9 @@ impl Play {
             .collect();
         let id = self.next_id;
         self.next_id += 1;
+        if updates == 0 {
+            self.redraw_wanted = false;
+        }
         self.events.extend(events.iter().copied());
         self.send(&ToGame::Tick {
             id,
@@ -987,6 +1070,8 @@ impl Play {
         if let Some(waiting) = self.waiting.filter(|waiting| waiting.id == frame.tick) {
             self.waiting = None;
             self.not_answering = false;
+            // (A replay's catching-up picture has played frames.)
+            self.frozen_picture = waiting.updates == 0 && self.state != PlayState::Replaying;
             if self.state == PlayState::Replaying {
                 self.state = PlayState::Frozen; // caught up: wait here
             } else {
@@ -1012,6 +1097,7 @@ impl Play {
         self.wants_pointer = frame.wants_pointer;
         self.renderer = frame.renderer;
         self.maps = frame.maps;
+        self.scenes = frame.scenes;
         self.serial += 1;
         self.picture = Some(Picture {
             width: frame.width,

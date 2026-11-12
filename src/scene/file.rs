@@ -86,6 +86,8 @@ pub struct SceneFile {
     other: BTreeMap<String, Value>,
     /// The line of the text each object starts on, beside `objects`.
     lines: Vec<Option<usize>>,
+    /// The text didn't say `"duckforge_scene"` (the first of `problems`).
+    no_version: bool,
     /// How many objects had no id of their own in the text.
     pub ids_missing: usize,
     /// What's wrong with it. The scene is still read: each problem's key
@@ -114,6 +116,7 @@ impl SceneFile {
             });
         };
         let mut problems = Vec::new();
+        let mut no_version = false;
         let mut say = |line: Option<usize>, text: String| problems.push(Problem { line, text });
         match top.get("duckforge_scene").map(Value::as_u64) {
             Some(Some(version)) if version > SCENE_FILE_VERSION => {
@@ -127,13 +130,16 @@ impl SceneFile {
                 });
             }
             Some(Some(1..)) => {}
-            _ => say(
-                None,
-                format!(
-                    "it should start with \"duckforge_scene\": {SCENE_FILE_VERSION}; \
-                     it's read as a scene anyway"
-                ),
-            ),
+            _ => {
+                no_version = true;
+                say(
+                    None,
+                    format!(
+                        "it should start with \"duckforge_scene\": {SCENE_FILE_VERSION}; \
+                         it's read as a scene anyway"
+                    ),
+                );
+            }
         }
 
         let mut scene = SceneFile {
@@ -146,6 +152,7 @@ impl SceneFile {
             rules: Vec::new(),
             other: BTreeMap::new(),
             lines: Vec::new(),
+            no_version,
             ids_missing: 0,
             problems: Vec::new(),
         };
@@ -412,6 +419,44 @@ impl SceneFile {
     pub fn line_of(&self, id: Id) -> Option<usize> {
         let index = self.objects.iter().position(|object| object.id == id)?;
         self.lines.get(index).copied().flatten()
+    }
+
+    /// Sets keys of the object with this id, as the file writes them:
+    /// `{"at": [96, 208], "layer": "front"}`. A key set to `null` goes
+    /// back to its usual value (one of the object's own settings is taken
+    /// out). If a value is wrong, `Err` says so in plain words and nothing
+    /// is changed. (The Studio's Inspector changes scenes with this.)
+    pub fn set(&mut self, id: Id, set: &Map<String, Value>) -> Result<(), String> {
+        let Some(index) = self.objects.iter().position(|object| object.id == id) else {
+            return Err(format!("The scene has no object with id {id}"));
+        };
+        let mut line = self.objects[index].to_json(false);
+        for (key, value) in set {
+            if key == "id" {
+                continue;
+            }
+            if value.is_null() {
+                line.remove(key);
+            } else {
+                line.insert(key.clone(), value.clone());
+            }
+        }
+        let mut wrong = Vec::new();
+        let mut changed = Object::from_json(&line, &mut wrong);
+        if let Some(first) = wrong.first() {
+            return Err(first.clone());
+        }
+        changed.id = id;
+        self.objects[index] = changed;
+        Ok(())
+    }
+
+    /// The first mistake that writing the file again would lose: a key
+    /// or an object that couldn't be read is left out when it's written.
+    /// (A missing `"duckforge_scene"` isn't one: writing puts it in.)
+    /// Tools that change scenes ask this before they write.
+    pub fn would_be_lost(&self) -> Option<&Problem> {
+        self.problems.get(usize::from(self.no_version))
     }
 
     /// An id no object of the file has: one more than the highest.

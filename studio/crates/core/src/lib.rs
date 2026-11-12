@@ -33,6 +33,7 @@ pub mod my_games;
 pub mod play;
 pub mod problem;
 pub mod recycle;
+pub mod scene_edit;
 pub mod script;
 pub mod settings;
 pub mod studio;

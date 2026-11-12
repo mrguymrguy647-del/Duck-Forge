@@ -347,9 +347,14 @@ impl Object {
         self.settings.insert(name.to_string(), value);
     }
 
+    /// One of its own settings as the file has it, whatever it is.
+    pub fn setting(&self, name: &str) -> Option<&Value> {
+        self.settings.get(name)
+    }
+
     /// Its line, as the scene file has it. With `every_key`, the keys that
     /// say nothing new (a turn of 0, shown) are written too.
-    pub(crate) fn to_json(&self, every_key: bool) -> Map<String, Value> {
+    pub fn to_json(&self, every_key: bool) -> Map<String, Value> {
         let usual = Object::new(&self.kind);
         let mut line = Map::new();
         let mut put = |key: &str, value: Value, differs: bool| {

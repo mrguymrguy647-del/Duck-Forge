@@ -18,13 +18,27 @@ pub struct FileEdit {
     pub after: String,
 }
 
-/// One step for Undo: what it was, in a few words, and the files it changed.
+/// One object of a scene changed as it is now, in this run of the game
+/// only (its file stays as it is): the keys' values before and after.
 #[derive(Debug, Clone, PartialEq)]
+pub struct NowEdit {
+    /// The scene file's name, as the game names it.
+    pub file: String,
+    pub id: u64,
+    pub before: serde_json::Map<String, serde_json::Value>,
+    pub after: serde_json::Map<String, serde_json::Value>,
+}
+
+/// One step for Undo: what it was, in a few words, and the files it changed.
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Step {
     pub title: String,
     pub files: Vec<FileEdit>,
     /// Edits with the same stroke (one press of the mouse) join one step.
     pub stroke: Option<u64>,
+    /// Objects changed for this run only. They can be undone until the
+    /// game plays on; after that there's nothing to put back.
+    pub now: Vec<NowEdit>,
 }
 
 /// The steps that can be undone, and the ones undone that can be redone.
@@ -42,7 +56,9 @@ impl Undo {
     /// files keep their first "before"). Anything undone can't be redone
     /// after a new step.
     pub fn push(&mut self, step: Step) {
-        if step.files.iter().all(|edit| edit.before == edit.after) {
+        if step.files.iter().all(|edit| edit.before == edit.after)
+            && step.now.iter().all(|edit| edit.before == edit.after)
+        {
             return;
         }
         self.undone.clear();
@@ -53,6 +69,21 @@ impl Undo {
                 match last.files.iter_mut().find(|e| e.path == edit.path) {
                     Some(earlier) => earlier.after = edit.after,
                     None => last.files.push(edit),
+                }
+            }
+            for edit in step.now {
+                match last
+                    .now
+                    .iter_mut()
+                    .find(|e| e.file == edit.file && e.id == edit.id)
+                {
+                    Some(earlier) => {
+                        for (key, value) in edit.before {
+                            earlier.before.entry(key).or_insert(value);
+                        }
+                        earlier.after.extend(edit.after);
+                    }
+                    None => last.now.push(edit),
                 }
             }
             last.title = step.title;
@@ -76,6 +107,17 @@ impl Undo {
         let step = self.undone.pop()?;
         self.done.push(step.clone());
         Some(step)
+    }
+
+    /// The game has played on: what was changed for that moment only
+    /// can't be put back any more. Steps that were nothing else go.
+    pub fn forget_now(&mut self) {
+        for steps in [&mut self.done, &mut self.undone] {
+            for step in steps.iter_mut() {
+                step.now.clear();
+            }
+            steps.retain(|step| !step.files.is_empty());
+        }
     }
 
     /// What Undo would undo, and Redo redo, in words.
@@ -106,7 +148,43 @@ mod tests {
                 after: after.to_string(),
             }],
             stroke,
+            now: Vec::new(),
         }
+    }
+
+    fn moved(id: u64, from: i64, to: i64, stroke: Option<u64>) -> Step {
+        let at = |x: i64| {
+            serde_json::Map::from_iter([(String::from("at"), serde_json::json!([x, 208]))])
+        };
+        Step {
+            title: String::from("Move the duck for this run"),
+            stroke,
+            now: vec![NowEdit {
+                file: String::from("scenes/pond.json"),
+                id,
+                before: at(from),
+                after: at(to),
+            }],
+            ..Step::default()
+        }
+    }
+
+    #[test]
+    fn a_move_for_this_run_is_a_step_until_the_game_plays_on() {
+        let mut undo = Undo::default();
+        undo.push(step("Paint", "a", "b", None));
+        undo.push(moved(9, 40, 48, Some(7)));
+        undo.push(moved(9, 48, 64, Some(7)));
+        assert_eq!(undo.steps().len(), 2, "one drag is one step");
+        let drag = &undo.steps()[1].now[0];
+        assert_eq!(drag.before["at"], serde_json::json!([40, 208]));
+        assert_eq!(drag.after["at"], serde_json::json!([64, 208]));
+        undo.push(moved(9, 64, 64, None));
+        assert_eq!(undo.steps().len(), 2, "a move to the same place is nothing");
+
+        undo.forget_now();
+        assert_eq!(undo.steps().len(), 1);
+        assert_eq!(undo.next_undo(), Some("Paint"));
     }
 
     #[test]

@@ -727,3 +727,30 @@ fn a_frozen_picture_says_where_every_object_is_and_where_it_starts() {
     );
     crate::files::forget_given();
 }
+
+#[test]
+fn a_scene_files_object_changes_by_its_keys_or_says_whats_wrong() {
+    let mut file = SceneFile::parse(
+        r#"{"objects": [
+  {"id": 3, "name": "snail", "kind": "patrol", "at": [40, 208], "speed": 30, "turn": 10}
+]}"#,
+    )
+    .unwrap();
+    let set = |text: &str| serde_json::from_str::<serde_json::Map<_, _>>(text).unwrap();
+    file.set(
+        Id(3),
+        &set(r#"{"at": [96, 200], "speed": 60, "layer": "front", "turn": null}"#),
+    )
+    .unwrap();
+    let snail = file.object(Id(3)).unwrap();
+    assert_eq!(snail.at, Vec2::new(96.0, 200.0));
+    assert_eq!(snail.number("speed"), Some(60.0));
+    assert_eq!(snail.layer, "front");
+    assert_eq!(snail.turn, 0.0);
+    assert_eq!(snail.id(), Id(3), "its id is its own, whatever is set");
+
+    let wrong = file.set(Id(3), &set(r#"{"at": "left"}"#)).unwrap_err();
+    assert!(wrong.contains("\"at\""), "{wrong}");
+    assert_eq!(file.object(Id(3)).unwrap().at, Vec2::new(96.0, 200.0));
+    assert!(file.set(Id(9), &set("{}")).unwrap_err().contains("id 9"));
+}
