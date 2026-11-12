@@ -1079,6 +1079,43 @@ mod tests {
         assert!(share < 0.02, "{:.1}% of pixels differ", share * 100.0);
     }
 
+    #[test]
+    fn a_model_from_duck_mold_on_the_gpu_matches_the_cpu() {
+        // A loaded model is an ordinary mesh: the GPU must draw it as the
+        // CPU does, with its colours and lit by a coloured sun.
+        let Some(mut gpu) = gpu_canvas(160, 120) else {
+            return;
+        };
+        let robot =
+            crate::glb::read_duck_mold_glb(include_bytes!("../tests/fixtures/duck_mold/robot.glb"))
+                .unwrap()
+                .to_mesh();
+        let mut cpu = Canvas::new(160, 120);
+        for canvas in [&mut gpu, &mut cpu] {
+            canvas.clear(Color::from_hex(0x20_30_40));
+            canvas.set_lighting(crate::render3d::Lighting {
+                sun_direction: vec3(-0.4, 1.0, 0.8),
+                sun_color: Color::from_hex(0xfff0d8),
+                sun_strength: 1.0,
+                ambient: 0.45,
+            });
+            let camera = Camera3D::looking_at(vec3(0.8, 1.4, 2.6), vec3(0.0, 0.9, 0.0));
+            let turned = Transform::at(Vec3::ZERO).rotated(vec3(0.0, 0.5, 0.0));
+            canvas.draw_mesh(&robot, &turned, &camera);
+        }
+        gpu.flush_3d();
+        let share = share_different(&gpu, &cpu);
+        assert!(share < 0.02, "{:.1}% of pixels differ", share * 100.0);
+        // And it was drawn: the robot covers a good part of the picture.
+        let background = Color::from_hex(0x20_30_40);
+        let covered = gpu
+            .pixels()
+            .iter()
+            .filter(|&&p| Color::from_hex(p) != background)
+            .count();
+        assert!(covered > 1500, "{covered} pixels");
+    }
+
     /// How many pixels of two pictures differ by more than 3 in any colour,
     /// as a share of all of them.
     fn share_different(a: &Canvas, b: &Canvas) -> f32 {
