@@ -689,7 +689,8 @@ isn't in this phase.
 **3D models are glTF 2.0, as one `.glb` file, made with Duck Mold**
 (the tool this plan first called Modular 3D). The engine already reads
 them: `Mesh::load_glb(path)`, built on the `claude/duck-mold-models`
-branch and merged into Phase 5 at step 2. So Phase 5b doesn't build a
+branch and merged into Phase 5 at step 2, with the sockets that were
+added to it since (both are in `main` now). So Phase 5b doesn't build a
 reader; it uses this one.
 
 What the plan asked a reader for, beside what the one that's built
@@ -700,7 +701,7 @@ does:
 | Which files | Any `.glb` that keeps to a stated part of glTF | Only `.glb` files written by Duck Mold (`duck-mold export`): they say so inside (`extras.duck_mold`, version 0). Any other file is refused with one sentence saying why, and so is a damaged one: no crash | Models from other tools (Blender). Only worth doing if you want them |
 | Shapes | Triangles with positions, normals, texture points, vertex colours | One mesh, one list of triangles: the corner points and one colour for each triangle. Corners in the same place are shared, so a box has 8. The engine lights flat faces itself, so it needs no normals | Texture points; lines and points |
 | Looks | A base colour and one picture, glow, see-through | The model's palette colours, exactly as the recipe has them (they're stored as linear light and turned back to the same 0 to 255) | Pictures on models, glow, see-through |
-| Parts | A tree of named parts, each with a position, a turn and a size | Parts, and parts made of parts ("assemblies": `left_arm`, with `left_arm/hand` inside it), each as a named run of the model's triangles: enough to recolour one. `GlbModel::load` gives them, with the model's name and its palette by name | Parts that keep a position and a turn of their own. Today a model is one solid mesh, so a part can't be moved by itself |
+| Parts | A tree of named parts, each with a position, a turn and a size | Parts, and parts made of parts ("assemblies": `left_arm`, with `left_arm/hand` inside it), each as a named run of the model's triangles: enough to recolour one. `GlbModel::load` gives them, with the model's name and its palette by name. It also gives the model's **sockets**: named points, each facing a way, where its recipe joined its parts (`model.socket("head.top")`), so a game can put a hat on the robot's head and keep it there as the robot moves and turns | Parts that keep a position and a turn of their own. Today a model is one solid mesh, so a part can't be moved by itself |
 | Animation | Named clips that move parts; limbs as rigid parts first | None | All of it. It needs the row above first, in Duck Mold and then here |
 | Duck Forge's own | `extras.duckforge`: a collision box and where the feet are | Not needed: a Duck Mold model stands on y = 0 and faces forward (+z), so its feet are at its own zero point, and its box is `mesh.bounds()`. What Duck Mold adds is under `extras.duck_mold` | |
 | Directions | Turned from glTF's to the engine's by the loader | Done: x is mirrored and each triangle's corners reordered, so left stays left and faces stay facing out. 1 unit is 1 block, about a metre | |
@@ -710,13 +711,15 @@ Three things to know about it:
 - The reader's code is Duck Mold's own, copied byte for byte between two
   marker lines in `src/glb.rs`, so both projects read a file the same
   way. A change is made in Duck Mold first, then copied here.
-- Its tests load Duck Mold's five example models and check them against
+- Its tests load Duck Mold's six example models and check them against
   what `duck-mold inspect` said: the triangle counts, the size, the
-  colours, that every part is a closed solid, and which way each faces.
-  `examples/turntable` shows the robot.
-- There's a further branch, `claude/duck-mold-sockets` (named points on
-  a model, to put a hat on the robot's head), which isn't merged here:
-  you asked for the models branch only.
+  colours, that every part is a closed solid, which way each faces, and
+  where every socket is. `examples/turntable` shows the robot, with a
+  hat put on its `head.top` socket while it turns.
+- Sockets came after you asked for the models branch: you merged both
+  into `main` while Step 2 was being built, so Step 2's branch has
+  `main` merged in and carries both. A socket is a point, not a part
+  that moves: the "Parts" and "Animation" rows are as they were.
 
 **The slot in scenes:** an object's `"model"` key, kept as it is by the
 engine and the Studio (step 1), and Files calling `.glb` files "Model".

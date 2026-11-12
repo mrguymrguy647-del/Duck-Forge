@@ -4370,10 +4370,13 @@ were run turn about. Lowest and highest of three to five runs each:
   difference. So it's the compiler's choice, not work the scene does,
   and this machine can't settle 6% today. GitHub's Windows machine is
   steadier: its numbers are below.
-- Tests: the engine 609 (headless) and 644 (with a window), 343 with the
+- Tests: the engine 614 (headless) and 649 (with a window), 343 with the
   link; the Studio's core 70 unit tests and 6 that play real games; the
   app 11 unit tests and 9 screen tests, one of which drives the scene
-  editor with a pretend mouse.
+  editor with a pretend mouse. All of them also pass in a copy of the
+  folder with Windows line endings.
+- `main` gained Duck Mold's sockets while this step was built; it's
+  merged in (no clashes), and the counts above include its tests.
 
 # Models from Duck Mold
 
