@@ -4500,6 +4500,51 @@ half apart, same selection) are one step of Undo, like a drag.
 `move_before`; `scene::line_text` (one object's line as a file writes
 it); `scene::USUAL_LAYER`.
 
+## Step 3: the numbers
+
+Release builds with the usual features, on this Linux machine, Step 2's
+code and Step 3's built the same way side by side:
+
+| Game | Size after Step 2 | after Step 3 | The same, built as one piece |
+|---|---|---|---|
+| Platformer starter | 6,385,384 | 6,399,232 | +808 bytes |
+| Shooter starter | 6,255,352 | 6,272,680 | +792 bytes |
+| 3D runner starter | 11,591,352 | 11,605,104 | +800 bytes |
+| Scene demo | 6,614,440 | 6,622,440 | +808 bytes |
+
+Built as usual, every game is 8,000 to 17,000 bytes bigger (0.1 to
+0.3%). None of that is Step 3's code: Step 3 changed only the engine's
+scene files, and no new function reaches these games. The compiler
+splits the engine into 16 parts to build them at once, and decides what
+to copy into what (inlining) part by part. New code anywhere in the
+engine moves where the parts are cut, so the window, picture-saving and
+fuzzing code was arranged differently: 320 bytes more machine code, and
+the rest is the names of 52 more pieces in the file's symbol table.
+Built as one piece (`codegen-units = 1`, which takes the arrangement out
+of it), every function in every game is byte for byte the same size as
+after Step 2, and the files differ by 800 bytes of the tables used to
+unwind after a crash. Step 2 measured the other way for the same reason
+(every game a little smaller). Export, the phase after this one, is
+where the games get built for sending; stripping the names and building
+as one piece there would make them smaller than all of these.
+
+Speed, with `--headless --time`, the two builds run turn about, lowest
+and highest of three runs each:
+
+| Game | Drawing a frame, Step 2 | Step 3 | An update, Step 2 | Step 3 |
+|---|---|---|---|---|
+| Platformer starter | 75.7 to 79.7 µs | 77.8 to 78.9 µs | 0.90 to 1.19 µs | 0.93 to 1.05 µs |
+| Shooter starter | 17.4 to 19.2 µs | 17.3 to 17.8 µs | 0.95 to 1.08 µs | 0.96 to 1.00 µs |
+| 3D runner starter | 1,445 to 1,492 µs | 1,417 to 1,470 µs | 1.73 to 2.11 µs | 1.52 to 2.07 µs |
+| Scene demo | 74.1 to 77.3 µs | 73.4 to 75.4 µs | 2.02 to 2.27 µs | 1.88 to 1.97 µs |
+
+The same speed for all four.
+
+- Tests: the engine 615 (headless) and 650 (with a window), 344 with the
+  link; the Studio's core 77 unit tests and 7 that play real games; the
+  app 13 unit tests and 10 screen tests, two of which drive the scene
+  editor with a pretend mouse and keyboard.
+
 # Models from Duck Mold
 
 Duck Mold (a sister tool: 3D models from text recipes, no window) saves
