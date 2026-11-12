@@ -1,0 +1,18 @@
+{
+  "duckforge_scene": 1,
+  "size": [640, 240],
+  "background": "#5e9fe0",
+  "objects": [
+    {"id": 1, "name": "sky", "kind": "background", "picture": "assets/sky.png", "layer": "far", "parallax": 0.1},
+    {"id": 2, "name": "hills", "kind": "background", "at": [0, 116], "picture": "assets/hills.png", "layer": "back", "parallax": 0.4},
+    {"id": 3, "name": "ground", "kind": "tilemap", "level": "level.txt"},
+    {"id": 4, "name": "sign", "at": [120, 208], "turn": -8, "picture": "assets/sign.png"},
+    {"id": 5, "name": "crate", "at": [248, 208], "picture": "assets/crate.png", "solid": true},
+    {"id": 6, "name": "big crate", "at": [330, 208], "scale": [2, 1.5], "picture": "assets/crate.png", "solid": true},
+    {"id": 7, "name": "coin", "kind": "coin", "at": [248, 176], "picture": "assets/tiles.json", "animation": "coin"},
+    {"id": 8, "name": "coin", "kind": "coin", "at": [330, 150], "picture": "assets/tiles.json", "animation": "coin"},
+    {"id": 9, "name": "duck", "at": [40, 208], "picture": "assets/hero.json", "box": [3, 2, 10, 14]},
+    {"id": 10, "name": "bush", "at": [420, 210], "scale": 2, "picture": "assets/bush.png", "layer": "front"},
+    {"id": 11, "name": "coin icon", "at": [4, 4], "anchor": "top_left", "picture": "assets/tiles.json", "animation": "coin", "layer": "hud"}
+  ]
+}

@@ -22,7 +22,7 @@ use crate::canvas::Canvas;
 use crate::color::Color;
 use crate::engine::{Context, Corner};
 use crate::math::{Rect, Vec2, vec2};
-use crate::scene::Label;
+use crate::on_screen::Label;
 
 /// A shape the game asked to see outlined.
 #[derive(Debug, Clone, Copy, PartialEq)]

@@ -46,6 +46,7 @@ mod gpu;
 pub mod headless;
 pub mod input;
 pub mod math;
+pub mod on_screen;
 pub mod physics;
 pub mod pictures;
 pub mod playtest;
@@ -95,7 +96,7 @@ pub mod prelude {
     pub use crate::background::Background;
     pub use crate::blocks::{AIR, BlockId, BlockKind, BlockPalette, BlockWorld, FaceLight};
     pub use crate::camera::Camera2D;
-    pub use crate::canvas::Canvas;
+    pub use crate::canvas::{Canvas, Placed};
     pub use crate::color::Color;
     pub use crate::engine::{Config, Context, Corner, FailedCheck, Game, Timestep};
     pub use crate::input::{Input, Key, MouseButton};
@@ -107,6 +108,7 @@ pub mod prelude {
     pub use crate::render3d::{Billboard, Camera3D, Fog, Lighting, Mesh, Renderer, Transform};
     pub use crate::report::ReportValue;
     pub use crate::rng::Rng;
+    pub use crate::scene::{Anchor, Id, Object, Scene};
     pub use crate::script::InputScript;
     pub use crate::simulation::Simulation;
     pub use crate::sound::{LoopId, Sound, Wav, Wave};

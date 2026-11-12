@@ -9,9 +9,9 @@ use crate::canvas::Canvas;
 use crate::engine::{Config, Context, Corner, Game, Timestep};
 use crate::input::{Key, MouseButton};
 use crate::math::Vec2;
+use crate::on_screen::{OnScreen, OnScreenCamera};
 use crate::render3d::Renderer;
 use crate::report::{FrameReport, ReportLog, ReportValue};
-use crate::scene::{Scene, SceneCamera};
 use crate::script::{Change, ChangeEvent, InputAction, InputEvent, InputScript};
 use crate::sound::{LoopCommand, PlayedLoop, PlayedSound, SAMPLE_RATE};
 
@@ -120,7 +120,7 @@ pub struct Simulation<G> {
     /// Where the overlay's info box goes.
     debug_corner: Corner,
     /// What the last drawn frame labelled, and its text.
-    scene: Scene,
+    scene: OnScreen,
     /// The first camera the last drawn frame pushed, for `--grid-world`.
     frame_camera: Option<crate::camera::Camera2D>,
     /// Where the debug overlay's info box is in the last drawn frame.
@@ -224,7 +224,7 @@ impl<G: Game> Simulation<G> {
             renderer,
             debug_overlay: false,
             debug_corner: config.debug_corner,
-            scene: Scene::default(),
+            scene: OnScreen::default(),
             frame_camera: None,
             debug_box: None,
             idle: Vec::new(),
@@ -898,9 +898,15 @@ impl<G: Game> Simulation<G> {
     /// assert_eq!(player.world.x, 10.0);
     /// println!("{}", sim.scene().describe());
     /// ```
-    pub fn scene(&mut self) -> &Scene {
+    pub fn scene(&mut self) -> &OnScreen {
         self.picture();
         &self.scene
+    }
+
+    /// The same as [`scene`](Simulation::scene), under the name of what it
+    /// gives: what was on screen in the current frame.
+    pub fn on_screen(&mut self) -> &OnScreen {
+        self.scene()
     }
 
     /// The stretches of frames on which the game called `ctx.idle_ok()`,
@@ -1121,9 +1127,9 @@ impl<G: Game> Simulation<G> {
         let camera = self.canvas.take_frame_camera();
         let (labels, texts) = self.canvas.take_scene();
         self.drawn_maps = self.canvas.take_maps();
-        self.scene = Scene {
+        self.scene = OnScreen {
             frame: self.ctx.frame(),
-            camera: camera.as_ref().map(|c| SceneCamera {
+            camera: camera.as_ref().map(|c| OnScreenCamera {
                 position: c.position,
                 zoom: c.zoom,
             }),

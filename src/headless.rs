@@ -16,10 +16,10 @@ use serde_json::Value;
 use crate::canvas::Canvas;
 use crate::cli::{self, Options};
 use crate::engine::{Config, Game, Timestep};
+use crate::on_screen;
 use crate::pictures::{self, Crop, GifWriter};
 use crate::render3d::Renderer;
 use crate::report;
-use crate::scene;
 use crate::script::{self, InputScript};
 use crate::sheet;
 use crate::simulation::Simulation;
@@ -445,7 +445,7 @@ fn run_and_save<G: Game>(
     let mut warnings: Vec<String> = timestep_warning.into_iter().collect();
     warnings.extend(skipped_events_warning(options));
     warnings.extend(sim.replay_warnings().iter().cloned());
-    warnings.extend(scene::warnings(&scenes, width as f32, height as f32));
+    warnings.extend(on_screen::warnings(&scenes, width as f32, height as f32));
     if let Some((crop, zoom)) = close_up {
         save_png(
             &pictures::close_up(&last_picture, crop, zoom),
@@ -869,6 +869,66 @@ fn log_json<G: Game>(
 }
 
 /// What `run` does with `--headless`: runs the game, then says what happened.
+/// `--headless --time`: plays the run drawing every frame and saving
+/// nothing, and says how long the updates and the drawing took. For
+/// comparing one build with another: the game's own work, with no window
+/// and no files in the way.
+pub(crate) fn time_from_command_line<G: Game>(
+    mut config: Config,
+    game: G,
+    options: &Options,
+) -> Result<String, String> {
+    let inputs = match &options.inputs {
+        Some(path) => Some(InputScript::load(path)?),
+        None => None,
+    };
+    let updates_per_second = 1.0 / f64::from(config.step_time());
+    let frames = options
+        .frames
+        .or(inputs
+            .as_ref()
+            .and_then(|script| script.run_length(updates_per_second)))
+        .unwrap_or(HeadlessOptions::default().frames);
+    let script_seed = inputs.as_ref().and_then(|script| script.seed);
+    config.seed = options.seed.or(script_seed).or(config.seed);
+    let tunes = crate::tune::Tunes::for_run(
+        options.tune.as_deref(),
+        config.tune_file.as_deref(),
+        &options.set,
+    )?;
+    let renderer = crate::render3d::renderer_from_env().unwrap_or(Renderer::Cpu);
+    let title = config.title.clone();
+    let mut sim = Simulation::start(&config, game, renderer);
+    sim.set_tunes(tunes);
+    if let Some(script) = inputs {
+        sim.follow(script);
+    }
+    let (mut updating, mut drawing) = (std::time::Duration::ZERO, std::time::Duration::ZERO);
+    let mut played = 0u64;
+    for _ in 0..frames {
+        if sim.quit_requested() {
+            break;
+        }
+        let before = Instant::now();
+        sim.step();
+        updating += before.elapsed();
+        let before = Instant::now();
+        sim.picture();
+        drawing += before.elapsed();
+        played += 1;
+    }
+    sim.quit();
+    let each = |all: std::time::Duration| all.as_secs_f64() * 1e6 / played.max(1) as f64;
+    Ok(format!(
+        "duckforge: timed {title:?} for {played} frames: updates {:.1} ms in all \
+         ({:.2} microseconds each), drawing {:.1} ms in all ({:.1} microseconds each)",
+        updating.as_secs_f64() * 1e3,
+        each(updating),
+        drawing.as_secs_f64() * 1e3,
+        each(drawing),
+    ))
+}
+
 pub(crate) fn run_from_command_line<G: Game>(
     mut config: Config,
     game: G,
@@ -1509,7 +1569,7 @@ mod tests {
         assert!(folder.join("last.scene.json").exists());
 
         // The ghost is never on screen, and far outside everything the
-        // camera showed: drawn in the wrong place (see scene::warnings).
+        // camera showed: drawn in the wrong place (see on_screen::warnings).
         let warnings = &outcome.warnings;
         assert_eq!(warnings.len(), 3, "{warnings:#?}");
         assert!(

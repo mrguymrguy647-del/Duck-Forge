@@ -79,6 +79,10 @@ name = "empty"
 test = true
 
 [[example]]
+name = "scene_demo"
+test = true
+
+[[example]]
 name = "physics"
 test = true
 

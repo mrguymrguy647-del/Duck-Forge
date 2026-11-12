@@ -60,6 +60,36 @@ fn assets_now(
         .collect()
 }
 
+/// The game's scene files (`scenes/*.json` in its folder), with their
+/// text: what the Studio last saw, to notice one changed outside it.
+fn scenes_now(
+    game_folder: Option<&std::path::Path>,
+) -> std::collections::BTreeMap<PathBuf, String> {
+    let Some(folder) = game_folder else {
+        return std::collections::BTreeMap::new();
+    };
+    std::fs::read_dir(folder.join("scenes"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|e| e == "json"))
+        .filter_map(|path| {
+            let text = std::fs::read_to_string(&path).ok()?;
+            Some((path, text))
+        })
+        .collect()
+}
+
+/// A file's name as games name it: from the Duck Forge folder, with
+/// forward slashes (`examples/bee_maze/scenes/level1.json`).
+fn name_from(root: &std::path::Path, file: &std::path::Path) -> String {
+    file.strip_prefix(root)
+        .unwrap_or(file)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
 /// "1 tile", "3 tiles".
 fn count(n: usize, what: &str) -> String {
     if n == 1 {
@@ -666,6 +696,9 @@ pub struct OpenGame {
     /// The game's picture and sound files as last seen (when each was
     /// changed, and its size), to notice one saved in Duck Quill.
     assets_seen: std::collections::BTreeMap<PathBuf, (Option<std::time::SystemTime>, u64)>,
+    /// The game's scene files as last seen, to notice one changed outside
+    /// the Studio (in an editor, or by an agent).
+    scenes_seen: std::collections::BTreeMap<PathBuf, String>,
     /// Goes up when the level's pictures change, so the app draws its
     /// palette again.
     pub art_version: u64,
@@ -1208,6 +1241,7 @@ impl Studio {
                     code_spot: None,
                     sound_recipe: None,
                     assets_seen: assets_now(game_folder.as_deref()),
+                    scenes_seen: scenes_now(game_folder.as_deref()),
                     art_version: 0,
                     files_selected: None,
                     thumbnail_looked: false,
@@ -1909,12 +1943,24 @@ impl Studio {
                 crate::level::write_whole(&edit.path, text)?;
             }
         }
+        let root = self.folder()?.root().to_path_buf();
         let open = self.open_game()?;
         if let Some(level) = &mut open.level
             && level.reload_if_changed()
         {
             open.level_unsent = true;
         }
+        // A scene file put back: the game takes it, and it isn't a change
+        // from outside.
+        let scenes = scenes_now(open.game.folder.as_deref());
+        for (file, text) in &scenes {
+            if open.scenes_seen.get(file) != Some(text)
+                && let Some(play) = &mut open.play
+            {
+                play.send_file(&name_from(&root, file), text);
+            }
+        }
+        open.scenes_seen = scenes;
         open.edited_since_snapshot = true;
         self.send_level();
         self.take_in_tune_file(None);
@@ -2375,6 +2421,32 @@ impl Studio {
                     play.send_file(&name, &text);
                 }
             }
+        }
+        // A scene file saved outside the Studio: the game takes it (frozen
+        // or playing), and it's a step for Undo.
+        let scenes = scenes_now(open.game.folder.as_deref());
+        if scenes != open.scenes_seen {
+            let root = self.folder.as_ref().map(|f| f.root().to_path_buf());
+            for (file, text) in &scenes {
+                let before = open.scenes_seen.get(file).cloned().unwrap_or_default();
+                if before == *text {
+                    continue;
+                }
+                open.undo.push(Step {
+                    title: String::from("Changed outside the Studio"),
+                    files: vec![FileEdit {
+                        path: file.clone(),
+                        before,
+                        after: text.clone(),
+                    }],
+                    stroke: None,
+                });
+                open.edited_since_snapshot = true;
+                if let (Some(play), Some(root)) = (&mut open.play, &root) {
+                    play.send_file(&name_from(root, file), text);
+                }
+            }
+            open.scenes_seen = scenes;
         }
         if let Some(level) = &mut open.level {
             let before = level.on_disk().to_string();

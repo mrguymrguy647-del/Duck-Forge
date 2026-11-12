@@ -380,6 +380,122 @@ fn a_level_painted_while_frozen_is_in_the_game_and_in_its_replay() {
     );
 }
 
+/// A scene file changed outside the Studio (in an editor, or by an agent)
+/// while the game is frozen: the game takes it at once and draws the same
+/// frame again, the duck stays where it walked to, it's a step for Undo,
+/// and the session replays to the same picture.
+#[test]
+fn a_scene_file_edited_while_frozen_is_in_the_game_and_in_its_replay() {
+    let mut studio = studio();
+    let say = |studio: &mut Studio, step: Step| {
+        run_step(studio, &step).unwrap_or_else(|problem| {
+            panic!("{problem}\n{}", problem.details);
+        })
+    };
+    let scene_file = duck_forge().join("examples/scene_demo/scenes/pond.json");
+    let _put_back = PutBack {
+        text: std::fs::read_to_string(&scene_file).unwrap(),
+        path: scene_file.clone(),
+    };
+    say(
+        &mut studio,
+        Step::Do(Command::GameOpen {
+            name: String::from("scene_demo"),
+        }),
+    );
+    say(&mut studio, Step::Wait(Wait::Playing));
+    say(&mut studio, press("Right"));
+    say(&mut studio, Step::Wait(Wait::Frames { frames: 20 }));
+    say(&mut studio, release("Right"));
+    say(&mut studio, Step::Wait(Wait::Frames { frames: 10 }));
+    say(&mut studio, Step::Do(Command::GameToggle));
+    let frozen = studio.play().unwrap().picture.clone().unwrap();
+
+    // Saved from outside: the sign leans the other way, the duck's line
+    // says it starts further on, and there's a crate in the duck's way.
+    let edited = _put_back
+        .text
+        .replace("\"turn\": -8", "\"turn\": 30")
+        .replace(
+            "{\"id\": 9, \"name\": \"duck\", \"at\": [40, 208]",
+            "{\"id\": 12, \"name\": \"new crate\", \"at\": [100, 208], \"picture\": \"assets/crate.png\", \"solid\": true},\n    {\"id\": 9, \"name\": \"duck\", \"at\": [200, 208]",
+        );
+    assert_ne!(edited, _put_back.text);
+    assert!(edited.contains("new crate") && edited.contains("\"turn\": 30"));
+    std::fs::write(&scene_file, &edited).unwrap();
+    say(&mut studio, Step::Wait(Wait::Seconds { seconds: 1.2 }));
+    let changed = studio.play().unwrap().picture.clone().unwrap();
+    assert_eq!(
+        changed.frame, frozen.frame,
+        "still frozen on the same frame"
+    );
+    assert_ne!(changed.pixels, frozen.pixels, "the sign and the crate show");
+    assert!(
+        !studio.open.as_ref().unwrap().level_needs_restart,
+        "the game took it"
+    );
+
+    // Carry on: the duck is where it was (not where its line now says it
+    // starts), runs into the new crate, and jumps onto it.
+    say(&mut studio, Step::Do(Command::GameToggle));
+    say(&mut studio, press("Right"));
+    say(&mut studio, Step::Wait(Wait::Frames { frames: 40 }));
+    say(&mut studio, press("Space"));
+    say(&mut studio, Step::Wait(Wait::Frames { frames: 2 }));
+    say(&mut studio, release("Space"));
+    say(&mut studio, Step::Wait(Wait::Frames { frames: 30 }));
+    say(&mut studio, release("Right"));
+    say(&mut studio, Step::Do(Command::GameFreeze));
+    let last = studio.play().unwrap().picture.clone().unwrap();
+    say(&mut studio, Step::Do(Command::GameStop));
+    let session = studio.open.as_ref().unwrap().last_session.clone().unwrap();
+    let script = duckforge::InputScript::load(&session).unwrap();
+    assert_eq!(script.changes.len(), 1, "the scene file, once");
+    assert_eq!(script.changes[0].frame, frozen.frame + 1);
+
+    // Undo puts the file back as it was.
+    say(&mut studio, Step::Do(Command::EditUndo));
+    assert_eq!(
+        std::fs::read_to_string(&scene_file).unwrap(),
+        _put_back.text,
+        "undone"
+    );
+
+    // Replayed with no window, with the old scene on disk: the session
+    // has the scene as it was and the change on its frame, so it ends on
+    // the same picture, pixel for pixel.
+    let replays = TestFolder::new("replay-scene");
+    let out = replays.join("out");
+    let replay = std::process::Command::new("cargo")
+        .args([
+            "run",
+            "-q",
+            "--no-default-features",
+            "--example",
+            "scene_demo",
+            "--",
+        ])
+        .args(["--headless", "--inputs"])
+        .arg(&session)
+        .arg("--out")
+        .arg(&out)
+        .current_dir(duck_forge())
+        .output()
+        .unwrap();
+    let said = String::from_utf8_lossy(&replay.stdout);
+    assert!(
+        replay.status.success(),
+        "{said}{}",
+        String::from_utf8_lossy(&replay.stderr)
+    );
+    assert!(!said.contains("playthrough changed"), "{said}");
+    let (_, _, pixels) = png_pixels(&out.join("last.png"));
+    assert!(
+        pixels == last.pixels,
+        "the replay ends on the session's last picture"
+    );
+}
+
 /// A game whose card has no picture gets a real one the first time it
 /// plays in the Studio (from two seconds in), or the first time it's
 /// checked (a check of a game with no playthrough draws nothing, so the

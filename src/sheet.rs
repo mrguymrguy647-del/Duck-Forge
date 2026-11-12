@@ -15,9 +15,9 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::canvas::Canvas;
+use crate::on_screen::OnScreen;
 use crate::pictures::{self, Crop};
 use crate::report::ReportValue;
-use crate::scene::Scene;
 
 /// A value that changes more often than this isn't an event.
 pub(crate) const EVENT_LIMIT: usize = 20;
@@ -34,7 +34,7 @@ struct Reason {
 /// A frame kept in case it's chosen.
 struct Kept {
     picture: Canvas,
-    scene: Scene,
+    scene: OnScreen,
     reasons: Vec<Reason>,
     /// One of the evenly spread frames, kept to fill gaps.
     spread: bool,
@@ -44,7 +44,7 @@ struct Kept {
 pub(crate) struct SheetFrame {
     pub frame: u64,
     pub picture: Canvas,
-    pub scene: Scene,
+    pub scene: OnScreen,
     /// What made it worth showing, like `lives 2` or `state Lost`.
     pub caption: String,
 }
@@ -100,7 +100,7 @@ impl SheetPicker {
 
     /// Keeps the picture (and scene) of `frame`: the one `reasons` just
     /// asked for, or an evenly spread one (`spread`).
-    pub(crate) fn keep(&mut self, frame: u64, picture: Canvas, scene: Scene, spread: bool) {
+    pub(crate) fn keep(&mut self, frame: u64, picture: Canvas, scene: OnScreen, spread: bool) {
         let reasons = match self.pending.take() {
             Some((f, reasons)) if f == frame => reasons,
             _ => Vec::new(),
@@ -292,7 +292,7 @@ mod tests {
                 picker.keep(
                     frame,
                     Canvas::new(4, 4),
-                    Scene::default(),
+                    OnScreen::default(),
                     spread.contains(&frame),
                 );
             }
@@ -372,7 +372,7 @@ mod tests {
     fn following_a_label_zooms_in_around_it() {
         use crate::color::Color;
         use crate::math::Rect;
-        use crate::scene::Label;
+        use crate::on_screen::Label;
         let frame = |n: u64, bee: Option<Rect>| {
             let mut picture = Canvas::new(90, 60);
             picture.clear(Color::BLACK);
@@ -390,9 +390,9 @@ mod tests {
             SheetFrame {
                 frame: n,
                 picture,
-                scene: Scene {
+                scene: OnScreen {
                     labels,
-                    ..Scene::default()
+                    ..OnScreen::default()
                 },
                 caption: String::from("lives 2"),
             }

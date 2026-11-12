@@ -795,6 +795,24 @@ pub fn run<G: Game>(config: Config, game: G) -> Result<(), Box<dyn Error>> {
         println!("{}", crate::diff::diff_runs(old, new).map_err(EngineError)?);
         return Ok(());
     }
+    if let Some(file) = &options.write_ids {
+        // Nor does writing a scene file's ids.
+        let given = crate::scene::write_ids(file)?;
+        let name = crate::files::name_of(file);
+        match given {
+            0 => println!("duckforge: every object in {name} already has an id"),
+            1 => println!("duckforge: gave 1 object in {name} an id, and wrote the file again"),
+            n => println!("duckforge: gave {n} objects in {name} an id, and wrote the file again"),
+        }
+        return Ok(());
+    }
+    if options.headless && options.time {
+        println!(
+            "{}",
+            headless::time_from_command_line(config, game, &options).map_err(EngineError)?
+        );
+        return Ok(());
+    }
     if options.headless {
         headless::run_from_command_line(config, game, &options).map_err(EngineError)?;
         return Ok(());

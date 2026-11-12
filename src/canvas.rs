@@ -17,10 +17,10 @@ use crate::font;
 #[cfg(feature = "gpu")]
 use crate::gpu::GpuRenderer;
 use crate::math::{Rect, Vec2, vec2};
+use crate::on_screen::{Label, OnScreenText};
 #[cfg(feature = "gpu")]
 use crate::render3d::{Camera3D, Mesh, Transform};
 use crate::render3d::{Lighting, Renderer};
-use crate::scene::{Label, SceneText};
 use crate::sprite::{Blit, Sprite};
 
 /// A 2D grid of pixels.
@@ -63,7 +63,7 @@ pub struct Canvas {
     /// What the game labelled with `label` since the last `take_scene`.
     labels: Vec<Label>,
     /// The lines of text drawn since the last `take_scene`.
-    texts: Vec<SceneText>,
+    texts: Vec<OnScreenText>,
     /// Where tile maps were drawn since the last `take_scene`.
     maps: Vec<DrawnMap>,
     /// The light 3D is drawn with.
@@ -306,7 +306,7 @@ impl Canvas {
     }
 
     /// Hands over the labels and text drawn since the last call.
-    pub(crate) fn take_scene(&mut self) -> (Vec<Label>, Vec<SceneText>) {
+    pub(crate) fn take_scene(&mut self) -> (Vec<Label>, Vec<OnScreenText>) {
         (
             std::mem::take(&mut self.labels),
             std::mem::take(&mut self.texts),
@@ -845,6 +845,128 @@ impl Canvas {
         }
     }
 
+    /// Draws a sprite with a point of it (`placed.pivot`, in the sprite's
+    /// own pixels) on `at`, stretched by its own amount each way, mirrored
+    /// and turned round that point. Scenes draw their objects with this.
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// # use duckforge::canvas::Placed;
+    /// # let mut canvas = Canvas::new(64, 64);
+    /// # let sign = Sprite::from_ascii(&["yy", "yy"], &[('y', Color::YELLOW)]);
+    /// // Twice as wide, leaning 15 degrees, standing on (32, 48).
+    /// canvas.draw_placed(&sign, vec2(32.0, 48.0), Placed {
+    ///     pivot: vec2(1.0, 2.0),
+    ///     scale: vec2(2.0, 1.0),
+    ///     turn: 15.0,
+    ///     ..Placed::default()
+    /// });
+    /// ```
+    ///
+    /// Pixels stay sharp squares, as in [`blit_sprite`](Canvas::blit_sprite):
+    /// each canvas pixel takes the colour of the sprite pixel under its
+    /// centre. A sprite that isn't turned and is the same size both ways
+    /// is drawn by `blit_sprite` itself, so it's the same picture to the
+    /// pixel.
+    pub fn draw_placed(&mut self, sprite: &Sprite, at: Vec2, placed: Placed) {
+        let Placed {
+            pivot,
+            scale,
+            turn,
+            flip_x,
+            flip_y,
+            tint,
+            opacity,
+        } = placed;
+        let turn = turn.rem_euclid(360.0);
+        if !(scale.x > 0.0 && scale.y > 0.0) || !turn.is_finite() {
+            return; // nothing to draw (this also catches NaN)
+        }
+        if turn == 0.0 && scale.x == scale.y {
+            let blit = Blit {
+                flip_x,
+                flip_y,
+                scale: scale.x,
+                tint,
+                opacity,
+            };
+            return self.draw_at_pivot(sprite, at, pivot, blit);
+        }
+        let (w, h) = (sprite.width(), sprite.height());
+        let opacity = if opacity.is_nan() {
+            0.0
+        } else {
+            opacity.clamp(0.0, 1.0)
+        };
+        if w == 0 || h == 0 || opacity == 0.0 || tint.a == 0 {
+            return;
+        }
+        // Mirroring keeps the pivot where it is, as `draw_at_pivot` does.
+        let pivot = vec2(
+            if flip_x { w as f32 - pivot.x } else { pivot.x },
+            if flip_y { h as f32 - pivot.y } else { pivot.y },
+        );
+        let centre = self.view.apply(at);
+        let scale = scale * self.view.scale;
+        let (sin, cos) = turn.to_radians().sin_cos();
+        // Where a sprite point lands on the canvas: stretched, then turned
+        // clockwise (y points down) round the pivot.
+        let to_canvas = |p: Vec2| {
+            let (x, y) = ((p.x - pivot.x) * scale.x, (p.y - pivot.y) * scale.y);
+            vec2(centre.x + x * cos - y * sin, centre.y + x * sin + y * cos)
+        };
+        let corners = [
+            to_canvas(vec2(0.0, 0.0)),
+            to_canvas(vec2(w as f32, 0.0)),
+            to_canvas(vec2(0.0, h as f32)),
+            to_canvas(vec2(w as f32, h as f32)),
+        ];
+        let low = |pick: fn(&Vec2) -> f32| corners.iter().map(pick).fold(f32::INFINITY, f32::min);
+        let high =
+            |pick: fn(&Vec2) -> f32| corners.iter().map(pick).fold(f32::NEG_INFINITY, f32::max);
+        let clamp = |v: f32, max: usize| v.clamp(0.0, max as f32) as usize;
+        let x0 = clamp(low(|c| c.x).floor(), self.width);
+        let x1 = clamp(high(|c| c.x).ceil(), self.width);
+        let y0 = clamp(low(|c| c.y).floor(), self.height);
+        let y1 = clamp(high(|c| c.y).ceil(), self.height);
+        if x0 >= x1 || y0 >= y1 {
+            return;
+        }
+        self.flush_3d();
+        let alpha_of = (opacity * tint.a as f32).round() as u32;
+        let tinted = |rgb: u32| {
+            if tint == Color::WHITE {
+                return rgb;
+            }
+            let channel =
+                |shift: u32, t: u8| ((((rgb >> shift) & 0xff) * t as u32 + 127) / 255) << shift;
+            channel(16, tint.r) | channel(8, tint.g) | channel(0, tint.b)
+        };
+        for y in y0..y1 {
+            for x in x0..x1 {
+                // Back from the canvas pixel's centre to the sprite.
+                let (dx, dy) = (x as f32 + 0.5 - centre.x, y as f32 + 0.5 - centre.y);
+                let u = (dx * cos + dy * sin) / scale.x + pivot.x;
+                let v = (-dx * sin + dy * cos) / scale.y + pivot.y;
+                if u < 0.0 || v < 0.0 || u >= w as f32 || v >= h as f32 {
+                    continue;
+                }
+                let (u, v) = (u as usize, v as usize);
+                let column = if flip_x { w - 1 - u } else { u };
+                let row = if flip_y { h - 1 - v } else { v };
+                let (rgb, alpha) = sprite.row(row);
+                let a = (alpha[column] as u32 * alpha_of + 127) / 255;
+                if a > 0 {
+                    paint(
+                        &mut self.pixels[y * self.width + x],
+                        tinted(rgb[column]),
+                        a as u8,
+                    );
+                }
+            }
+        }
+    }
+
     /// Draws text with the built-in pixel font. `pos` is the top-left
     /// corner; `scale` makes each font pixel a `scale` x `scale` square.
     ///
@@ -870,7 +992,7 @@ impl Canvas {
                 Canvas::text_width(line, scale),
                 Canvas::text_height(scale),
             );
-            self.texts.push(SceneText {
+            self.texts.push(OnScreenText {
                 text: line.trim_end_matches('\r').to_string(),
                 screen: self.view.apply_rect(area),
             });
@@ -1194,6 +1316,41 @@ fn wrap(position: f32, size: usize) -> usize {
         position as usize
     } else {
         (position as i64).rem_euclid(size as i64) as usize
+    }
+}
+
+/// How [`Canvas::draw_placed`] puts a sprite down. Start from
+/// `Placed::default()` (as it is, by its top-left corner) and change what
+/// you need.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Placed {
+    /// The point of the sprite, in its own pixels, that lands on `at` and
+    /// that it turns round. (0, 0), the top-left corner, by default.
+    pub pivot: Vec2,
+    /// How many times bigger, sideways and up and down. (1, 1) by default.
+    pub scale: Vec2,
+    /// Degrees clockwise. 0 by default.
+    pub turn: f32,
+    /// Mirrored left to right, and top to bottom.
+    pub flip_x: bool,
+    pub flip_y: bool,
+    /// As in [`Blit`]: every pixel's colour is multiplied by `tint`, and
+    /// `opacity` is how solid the whole sprite is (1.0 by default).
+    pub tint: Color,
+    pub opacity: f32,
+}
+
+impl Default for Placed {
+    fn default() -> Self {
+        Placed {
+            pivot: Vec2::ZERO,
+            scale: vec2(1.0, 1.0),
+            turn: 0.0,
+            flip_x: false,
+            flip_y: false,
+            tint: Color::WHITE,
+            opacity: 1.0,
+        }
     }
 }
 

@@ -129,6 +129,16 @@ const OPTIONS: &[OptionInfo] = &[
         help: "compare two headless runs' pictures, scenes and reports (the game isn't run)",
     },
     OptionInfo {
+        name: "--write-ids",
+        value: Some("FILE"),
+        help: "give every object of a scene file that has no \"id\" one, and write the file again (the game isn't run)",
+    },
+    OptionInfo {
+        name: "--time",
+        value: None,
+        help: "with --headless: draw every frame, save nothing, and say how long the updates and the drawing took",
+    },
+    OptionInfo {
         name: "--fuzz",
         value: Some("N"),
         help: "play N headless runs (seeds 1 to N) with random keys; report crashes, failed checks and freezes",
@@ -222,6 +232,8 @@ pub(crate) struct Options {
     pub grid: Option<usize>,
     pub grid_world: bool,
     pub diff: Option<(PathBuf, PathBuf)>,
+    pub write_ids: Option<PathBuf>,
+    pub time: bool,
     pub fuzz: Option<u32>,
     pub fuzz_keys: Option<Vec<crate::input::Key>>,
     pub freeze_seconds: Option<f32>,
@@ -277,6 +289,8 @@ impl Options {
                 "--tune" => options.tune = Some(PathBuf::from(value)),
                 "--set" => options.set.push(crate::tune::parse_set(value)?),
                 "--write-tune" => options.write_tune = true,
+                "--write-ids" => options.write_ids = Some(PathBuf::from(value)),
+                "--time" => options.time = true,
                 "--describe" => options.describe = true,
                 "--quiet" => options.quiet = true,
                 "--accept" => options.accept = true,
@@ -725,6 +739,7 @@ mod tests {
             "--tune" => "game.tune.json",
             "--set" => "speed=2",
             "--diff" => "old new",
+            "--write-ids" => "scene.json",
             "--fuzz-keys" => "Left,Space",
             _ => "2",
         };

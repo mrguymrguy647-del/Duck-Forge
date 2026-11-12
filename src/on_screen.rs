@@ -1,4 +1,8 @@
-//! Scenes: what was on screen, in words instead of pixels.
+//! What was on screen, in words instead of pixels.
+//!
+//! (Not to be confused with [`Scene`](crate::scene::Scene): a game's
+//! objects in a scene file. This is what a frame *showed*; its files are
+//! still called `last.scene.json`, and `sim.scene()` still gives one.)
 //!
 //! In `draw`, a game can name what it draws with
 //! [`Canvas::label`](crate::canvas::Canvas::label):
@@ -12,7 +16,7 @@
 //!
 //! A label draws nothing. The engine remembers it, with where it is in the
 //! world and on the screen, together with every piece of text drawn and
-//! the camera. That's a [`Scene`]. Headless runs save one next to each
+//! the camera. That's an [`OnScreen`]. Headless runs save one next to each
 //! picture (`last.scene.json`, `frame-000300.scene.json`), `--describe`
 //! prints the last one in words, and tests can look at
 //! [`Simulation::scene`](crate::Simulation::scene).
@@ -23,21 +27,21 @@ use crate::math::{Rect, Vec2, vec2};
 
 /// Everything a game labelled in one frame, and the text it drew.
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct Scene {
+pub struct OnScreen {
     /// The frame this is a picture of.
     pub frame: u64,
     /// The first camera the game pushed, if any.
-    pub camera: Option<SceneCamera>,
+    pub camera: Option<OnScreenCamera>,
     /// Every label, in the order they were drawn.
     pub labels: Vec<Label>,
     /// Every piece of text drawn with `draw_text` (or `draw_text_centered`),
     /// one entry per line.
-    pub texts: Vec<SceneText>,
+    pub texts: Vec<OnScreenText>,
 }
 
 /// The camera, as it was when the scene was drawn.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct SceneCamera {
+pub struct OnScreenCamera {
     /// The world point in the middle of the screen.
     pub position: Vec2,
     pub zoom: f32,
@@ -58,13 +62,13 @@ pub struct Label {
 
 /// One line of text the game drew.
 #[derive(Debug, Clone, PartialEq)]
-pub struct SceneText {
+pub struct OnScreenText {
     pub text: String,
     /// The area it covers on the screen, in pixels.
     pub screen: Rect,
 }
 
-impl Scene {
+impl OnScreen {
     /// The labels called `name`.
     pub fn labels_named<'a>(&'a self, name: &'a str) -> impl Iterator<Item = &'a Label> + 'a {
         self.labels.iter().filter(move |label| label.name == name)
@@ -212,7 +216,7 @@ fn num(value: f32) -> String {
 
 /// The part of the world a scene's screen showed: through its camera,
 /// or the screen itself without one.
-fn view_of(scene: &Scene, width: f32, height: f32) -> Rect {
+fn view_of(scene: &OnScreen, width: f32, height: f32) -> Rect {
     match scene.camera {
         Some(camera) => {
             let zoom = if camera.zoom > 0.0 { camera.zoom } else { 1.0 };
@@ -241,7 +245,7 @@ fn union(a: Rect, b: Rect) -> Rect {
 }
 
 /// Problems found by looking at a run's scenes, for the run summary.
-pub(crate) fn warnings(scenes: &[Scene], width: f32, height: f32) -> Vec<String> {
+pub(crate) fn warnings(scenes: &[OnScreen], width: f32, height: f32) -> Vec<String> {
     let mut warnings = Vec::new();
     let canvas = Rect::new(0.0, 0.0, width, height);
 
@@ -364,9 +368,9 @@ mod tests {
 
     #[test]
     fn describing_groups_repeats() {
-        let scene = Scene {
+        let scene = OnScreen {
             frame: 600,
-            camera: Some(SceneCamera {
+            camera: Some(OnScreenCamera {
                 position: vec2(480.0, 120.0),
                 zoom: 1.0,
             }),
@@ -376,7 +380,7 @@ mod tests {
                 label("rock", 80.0, 120.0, true),
                 label("rock", 900.0, 10.0, false),
             ],
-            texts: vec![SceneText {
+            texts: vec![OnScreenText {
                 text: String::from("LIVES 3"),
                 screen: Rect::new(286.0, 4.0, 27.0, 5.0),
             }],
@@ -399,7 +403,7 @@ mod tests {
 
     #[test]
     fn warnings_name_the_frame_and_the_label() {
-        let first = Scene {
+        let first = OnScreen {
             frame: 1,
             labels: vec![
                 label("player", 10.0, 10.0, true),
@@ -412,16 +416,16 @@ mod tests {
                     on_screen: true,
                 },
             ],
-            texts: vec![SceneText {
+            texts: vec![OnScreenText {
                 text: String::from("SCORE 1234567"),
                 screen: Rect::new(300.0, 4.0, 51.0, 5.0),
             }],
-            ..Scene::default()
+            ..OnScreen::default()
         };
-        let later = Scene {
+        let later = OnScreen {
             frame: 60,
             labels: vec![label("ghost", -80.0, 0.0, false)],
-            ..Scene::default()
+            ..OnScreen::default()
         };
         let warnings = warnings(&[first, later], 320.0, 240.0);
         assert_eq!(warnings.len(), 3, "{warnings:#?}");
@@ -445,9 +449,9 @@ mod tests {
         // A long level, 2000 wide, labelled as "ground"; a wasp far ahead
         // that the camera hasn't reached; a "ghost" drawn in the wrong
         // coordinates, far outside everything.
-        let scene = |frame: u64, camera_x: f32| Scene {
+        let scene = |frame: u64, camera_x: f32| OnScreen {
             frame,
-            camera: Some(SceneCamera {
+            camera: Some(OnScreenCamera {
                 position: vec2(camera_x, 120.0),
                 zoom: 1.0,
             }),
@@ -461,7 +465,7 @@ mod tests {
                 label("wasp", 1500.0, 10.0, false),
                 label("ghost", -900.0, 10.0, false),
             ],
-            ..Scene::default()
+            ..OnScreen::default()
         };
         for frames in [
             [scene(1, 160.0), scene(60, 160.0)], // the camera stays put
@@ -476,14 +480,14 @@ mod tests {
         }
         // Somewhere the camera has shown counts as the world too, even
         // with nothing else labelled there.
-        let wasp_only = |frame: u64, camera_x: f32| Scene {
+        let wasp_only = |frame: u64, camera_x: f32| OnScreen {
             frame,
-            camera: Some(SceneCamera {
+            camera: Some(OnScreenCamera {
                 position: vec2(camera_x, 120.0),
                 zoom: 1.0,
             }),
             labels: vec![label("wasp", 400.0, 10.0, false)],
-            ..Scene::default()
+            ..OnScreen::default()
         };
         let passed = [wasp_only(1, 160.0), wasp_only(60, 800.0)];
         assert!(warnings(&passed, 320.0, 240.0).is_empty());
