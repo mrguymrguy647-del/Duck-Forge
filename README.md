@@ -208,8 +208,12 @@ cargo run --release -p studio_app
 
 `docs/phase4-design.md` is the design, and `docs/studio-screens/` has a
 picture of every screen. `docs/phase5-design.md` is the plan for the next
-phase, a real editor (scenes, objects, an Inspector, a Code panel); none
-of it is built yet.
+phase, a real editor (scenes, objects, an Inspector, a Code panel). Its
+first step is built: **scenes**, below. The Studio doesn't edit them
+yet, but it plays a game that has one, and when a scene file is saved
+from outside (Notepad, an agent) it sends the change to the game, frozen
+or playing, and makes it a step for Undo. Try it with the Scene demo,
+under "Examples that came with Duck Forge".
 
 ## Features
 
@@ -230,6 +234,19 @@ of it is built yet.
   files, and loops for music (`ctx.play_loop`, with volume and stop).
   Headless runs mix every sound into `audio.wav` at its exact frame
   and list it in `log.json`, so tests can check sounds too.
+- **Scenes:** a game's objects in a plain file, one per line
+  (`examples/scene_demo/scenes/pond.json`): a name, a kind, a position,
+  a picture, a turn, a scale, a layer, and settings of its own. `Scene`
+  loads it, draws it in layers, finds objects by name or kind, says what
+  touches what, moves an object against the tile map and solid objects,
+  and takes a changed file while the game runs: what the game hasn't
+  touched takes the change, and what it has (the duck that walked away)
+  stays as it is. A tile map is one kind of object, and the things
+  painted on it are objects too. Mistakes in the file are one sentence
+  each, with the line, and never stop the game.
+  ([examples/scene_demo/](examples/scene_demo/main.rs) is a hundred
+  lines of code and a scene; section 14 of `docs/AI_GUIDE.md` has the
+  file's keys.)
 - **3D rendering:** a camera with ready-made fly controls, meshes (cube,
   pyramid, sphere, cylinder, cone, quad, checkerboard, blocks from an
   atlas, or build your own, and merge many into one), transforms, a depth
@@ -428,6 +445,7 @@ after `--` goes to the game, not to Cargo):
 | `--tune FILE` | Read `ctx.tune` values from FILE (default: `examples/<game>.tune.json`, if it exists) |
 | `--set NAME=N` | Set one `ctx.tune` value, over the file (repeat it for more) |
 | `--write-tune` | After the run, write every `ctx.tune` name the game used, with its value, to the tune file |
+| `--time` | With `--headless`: draw every frame, save nothing, and say how long the updates and the drawing took (to compare one build with another) |
 | `--studio ADDRESS` | Play inside Duck Forge Studio. The Studio starts the game with this itself; it needs the game built with `--features studio` |
 | `--help` | List the options |
 
@@ -856,6 +874,8 @@ On a computer with one (in PowerShell or cmd, in the project folder):
 | `src/headless.rs` | `run_headless`: runs a game without a window and saves PNG pictures |
 | `src/cli.rs`      | The command-line options every game understands                    |
 | `src/script.rs`   | `InputScript`: recording and replaying inputs as JSON              |
+| `src/scene/`      | `Scene`, `Object`, `Id`: a game's objects in a scene file, played, and the file read and written (`SceneFile`) |
+| `src/on_screen.rs` | `OnScreen`: what a frame showed, in words (`canvas.label`, `last.scene.json`) |
 | `src/report.rs`   | `ctx.report`: values a game shares about itself                    |
 | `src/pictures.rs` | Contact sheets, GIFs and close-ups                                 |
 | `src/playtest.rs` | `PlayTest`: play a game inside `cargo test` and check its reports  |
@@ -877,7 +897,8 @@ On a computer with one (in PowerShell or cmd, in the project folder):
 | `src/font.rs`     | A built-in 3-pixel-wide font: every printable ASCII character        |
 | `src/color.rs`    | Colors with alpha, and see-through blending                         |
 | `src/rng.rs`      | A tiny xorshift random number generator                             |
-| `examples/`       | `hello`, `shapes`, `template`, `starter_topdown`, `starter_shooter`, `pollen_run`, `breakout`, `dodge`, `duckling_parade`, `door_short`, `door_show_3d`, `physics`, `world3d` and `stress3d` |
+| `examples/`       | `hello`, `shapes`, `template`, `starter_topdown`, `starter_shooter`, `scene_demo`, `pollen_run`, `breakout`, `dodge`, `duckling_parade`, `door_short`, `door_show_3d`, `physics`, `world3d` and `stress3d` |
+| `tools/write_ids.rs` | Writes the ids into a scene file made by hand: `cargo run --example write_ids -- FILE` |
 | `Start Duck Forge Studio.bat` | Builds Duck Forge Studio from this folder and opens it, with a double-click |
 | `tools/Run tests (for developers).bat` | Runs every test on Windows with a double-click: the engine's both ways, then the Studio's |
 | `tools/rust_check.bat` | Used by both: checks that Rust is installed, and offers the official page if not |

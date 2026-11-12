@@ -50,6 +50,8 @@ Contents:
 10. [Showing your work to a person](#10-showing-your-work-to-a-person)
 11. [3D](#11-3d)
 12. [What the engine can't do yet](#12-what-the-engine-cant-do-yet)
+13. [Duck Forge Studio](#13-duck-forge-studio)
+14. [Scenes: a game's objects in a file](#14-scenes-a-games-objects-in-a-file)
 
 ---
 
@@ -845,7 +847,12 @@ code, no files needed), `Sprite::load_png(path)?` (returns
 see-through), `sub(x, y, w, h)` and `frames(w, h)` (cut a sheet, no
 copying). Draw with
 `canvas.blit_sprite(&sprite, top_left, Blit { flip_x, flip_y, scale, tint, opacity, ..Default::default() })`
-or `Blit::default()`; scaling is nearest-neighbour. Animations:
+or `Blit::default()`; scaling is nearest-neighbour. Stretched each way
+and turned, round a point of its own:
+`canvas.draw_placed(&sprite, at, Placed { pivot: vec2(8.0, 16.0), scale: vec2(2.0, 1.0), turn: 15.0, ..Placed::default() })`
+(degrees clockwise; also `flip_x`, `flip_y`, `tint`, `opacity`; pixels
+stay sharp, and with no turn and one scale it's the same picture as
+`blit_sprite`). Animations:
 `Animation::new(frames, fps)`, `anim.frame_at(seconds)` (loops, unless
 `anim.looping = false`: then it stays on the last frame),
 `index_at(seconds)`, `duration()`.
@@ -1113,7 +1120,9 @@ with sound if ffmpeg is there, or else a full-size GIF next to it),
 pictures), `--grid-world N` (the same in world units, through the
 camera), `--describe`, `--debug`, `--debug-corner top-right` (where
 the overlay's box goes; bottom-right by default), `--tune FILE`,
-`--set NAME=N` (repeatable), `--write-tune`, `--accept` (with
+`--set NAME=N` (repeatable), `--write-tune`, `--time` (with
+`--headless`: draws every frame, saves nothing, and says how long the
+updates and the drawing took), `--accept` (with
 `--inputs FILE`: store this ending as the file's `"expect"`), `--record FILE` (window
 only), `--diff OLD_DIR NEW_DIR` (compare two runs; any example runs it,
 the game isn't started), `--fuzz N` (presses the keys the game reads, or
@@ -1123,12 +1132,63 @@ They go after `--` with `cargo run`: `cargo run --example x -- --headless`.
 A game's own options go after a second `--` (`-- --seed 3 -- --new-world`)
 and the game reads them with `duckforge::game_args()`.
 
-**Labels and scenes**: in `draw`, `canvas.label("name", rect)` (draws
+**Labels, and what was on screen**: in `draw`, `canvas.label("name", rect)` (draws
 nothing; inside `push_camera` the rect is in the world). After a step,
-`sim.scene()` gives a `Scene` with `frame`, `camera` (`position`, `zoom`),
+`sim.scene()` (or its other name, `sim.on_screen()`) gives an `OnScreen` with `frame`, `camera` (`position`, `zoom`),
 `labels` (each `name`, `world`, `screen`, `on_screen`), `texts` (each
 `text`, `screen`), `scene.labels_named("rock")` and `scene.describe()`
-(the same words as `--describe`).
+(the same words as `--describe`). A `Scene`'s objects label themselves.
+
+**Scenes** (a game's objects in a file; section 14 has the file, and
+`examples/scene_demo/` is a game made with one):
+`let mut scene = Scene::load("examples/mygame/scenes/level1.json")?;`
+(with its pictures and tile maps; names in the file are from the game's
+folder, the one above `scenes/`). In `update`: `scene.update(ctx)`. In
+`draw`: `scene.draw(canvas)` (its background colour, then every layer),
+or `scene.draw_layer(canvas, "front")` one at a time, to draw your own
+things between. In `reload`: `scene.reload(ctx, file)` (true if the file
+is one of the scene's; it takes the change in mid-play). Find:
+`scene.find("duck")` (an `Option<Id>`: the lowest id of that name),
+`scene.all("coin")`, `scene.of_kind("coin")`, `scene.ids()` (by id),
+`scene.ids_as_drawn()`, `scene.get(id)` and `scene.get_mut(id)` (an
+`Option`), `scene.has(id)`, `scene.len()`, and `scene[id]` (panics,
+saying so, if it's gone). Every key of an object's line is a field:
+`scene[id].at` (a `Vec2`), `.turn` (degrees clockwise), `.scale` (a
+`Vec2`), `.flip`, `.picture` and `.animation` (`Option<String>`),
+`.layer`, `.shown`, `.tint`, `.opacity`, `.hitbox` (its `"box"`),
+`.solid`, `.name`, `.kind`, `.anchor`. Its own settings:
+`scene[id].number("speed")`, `.text("goes_to")`, `.flag("open")`,
+`.point("target")` (each an `Option`), `.has("speed")`,
+`.set_number("speed", 60.0)`, `.set_text("goes_to", "level2")`,
+`.set_flag("open", true)`, `.unset("speed")`. `scene.starts_as(id)` is
+the object as the file has it (the scene keeps both: what the file says,
+and what it is now). Add and remove:
+`scene.add(Object::new("spark").named("spark 1").at(vec2(5.0, 5.0)).with_picture("assets/spark.png").on_layer("front"))`
+gives its `Id` (it isn't in the file); `scene.remove(id)` gives the
+object back. Where things are: `scene.rect(id)` (its box),
+`scene.picture_rect(id)`, `scene.touching(id, "coin")` (the ids of
+others by that name or kind whose boxes overlap its own),
+`scene.overlaps(a, b)`, `scene.at_point(point)` (the one on top first),
+`scene.move_and_slide(id, velocity * ctx.dt())` (stops at the tile map
+and at `"solid": true` objects, and gives `Contacts`, as a tile map
+does). Also `scene.tilemap()` (an `Option<&TileMap>`: the first in the
+file), `scene.tilemap_of(id)`, `scene.camera` (a `Camera2D`: follow with
+it), `scene.background` (an `Option<Color>`), `scene.size()`,
+`scene.layers()`, `scene.next()`, `scene.time()`, `scene.file()`,
+`scene.folder()`, `scene.reads_from(file)`, `scene.starts()` (the file as
+read) and `scene.problems()`: what's wrong, one sentence each with the
+file and line, empty if nothing is (a good rule:
+`ctx.check("the scene file has no mistakes", scene.problems().is_empty())`).
+Ids: `id.number()`, `id.is_from_the_file()`, `id.is_painted()` (a thing
+painted on a tile map). Anchors: `Anchor::Feet.point(16.0, 16.0)`,
+`Anchor::of_kind("text")`, `Anchor::from_word("feet")`, `anchor.word()`,
+`object.anchor_or_usual()`. Without playing (tools, tests):
+`duckforge::scene::SceneFile::load(path)?` or `SceneFile::parse(text)`
+(its `objects`, `problems`, `ids_missing`), `file.to_text()` (as Duck
+Forge writes it: one object per line), `file.save(path)`,
+`file.free_id()`, `file.object(id)`, `duckforge::scene::write_ids(path)?`;
+`Scene::from_text(text, folder)?`, `scene.take_text(new_text)`,
+`scene.reload_file(path)`.
 
 **Debug overlay**: `ctx.debug_rect(rect)` and `ctx.debug_circle(center, r)`
 in `update` (world coordinates; only the latest update's shapes are
@@ -1532,7 +1592,12 @@ proportion to their pixels. A graphics card draws far more; check with
 
 Plan around these. Don't spend time looking for them:
 
-- Sprites can't rotate (only flip and scale).
+- A turned sprite's collision box isn't turned (`draw_placed` and a
+  scene object's `"turn"` are for looks).
+- Scenes: no objects inside objects, one kind per object, and no kinds
+  that act by themselves yet (the game's code gives objects their
+  behaviour; ready-made ones come later in Phase 5). 3D scene files are
+  read and kept, not drawn.
 - One-off sounds can't be stopped or changed once started (loops can:
   `play_loop`, `set_loop_volume`, `stop_loop`). No pitch changes while
   playing, and no crossfades beyond changing volumes yourself.
@@ -1618,5 +1683,119 @@ agent might meet:
   (`cargo build --example mygame --features studio`, then the Studio
   starts it with `--studio`). It's off by default: ordinary builds,
   headless runs and tests don't include it.
+- **Scene files** (section 14): the Studio looks at the open game's
+  `scenes/*.json` twice a second. A scene file you write while a person
+  has the game open reaches their game at once (frozen or playing, as a
+  `"file"` event in the session), and is one step of their Undo, called
+  "Changed outside the Studio". The Studio doesn't edit scenes itself
+  yet: that's the next steps of `docs/phase5-design.md`.
 
-`docs/phase4-design.md` has the whole design.
+`docs/phase4-design.md` has the whole design, and
+`docs/phase5-design.md` the plan for the editor.
+
+## 14. Scenes: a game's objects in a file
+
+A game can keep what's in it (not what it does) in a scene file: plain
+JSON, one object per line, that you can write by hand, the engine plays,
+and Duck Forge Studio will edit (`docs/phase5-design.md` has the whole
+plan; this section is what's built). `examples/scene_demo/` is a game
+made this way: read its `scenes/pond.json` and its `main.rs` first.
+
+```json
+{
+  "duckforge_scene": 1,
+  "size": [640, 240],
+  "background": "#5e9fe0",
+  "objects": [
+    {"id": 1, "name": "sky", "kind": "background", "picture": "assets/sky.png", "layer": "far", "parallax": 0.1},
+    {"id": 3, "name": "ground", "kind": "tilemap", "level": "level.txt"},
+    {"id": 4, "name": "sign", "at": [120, 208], "turn": -8, "picture": "assets/sign.png"},
+    {"id": 6, "name": "big crate", "at": [330, 208], "scale": [2, 1.5], "picture": "assets/crate.png", "solid": true},
+    {"id": 7, "name": "coin", "kind": "coin", "at": [248, 176], "picture": "assets/tiles.json", "animation": "coin"},
+    {"id": 9, "name": "duck", "at": [40, 208], "picture": "assets/hero.json", "box": [3, 2, 10, 14]}
+  ]
+}
+```
+
+**Where it goes.** `examples/<game>/scenes/<name>.json`. Names inside it
+(`"picture"`, `"level"`) are from the game's folder,
+`examples/<game>/`.
+
+**What an object can say.** Only `"name"` is needed; leave the rest out
+and it's the usual:
+
+| Key | Meaning | Left out |
+|---|---|---|
+| `id` | A whole number from 1, never used twice in the scene | the engine gives one (below) |
+| `name` | What the code asks for: `scene.find("duck")`. Several can share one | its kind |
+| `kind` | What it is. `picture`: drawn, does nothing. `tilemap`: a level on a grid (`"level": "level.txt"`, with its `level.legend.json` beside it, as in section 7). `background`: a picture that repeats and moves slower than the world (`"parallax": 0.2`, or `[0.5, 0.1]`; `"repeat_x"`, `"repeat_y"`). Anything else is a name your code asks for: `scene.of_kind("coin")` | `picture` |
+| `at` | Where its anchor is, in pixels, y downwards | `[0, 0]` |
+| `anchor` | The point of it on `at`: `feet` (bottom middle), `middle`, `top_left`, `top`, `top_right`, `left`, `right`, `bottom_left`, `bottom_right` | `feet`, or a Duck Quill sheet's own pivot; `top_left` for a tile map or a background |
+| `turn` | Degrees clockwise, round its anchor (its box isn't turned) | 0 |
+| `scale` | How many times bigger: `2`, or `[2, 1.5]` each way | 1 |
+| `flip` | Mirrored left to right | false |
+| `picture`, `animation` | A `.png`, or a Duck Quill sheet `.json` and one of its animations | no picture; `idle`, or the sheet's first |
+| `layer` | `far`, `back`, `world`, `front` or `hud` (drawn in that order; `hud` stays on the screen), or one of the scene's own `"layers"` | `world` |
+| `shown`, `tint`, `opacity` | As in `Blit`; `tint` is `"#rrggbb"` | shown, white, 1 |
+| `box` | Its collision box in its picture's pixels: `[left, top, width, height]`. With no picture, its whole size | its picture |
+| `solid` | `scene.move_and_slide` stops other objects at it | false |
+
+Every other key is the object's own setting, for your code:
+`scene[id].number("speed")`. The scene itself can say `"size"` (pixels),
+`"background"`, `"layers"` (`["below", "above", {"name": "top",
+"stays_on_screen": true}]`) and `"next"`. Don't use `"size"` on an
+object (it's `"scale"`), and leave `"parent"`, `"kinds"`, `"like"` and
+`"rules"` alone: they're kept for later steps.
+
+**Order.** Objects are drawn in the file's order inside their layer
+(later ones on top), and `scene.ids()` lists them by id. Moving a line
+up or down changes only what's on top.
+
+**A tile map's painted things are objects too.** Each "thing" letter of
+the level (`c` for a coin) is an object named after the thing, of that
+kind, standing in its square, with the tiles' picture of that name if
+the sheet has one. So `scene.touching(duck, "coin")` finds painted coins
+and placed ones alike. Their ids come from their squares
+(`id.is_painted()`).
+
+**Ids.** Write them (1, 2, 3...) if you can. Without them the engine
+gives each object the next number after the highest id in the file,
+going down the file: the same every time, but adding an object above
+moves the ones below it. To write them into the file for good:
+
+```sh
+cargo run --no-default-features --example write_ids -- examples/mygame/scenes/level1.json
+```
+
+**Mistakes.** `Scene::load` fails only if the file is missing or isn't
+JSON at all. Anything smaller is one sentence each in `scene.problems()`
+(and printed once), with the file and line, and the scene still plays:
+a key with a mistake is as if it weren't there, and a picture that can't
+be loaded is drawn as a marked box.
+
+```text
+examples/mygame/scenes/level1.json, line 9: "snail": "at" should be two numbers, like [40, 208]; it's 40
+```
+
+Make it a rule (`ctx.check("the scene file has no mistakes",
+scene.problems().is_empty())`): then `--fuzz`, play tests and
+`tools/verify` all fail when the file has a mistake.
+
+**Changed while the game runs.** Call `scene.reload(ctx, file)` from the
+game's `reload`. A window looks at the scene file twice a second, the
+Studio sends it when it's saved (frozen or playing), and a recording
+keeps its text and every change with its frame, so replays stay exact.
+The game carries on from where it is: each key that changed in the file
+is taken by its object, unless the game changed that key itself since
+the scene started. So a sign moved in the file moves; the duck, who has
+walked on, stays where it is, and `scene.starts_as(duck)` has where the
+file now says it starts. New objects appear, objects taken out go, and
+an object the game removed (a coin that was taken) stays gone. A file
+that isn't JSON changes nothing until it reads again.
+
+**Testing a scene game.** As in section 6, with two additions from the
+demo's `tests.rs`: test what must stay true of the real file (it reads
+with no problems, every object has its id, the bot still wins), and test
+how the game plays on small scenes written in the test
+(`SceneDemo::with_scene(copy.scene())`), so editing the real scene never
+breaks a test by accident.

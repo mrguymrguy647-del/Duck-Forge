@@ -5,9 +5,12 @@ Scene list, an Inspector, tools to move, turn and resize things, and a
 Code panel. Underneath, games get **objects stored in scene files** that
 the engine and the Studio both read.
 
-This is Step 0: the plan, for review. Nothing is built yet. The pictures
+This is the plan as approved, with the answers and changes from the
+review folded in ("Decided", near the end). **Step 1 is built** (scenes
+in the engine, and a demo game); the rest is still a plan. The pictures
 are drawings made for this document, not the real app. Numbers marked
-*measured* were measured for this document.
+*measured* were measured for this document; `docs/decisions.md` has the
+numbers measured as each step is built.
 
 Contents: [the screens](#the-screens), then the ten questions in order:
 [1 the scene file](#1-the-scene-file),
@@ -20,8 +23,9 @@ Contents: [the screens](#the-screens), then the ten questions in order:
 [8 what Duck Forge keeps](#8-what-duck-forge-keeps-that-godot-doesnt-have),
 [9 the build steps](#9-the-build-steps),
 [10 what's cut](#10-what-id-cut-or-postpone), then
-[the rules and how they're measured](#the-rules-and-how-theyre-measured)
-and [what I need you to decide](#what-i-need-you-to-decide).
+[the rules and how they're measured](#the-rules-and-how-theyre-measured),
+[what was decided](#decided) and
+[what you test on Windows after Step 1](#what-you-test-on-windows-after-step-1).
 
 ## The short version
 
@@ -42,10 +46,11 @@ and [what I need you to decide](#what-i-need-you-to-decide).
   [section 10](#10-what-id-cut-or-postpone).
 - **The frozen game stays the editor's picture.** You still freeze in
   mid-jump, change something, and play on from that frame.
-- It's built in twelve small steps, each ending in a STOP and a hand
-  checklist. Six need the stronger model throughout, three (and the
+- It's built in ten small steps, each ending in a STOP and a hand
+  checklist. Four need the stronger model throughout, three (and the
   final proof) can be built by a cheaper one from this design, and
-  three are split between them.
+  three are split between them. 3D is its own phase after it (5b), and
+  Export after that.
 
 ## The screens
 
@@ -175,24 +180,62 @@ Any JSON layout a person or agent writes by hand reads fine.
 
 | Key | Meaning | If left out |
 |---|---|---|
-| `id` | A number that never changes and is never used again in this scene. The Studio, replays and Check tell objects apart by it, even after a rename | The Studio gives one |
+| `id` | A number that never changes and is never used again in this scene. The Studio, replays and Check tell objects apart by it, even after a rename | The engine gives one (see "Ids", below) |
 | `name` | What you and the code call it. Several objects can share one ("coin") | The kind's name |
 | `kind` | What it does: a ready-made kind or one of the game's own | `picture`: it's drawn and does nothing |
-| `at` | Where its feet are, in the game's pixels: `[x, y]`, y downwards as everywhere in the engine | `[0, 0]` |
-| `turn` | Degrees clockwise | 0 |
-| `size` | How many times bigger: `2`, or `[2, 1]` | 1 |
+| `at` | Where its anchor is, in the game's pixels: `[x, y]`, y downwards as everywhere in the engine | `[0, 0]` |
+| `turn` | Degrees clockwise, round its anchor | 0 |
+| `scale` | How many times bigger: `2`, or `[2, 1]` for each way. (A scene's own `size` is in pixels, so an object's word is a different one. The Studio's tool is still called Size) | 1 |
 | `flip` | Mirrored left to right | false |
+| `anchor` | The point of it that sits on `at`: `feet` (the bottom middle), `middle`, `top_left`, `top`, `top_right`, `left`, `right`, `bottom_left`, `bottom_right` | Its kind's usual one (below) |
 | `picture` | A `.png`, or a Duck Quill sheet (`.json`) | none: nothing is drawn |
-| `animation` | Which animation of the sheet | the first |
+| `animation` | Which animation of the sheet | `idle` if it has one, or else its first |
 | `layer` | One of the scene's layers. Layers are drawn in the list's order; inside one, objects are drawn in the file's order | `world` |
 | `shown`, `tint`, `opacity` | As in `Blit` today | shown, white, 1 |
 | `box` | Its collision box, `[left, top, width, height]` inside its picture | the whole picture |
 | `solid` | Other objects can't pass through it | false |
 | `like` | A saved thing to start from: `"like": "fast_snail"` | none |
 
-"Its feet" is the bottom middle of its picture, or the pivot a Duck
-Quill sheet gives. That's where tile maps put things today, so an object
-snapped to the grid stands on the tile under it.
+**Anchors.** A picture, and everything that moves, stands on its
+**feet**: the bottom middle of its picture, or the pivot a Duck Quill
+sheet gives. That's where tile maps put things today, so an object
+snapped to the grid stands on the tile under it. What's laid out like a
+page is placed by its **top-left corner**: Text, Button, Area, Tile map,
+Background. What has no shape (Sound, Camera, Spawner) sits on its
+**middle**. Any object can say another with `"anchor"`.
+
+**Order.** Objects are *drawn* in the file's order, inside their layer.
+They *update* in the order of their ids: the file's objects, then
+objects made while playing (in the order they were made), then things
+painted on tile maps (map by map, row by row). So dragging an object up
+or down the Scene list changes only what's drawn on top. It can never
+change how the game plays, and the same inputs give the same game.
+
+**Ids.** The Studio writes an id on every line. A scene written by hand
+or by an agent can leave them out: the engine then gives each such
+object an id the same way every time (the numbers after the highest id
+in the file, going down the file), so a replay and a reload agree. Left
+out, an id depends on the object's place among the others without one,
+so a small tool puts them in the file for good:
+
+```sh
+cargo run --example write_ids -- examples/bee_maze/scenes/level1.json
+```
+
+It writes the file again the way Duck Forge writes it, changes nothing
+else, and does nothing to a file whose objects all have ids. (It's
+`tools/write_ids.rs`: a tool, not an option of every game, so games
+that have no scenes carry none of this.) The Studio gets the same as a
+command (`scene.write_ids`) with the Scene panel in step 2, and Check
+says when a scene's objects have no ids. Two objects
+with the same id is a mistake said in plain words; the second is given a
+new one.
+
+**Kept for later.** `"parent"` (objects inside objects) and `"kinds"`
+(several behaviours on one object) are reserved now: no kind can use
+them for a setting, a file that has them keeps them, and the engine says
+they do nothing yet. So files made now won't change when those arrive.
+The same goes for `"space": "3d"` and `"model"` (section 6).
 
 **Its own settings** are every other key (`speed`, `walks`,
 `goes_to`). A kind can't use one of the names above for a setting; the
@@ -208,7 +251,10 @@ it changes. Spawners make copies of saved things.
 **A tile map is one kind of object**: `{"kind": "tilemap", "level":
 "scenes/level1.txt"}`. The engine reads it with `TileMap::load_level`,
 the same code as today, and the legend file is found next to it as now.
-Several tile maps in one scene are several layers of tiles.
+The level can be anywhere in the game's folder: the demo game keeps
+`level.txt` where today's games do, so today's paint tools work on it
+already. Several tile maps in one scene are several layers of tiles;
+the first is the one things walk on.
 
 - The legend's "thing" letters still work. Each painted thing becomes an
   object when the scene loads: like the saved thing of that name if
@@ -222,10 +268,15 @@ Several tile maps in one scene are several layers of tiles.
   and the paint tools as now.
 
 **Paths** inside a scene are from the game's folder. **Colours** are
-`"#rrggbb"`. **A mistake in the file** is one sentence with the line:
-"scenes/level1.json, line 9: the kind 'patroll' isn't known. Did you
-mean 'patrol'?" The game still starts, with that object drawn as a
-marked box, so one typo never loses the scene.
+`"#rrggbb"`. **A mistake in the file** is one sentence with the file and
+the line: "scenes/level1.json, line 9: "snail": "at" should be two
+numbers, like [40, 208]; it's 40". The game still starts: a key with a
+mistake is as if it weren't there, and a picture that can't be loaded is
+drawn as a marked box, so one typo never loses the scene. A file that
+isn't JSON at all, saved while the game runs, changes nothing: the scene
+stays as it was until the file reads again. (A kind nothing knows, with
+"did you mean", arrives with kinds in step 5 and Check in step 8. Until
+then any kind is a name the game's code can ask for.)
 
 ## 2. Code and scenes together
 
@@ -265,15 +316,19 @@ code can do with one:
 | | |
 |---|---|
 | Find | `scene.find("duck")` (the first of that name), `scene.all("coin")`, `scene.of_kind("patrol")`, `scene.ids()` |
-| Read and change | `scene[id].at`, `.turn`, `.size`, `.picture`, `.layer`, `.shown`... every key in the file is a field. `scene.setting(id, "speed")`, `scene.set_setting(id, "speed", 60.0)` |
-| Add and remove | `scene.add(Object::new("coin").at(vec2(120.0, 96.0)))`, `scene.add_like("fast_snail", at)`, `scene.remove(id)` |
+| Read and change | `scene[id].at`, `.turn`, `.scale`, `.picture`, `.layer`, `.shown`... every key in the file is a field. Its own settings: `scene[id].number("speed")`, `.text("goes_to")`, `.flag("open")`, `scene[id].set_number("speed", 60.0)`. How the file has it: `scene.starts_as(id)` |
+| Add and remove | `scene.add(Object::new("coin").at(vec2(120.0, 96.0)))`, `scene.remove(id)`; from step 6, `scene.add_like("fast_snail", at)` |
 | Touching | `scene.touching(id, "coin")` (by name or kind), `scene.overlaps(a, b)`, `scene.at_point(point)` |
-| Moving | `scene.move_and_slide(id, movement)` gives today's `Contacts`: it stops at tile maps and solid objects |
-| The rest | `scene.tilemap()` (today's `TileMap`), `scene.camera` (today's `Camera2D`), `scene.go_to("level2")`, `scene.number("score")`, `scene.draw_layer(canvas, "front")` to draw your own things between layers |
+| Moving | `scene.move_and_slide(id, movement)` gives today's `Contacts`: it stops at the tile map and at solid objects |
+| The rest | `scene.tilemap()` (today's `TileMap`), `scene.camera` (today's `Camera2D`), `scene.draw_layer(canvas, "front")` to draw your own things between layers, `scene.problems()`; from step 7, `scene.go_to("level2")` and `scene.number("score")` |
+
+Everything in the table without a step number is built (step 1), and
+`examples/scene_demo` is a game written with it.
 
 Objects made by code while playing (bullets, sparks) are ordinary
-objects that just aren't in the file. Objects update in the file's
-order, so the same inputs give the same game.
+objects that just aren't in the file. Objects update in the order of
+their ids (section 1, "Order"), so the same inputs give the same game
+however the file's lines are arranged.
 
 **A new kind, in Rust:**
 
@@ -573,8 +628,14 @@ it needs the save-file rules the engine already has for Duck Craft
 
 ## 6. 2D first, then 3D
 
-Everything above is built for 2D first. The same file and the same
-panels carry 3D with three differences:
+Everything above is built for 2D. **3D is Phase 5b**, right after this
+phase: the two steps at the end of section 9, together with reading
+`.glb` models. What Phase 5 does now is keep the file ready: a scene
+that says `"space": "3d"` is read, kept and written back exactly as it
+is (three numbers, the `"model"` key and all), and the engine says it
+can't be drawn yet. So nothing written now will need changing.
+
+The same file and the same panels will carry 3D with three differences:
 
 ```json
 { "duckforge_scene": 1, "space": "3d",
@@ -605,7 +666,9 @@ block each letter is. That's plain text an agent can write and git can
 compare. Painting blocks by clicking in the editor is its own job and
 isn't in this phase.
 
-**3D models: the format I propose is glTF 2.0, as one `.glb` file.**
+**3D models are glTF 2.0, as one `.glb` file** (agreed: Modular 3D will
+be built to write exactly this, with `extras.duckforge`, and rigid-part
+animation first).
 
 - It's the standard every 3D tool reads and writes (Blender, Windows'
   own 3D viewer), so a model from Modular 3D can be checked anywhere,
@@ -626,20 +689,20 @@ isn't in this phase.
 - 1 unit is 1 block. The loader turns the model from glTF's directions
   to the engine's, so Modular 3D exports the standard and doesn't need
   to know.
-- **The slot left for it now:** an object's `"model"` key; a Model box
-  in the Inspector that takes a dropped `.glb`; Files calls `.glb` files
-  "Model"; `Mesh::load_model(path)` in the engine. Until the reader is
-  built, an object with a model is drawn as a marked box, and Check
-  says "models can't be drawn yet". So scene files written now won't
-  need changing.
+- **The slot left for it now:** an object's `"model"` key, kept as it
+  is by the engine and the Studio (built in step 1); Files calls `.glb`
+  files "Model". In Phase 5b: a Model box in the Inspector that takes a
+  dropped `.glb`, and `Mesh::load_model(path)` in the engine. So scene
+  files written now won't need changing.
 
 Sprites and 2D animation keep coming from Duck Quill's JSON and PNG,
 which the engine reads today.
 
-**What of 3D is in Phase 5:** the last two steps, after 2D is done: 3D
-scenes with Mesh, Light, Camera and facing pictures, the fly camera, and
-moving things. Not in Phase 5: reading models, 3D animation, painting
-block worlds, ready-made 3D behaviours.
+**Phase 5b, in order:** 3D scenes drawn (Mesh, Light, Camera, facing
+pictures, reload); the fly camera in the frozen game, clicking and
+moving in 3D; reading `.glb` models, then their rigid-part animation.
+Still later: painting block worlds, ready-made 3D behaviours, skinned
+meshes.
 
 ## 7. Beginner and Expert
 
@@ -709,7 +772,7 @@ to copy.
 
 | | Step | When it's done you can | Who |
 |---|---|---|---|
-| 1 | **Scenes in the engine.** The file, `Scene`, drawing in layers, turned and resized pictures, a tile map as an object, `reload` that merges, mistakes in plain words. A small demo game | Open the demo in the Studio, play it, edit its scene file in Notepad while it's frozen, and see the change | Stronger |
+| 1 | **Scenes in the engine.** The file, `Scene`, drawing in layers, turned and resized pictures, a tile map as an object, `reload` that merges, mistakes in plain words. A small demo game. **Built** | Open the demo in the Studio, play it, edit its scene file in Notepad while it's frozen, and see the change | Stronger |
 | 2 | **Scene list, Inspector, select and move.** The link's new questions, the `object` and `select` commands, snap and grid, Undo, "Starts at and Now" | Click an object, drag it, change its name, position, picture and layer, undo, and play on from the frozen frame | Stronger |
 | 3 | **The other tools.** Turn, Size, several at once, box select, copy, paste, duplicate, delete, nudge, reorder, Add (plain kinds) | Build a small picture of a level by hand | Cheaper |
 | 4 | **Dragging from Files.** Onto the scene and onto Inspector boxes, and from Windows | Drag a picture in, drag a sound onto a box | Cheaper |
@@ -719,9 +782,16 @@ to copy.
 | 8 | **Check and bots.** Scene checks, reach with objects, the ready-made bot, problems that select their object, `tools/verify` | Put a coin out of reach and be told which; break a door and be told which | Stronger |
 | 9 | **Beginner and Expert, and the Code panel** | Switch with one click; open, change and save code inside the Studio and see a mistake on its line | Cheaper |
 | 10 | **Rules.** The sentences, the builder, turning them into code | Make "duck touches water: restart" without code | Stronger for reading the sentences, cheaper for the builder |
-| 11 | **3D scenes.** Three numbers, Mesh, Light, Camera, facing pictures, drawing and reload | Open a 3D demo scene, edit its file, see the change | Stronger |
-| 12 | **3D in the editor.** The fly camera in the frozen game, clicking and moving in 3D, the Model slot | Fly round a frozen 3D game, move a crate, play on | Stronger |
 | | **The proof**, as at the end of Phase 4: from New game to a three-scene game with no code, then one behaviour turned into code, walked on GitHub's Windows machine and by you | | Cheaper |
+
+Then, as phases of their own:
+
+| | Step | When it's done you can | Who |
+|---|---|---|---|
+| 5b.1 | **3D scenes.** Three numbers, Mesh, Light, Camera, facing pictures, drawing and reload | Open a 3D demo scene, edit its file, see the change | Stronger |
+| 5b.2 | **3D in the editor.** The fly camera in the frozen game, clicking and moving in 3D, the Model box | Fly round a frozen 3D game, move a crate, play on | Stronger |
+| 5b.3 | **Models.** Reading `.glb` as section 6 has it, then rigid-part animation | Drop a model from Modular 3D into a scene | Stronger |
+| Export | **One folder ready to send to a friend**: the game's program and everything it reads, with no Rust needed to play it | Press Export, zip the folder, send it | Cheaper, from a short design |
 
 After each step: a new section in the hand checklist (it carries on from
 item 49), the numbers in `docs/decisions.md`, and screenshots of every
@@ -729,8 +799,9 @@ new screen.
 
 Steps 3, 4, 9 and the proof are the ones to hand to a cheaper model
 whole, with most of step 6 and the Studio halves of steps 7 and 10.
-Steps 10, 11 and 12 can each be left for a later phase without undoing
-anything before them.
+Step 10 (Rules) is the first to cut if the phase runs long; nothing
+before it depends on it. The final shape of a rule's sentence is decided
+at step 10, not now.
 
 ## 10. What I'd cut or postpone
 
@@ -755,9 +826,10 @@ of step 6, to show how, and leave the rest alone.
   one is a flat list with layers. A tree makes every tool, the file and
   the code harder, and the games Duck Forge makes rarely need it. A lift
   carries what stands on it because the lift does that, not because of a
-  tree. The file leaves room for a `"parent"` later.
+  tree. The key `"parent"` is kept for it (section 1).
 - **One behaviour per object.** No stacking "patrol" and "shoots" on one
-  snail. For that you turn it into code.
+  snail. For that you turn it into code. The key `"kinds"` is kept for
+  it.
 - **The Code panel is a plain editor.** Suggestions as you type and "go
   to definition" mean running rust-analyzer, a large separate program,
   inside the Studio and keeping it alive on Windows. That's a phase of
@@ -766,23 +838,22 @@ of step 6, to show how, and leave the rest alone.
 - **Turning doesn't turn collision boxes.** The engine's boxes don't
   rotate (as in its physics today). Turn is for looks; a turned
   platform still collides as its upright box. The Inspector says so.
-- **No screen-layout system.** Text and Button, placed by hand. No
-  anchors, no containers that resize.
+- **No screen-layout system.** Text and Button, placed by hand, by any
+  of their nine anchor points. No containers that resize.
 - **No animation editor, no particle editor, no sound editor.** Duck
   Quill and Duck Echo do those.
 - **No saving progress to disk**, and **no Export button**. "Exported
   game" in this document means what `cargo build --release --example`
   gives. A game with scenes reads its files when it starts, as games
   read their pictures and levels today, so sharing a game means sharing
-  its folder with it. A proper Export (one folder or one file, ready to
-  send) is a small phase of its own and I'd do it soon after this one.
-- **3D:** no models (the slot only), no 3D animation, no block painting,
-  no ready-made 3D behaviours.
+  its folder with it. A proper Export (one folder ready to send to a
+  friend) is the small phase right after this one and 5b.
+- **3D** is Phase 5b (section 6). Phase 5 keeps 3D scene files as they
+  are and draws nothing of them.
 - **No gamepads, no macOS**, as before.
 
-**First to go if the phase runs long:** Rules (step 10), then 3D in the
-editor (step 12), then 3D scenes (step 11). The phase is still whole
-without them.
+**First to go if the phase runs long:** Rules (step 10). The phase is
+still whole without them.
 
 **The risks I see:**
 
@@ -796,7 +867,7 @@ without them.
 - *Dragging smoothness.* The frozen game redraws a few times a second
   while you drag. The outline under the pointer hides that, but a very
   big scene may still feel a beat behind.
-- *Size.* Twelve steps is longer than Phase 4's five. Each is small on
+- *Size.* Ten steps is longer than Phase 4's five. Each is small on
   purpose.
 
 ## The rules, and how they're measured
@@ -807,7 +878,7 @@ without them.
 | Existing games and playthroughs pass, frame for frame | The playthrough tests that exist today, unchanged. No existing game's files are touched before step 6, and then only the one starter that's moved, as a new starter beside the old one |
 | Exported games don't contain the editor | Everything the Studio needs inside a game (answering questions, the "As it starts" view) is behind the `studio` feature, which exported games don't turn on. A test builds without it and checks the names aren't in the program |
 | No slower, no bigger | The table below, measured again at every step on Linux and on GitHub's Windows machine. An existing game more than 1% bigger or slower stops the step |
-| The Duck Forge look | No drawing code changes. Objects are drawn with today's `blit_sprite`. Turned pictures use the same sharp-pixel rule as resized ones |
+| The Duck Forge look | No existing drawing code changes. An object that isn't turned, and is the same size both ways, is drawn by today's `blit_sprite`, to the pixel. Turned and stretched pictures use the same sharp-pixel rule (`Canvas::draw_placed`, new in step 1) |
 | Linux and Windows | The release workflow runs every test on Windows, as now |
 | A hand checklist | After every step, numbered on from 49 |
 
@@ -820,38 +891,123 @@ features:
 | Shooter starter | 6,252,280 bytes | 0.50, 0.51, 0.59 s |
 | 3D runner starter | 11,594,608 bytes | 2.30, 2.36, 2.64 s |
 
-Step 1 adds drawing time to this table (headless runs draw only at the
-end, so it needs a small timing option) and the Windows numbers. From
-step 6 the new Platformer starter made with scenes is measured beside
-today's. It does more work per object than hand-written code, so I
-expect it a little bigger and a little slower; the target is within 10%,
-and the real numbers will be reported whatever they are.
+From step 6 the new Platformer starter made with scenes is measured
+beside today's. It does more work per object than hand-written code, so
+I expect it a little bigger and a little slower; the target is within
+10%, and the real numbers will be reported whatever they are.
 
-## What I need you to decide
+**After Step 1** (*measured*, same machine; "before" is the code before
+Step 1 with only the new timing option added, so both are timed the same
+way: `--headless --time`):
 
-1. **JSON for scenes.** I recommend it, for the reasons in section 1.
-   The other choice is TOML, which allows comments but is new to the
-   engine and to every existing file.
-2. **Rules as sentences.** `"when duck touches coin: add 1 to score"`
-   reads well and compares well, but needs careful error messages. The
-   other choice is a small JSON shape per rule, which is duller and
-   safer.
-3. **Rules in this phase, or after?** I'd keep them as step 10 and cut
-   them first if needed.
-4. **3D in this phase (steps 11 and 12), or a Phase 5b?** The 2D editor
-   is complete without them.
-5. **glTF `.glb` for models.** Can Modular 3D write it? If it already
-   has a format, send me a sample and I'll compare.
-6. **A flat list, one behaviour per object** (section 10). Both can be
-   added later without changing files made now.
-7. **The plain Code panel**, with "Open in my editor" beside it.
-8. **Names:** "Scene", "Inspector", "Files" as Godot has them; "kind"
-   for what an object is; "saved thing" for an object you reuse;
-   "numbers" for score and lives. Say if any reads wrong.
-9. **Which starter moves to scenes in step 6:** I'd take the Platformer,
-   as a new starter beside today's.
+| Game | Size before | Size after | 600,000 updates, before | after | Drawing one frame, before | after |
+|---|---|---|---|---|---|---|
+| Platformer starter | 6,391,536 | 6,393,376 | 0.32 to 0.36 s | 0.31 to 0.37 s | 80 to 83 µs | 75 to 76 µs |
+| Shooter starter | 6,257,544 | 6,259,768 | 0.46 to 0.57 s | 0.47 to 0.58 s | 18.2 to 19.5 µs | 17.6 to 19.9 µs |
+| 3D runner starter | 11,600,200 | 11,602,168 | 2.17 to 2.28 s | 2.17 to 2.27 s | 1,471 to 1,499 µs | 1,464 to 1,488 µs |
+| Scene demo (new) | | 6,612,816 | | 0.87 to 0.91 s | | 76 to 82 µs |
 
-One thing to do first: the first-hour fixes
-(`claude/studio-first-hour-fixes`: the Files panel, Empty, delete and
-rename) aren't in main yet. Steps 2 and 4 build on that Files panel, so
-it should be merged before Step 1 starts.
+- Existing games are about 2,000 bytes bigger (0.03%), and no slower:
+  every time is inside the spread of running the same program again.
+- The scene demo is 3.4% bigger than the Platformer starter, and draws a
+  frame in the same time. Its updates take 1.5 millionths of a second
+  each against the starter's 0.55: three times as long, and still under
+  a ten-thousandth of the 16,667 a frame has.
+- The first version of `write_ids` was an option every game had, and
+  made every existing game 100,000 bytes (1.5%) bigger. That's over the
+  rule, so it became a tool of its own (`tools/write_ids.rs`), and
+  existing games link none of the scene code.
+- The Windows numbers are printed by the release workflow on every run
+  from now on; `docs/decisions.md` has them.
+
+## Decided
+
+The questions, as answered in the review:
+
+1. **JSON for scenes.** Yes.
+2. **Rules as sentences.** Yes; their final shape is decided at step 10.
+3. **Rules stay in this phase**, as step 10, and are the first thing cut
+   if it runs long.
+4. **3D is Phase 5b:** the two 3D steps move there, with reading `.glb`
+   models. The Model slot and the `"space": "3d"` key are in the file
+   now.
+5. **Models are glTF `.glb`**, as section 6 describes, with
+   `extras.duckforge` and rigid-part animation first. Modular 3D will be
+   built to write that.
+6. **A flat list and one behaviour per object**, for now. `"parent"` and
+   `"kinds"` are kept for later, so files made now never change.
+7. **The plain Code panel**, with "Open in my editor".
+8. **The names** stay as they are.
+9. **The Platformer moves to scenes in step 6**, as a new starter beside
+   today's.
+
+Four changes to the scene file, made before Step 1 was built (all in
+section 1):
+
+- **a.** An object's "how many times bigger" is `"scale"`. `"size"` is
+  only ever a scene's size in pixels. The Studio's tool is still Size.
+  (An object that says `"size"` is told its new name.)
+- **b.** Update order doesn't depend on drawing order: objects are drawn
+  in the file's order and update in the order of their ids.
+- **c.** Ids for scenes written without the Studio: the engine gives
+  them the same way every time, and `cargo run --example write_ids --
+  FILE` writes them into the file.
+- **d.** `"at"` is the object's anchor. Pictures and movers stand on
+  their feet; Text, Button, Area, Tile map and Background are placed by
+  their top-left corner; any object can say another with `"anchor"`.
+
+And three more:
+
+- **Starts at and Now** is built as designed in step 2 and tested by
+  hand before step 3. If it confuses, the fallback in section 10 is
+  taken.
+- **Export** (one folder ready to send to a friend) is the small phase
+  right after this one and 5b.
+- **The first-hour fixes** come first: Step 1's branch is main with
+  those fixes and this design.
+
+## What you test on Windows after Step 1
+
+GitHub's Windows machine runs every test, including one that builds the
+demo game, plays it through the Studio's link, freezes it, saves its
+scene file from outside, plays on, undoes the change and replays the
+session to the same picture. These need your PC, with no terminal:
+
+50. Home, "Examples that came with Duck Forge": **Scene demo** has a
+    picture. Open it. It builds and plays: the arrow keys run, Space
+    jumps, coins count up next to the coin at the top left, the crates
+    stop the duck and can be stood on, the bush is drawn in front of the
+    duck, and the flag says "You made it!".
+51. Check it, before changing anything: every line is fine.
+52. Play again and press Tab to freeze. In the Files tab, open `scenes`
+    and click `pond.json`. If Windows asks what to open it with, pick
+    Notepad. (Or "Show in File Explorer", right-click the file, Open
+    with, Notepad.) Each object is one line.
+53. On the line of the sign, change `"turn": -8` to `"turn": 40` and
+    save (Ctrl+S). Within a second the frozen picture shows the sign
+    leaning the other way. The frame number at the bottom hasn't moved.
+54. On the line of the big crate, change `"scale": [2, 1.5]` to
+    `"scale": [4, 3]` and save: it's twice as big, and still stands on
+    the ground.
+55. Add a coin: copy the whole line of the coin with `"id": 8`, paste it
+    under itself, and in the copy change `"id": 8` to `"id": 12` and
+    `"at": [330, 150]` to `"at": [100, 190]`. (Every object's line ends
+    with a comma except the last.) Save: a coin appears near the start.
+56. In the duck's line, change `"at": [40, 208]` to `"at": [500, 208]`
+    and save: the duck doesn't move (it has walked on since the start).
+    Tab: it plays on from where it was, the big crate stops it at its
+    new size, and it can take the new coin. "Restart the game": now the
+    duck starts further on.
+57. Make a mistake on purpose: freeze, delete one `"` in the file and
+    save. The picture doesn't change and the game still plays. The
+    Console says which line is wrong and "(the scene is kept as it
+    was)". Put the `"` back and save: changes show again.
+58. Close Notepad, then press Ctrl+Z in the Studio a few times: each
+    change you saved goes back, one by one, and the picture with it.
+59. Painting still works on the demo's ground: with the game frozen,
+    paint a few bricks and a Coin. They appear, and the duck can stand
+    on the bricks and take the coin.
+60. Check again. If it says the recorded playthrough is from an older
+    level, "Record it again" has the bot play the scene as it is now.
+61. Nothing else has changed: your own platformer and Duck Peaks play
+    and check as before.

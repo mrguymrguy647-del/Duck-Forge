@@ -268,7 +268,11 @@ impl Scene {
 
     /// The first object called `name` (the one with the lowest id).
     pub fn find(&self, name: &str) -> Option<Id> {
-        self.all(name).first().copied()
+        self.objects
+            .iter()
+            .filter(|object| object.name == name)
+            .map(|object| object.id)
+            .min()
     }
 
     /// Every object called `name`, in the order of their ids.
@@ -924,6 +928,14 @@ impl Scene {
     /// Loads the pictures objects name that aren't loaded yet. Says
     /// whether there were any.
     fn load_new_pictures(&mut self) -> bool {
+        let all_loaded = self
+            .objects
+            .iter()
+            .filter_map(|object| object.picture.as_ref())
+            .all(|picture| self.pictures.contains_key(picture));
+        if all_loaded {
+            return false; // the usual case: nothing to do, nothing made
+        }
         let wanted: Vec<String> = self
             .objects
             .iter()

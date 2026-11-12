@@ -422,7 +422,8 @@ impl SceneFile {
 /// Writes the ids the engine gives into a scene file, so they stay the
 /// same when objects are added or moved in the file. The file is written
 /// again the way Duck Forge writes it. Returns how many objects had none.
-/// (`--write-ids FILE` does this from the command line.)
+/// (`cargo run --example write_ids -- FILE` does this from the command
+/// line: `tools/write_ids.rs`.)
 pub fn write_ids(path: impl AsRef<Path>) -> Result<usize, LoadError> {
     let path = path.as_ref();
     let scene = SceneFile::load(path)?;

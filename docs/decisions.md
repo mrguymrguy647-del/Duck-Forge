@@ -4120,3 +4120,129 @@ viewport, no layer painter, no picture of the screen). So it's in the
 path only Windows takes (DirectX 12, the window compositor, the
 maximized window) and isn't fixed; checklist item 49 asks for a
 screenshot.
+
+# Phase 5: a real editor
+
+`docs/phase5-design.md` is the plan. These are the choices made as each
+step was built, and the numbers measured.
+
+## Step 1: scenes in the engine
+
+**What a scene is in the engine.** Two types. `SceneFile` is the file:
+parsed, with its problems, and written back the same way every time
+(one object per line, the common keys in a fixed order, then the
+object's own in alphabetical order, and only what differs from the
+usual). `Scene` is one being played: the objects as they are now, and
+the `SceneFile` as last read (how they start). Tools, and the Studio
+from step 2, use `SceneFile` without running anything.
+
+**Why the old `Scene` was renamed.** The engine had a `Scene` already:
+what a frame showed (`canvas.label`, `last.scene.json`). Two types with
+one name is a trap, and the new one is what people will mean, so the old
+one is `OnScreen` in `src/on_screen.rs`. `sim.scene()` still works (with
+`sim.on_screen()` beside it), the saved files keep their names, and
+nothing in the examples, tests or Studio named the type.
+
+**Update order isn't drawing order.** Objects are drawn in the file's
+order, inside their layer, and listed by `ids()` in the order of their
+ids. Dragging an object up the Scene list for looks can't change how the
+game plays. Ids from the file are small numbers; objects made while
+playing get ids from 2^32, and things painted on a tile map from 2^48
+(with the map's id, the row and the column inside, so the same square
+always has the same id). The three never collide, and by id the file's
+objects come first.
+
+**Ids for files written by hand.** An object without an id gets the next
+number after the highest id in the file, going down the file. That's
+the same every time, so a replay and a reload agree. It isn't stable
+when a line is added above, which is why `tools/write_ids.rs` writes
+them in. It was first an option of every game (`--write-ids`), and that
+made every existing game 100,000 bytes bigger, because `run` then named
+the scene code and the linker kept it. As a tool of its own it costs
+existing games nothing.
+
+**`scale`, and anchors.** An object's "how many times bigger" is
+`scale`; `size` is only a scene's size in pixels, and an object that
+says `size` is told the new name. `at` is where the object's anchor is.
+A picture stands on its feet (the bottom middle, or a Duck Quill sheet's
+pivot); a tile map and a background are placed by their top-left corner,
+as text, buttons and areas will be; any object can say another with
+`anchor`.
+
+**A kind is only a name, for now.** `picture`, `tilemap` and
+`background` mean something to the engine. Any other kind is a name the
+game's code asks for (`scene.of_kind("coin")`), so a kind nothing knows
+isn't a mistake yet: that check arrives with kinds (step 5) and Check
+(step 8), which can tell a typo from a kind the code handles.
+
+**Starts and now.** The rule for taking a changed file in mid-play is
+one comparison per key: if the file's value for a key changed, and the
+object's own value is still what the file had, the object takes the new
+value. Otherwise the game has changed it since the start, and the object
+keeps what it has; `starts_as` has the file's. It's done on the JSON of
+the three objects (how the file had it, how it has it now, how it is),
+so every key, the kind's own settings included, follows the one rule
+with no list to keep. Position is one key (`at`), so an object that has
+moved at all keeps its whole position.
+
+**Painted things are objects.** Each "thing" letter of a tile map's
+level becomes an object: named after the thing, of that kind, standing
+in its square, with the tiles' picture of that name if the sheet has one
+(the starter's sheet has `coin` and `flag`) or a tile-sized box if not.
+The game asks for coins once, painted or placed. When the level is
+painted in the Studio, new ones appear, erased ones go, and ones the
+game took stay gone.
+
+**Turned and stretched pictures.** `Canvas::draw_placed` is new: a
+pivot, a scale each way and a turn. With no turn and one scale it calls
+`blit_sprite`, so nothing that was drawn before is drawn differently.
+Otherwise it goes through the canvas pixels under the turned picture
+and takes the sprite pixel under each one's centre: the same sharp-pixel
+rule as resizing. A collision box doesn't turn.
+
+**Mistakes.** Only a file that isn't JSON (or is from a newer Duck
+Forge) is an error. Everything smaller is a sentence in
+`scene.problems()` with the file and the line of the object, and is
+drawn round. The line is found by walking the text for the start of each
+object, so it's right however the file is laid out. A file that isn't
+JSON, saved while the game runs, changes nothing and is said once.
+
+**The demo.** `examples/scene_demo`: a scene (`scenes/pond.json`), a
+level where today's games keep theirs (`level.txt`, so the Studio's
+paint tools already work on it), pictures, a bot, play tests and 120
+lines of code. Its tests of how the game plays use small scenes written
+in the test, in a copy of the game's folder, so editing the real scene
+can't break them.
+
+**The Studio.** One change: it looks at the open game's `scenes/*.json`
+twice a second, and a file saved from outside is sent to the game
+(frozen or playing) and is one step for Undo, as a level edited outside
+already was. A test freezes the real demo, saves its scene from
+outside, plays on, undoes it and replays the session with no window to
+the same last picture.
+
+## Step 1: the numbers
+
+Release builds with the usual features, on this Linux machine. "Before"
+is the code before Step 1 with only `--time` added, so both are timed
+the same way (`--headless --time`: every frame drawn, nothing saved).
+Times are the lowest and highest of three runs (six for the shooter's
+drawing).
+
+| Game | Size before | Size after | 600,000 updates, before | after | Drawing a frame, before | after |
+|---|---|---|---|---|---|---|
+| Platformer starter | 6,391,536 | 6,393,376 | 0.32 to 0.36 s | 0.31 to 0.37 s | 80 to 83 µs | 75 to 76 µs |
+| Shooter starter | 6,257,544 | 6,259,768 | 0.46 to 0.57 s | 0.47 to 0.58 s | 18.2 to 19.5 µs | 17.6 to 19.9 µs |
+| 3D runner starter | 11,600,200 | 11,602,168 | 2.17 to 2.28 s | 2.17 to 2.27 s | 1,471 to 1,499 µs | 1,464 to 1,488 µs |
+| Scene demo | | 6,612,816 | | 0.87 to 0.91 s | | 76 to 82 µs |
+
+- Existing games: about 2,000 bytes bigger (0.03%), no slower.
+- `--time` itself added 5,320 bytes to every game (the Step 0 table had
+  the Platformer starter at 6,386,216).
+- The scene demo against the Platformer starter, which it resembles:
+  3.4% bigger; the same time to draw a frame; 1.5 µs an update against
+  0.55. Finding the duck by name and asking what it touches, every
+  update, is where that goes. A frame has 16,667 µs.
+- Engine tests: 331 unit tests (24 new for scenes), 6 play tests in the
+  demo, 1 new in the cheat sheet's test, 1 new in the Studio's.
+

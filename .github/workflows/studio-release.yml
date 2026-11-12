@@ -123,6 +123,22 @@ jobs:
           name: engine-test-failures
           path: failed-run-*.txt
           if-no-files-found: ignore
+      # For the rule that games get no bigger and no slower: the size of
+      # each starter's release program, and how long its updates and its
+      # drawing take with no window (see docs/decisions.md). It only says
+      # the numbers; it never fails the run.
+      - name: Sizes and speeds of the starters, on this machine
+        shell: bash
+        run: |
+          games="template starter_shooter starter_runner3d scene_demo"
+          cargo build --release $(for game in $games; do printf -- "--example %s " "$game"; done)
+          for game in $games; do
+            program="target/release/examples/$game.exe"
+            echo "$game: $(stat -c %s "$program") bytes"
+            frames=20000
+            if [[ $game == starter_runner3d ]]; then frames=2000; fi
+            for run in 1 2 3; do "$program" --headless --time --frames $frames || true; done
+          done
 
   studio:
     name: Studio, zip and installer on Windows

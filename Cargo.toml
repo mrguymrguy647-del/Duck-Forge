@@ -82,6 +82,11 @@ test = true
 name = "scene_demo"
 test = true
 
+# A tool, not a game: writes the ids into a scene file (see the file).
+[[example]]
+name = "write_ids"
+path = "tools/write_ids.rs"
+
 [[example]]
 name = "physics"
 test = true

@@ -883,6 +883,182 @@ fn the_guide_says_which_way_rotations_turn_and_it_is_true() {
     assert!(camera.forward().y > 0.0);
 }
 
+/// A game that is one scene, for the cheat sheet's Scenes paragraph.
+struct Pond {
+    scene: Scene,
+}
+
+impl Game for Pond {
+    fn update(&mut self, ctx: &mut Context) {
+        self.scene.update(ctx);
+        ctx.check(
+            "the scene file has no mistakes",
+            self.scene.problems().is_empty(),
+        );
+    }
+
+    fn draw(&self, canvas: &mut Canvas) {
+        self.scene.draw(canvas);
+        self.scene.draw_layer(canvas, "front");
+    }
+
+    fn reload(&mut self, ctx: &mut Context, file: &std::path::Path) -> bool {
+        self.scene.reload(ctx, file)
+    }
+}
+
+#[test]
+fn scenes() -> Result<(), LoadError> {
+    use duckforge::scene::{SceneFile, write_ids};
+
+    // A copy of the scene demo's folder, to load, change and write.
+    let folder = TestFolder::new("cheat-scenes");
+    let demo = std::path::Path::new("examples/scene_demo");
+    std::fs::create_dir_all(folder.join("assets")).unwrap();
+    std::fs::create_dir_all(folder.join("scenes")).unwrap();
+    for entry in std::fs::read_dir(demo.join("assets")).unwrap().flatten() {
+        common::copy_file(
+            &entry.path(),
+            &folder.join("assets").join(entry.file_name()),
+        );
+    }
+    for file in ["level.txt", "level.legend.json", "scenes/pond.json"] {
+        common::copy_file(&demo.join(file), &folder.join(file));
+    }
+    let path = folder.join("scenes/pond.json");
+
+    let mut scene = Scene::load(&path)?;
+    assert!(scene.problems().is_empty(), "{:?}", scene.problems());
+    assert!(scene.file().ends_with("scenes/pond.json"));
+    assert_eq!(scene.folder(), &*folder);
+    assert!(scene.reads_from(&path));
+    assert_eq!(scene.size(), Some(vec2(640.0, 240.0)));
+    assert_eq!(scene.layers().len(), 5);
+    assert_eq!(scene.next(), None);
+    assert_eq!(scene.time(), 0.0);
+    assert_eq!(scene.background, Some(Color::from_hex(0x5e9fe0)));
+    assert_eq!(scene.starts().objects.len(), 11);
+
+    // Finding.
+    let duck = scene.find("duck").unwrap();
+    assert_eq!(duck.number(), 9);
+    assert!(duck.is_from_the_file() && !duck.is_painted());
+    assert_eq!(scene.all("coin").len(), 6, "painted and placed");
+    assert_eq!(scene.of_kind("coin"), scene.all("coin"));
+    assert!(scene.of_kind("coin").iter().any(|coin| coin.is_painted()));
+    assert_eq!(scene.ids().len(), scene.len());
+    assert_eq!(scene.ids_as_drawn().len(), scene.len());
+    assert!(scene.has(duck) && scene.get(duck).is_some());
+    scene.get_mut(duck).unwrap().flip = true;
+
+    // Every key of its line is a field.
+    let object = &scene[duck];
+    assert_eq!(object.at, vec2(40.0, 208.0));
+    assert_eq!((object.turn, object.scale), (0.0, vec2(1.0, 1.0)));
+    assert!(object.flip && object.shown && !object.solid);
+    assert_eq!(object.picture.as_deref(), Some("assets/hero.json"));
+    assert_eq!(object.animation, None);
+    assert_eq!(
+        (object.name.as_str(), object.kind.as_str()),
+        ("duck", "picture")
+    );
+    assert_eq!(object.layer, "world");
+    assert_eq!((object.tint, object.opacity), (Color::WHITE, 1.0));
+    assert_eq!(object.hitbox, Some(Rect::new(3.0, 2.0, 10.0, 14.0)));
+    assert_eq!(object.anchor, None);
+    assert_eq!(object.anchor_or_usual(), Anchor::Feet);
+    assert!(!scene.starts_as(duck).unwrap().flip, "as the file has it");
+    // Its own settings.
+    scene[duck].set_number("speed", 60.0);
+    scene[duck].set_text("goes_to", "level2");
+    scene[duck].set_flag("open", true);
+    assert_eq!(scene[duck].number("speed"), Some(60.0));
+    assert_eq!(scene[duck].text("goes_to"), Some("level2"));
+    assert_eq!(scene[duck].flag("open"), Some(true));
+    assert_eq!(scene[duck].point("target"), None);
+    assert!(scene[duck].has("speed"));
+    scene[duck].unset("speed");
+    assert!(!scene[duck].has("speed"));
+
+    // Adding, where things are, and removing.
+    let spark = scene.add(
+        Object::new("spark")
+            .named("spark 1")
+            .at(vec2(5.0, 5.0))
+            .with_picture("assets/crate.png")
+            .on_layer("front"),
+    );
+    assert!(!spark.is_from_the_file());
+    assert_eq!(
+        scene.picture_rect(spark),
+        Rect::new(-3.0, -11.0, 16.0, 16.0)
+    );
+    assert_eq!(scene.rect(spark), scene.picture_rect(spark));
+    assert!(scene.touching(duck, "coin").is_empty());
+    assert!(!scene.overlaps(duck, spark));
+    assert_eq!(scene.at_point(vec2(5.0, 0.0)), [spark]);
+    let touched = scene.move_and_slide(duck, vec2(0.0, 50.0));
+    assert!(touched.ground, "it was standing on the grass already");
+    assert_eq!(scene.tilemap().unwrap().columns(), 40);
+    let ground = scene.find("ground").unwrap();
+    assert!(scene.tilemap_of(ground).is_some());
+    assert_eq!(scene.remove(spark).unwrap().name, "spark 1");
+    assert_eq!(Anchor::Feet.point(16.0, 16.0), vec2(8.0, 16.0));
+    assert_eq!(Anchor::of_kind("text"), Anchor::TopLeft);
+    assert_eq!(Anchor::from_word("feet"), Some(Anchor::Feet));
+    assert_eq!(Anchor::Feet.word(), "feet");
+
+    // In a game: updated, drawn, and reloaded when its file changes.
+    let mut sim = Simulation::new(config(), Pond { scene });
+    sim.run(3);
+    assert!(sim.on_screen().labels_named("sign").next().is_some());
+    let text = std::fs::read_to_string(&path)
+        .unwrap()
+        .replace("\r\n", "\n")
+        .replace("\"turn\": -8", "\"turn\": 40");
+    std::fs::write(&path, &text).unwrap();
+    assert!(sim.with_context(|game, ctx| game.reload(ctx, &path)));
+    let sign = sim.game().scene.find("sign").unwrap();
+    assert_eq!(sim.game().scene[sign].turn, 40.0);
+    assert!(sim.failed_checks().is_empty());
+
+    // Without playing: reading, writing, ids.
+    let file = SceneFile::load(&path)?;
+    assert_eq!((file.objects.len(), file.ids_missing), (11, 0));
+    assert!(file.problems.is_empty());
+    assert_eq!(file.to_text(), text, "as Duck Forge writes it");
+    assert_eq!(file.free_id().number(), 12);
+    assert!(file.object(duck).is_some());
+    let copy = folder.join("copy.json");
+    file.save(&copy).unwrap();
+    assert_eq!(write_ids(&copy)?, 0, "every object has one");
+    let by_hand =
+        SceneFile::parse(r#"{"duckforge_scene": 1, "objects": [{"name": "a"}]}"#).unwrap();
+    assert_eq!(by_hand.ids_missing, 1);
+    let mut small = Scene::from_text(&by_hand.to_text(), &*folder)?;
+    let a = small.find("a").unwrap();
+    small.take_text(r#"{"duckforge_scene": 1, "objects": [{"id": 1, "name": "a", "at": [7, 9]}]}"#);
+    assert_eq!(small[a].at, vec2(7.0, 9.0));
+    assert!(!small.reload_file(&path), "not one of its files");
+
+    // A picture stretched each way and turned.
+    let plank = Sprite::from_pixels(4, 2, vec![Color::YELLOW; 8]);
+    let mut canvas = Canvas::new(32, 32);
+    canvas.draw_placed(
+        &plank,
+        vec2(16.0, 16.0),
+        Placed {
+            pivot: vec2(2.0, 1.0),
+            scale: vec2(2.0, 1.0),
+            turn: 90.0,
+            ..Placed::default()
+        },
+    );
+    assert_eq!(canvas.get_pixel(15, 13), Some(Color::YELLOW), "tall now");
+    assert_ne!(canvas.get_pixel(13, 15), Some(Color::YELLOW));
+    Ok(())
+}
+
 /// The function names the cheat sheet mentions: every `name(` inside a
 /// `code span` in section 7 of the guide.
 fn cheat_sheet_functions() -> BTreeSet<String> {
