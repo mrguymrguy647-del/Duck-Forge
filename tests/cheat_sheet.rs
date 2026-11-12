@@ -814,6 +814,44 @@ fn three_d_textures_light_and_billboards() -> Result<(), LoadError> {
 /// pointed behind the camera for want of it). Keep the words and the
 /// maths together.
 #[test]
+fn models_from_duck_mold() -> Result<(), LoadError> {
+    let fixtures = TestFolder::new("cheat-sheet-duck-mold");
+    let models = fixtures.fixture("duck_mold");
+    // Load one, and draw it like any mesh. It faces +z, so the camera
+    // stands on its +z side looking back at it.
+    let robot = Mesh::load_glb(models.join("robot.glb"))?;
+    assert_eq!(robot.triangles.len(), 384);
+    let mut canvas = Canvas::new(64, 64);
+    canvas.clear(Color::BLACK);
+    let camera = Camera3D::looking_at(vec3(0.0, 1.0, 3.0), vec3(0.0, 0.9, 0.0));
+    canvas.draw_mesh(&robot, &Transform::at(Vec3::ZERO), &camera);
+    assert_ne!(canvas.get_pixel(32, 32), Some(Color::BLACK), "drawn");
+    // Or turned half round, for a camera with no turn.
+    let _ = Transform::at(vec3(0.0, 0.0, 3.0)).rotated(vec3(0.0, std::f32::consts::PI, 0.0));
+    // Its name, palette and parts, and one part recoloured.
+    let model = duckforge::glb::GlbModel::load(models.join("robot.glb"))?;
+    assert_eq!((model.name.as_str(), model.palette.len()), ("robot", 4));
+    let mut mesh = model.to_mesh();
+    let gold = Color::rgb(240, 192, 48);
+    let part = model.part("left_arm/hand").expect("the robot has hands");
+    for t in &mut mesh.triangles[part.range()] {
+        t.color = gold;
+    }
+    assert_eq!(
+        mesh.triangles.iter().filter(|t| t.color == gold).count(),
+        12
+    );
+    // Only Duck Mold's .glb files load.
+    let error = Mesh::load_glb(models.join("robot.inspect.json")).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("isn't a model Duck Forge can load")
+    );
+    Ok(())
+}
+
+#[test]
 fn a_games_own_options_and_where_it_is_running() {
     // The test program's own words (a test's name, say) aren't the
     // engine's options, so they'd be the game's.

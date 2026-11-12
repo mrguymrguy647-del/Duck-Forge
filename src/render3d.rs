@@ -530,6 +530,9 @@ const UPRIGHT: [Vec2; 4] = [
 /// A 3D shape made of triangles, each with a colour, and optionally a
 /// picture (a *texture*) painted on it.
 ///
+/// Build one from the shapes below, or load a model made with Duck Mold:
+/// [`Mesh::load_glb`] (in `glb.rs`).
+///
 /// A texture is one [`Sprite`], shared, not copied. Where it goes on each
 /// triangle is given by *texture coordinates* (`uvs`): for each corner, a
 /// point on the picture, from (0, 0) at its top-left to (1, 1) at its
@@ -672,7 +675,9 @@ impl Mesh {
         let mut mesh = Mesh::new();
         let h = 0.5;
         // The eight corners. `v0..v3` are the face nearest a camera looking
-        // along +z; `v4..v7` are the far face.
+        // along +z; `v4..v7` are the far face. (The faces are called near
+        // and far, not front and back: a model made in Duck Mold *faces*
+        // +z, so its front is the far face here. See `glb.rs`.)
         let v: Vec<usize> = [
             vec3(-h, -h, -h),
             vec3(h, -h, -h),
@@ -691,8 +696,8 @@ impl Mesh {
         // face's corners go bottom-left, top-left, top-right, bottom-right,
         // seen from outside.
         let upright = UPRIGHT;
-        mesh.add_quad_uv(v[0], v[3], v[2], v[1], upright, color); // front (-z)
-        mesh.add_quad_uv(v[5], v[6], v[7], v[4], upright, color); // back (+z)
+        mesh.add_quad_uv(v[0], v[3], v[2], v[1], upright, color); // near (-z)
+        mesh.add_quad_uv(v[5], v[6], v[7], v[4], upright, color); // far (+z)
         mesh.add_quad_uv(v[4], v[7], v[3], v[0], upright, color); // left (-x)
         mesh.add_quad_uv(v[1], v[2], v[6], v[5], upright, color); // right (+x)
         mesh.add_quad_uv(v[3], v[7], v[6], v[2], upright, color); // top (+y)
@@ -911,8 +916,8 @@ impl Mesh {
             }
         };
         let mut mesh = Mesh::cube(Color::WHITE);
-        // Mesh::cube's faces, two triangles each: front, back, left, right,
-        // top, bottom.
+        // Mesh::cube's faces, two triangles each: near (-z), far (+z),
+        // left, right, top, bottom.
         let face_tile = [1, 1, 1, 1, 0, 2];
         for (triangle, uvs) in mesh.uvs.iter_mut().enumerate() {
             let place = region(&tiles[face_tile[triangle / 2]]);
