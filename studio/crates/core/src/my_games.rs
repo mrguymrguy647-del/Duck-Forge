@@ -562,7 +562,11 @@ mod tests {
             "built programs aren't copied"
         );
         assert!(crate::folder::GamesFolder::open(&games).is_ok());
-        assert_eq!(configured_target_folder(&games), build, "builds go outside the folder");
+        assert_eq!(
+            configured_target_folder(&games),
+            build,
+            "builds go outside the folder"
+        );
         let record: Record = serde_json::from_str(&read(&games, RECORD)).unwrap();
         assert_eq!(record.studio, "0.1.0");
         assert!(record.files.contains_key("src/lib.rs"));
@@ -714,7 +718,10 @@ mod tests {
             Some(&test.join("Build \"quoted\" here")),
         )
         .unwrap();
-        assert_eq!(configured_target_folder(&games), test.join("Build \"quoted\" here"));
+        assert_eq!(
+            configured_target_folder(&games),
+            test.join("Build \"quoted\" here")
+        );
         std::fs::write(
             games.join(".cargo/config.toml"),
             "[build]\ntarget-dir = 'mine'\n",

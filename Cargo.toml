@@ -75,6 +75,10 @@ name = "duckling_parade"
 test = true
 
 [[example]]
+name = "empty"
+test = true
+
+[[example]]
 name = "physics"
 test = true
 

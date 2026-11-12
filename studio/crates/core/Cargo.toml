@@ -14,7 +14,9 @@ serde_json.workspace = true
 # Asks Windows where the person's Documents folder really is (OneDrive can
 # move it), for the games folder. The window library already uses it, so
 # nothing new is downloaded.
-windows-sys = { version = "0.61", features = ["Win32_UI_Shell", "Win32_System_Com"] }
+# The same library also moves files to the Recycle Bin, and plays a sound
+# file in the Files panel.
+windows-sys = { version = "0.61", features = ["Win32_UI_Shell", "Win32_System_Com", "Win32_Media_Audio"] }
 
 [dev-dependencies]
 # To read the pictures a headless replay saves, and compare them.

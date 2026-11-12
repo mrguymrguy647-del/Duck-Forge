@@ -18,12 +18,15 @@ use crate::check::{self, Check, CheckResult};
 use crate::clip::{Clip, ClipResult};
 use crate::console::{Console, JobEvent, JobId, JobState};
 use crate::feel::{self, CodeSpot, FeelFile, Slider};
-use crate::folder::{Card, Game, GamesFolder, STARTERS, name_from_title};
+use crate::folder::{CAME_WITH_DUCK_FORGE, Card, Game, GamesFolder, STARTERS, name_from_title};
+use crate::game_files;
 use crate::history::{FileEdit, History, Snapshot, Step, Undo};
 use crate::level::{Cell, Level, LevelArt};
+use crate::manage;
 use crate::my_games;
 use crate::play::{AfterHello, Ending, Play, PlayState, Timing};
 use crate::problem::Problem;
+use crate::recycle::RecycleBin;
 use crate::settings::Settings;
 
 /// How the game's character jumps, from its tune values (`jump_speed`,
@@ -87,6 +90,21 @@ pub enum Command {
     /// Open a game: build it if needed, then play it.
     #[serde(rename = "game.open")]
     GameOpen { name: String },
+    /// Move a game (and what the Studio keeps about it) to the Recycle
+    /// Bin, and take its lines out of Cargo.toml. Not one that came with
+    /// Duck Forge.
+    #[serde(rename = "game.delete")]
+    GameDelete { name: String },
+    /// Give a game a new name: `to` as typed, like "Bee Run".
+    #[serde(rename = "game.rename")]
+    GameRename { name: String, to: String },
+    /// Make a copy of a game under a new name.
+    #[serde(rename = "game.duplicate")]
+    GameDuplicate { name: String, to: String },
+    /// Make the game's card picture now, from two seconds of it running
+    /// with no window.
+    #[serde(rename = "game.thumbnail")]
+    GameThumbnail { name: String },
     /// Build the open game now.
     #[serde(rename = "game.build")]
     GameBuild,
@@ -236,6 +254,38 @@ pub enum Command {
     /// Redo what was undone.
     #[serde(rename = "edit.redo")]
     EditRedo,
+    /// Files panel: pick a file (a picture shows, a sound's details show).
+    /// Without `path`, nothing is picked. Paths are inside the open game's
+    /// folder, like `assets/duck.png`.
+    #[serde(rename = "files.select")]
+    FilesSelect {
+        #[serde(default)]
+        path: Option<String>,
+    },
+    /// Open a file in the program Windows uses for it (with an empty
+    /// path, the game's folder in File Explorer).
+    #[serde(rename = "files.open")]
+    FilesOpen { path: String },
+    /// Play a sound file.
+    #[serde(rename = "files.play")]
+    FilesPlay { path: String },
+    /// Copy files from anywhere on the computer into the game's folder
+    /// (`to`: one of its folders; the game's own folder if left out).
+    #[serde(rename = "files.add")]
+    FilesAdd {
+        files: Vec<PathBuf>,
+        #[serde(default)]
+        to: String,
+    },
+    /// Make a new folder in the game's folder: `{"path": "assets/music"}`.
+    #[serde(rename = "files.new_folder")]
+    FilesNewFolder { path: String },
+    /// Give a file or folder a new name, in the same folder.
+    #[serde(rename = "files.rename")]
+    FilesRename { path: String, to: String },
+    /// Move a file or folder to the Recycle Bin.
+    #[serde(rename = "files.delete")]
+    FilesDelete { path: String },
 }
 
 /// One command, for lists of what the Studio can do (the Console's help
@@ -267,12 +317,32 @@ pub const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         name: "game.new",
         title: "Make a new game",
-        needs: "starter: platformer, topdown, shooter, runner3d or tiny; name: like Bee Maze",
+        needs: "starter: empty, platformer, topdown, shooter, runner3d or tiny; name: like Bee Maze",
     },
     CommandInfo {
         name: "game.open",
         title: "Open a game",
         needs: "name: like duck_peaks",
+    },
+    CommandInfo {
+        name: "game.delete",
+        title: "Move a game to the Recycle Bin",
+        needs: "name: like bee_maze (not one that came with Duck Forge)",
+    },
+    CommandInfo {
+        name: "game.rename",
+        title: "Rename a game",
+        needs: "name: like bee_maze; to: its new name, like Bee Run",
+    },
+    CommandInfo {
+        name: "game.duplicate",
+        title: "Make a copy of a game",
+        needs: "name: like duck_peaks; to: the copy's name, like My Peaks",
+    },
+    CommandInfo {
+        name: "game.thumbnail",
+        title: "Make the game's card picture now",
+        needs: "name: like bee_maze",
     },
     CommandInfo {
         name: "game.build",
@@ -459,6 +529,41 @@ pub const COMMANDS: &[CommandInfo] = &[
         title: "Redo what was undone",
         needs: "",
     },
+    CommandInfo {
+        name: "files.select",
+        title: "Pick a file in the Files panel",
+        needs: "path: like assets/duck.png (none to pick nothing)",
+    },
+    CommandInfo {
+        name: "files.open",
+        title: "Open a file in its own program",
+        needs: "path: like level.txt",
+    },
+    CommandInfo {
+        name: "files.play",
+        title: "Play a sound file",
+        needs: "path: like assets/jump.wav",
+    },
+    CommandInfo {
+        name: "files.add",
+        title: "Copy files into the game's folder",
+        needs: "files: the files' full paths; to: one of its folders (optional)",
+    },
+    CommandInfo {
+        name: "files.new_folder",
+        title: "Make a folder in the game's folder",
+        needs: "path: like assets/music",
+    },
+    CommandInfo {
+        name: "files.rename",
+        title: "Rename a file or folder",
+        needs: "path: like assets/duck.png; to: its new name, like hero.png",
+    },
+    CommandInfo {
+        name: "files.delete",
+        title: "Move a file or folder to the Recycle Bin",
+        needs: "path: like assets/old.png (not main.rs)",
+    },
 ];
 
 /// Which screen is showing.
@@ -564,6 +669,11 @@ pub struct OpenGame {
     /// Goes up when the level's pictures change, so the app draws its
     /// palette again.
     pub art_version: u64,
+    /// The file picked in the Files panel, as its place in the game's
+    /// folder (`assets/duck.png`).
+    pub files_selected: Option<String>,
+    /// Whether it's been looked at if the game needs a card picture.
+    thumbnail_looked: bool,
 }
 
 impl OpenGame {
@@ -643,6 +753,12 @@ pub struct Studio {
     /// them. Play uses them when carrying on from a freeze: whatever the
     /// game still thinks is held but isn't, is let go, so nothing sticks.
     pub keys_down: Vec<Key>,
+    /// Where deleted games and files go: the Recycle Bin (tests use a
+    /// folder of their own).
+    pub recycle_bin: RecycleBin,
+    /// Card pictures being made by running a game with no window, and for
+    /// which game.
+    thumbnail_jobs: Vec<(JobId, String)>,
     pub buttons_down: Vec<MouseButton>,
     /// F1: the game draws its debug overlay. Kept across restarts.
     pub debug_overlay: bool,
@@ -666,6 +782,8 @@ impl Studio {
             problem: None,
             debug_overlay: false,
             keys_down: Vec::new(),
+            recycle_bin: RecycleBin::System,
+            thumbnail_jobs: Vec::new(),
             buttons_down: Vec::new(),
         };
         studio.console.path = studio.rust.as_ref().ok().and_then(|rust| rust.path.clone());
@@ -736,6 +854,116 @@ impl Studio {
                 self.folder_problem = Some(problem);
                 false
             }
+        }
+    }
+
+    /// The open game's own folder, for the Files panel's commands.
+    fn files_folder(&mut self) -> Result<PathBuf, Problem> {
+        let game = &self.open_game()?.game;
+        game.folder.clone().ok_or_else(|| {
+            Problem::new(
+                format!(
+                    "{} is one file ({}), with no folder of its own for pictures and sounds.",
+                    game.title,
+                    game.main.file_name().unwrap_or_default().to_string_lossy()
+                ),
+                "Games made from a starter (all but Tiny) have a folder of their own.",
+            )
+        })
+    }
+
+    /// Moves a game to the Recycle Bin (closing it first, if it's open).
+    fn delete_game(&mut self, name: &str) -> Result<String, Problem> {
+        let folder = self.folder()?;
+        if CAME_WITH_DUCK_FORGE.contains(&name) {
+            // Says why, without closing anything.
+            return manage::delete(&folder, name, &self.recycle_bin).map(|_| String::new());
+        }
+        if self
+            .open
+            .as_ref()
+            .is_some_and(|open| open.game.name == name)
+        {
+            self.close_game();
+            self.screen = Screen::Home;
+        }
+        manage::delete(&folder, name, &self.recycle_bin)?;
+        self.refresh_cards();
+        Ok(format!(
+            "Moved {} to the Recycle Bin",
+            crate::folder::title_of(name)
+        ))
+    }
+
+    /// Renames a game (closing it first, if it's open).
+    fn rename_game(&mut self, name: &str, to: &str) -> Result<String, Problem> {
+        let folder = self.folder()?;
+        if CAME_WITH_DUCK_FORGE.contains(&name) {
+            return manage::rename(&folder, name, to);
+        }
+        manage::free_name(&folder, to)?;
+        if self
+            .open
+            .as_ref()
+            .is_some_and(|open| open.game.name == name)
+        {
+            self.close_game();
+            self.screen = Screen::Home;
+        }
+        let new = manage::rename(&folder, name, to)?;
+        self.refresh_cards();
+        Ok(format!(
+            "Renamed {} to {}",
+            crate::folder::title_of(name),
+            crate::folder::title_of(&new)
+        ))
+    }
+
+    /// Makes a game's card picture by running it for two seconds with no
+    /// window (in the background; Home shows it when it's done).
+    fn make_thumbnail(&mut self, name: &str) -> Result<String, Problem> {
+        let folder = self.folder()?;
+        let rust = self.rust()?;
+        if folder.game(name).is_none() {
+            return Err(Problem::new(
+                format!("There's no game called {name}."),
+                "Its name in files is like bee_maze: see the card on Home.",
+            ));
+        }
+        let command = folder.thumbnail_command(&rust.cargo, name);
+        let job = self
+            .console
+            .start("Card picture", &command, crate::console::Keep::Everything);
+        self.thumbnail_jobs.push((job, name.to_string()));
+        Ok(format!(
+            "Making a card picture of {}",
+            crate::folder::title_of(name)
+        ))
+    }
+
+    /// The first time a game has played two seconds (or stops sooner), or
+    /// its first Check found no picture: if its card has none, it gets one.
+    fn first_card_picture(&mut self, stopping: bool) {
+        let Some(folder) = self.folder.clone() else {
+            return;
+        };
+        let Some(open) = &mut self.open else {
+            return;
+        };
+        if open.thumbnail_looked {
+            return;
+        }
+        let Some(picture) = open.play.as_ref().and_then(|play| play.picture.as_ref()) else {
+            return;
+        };
+        if picture.frame < 120 && !(stopping && picture.frame >= 10) {
+            return;
+        }
+        open.thumbnail_looked = true;
+        if folder.card_picture(&open.game.name).is_none()
+            && save_picture(&folder.thumbnail_file(&open.game.name), picture).is_ok()
+        {
+            self.refresh_cards();
         }
     }
 
@@ -830,6 +1058,83 @@ impl Studio {
                 Ok(format!("Found {}", rust.version))
             }
             Command::GameNew { starter, name } => self.new_game(&starter, &name),
+            Command::GameDelete { name } => self.delete_game(&name),
+            Command::GameRename { name, to } => self.rename_game(&name, &to),
+            Command::GameDuplicate { name, to } => {
+                let folder = self.folder()?;
+                let new = manage::duplicate(&folder, &name, &to)?;
+                self.refresh_cards();
+                Ok(format!(
+                    "Made {}, a copy of {}",
+                    crate::folder::title_of(&new),
+                    crate::folder::title_of(&name)
+                ))
+            }
+            Command::GameThumbnail { name } => self.make_thumbnail(&name),
+            Command::FilesSelect { path } => {
+                let folder = self.files_folder()?;
+                if let Some(place) = &path
+                    && !game_files::resolve(&folder, place)?.exists()
+                {
+                    return Err(no_such_file(place));
+                }
+                self.open_game()?.files_selected = path.clone();
+                Ok(match path {
+                    Some(place) => format!("Picked {place}"),
+                    None => String::from("Nothing picked"),
+                })
+            }
+            Command::FilesOpen { path } => {
+                let real = game_files::resolve(&self.files_folder()?, &path)?;
+                if !real.exists() {
+                    return Err(no_such_file(&path));
+                }
+                game_files::open_with_the_system(&real)?;
+                Ok(format!("Opened {path}"))
+            }
+            Command::FilesPlay { path } => {
+                let real = game_files::resolve(&self.files_folder()?, &path)?;
+                if !real.is_file() {
+                    return Err(no_such_file(&path));
+                }
+                game_files::play_sound(&real)?;
+                Ok(format!("Playing {path}"))
+            }
+            Command::FilesAdd { files, to } => {
+                let added = game_files::add(&self.files_folder()?, &to, &files)?;
+                let open = self.open_game()?;
+                open.files_selected = added.first().cloned();
+                Ok(match added.as_slice() {
+                    [one] => format!("Added {one}"),
+                    many => format!("Added {} files", many.len()),
+                })
+            }
+            Command::FilesNewFolder { path } => {
+                let made = game_files::new_folder(&self.files_folder()?, &path)?;
+                self.open_game()?.files_selected = Some(made.clone());
+                Ok(format!("Made the folder {made}"))
+            }
+            Command::FilesRename { path, to } => {
+                let new = game_files::rename(&self.files_folder()?, &path, &to)?;
+                let open = self.open_game()?;
+                if open.files_selected.as_deref() == Some(path.as_str()) {
+                    open.files_selected = Some(new.clone());
+                }
+                Ok(format!("Renamed {path} to {new}"))
+            }
+            Command::FilesDelete { path } => {
+                let folder = self.files_folder()?;
+                game_files::delete(&folder, &path, &self.recycle_bin)?;
+                let open = self.open_game()?;
+                let inside = |picked: &String| {
+                    picked == &path
+                        || picked.starts_with(&format!("{}/", path.trim_end_matches('/')))
+                };
+                if open.files_selected.as_ref().is_some_and(inside) {
+                    open.files_selected = None;
+                }
+                Ok(format!("Moved {path} to the Recycle Bin"))
+            }
             Command::GameOpen { name } => {
                 let folder = self.folder()?;
                 let game = folder.game(&name).ok_or_else(|| {
@@ -904,6 +1209,8 @@ impl Studio {
                     sound_recipe: None,
                     assets_seen: assets_now(game_folder.as_deref()),
                     art_version: 0,
+                    files_selected: None,
+                    thumbnail_looked: false,
                 });
                 self.screen = Screen::Game;
                 self.problem = None;
@@ -1346,7 +1653,7 @@ impl Studio {
             .ok_or_else(|| {
                 Problem::new(
                     format!("There's no starter called {starter}."),
-                    "Pick one of: platformer, topdown, shooter, runner3d, tiny.",
+                    "Pick one of: empty, platformer, topdown, shooter, runner3d, tiny.",
                 )
             })?;
         let name =
@@ -1724,6 +2031,7 @@ impl Studio {
 
     /// Stops the running game, keeping its session.
     fn stop_play(&mut self) {
+        self.first_card_picture(true);
         let (Some(open), Some(folder)) = (&mut self.open, &self.folder) else {
             return;
         };
@@ -1815,6 +2123,7 @@ impl Studio {
         }
         self.watch_code(now);
         self.watch_level(now);
+        self.first_card_picture(false);
         if let Some(open) = &mut self.open
             && let Some(play) = &mut open.play
         {
@@ -1868,6 +2177,15 @@ impl Studio {
         let Some(folder) = self.folder.clone() else {
             return;
         };
+        if let Some(at) = self.thumbnail_jobs.iter().position(|(id, _)| *id == job) {
+            if matches!(event, JobEvent::Ended(_) | JobEvent::CouldntStart(_)) {
+                let (_, name) = self.thumbnail_jobs.remove(at);
+                if folder.keep_thumbnail(&name) {
+                    self.refresh_cards();
+                }
+            }
+            return;
+        }
         let Some(open) = &mut self.open else {
             return;
         };
@@ -1934,6 +2252,12 @@ impl Studio {
                     None => {}
                 }
                 open.check = None;
+                // Checked, and still no picture for its card (no
+                // playthrough to replay): two seconds of it running.
+                let name = open.game.name.clone();
+                if folder.card_picture(&name).is_none() {
+                    let _ = self.make_thumbnail(&name);
+                }
             }
             return;
         }
@@ -2167,6 +2491,31 @@ fn action_from(event: &serde_json::Map<String, serde_json::Value>) -> Result<Inp
         })
 }
 
+/// "There's no such file" for the Files panel's commands.
+fn no_such_file(place: &str) -> Problem {
+    Problem::new(
+        format!("There's no {place} in the game's folder."),
+        "Pick a file in the Files panel.",
+    )
+}
+
+/// Saves a picture of the game as a PNG (for a card).
+fn save_picture(path: &std::path::Path, picture: &crate::play::Picture) -> std::io::Result<()> {
+    use duckforge::canvas::Canvas;
+    use duckforge::color::Color;
+    let (width, height) = (picture.width as usize, picture.height as usize);
+    let mut canvas = Canvas::new(width.max(1), height.max(1));
+    for (i, rgb) in picture.pixels.iter().enumerate().take(width * height) {
+        let (x, y) = ((i % width) as i32, (i / width) as i32);
+        let [_, r, g, b] = rgb.to_be_bytes();
+        canvas.set_pixel(x, y, Color::rgb(r, g, b));
+    }
+    if let Some(folder) = path.parent() {
+        std::fs::create_dir_all(folder)?;
+    }
+    canvas.save_png(path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2179,6 +2528,10 @@ mod tests {
             r#"{"do": "home.check_again"}"#,
             r#"{"do": "game.new", "starter": "platformer", "name": "Bee Maze"}"#,
             r#"{"do": "game.open", "name": "duck_peaks"}"#,
+            r#"{"do": "game.delete", "name": "bee_maze"}"#,
+            r#"{"do": "game.rename", "name": "bee_maze", "to": "Bee Run"}"#,
+            r#"{"do": "game.duplicate", "name": "duck_peaks", "to": "My Peaks"}"#,
+            r#"{"do": "game.thumbnail", "name": "bee_maze"}"#,
             r#"{"do": "game.build"}"#,
             r#"{"do": "game.play"}"#,
             r#"{"do": "game.freeze"}"#,
@@ -2216,6 +2569,13 @@ mod tests {
             r#"{"do": "edit.go_back_to", "number": 3}"#,
             r#"{"do": "edit.undo"}"#,
             r#"{"do": "edit.redo"}"#,
+            r#"{"do": "files.select", "path": "assets/duck.png"}"#,
+            r#"{"do": "files.open", "path": "level.txt"}"#,
+            r#"{"do": "files.play", "path": "assets/jump.wav"}"#,
+            r#"{"do": "files.add", "files": ["C:/Users/me/Desktop/duck.png"], "to": "assets"}"#,
+            r#"{"do": "files.new_folder", "path": "assets/music"}"#,
+            r#"{"do": "files.rename", "path": "assets/duck.png", "to": "hero.png"}"#,
+            r#"{"do": "files.delete", "path": "assets/old.png"}"#,
         ];
         let mut names = Vec::new();
         for text in written {
@@ -2249,6 +2609,146 @@ mod tests {
             Ok(InputAction::MousePress(MouseButton::Left))
         );
         assert!(read(r#"{"do": "game.input", "press": "Spcae"}"#).is_err());
+    }
+
+    /// A small games folder: a game called bee_maze (with a folder) and
+    /// dodge, which came with Duck Forge.
+    fn small_games_folder(test: &crate::test_folder::TestFolder) -> PathBuf {
+        let root = test.join("Duck Forge");
+        for (name, text) in [
+            (
+                "Cargo.toml",
+                "[package]\nname = \"duckforge\"\n\n[[example]]\nname = \"bee_maze\"\ntest = true\n",
+            ),
+            ("examples/dodge.rs", "fn main() {}\n"),
+            (
+                "examples/bee_maze/main.rs",
+                "const LEVEL: &str = \"examples/bee_maze/level.txt\";\n",
+            ),
+            ("examples/bee_maze/assets/duck.png", "png"),
+            ("Desktop/song.wav", "RIFF"),
+        ] {
+            let path = if name.starts_with("Desktop") {
+                test.join(name)
+            } else {
+                root.join(name)
+            };
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        }
+        root
+    }
+
+    #[test]
+    fn home_and_files_panel_commands_do_their_work() {
+        let test = crate::test_folder::TestFolder::new("studio-home-files");
+        let root = small_games_folder(&test);
+        let mut studio = Studio::new(Settings {
+            games_folder: Some(root.clone()),
+            ..Settings::default()
+        });
+        studio.recycle_bin = RecycleBin::Folder(test.join("Recycle Bin"));
+        // Studio::new gives Rust a look: no building here.
+        studio.rust = Err(Problem::new("No Rust in this test.", ""));
+        let run = |studio: &mut Studio, json: &str| {
+            let command: Command = serde_json::from_str(json).unwrap();
+            studio.run(command)
+        };
+
+        assert_eq!(
+            run(
+                &mut studio,
+                r#"{"do": "game.duplicate", "name": "bee_maze", "to": "Bee Maze 2"}"#
+            )
+            .unwrap(),
+            "Made Bee Maze 2, a copy of Bee Maze"
+        );
+        assert!(
+            studio
+                .cards
+                .iter()
+                .any(|card| card.game.name == "bee_maze_2")
+        );
+        assert_eq!(
+            run(
+                &mut studio,
+                r#"{"do": "game.rename", "name": "bee_maze_2", "to": "Bee Run"}"#
+            )
+            .unwrap(),
+            "Renamed Bee Maze 2 to Bee Run"
+        );
+        assert!(root.join("examples/bee_run/main.rs").is_file());
+        let problem = run(&mut studio, r#"{"do": "game.delete", "name": "dodge"}"#).unwrap_err();
+        assert!(problem.what.contains("came with Duck Forge"), "{problem}");
+        assert_eq!(
+            run(&mut studio, r#"{"do": "game.delete", "name": "bee_run"}"#).unwrap(),
+            "Moved Bee Run to the Recycle Bin"
+        );
+        assert!(test.join("Recycle Bin/bee_run/main.rs").is_file());
+        assert!(!studio.cards.iter().any(|card| card.game.name == "bee_run"));
+
+        // The Files panel needs an open game.
+        let problem = run(
+            &mut studio,
+            r#"{"do": "files.new_folder", "path": "music"}"#,
+        )
+        .unwrap_err();
+        assert_eq!(problem.what, "No game is open.");
+        run(&mut studio, r#"{"do": "game.open", "name": "bee_maze"}"#).unwrap();
+        let song = test.join("Desktop/song.wav");
+        let add = serde_json::json!({"do": "files.add", "files": [song], "to": "assets"});
+        assert_eq!(
+            run(&mut studio, &add.to_string()).unwrap(),
+            "Added assets/song.wav"
+        );
+        assert_eq!(
+            studio.open.as_ref().unwrap().files_selected.as_deref(),
+            Some("assets/song.wav")
+        );
+        run(
+            &mut studio,
+            r#"{"do": "files.new_folder", "path": "assets/music"}"#,
+        )
+        .unwrap();
+        run(
+            &mut studio,
+            r#"{"do": "files.rename", "path": "assets/duck.png", "to": "hero.png"}"#,
+        )
+        .unwrap();
+        run(
+            &mut studio,
+            r#"{"do": "files.select", "path": "assets/hero.png"}"#,
+        )
+        .unwrap();
+        run(
+            &mut studio,
+            r#"{"do": "files.delete", "path": "assets/hero.png"}"#,
+        )
+        .unwrap();
+        assert_eq!(studio.open.as_ref().unwrap().files_selected, None);
+        assert!(test.join("Recycle Bin/hero.png").is_file());
+        let problem =
+            run(&mut studio, r#"{"do": "files.select", "path": "nope.png"}"#).unwrap_err();
+        assert_eq!(problem.what, "There's no nope.png in the game's folder.");
+        let problem = run(&mut studio, r#"{"do": "files.delete", "path": "main.rs"}"#).unwrap_err();
+        assert!(problem.what.contains("where the game starts"));
+        let lines: Vec<String> = crate::game_files::tree(&root.join("examples/bee_maze"))
+            .into_iter()
+            .map(|entry| entry.path)
+            .collect();
+        assert_eq!(
+            lines,
+            ["assets", "assets/music", "assets/song.wav", "main.rs"]
+        );
+
+        // A one-file game has no folder for files.
+        run(&mut studio, r#"{"do": "game.open", "name": "dodge"}"#).unwrap();
+        let problem = run(
+            &mut studio,
+            r#"{"do": "files.new_folder", "path": "music"}"#,
+        )
+        .unwrap_err();
+        assert!(problem.what.contains("is one file (dodge.rs)"), "{problem}");
     }
 
     #[test]

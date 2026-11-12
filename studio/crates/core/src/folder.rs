@@ -24,6 +24,7 @@ pub const CAME_WITH_DUCK_FORGE: &[&str] = &[
     "duck_craft",
     "duck_peaks",
     "duckling_parade",
+    "empty",
     "hello",
     "mini_craft",
     "physics",
@@ -48,24 +49,48 @@ pub struct Starter {
     pub title: &'static str,
     /// The example it's copied from.
     pub example: &'static str,
+    /// What it's like to play.
     pub about: &'static str,
+    /// What it comes with, in a few words.
+    pub has: &'static str,
     /// Whether it has a tile level Build mode can paint.
     pub has_level: bool,
 }
 
+impl Starter {
+    /// Whether it has a level to paint, in words.
+    pub fn level_words(&self) -> &'static str {
+        if self.has_level {
+            "Has a level to paint."
+        } else {
+            "No level to paint."
+        }
+    }
+}
+
 pub const STARTERS: &[Starter] = &[
+    Starter {
+        kind: "empty",
+        title: "Empty",
+        example: "empty",
+        about: "A window with a background colour and nothing else: you write the game.",
+        has: "A window and a background colour. The code says where to start.",
+        has_level: false,
+    },
     Starter {
         kind: "platformer",
         title: "Platformer",
         example: "template",
-        about: "Run, jump, collect coins, reach the flag. Has a level you can paint.",
+        about: "Run, jump, collect coins, reach the flag.",
+        has: "A duck that runs and jumps, coins, a flag, a sky and hills, sounds, play tests and a bot.",
         has_level: true,
     },
     Starter {
         kind: "topdown",
         title: "Top-down",
         example: "starter_topdown",
-        about: "Walk through rooms seen from above, pick things up, dodge enemies. Has a level you can paint.",
+        about: "Walk through rooms seen from above, pick things up, dodge enemies.",
+        has: "A walker seen from above, walls, coins, chasing enemies, play tests and a bot.",
         has_level: true,
     },
     Starter {
@@ -73,6 +98,7 @@ pub const STARTERS: &[Starter] = &[
         title: "Shooter",
         example: "starter_shooter",
         about: "Fly, shoot, dodge waves of enemies.",
+        has: "A ship, bullets, waves of enemies, explosions, sounds, play tests and a bot.",
         has_level: false,
     },
     Starter {
@@ -80,6 +106,7 @@ pub const STARTERS: &[Starter] = &[
         title: "3D runner",
         example: "starter_runner3d",
         about: "Run down three lanes in 3D, jump, collect coins.",
+        has: "Three lanes in 3D, blocks, a duck, coins, lighting, play tests and a bot.",
         has_level: false,
     },
     Starter {
@@ -87,6 +114,7 @@ pub const STARTERS: &[Starter] = &[
         title: "Tiny",
         example: "quickstart",
         about: "The smallest game: one file to read from top to bottom.",
+        has: "One file: a paddle, a falling star, a score and a play test.",
         has_level: false,
     },
 ];
@@ -400,13 +428,67 @@ impl GamesFolder {
             .filter_map(|entry| clean(entry.path()))
             .collect();
         others.sort();
-        // Never checked with a playthrough: the picture in the docs, if
-        // the game has one.
+        // Never checked with a playthrough: the picture made the first time
+        // it was played or checked, or the one in the docs.
+        let thumbnail = self.thumbnail_file(game);
         let in_docs = self.root.join("docs").join(format!("{game}.png"));
         others
             .into_iter()
             .next()
+            .or_else(|| thumbnail.is_file().then_some(thumbnail))
             .or_else(|| in_docs.is_file().then_some(in_docs))
+    }
+
+    /// A game's card picture when it has no checked playthrough: made the
+    /// first time it's played in the Studio, or checked.
+    pub fn thumbnail_file(&self, game: &str) -> PathBuf {
+        self.root
+            .join("out")
+            .join("thumbnails")
+            .join(format!("{game}.png"))
+    }
+
+    /// Runs the game for two seconds with no window, saving its pictures
+    /// where [`GamesFolder::keep_thumbnail`] looks for them.
+    pub fn thumbnail_command(&self, cargo: &Path, game: &str) -> CommandLine {
+        let out = self.thumbnail_run(game);
+        let out_text = out.to_string_lossy().into_owned();
+        CommandLine::new(
+            cargo,
+            &[
+                "run",
+                "-q",
+                "--no-default-features",
+                "--example",
+                game,
+                "--",
+                "--headless",
+                "--frames",
+                "120",
+                "--out",
+                &out_text,
+            ],
+            &self.root,
+        )
+        .shown_as(format!(
+            "cargo run --no-default-features --example {game} -- --headless --frames 120 --out out/thumbnails/{game}-run"
+        ))
+    }
+
+    fn thumbnail_run(&self, game: &str) -> PathBuf {
+        self.root
+            .join("out")
+            .join("thumbnails")
+            .join(format!("{game}-run"))
+    }
+
+    /// After [`GamesFolder::thumbnail_command`]: keeps its last picture as
+    /// the card's. True if there was one.
+    pub fn keep_thumbnail(&self, game: &str) -> bool {
+        let run = self.thumbnail_run(game);
+        let kept = std::fs::copy(run.join("last.png"), self.thumbnail_file(game)).is_ok();
+        let _ = std::fs::remove_dir_all(run);
+        kept
     }
 
     /// The command that records a game's first playthrough with its bot,

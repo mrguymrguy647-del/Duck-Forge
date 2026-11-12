@@ -379,3 +379,52 @@ fn a_level_painted_while_frozen_is_in_the_game_and_in_its_replay() {
         "the replay ends on the session's last picture"
     );
 }
+
+/// A game whose card has no picture gets a real one the first time it
+/// plays in the Studio (from two seconds in), or the first time it's
+/// checked (a check of a game with no playthrough draws nothing, so the
+/// Studio then runs it for two seconds with no window).
+#[test]
+fn a_game_with_no_picture_gets_one_the_first_time_it_plays_or_is_checked() {
+    let mut studio = studio();
+    let folder = studio.folder.clone().unwrap();
+    for game in ["hello", "empty"] {
+        let _ = std::fs::remove_file(folder.thumbnail_file(game));
+        if folder.card_picture(game).is_some() {
+            eprintln!("skipped {game}: its card already has a picture from an earlier check");
+            continue;
+        }
+        let script = if game == "hello" {
+            r#"[{"do": "game.open", "name": "hello"}, {"wait": "playing"},
+                {"wait": "frames", "frames": 130}, {"do": "game.stop"}]"#
+        } else {
+            r#"[{"do": "game.open", "name": "empty"}, {"wait": "playing"},
+                {"do": "game.stop"}, {"do": "check.run"}, {"wait": "idle"}]"#
+        };
+        run_script(&mut studio, script).unwrap_or_else(|problem| panic!("{game}: {problem}"));
+        let picture = folder.thumbnail_file(game);
+        assert_eq!(folder.card_picture(game).as_ref(), Some(&picture), "{game}");
+        let (width, height, pixels) = png_pixels(&picture);
+        assert!(
+            width >= 160 && height >= 120,
+            "{game}: the game's own size, {width} x {height}"
+        );
+        assert!(
+            pixels.iter().any(|&p| p != 0),
+            "{game}: not a black picture"
+        );
+        let card = studio
+            .cards
+            .iter()
+            .find(|card| card.game.name == game)
+            .unwrap();
+        assert_eq!(
+            card.picture.as_ref(),
+            Some(&picture),
+            "{game}: Home shows it"
+        );
+        let _ = std::fs::remove_file(picture);
+        let _ = std::fs::remove_dir_all(folder.check_folder(game));
+        let _ = std::fs::remove_dir_all(folder.sessions_folder(game));
+    }
+}

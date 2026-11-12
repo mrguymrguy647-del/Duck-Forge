@@ -586,6 +586,46 @@ fn texture(ctx: &egui::Context, name: &str, picture: &Pixels) -> TextureHandle {
     ctx.load_texture(name, image(picture), TextureOptions::NEAREST)
 }
 
+/// Build mode for a game with no tile level: what there is to do here.
+pub fn no_level_to_paint(ui: &mut egui::Ui, has_a_folder: bool) {
+    ui.label(
+        "This game has no level to paint (the platformer and top-down starters have one). \
+         Here is what you can do in Build mode:",
+    );
+    ui.add_space(4.0);
+    let mut item = |title: &str, words: &str| {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new(title).strong());
+            ui.label(words);
+        });
+    };
+    item(
+        "Feel:",
+        "change how it moves and plays with the sliders on the right. Press Tab and it plays \
+         with them at once.",
+    );
+    item(
+        "Sounds:",
+        "play the sounds the game has made again, and read how each one was made.",
+    );
+    item(
+        "Pictures:",
+        "open its pictures in Duck Quill. When one is saved, the game shows it.",
+    );
+    if has_a_folder {
+        item(
+            "Files:",
+            "the Files tab on the right shows everything in the game's folder. Click a picture \
+             to see it or a sound to hear it, and drop new ones in from File Explorer.",
+        );
+    }
+    item(
+        "Frame by frame:",
+        "Play one frame or Play ten frames (below), and look at what changed. Tab carries on \
+         from there.",
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -117,6 +117,143 @@ fn a_new_version_shows_a_banner_and_waits_for_a_click() {
     assert!(matches!(screen.state().update, UpdateState::Off));
 }
 
+/// A games folder of the test's own, with one game of the person's.
+fn small_games_folder(test: &studio_core::test_folder::TestFolder) -> PathBuf {
+    let root = test.join("Duck Forge");
+    for (name, text) in [
+        (
+            "Cargo.toml",
+            "[package]\nname = \"duckforge\"\n\n[[example]]\nname = \"bee_maze\"\ntest = true\n",
+        ),
+        ("examples/dodge.rs", "fn main() {}\n"),
+        ("examples/bee_maze/main.rs", "fn main() {}\n"),
+        ("examples/bee_maze/assets/duck.png", "not really a picture"),
+        ("examples/bee_maze/assets/jump.wav", "RIFF"),
+        ("examples/bee_maze/level.txt", "p..#\n"),
+    ] {
+        let path = root.join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+    root
+}
+
+#[test]
+fn a_card_can_be_renamed_duplicated_or_deleted_after_a_question() {
+    let test = studio_core::test_folder::TestFolder::new("screens-cards");
+    let root = small_games_folder(&test);
+    let mut studio = Studio::new(Settings {
+        games_folder: Some(root.clone()),
+        ..Settings::default()
+    });
+    studio.recycle_bin = studio_core::recycle::RecycleBin::Folder(test.join("Recycle Bin"));
+    let mut screen = harness(StudioApp::new(studio), false);
+    screen.step();
+    // The person's game has all three; Dodge (it came with Duck Forge) can only be copied.
+    assert_eq!(screen.query_all_by_label("Rename").count(), 1);
+    assert_eq!(screen.query_all_by_label("Duplicate").count(), 2);
+    assert_eq!(screen.query_all_by_label("Delete").count(), 1);
+
+    // Duplicate asks for the copy's name.
+    screen
+        .query_all_by_label("Duplicate")
+        .next()
+        .unwrap()
+        .click();
+    screen.run_steps(3);
+    screen.get_by_label("Duplicate Bee Maze");
+    screen.get_by_label("Its folder will be examples/bee_maze_2");
+    screen.get_by_label("Cancel").click();
+    screen.run_steps(3);
+    assert!(screen.state().game_dialog.is_none());
+
+    // Delete names the game and asks first; then it's in the Recycle Bin.
+    screen.get_by_label("Delete").click();
+    screen.run_steps(3);
+    screen.get_by_label("Delete Bee Maze?");
+    assert!(root.join("examples/bee_maze").exists(), "nothing yet");
+    screen.get_by_label("Move it to the Recycle Bin").click();
+    screen.run_steps(3);
+    assert!(!root.join("examples/bee_maze").exists());
+    assert!(test.join("Recycle Bin/bee_maze/main.rs").is_file());
+    assert!(
+        !std::fs::read_to_string(root.join("Cargo.toml"))
+            .unwrap()
+            .contains("bee_maze")
+    );
+    assert!(screen.query_by_label("Bee Maze").is_none());
+}
+
+#[test]
+fn new_game_lists_empty_first_and_says_what_each_starter_has() {
+    let mut screen = harness(StudioApp::new(studio()), false);
+    screen.step();
+    screen.get_by_label("+ New game").click();
+    screen.run_steps(3);
+    let starters: Vec<String> = studio_core::folder::STARTERS
+        .iter()
+        .map(|s| s.title.to_string())
+        .collect();
+    assert_eq!(starters[0], "Empty");
+    for starter in studio_core::folder::STARTERS {
+        // (Home's cards are behind the dialog, with some of the same names.)
+        assert!(
+            screen.query_all_by_label(starter.title).count() >= 1,
+            "{}",
+            starter.title
+        );
+        screen.get_by_label(starter.has);
+    }
+    assert_eq!(
+        screen.query_all_by_label("Has a level to paint.").count(),
+        2
+    );
+    assert_eq!(screen.query_all_by_label("No level to paint.").count(), 4);
+}
+
+#[test]
+fn the_files_panel_shows_the_games_folder_and_clicks_are_commands() {
+    use studio_app::files_panel::FilesPanel;
+    use studio_app::pictures::Pictures;
+    let test = studio_core::test_folder::TestFolder::new("screens-files");
+    let root = small_games_folder(&test);
+    let folder = root.join("examples/bee_maze");
+    let commands = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let seen = commands.clone();
+    let mut panel = FilesPanel::default();
+    let mut pictures = Pictures::default();
+    let mut screen = egui_kittest::Harness::new_ui(move |ui| {
+        let more = panel.show(ui, Some(&folder), None, &mut pictures);
+        seen.borrow_mut().extend(more);
+    });
+    screen.run();
+    for line in ["v assets", "duck.png", "jump.wav", "level.txt", "main.rs"] {
+        screen.get_by_label(line);
+    }
+    screen.get_by_label("Drop pictures and sounds here from File Explorer to copy them in.");
+    screen.get_by_label("jump.wav").click();
+    screen.run();
+    assert!(commands.borrow().contains(&Command::FilesPlay {
+        path: String::from("assets/jump.wav")
+    }));
+    screen.get_by_label("Show in File Explorer").click();
+    screen.run();
+    assert!(commands.borrow().contains(&Command::FilesOpen {
+        path: String::new()
+    }));
+}
+
+#[test]
+fn build_mode_without_a_level_says_what_there_is_to_do() {
+    let mut screen = egui_kittest::Harness::new_ui(|ui| {
+        studio_app::build_mode::no_level_to_paint(ui, true);
+    });
+    screen.run();
+    for word in ["Feel:", "Sounds:", "Pictures:", "Files:", "Frame by frame:"] {
+        screen.get_by_label(word);
+    }
+}
+
 /// Puts the repository back as it was after the screenshots made a game.
 /// One at a time: each of the two long tests makes a game in the Duck
 /// Forge folder (and takes it out again).

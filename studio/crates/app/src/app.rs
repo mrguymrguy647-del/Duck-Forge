@@ -12,13 +12,21 @@ use studio_core::{Command, Problem, Studio};
 
 use crate::build_mode::{self, BuildMode};
 use crate::feel_panel::{self, FeelPanel};
+use crate::files_panel::{self, FilesPanel};
 use crate::game_view::{self, GameTexture};
-use crate::home::{self, HomeChoice, NewGame, NewGameChoice};
+use crate::home::{self, GameDialogChoice, HomeChoice, NewGame, NewGameChoice};
 use crate::keys::{self, Placement};
 use crate::panels::{self, CheckChoice, ProblemChoice};
 use crate::pictures::Pictures;
 use crate::theme;
 use crate::update_banner::{self, BannerChoice, UpdateState};
+
+/// Which side of Build mode's right panel shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RightTab {
+    Feel,
+    Files,
+}
 
 /// Duck Forge Studio's window.
 pub struct StudioApp {
@@ -44,6 +52,11 @@ pub struct StudioApp {
     pub build: BuildMode,
     /// Build mode's right side: Feel, Sounds, Pictures.
     feel: FeelPanel,
+    /// ...or the game's files.
+    files: FilesPanel,
+    pub right_tab: RightTab,
+    /// Rename, Duplicate or Delete, from a card on Home.
+    pub game_dialog: Option<home::GameDialog>,
     pub history_open: bool,
     pub code_open: bool,
     pub recipe_open: bool,
@@ -70,6 +83,9 @@ impl StudioApp {
             said: None,
             build: BuildMode::default(),
             feel: FeelPanel::default(),
+            files: FilesPanel::default(),
+            right_tab: RightTab::Feel,
+            game_dialog: None,
             history_open: false,
             code_open: false,
             recipe_open: false,
@@ -87,6 +103,12 @@ impl StudioApp {
 
     /// Does a command and shows what it said in the status bar.
     fn run_and_say(&mut self, command: Command) {
+        if matches!(
+            command,
+            Command::FilesAdd { .. } | Command::FilesNewFolder { .. } | Command::FilesSelect { .. }
+        ) {
+            self.right_tab = RightTab::Files;
+        }
         let opens = match &command {
             Command::FeelShowCode { .. } => Some(&mut self.code_open),
             Command::AssetsShowRecipe { .. } => Some(&mut self.recipe_open),
@@ -100,14 +122,37 @@ impl StudioApp {
         }
     }
 
-    /// Build mode's right side: Feel, Sounds, Pictures.
+    /// Build mode's right side: Feel, Sounds and Pictures, or Files.
     fn feel_panel(&mut self, ui: &mut egui::Ui) {
         let mut commands = Vec::new();
         let mut choose_quill = false;
         egui::Panel::right("feel")
-            .default_size(250.0)
+            .default_size(270.0)
             .min_size(220.0)
             .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.selectable_value(
+                        &mut self.right_tab,
+                        RightTab::Feel,
+                        "Feel, sounds, pictures",
+                    );
+                    ui.selectable_value(&mut self.right_tab, RightTab::Files, "Files");
+                });
+                ui.separator();
+                if self.right_tab == RightTab::Files {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        if let Some(open) = &self.studio.open {
+                            ui.heading(format!("Files of {}", open.game.title));
+                            commands = self.files.show(
+                                ui,
+                                open.game.folder.as_deref(),
+                                open.files_selected.as_deref(),
+                                &mut self.pictures,
+                            );
+                        }
+                    });
+                    return;
+                }
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     if let (Some(open), Some(folder)) = (&self.studio.open, &self.studio.folder) {
                         commands = self.feel.show(ui, open, folder.root());
@@ -163,7 +208,7 @@ impl StudioApp {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         let now = Instant::now();
-        let dialog = self.new_game.is_some() || self.about_open;
+        let dialog = self.new_game.is_some() || self.about_open || self.game_dialog.is_some();
         // A text box (the Console's line, a name) has the keyboard.
         let typing = ctx.egui_wants_keyboard_input();
 
@@ -355,6 +400,7 @@ impl StudioApp {
                 self.run(Command::GameOpen { name });
             }
             Some(HomeChoice::NewGame) => self.new_game = Some(NewGame::default()),
+            Some(HomeChoice::Dialog(dialog)) => self.game_dialog = Some(dialog),
             Some(HomeChoice::OpenFolder) => {
                 if let Some(folder) = &self.studio.folder {
                     open_folder(folder.root());
@@ -461,6 +507,7 @@ impl StudioApp {
     }
 
     fn game_screen(&mut self, ui: &mut egui::Ui) {
+        self.take_dropped_files(ui.ctx());
         let title = self
             .studio
             .open
@@ -593,6 +640,40 @@ impl StudioApp {
             }
         }
         egui::CentralPanel::no_frame().show(ui, |ui| self.game_area(ui));
+    }
+
+    /// Files dropped on a game's screen from File Explorer are copied into
+    /// its folder, and the Files panel shows them. While they're being
+    /// dragged over, the window says where they'll go.
+    fn take_dropped_files(&mut self, ctx: &egui::Context) {
+        let Some(open) = &self.studio.open else {
+            return;
+        };
+        let Some(folder) = open.game.folder.clone() else {
+            return;
+        };
+        if files_panel::being_dragged_in(ctx) {
+            let words = format!("Drop to copy into {}'s folder", open.game.title);
+            let screen = ctx.content_rect();
+            let painter = ctx.layer_painter(egui::LayerId::new(
+                egui::Order::Foreground,
+                egui::Id::unique("dropping files"),
+            ));
+            painter.rect_filled(screen, 0.0, egui::Color32::from_black_alpha(150));
+            painter.text(
+                screen.center(),
+                egui::Align2::CENTER_CENTER,
+                words,
+                egui::FontId::proportional(28.0),
+                theme::DUCK_YELLOW,
+            );
+        }
+        let dropped = files_panel::dropped(ctx);
+        if !dropped.is_empty() {
+            let selected = open.files_selected.clone();
+            let command = files_panel::add_dropped(&folder, selected.as_deref(), dropped);
+            self.run_and_say(command);
+        }
     }
 
     /// The game's own notes ("Inside the Studio, Duck Craft starts a fresh
@@ -813,10 +894,7 @@ impl StudioApp {
                         if open.level.is_some() {
                             commands.extend(self.build.tools(ui, open));
                         } else if open.level_problem.is_none() {
-                            ui.label(
-                                "This game has no tile level, so there's nothing to paint. You \
-                                 can still change how it feels.",
-                            );
+                            build_mode::no_level_to_paint(ui, open.game.folder.is_some());
                         }
                     }
                     ui.separator();
@@ -1198,6 +1276,16 @@ impl StudioApp {
             }
             if let Some(command) = command {
                 self.run_and_say(command);
+            }
+        }
+        if let Some(dialog) = &mut self.game_dialog {
+            match home::game_dialog(ctx, dialog, &self.studio) {
+                Some(GameDialogChoice::Cancel) => self.game_dialog = None,
+                Some(GameDialogChoice::Run(command)) => {
+                    self.game_dialog = None;
+                    self.run_and_say(command);
+                }
+                None => {}
             }
         }
         if let Some(dialog) = &mut self.new_game {

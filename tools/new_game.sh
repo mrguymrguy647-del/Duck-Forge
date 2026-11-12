@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # new_game: start a new game from a starter, ready to build and verify.
 #
-#   tools/new_game.sh mygame topdown      (or platformer, shooter, runner3d, tiny)
+#   tools/new_game.sh mygame topdown      (or empty, platformer, shooter, runner3d, tiny)
 #
 # It copies the starter to examples/mygame, renames
 # the game's main type (TopDown -> Mygame), sets the window title, points
@@ -15,7 +15,7 @@ set -u
 name="${1:-}"
 kind="${2:-}"
 usage() {
-    echo "usage: tools/new_game.sh <name> <platformer|topdown|shooter|runner3d|tiny>"
+    echo "usage: tools/new_game.sh <name> <empty|platformer|topdown|shooter|runner3d|tiny>"
     echo "  the name is lowercase letters, digits and _, starting with a letter, like bee_maze"
     exit 2
 }
@@ -29,6 +29,7 @@ if [ -n "$(printf '%s' "$name" | tr -d 'a-z0-9_')" ]; then
     usage
 fi
 case "$kind" in
+    empty) starter=empty; type=Empty; title="Empty - duckforge" ;;
     platformer) starter=template; type=Template; title="Template - duckforge" ;;
     topdown) starter=starter_topdown; type=TopDown; title="Top-down starter - duckforge" ;;
     shooter) starter=starter_shooter; type=Shooter; title="Shooter starter - duckforge" ;;

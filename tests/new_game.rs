@@ -18,7 +18,8 @@ use common::TestFolder;
 const ROOT: &str = env!("CARGO_MANIFEST_DIR");
 
 /// (kind, starter, the starter's type, a folder starter?)
-const STARTERS: [(&str, &str, &str, bool); 5] = [
+const STARTERS: [(&str, &str, &str, bool); 6] = [
+    ("empty", "empty", "Empty", true),
     ("platformer", "template", "Template", true),
     ("topdown", "starter_topdown", "TopDown", true),
     ("shooter", "starter_shooter", "Shooter", true),
@@ -91,10 +92,16 @@ fn each_starter_becomes_a_renamed_game() {
             String::from_utf8_lossy(&output.stderr)
         );
         let files: Vec<PathBuf> = if folder {
-            ["main.rs", "tests.rs", "bot.rs"]
-                .iter()
-                .map(|f| project.join("examples").join(&name).join(f))
-                .collect()
+            // main.rs, and tests.rs and bot.rs where the starter has them.
+            let mut files: Vec<PathBuf> = fs::read_dir(project.join("examples").join(&name))
+                .unwrap()
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|path| path.extension().is_some_and(|e| e == "rs"))
+                .collect();
+            files.sort();
+            assert!(files.iter().any(|f| f.ends_with("main.rs")), "{kind}");
+            files
         } else {
             vec![project.join("examples").join(format!("{name}.rs"))]
         };
@@ -127,7 +134,14 @@ fn each_starter_becomes_a_renamed_game() {
             })
         };
         assert!(!old_word(old_type), "{kind}: {old_type} is still there");
-        assert!(!word(starter), "{kind}: {starter} is still there");
+        // (The line new_game puts at the top names the kind, which for the
+        // empty starter is also its folder's name.)
+        let header = format!("started from the {kind} starter");
+        let without_header = text.replace(&header, "");
+        assert!(
+            !word(starter) || !without_header.contains(starter),
+            "{kind}: {starter} is still there"
+        );
         assert!(
             text.contains(&format!("struct {new_type}")),
             "{kind}: no struct {new_type}"
@@ -147,7 +161,8 @@ fn each_starter_becomes_a_renamed_game() {
                 "{kind}: no tune file"
             );
         }
-        if folder {
+        // A starter with a bot points it at the new game's playthrough.
+        if folder && project.join(format!("examples/{name}/bot.rs")).exists() {
             assert!(
                 text.contains(&format!("playthroughs/{name}.json")),
                 "{kind}: bot path"
