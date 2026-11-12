@@ -552,6 +552,24 @@ about. When they differ:
 
 Either way you press Tab and play on from the same frame.
 
+As built in Step 2:
+
+- What a drag changes is decided when it begins. The dashed **outline**
+  always changes the file. The **object** changes the file too while it
+  is still where it starts (a sign, a crate), and moves for this run
+  only once the game has moved it (the duck after a walk). The status
+  bar says which: "Move sign" or "Move duck for this run".
+- The Inspector has **Start here** (where it is now becomes its start)
+  and **Back to its start**.
+- Undo takes back a move "for this run" until the game plays on. After
+  that there is no moment to put it back to, so it leaves the list.
+- A game needs no new code for any of it: the change reaches the scene
+  through the `reload` hook it already has, and the session's recording
+  keeps it as an `"object"` event, so replays stay exact.
+- **As it starts** is drawn by the game itself, from a copy of its scene
+  put back to the file's values, through the camera of the frozen
+  moment. The game's own scene isn't touched.
+
 **The Code panel:**
 
 - Opens the game's `.rs` files in tabs, with line numbers, Rust
@@ -785,7 +803,7 @@ to copy.
 | | Step | When it's done you can | Who |
 |---|---|---|---|
 | 1 | **Scenes in the engine.** The file, `Scene`, drawing in layers, turned and resized pictures, a tile map as an object, `reload` that merges, mistakes in plain words. A small demo game. **Built** | Open the demo in the Studio, play it, edit its scene file in Notepad while it's frozen, and see the change | Stronger |
-| 2 | **Scene list, Inspector, select and move.** The link's new questions, the `object` and `select` commands, snap and grid, Undo, "Starts at and Now" | Click an object, drag it, change its name, position, picture and layer, undo, and play on from the frozen frame | Stronger |
+| 2 | **Scene list, Inspector, select and move.** The link's new questions, the `object` and `select` commands, snap and grid, Undo, "Starts at and Now". **Built** | Click an object, drag it, change its name, position, picture and layer, undo, and play on from the frozen frame | Stronger |
 | 3 | **The other tools.** Turn, Size, several at once, box select, copy, paste, duplicate, delete, nudge, reorder, Add (plain kinds) | Build a small picture of a level by hand | Cheaper |
 | 4 | **Dragging from Files.** Onto the scene and onto Inspector boxes, and from Windows | Drag a picture in, drag a sound onto a box | Cheaper |
 | 5 | **Kinds.** `Kind`, `Settings`, `SceneGame`, the Inspector's boxes drawn from the game's own list, "New kind in code", "Show me the code" | Add a kind's skeleton from the Studio, give it a setting in code, and see the box appear | Stronger |
@@ -981,6 +999,36 @@ And three more:
 - **The first-hour fixes** come first: Step 1's branch is main with
   those fixes and this design.
 
+## What Step 2 built, and what it left for Step 3
+
+Built: the Scene list, the bar above the view (Select, Move, Snap with
+the grid's size, Grid, Frozen moment / As it starts), clicking and
+dragging in the view, the Move tool's two arrows, the Inspector (name,
+position, picture, animation, layer; under More: turn, size, flipped,
+shown, solid, opacity and the object's own settings), Undo for all of
+it, and "Starts at and Now". Pictures 23 to 30 in `docs/studio-screens/`
+are the real screens.
+
+Three things work differently from the mockups, on purpose:
+
+- **The tile map is selected in the Scene list, not by clicking the
+  ground.** Otherwise every click that misses an object would start
+  painting. While it's selected the left side has the paint tools and
+  the view paints; Esc, or picking another object, gives the view back.
+  Coins and flags painted on the tile map belong to it: they aren't
+  picked by a click, and the list says "4 coins, 1 flag painted on it".
+- **The scene is edited while the game is frozen**, as painting is. A
+  game that isn't running has no picture to click on yet; "As it starts"
+  with no game running comes with several scenes, in step 7.
+- **Kind is shown, not changed.** It becomes a list in step 5, when
+  games can say which kinds they have.
+
+Left for Step 3, as the table says: Turn and Size tools in the view (the
+numbers are in the Inspector already), a box to select several, nudging
+with the arrow keys, copy, paste, duplicate, delete, reorder, Add, and
+an Inspector for several objects at once (now it shows their names and
+one Layer box).
+
 ## What you test on Windows after Step 1
 
 GitHub's Windows machine runs every test, including one that builds the
@@ -1026,3 +1074,105 @@ session to the same picture. These need your PC, with no terminal:
     level, "Record it again" has the bot play the scene as it is now.
 61. Nothing else has changed: your own platformer and Duck Peaks play
     and check as before.
+
+(After Step 2, item 59 needs one more click: select "ground" in the
+Scene list first. Item 84 below is the same test.)
+
+## What you test on Windows after Step 2
+
+GitHub's Windows machine runs a test that does most of this with a
+pretend mouse on the real Scene demo (click, drag, Undo, the duck moved
+for this run, its outline dragged, As it starts, the arrows, two objects
+at once, the tile map, Tab). What it can't judge is whether it feels
+right and reads clearly. That's these, with no terminal:
+
+62. Open **Scene demo**. Walk the duck a little to the right (not as far
+    as the sign) and press Tab. On the left, under "Build", is the
+    **Scene** list: sky, hills, ground, sign, crate, big crate, coin,
+    coin, duck, bush, coin icon. "ground" says what's painted on it and
+    "duck" says "moved". Above the game is a bar: Select, Move, Snap,
+    Grid, Frozen moment, As it starts. A faint grid lies over the game.
+63. Click the sign in the game. It gets a yellow outline, its row in the
+    list lights up, and the right side shows the **Inspector**: its
+    name, position 120 and 208, picture and layer, and at the bottom
+    "id 4 · line 9 of pond.json".
+64. Drag the sign to the right. It follows in steps of 8 pixels, with
+    its position written beside the pointer. Let go. The Inspector's
+    position has changed, the status bar says "Move sign", and the frame
+    number hasn't moved. In Files, open `scenes/pond.json` in Notepad:
+    the sign's line has the new `"at"`.
+65. Ctrl+Z: the sign goes back. Ctrl+Y: it's in the new place again.
+66. Drag it holding **Alt**: it moves pixel by pixel. Untick **Snap**:
+    the same without Alt. Tick it again and change "8 px" to 16: the
+    grid's squares are bigger and a drag goes in steps of 16. Put it
+    back to 8.
+67. Untick **Grid**: the lines go. Tick it again.
+68. In the Inspector, click in **Name**, type `old sign`, press Enter:
+    the list shows the new name. Press on the position's **x** number
+    and drag left and right: the sign slides. Click x once, type 200,
+    Enter: it jumps there. Each of these is one Ctrl+Z.
+69. **Picture**: choose `assets/crate.png`. The sign becomes a crate.
+    Ctrl+Z.
+70. Drag the sign onto the duck. The duck is in front (it's lower in
+    the list). **Layer**: choose `front`. Now the sign is in front.
+    Ctrl+Z twice.
+71. Open **More**. Turn 45: it leans. Size x 2 and y 2: twice as big.
+    Flipped: mirrored. Shown off: it vanishes from the game but stays in
+    the list (click it there), on again. Opacity half: see-through.
+72. Double-click "crate" in the Scene list, type `box`, press Enter. The
+    list says box, and so does its line in pond.json.
+73. Click the duck. Besides its yellow outline there's a **dashed
+    outline where it starts**, with "starts here" and a line between
+    the two. The Inspector says **Starts at** 40, 208 and **Now** with
+    where it walked to.
+74. Drag the duck itself somewhere to the right. The status bar says
+    "Move duck for this run". In Notepad the duck's line still says 40.
+    Tab: the duck plays on from the new place. Freeze again and press
+    "Restart the game": it starts at 40, as before.
+75. Play a little, freeze, click the duck, and this time drag the
+    **dashed outline**. The outline moves and the duck stays. "Restart
+    the game": the duck starts where you put the outline.
+76. Play a little, freeze, click the duck, press **Start here**. The
+    dashed outline is gone: it now starts where it stands. Ctrl+Z brings
+    the outline back, and the duck stays where it is.
+77. Drag the duck somewhere, then press **Back to its start**: it jumps
+    onto the outline.
+78. Play until the duck has taken one of the two coins that float above
+    the crates. Freeze. That coin is in *italics* in the list. Click it
+    there: a dashed outline shows where it starts, and the Inspector
+    says the game has removed it. Change its position's x: the outline
+    moves. "Restart the game": the coin is in its new place.
+79. Play a little, freeze, press **As it starts**. The picture shows the
+    scene as the file has it: the duck at its start, every coin back.
+    Drag the crate: it moves, and that's saved. Press **Frozen moment**:
+    the game is exactly as you froze it (with the crate moved). Tab: it
+    plays on from the same frame, with the same number of coins.
+80. Press **Move** (or the G key) with the sign selected. It gets a red
+    arrow pointing right and a green one pointing up. Drag the red
+    arrow: the sign only moves sideways, however the mouse wanders. The
+    green one: only up and down. V goes back to Select.
+81. Drag the small crate on top of the big crate. Click where both are:
+    the one on top is selected. Click again in the same spot: the one
+    under it.
+82. Click the sign, then Shift+click the crate: both have outlines and
+    the Inspector says "2 objects". Drag one: both move. One Ctrl+Z puts
+    both back.
+83. Click the empty sky: nothing is selected. Esc does the same.
+84. Click **ground** in the Scene list. The paint tools appear under the
+    list. Paint a brick and a coin: as it always worked. Press Esc: the
+    tools go, and clicks in the game select objects again.
+85. A mistake in the file: in Notepad, on the sign's line, change
+    `"at": [120, 208]` (or whatever it is now) to `"at": "left"` and
+    save. The Scene list says what's wrong and on which line, and that
+    the Studio won't change the file until it's fixed. (The sign itself
+    jumps to the top left corner: its place can't be read.) Try to drag
+    the crate: a message says the same, and nothing is written. Put the
+    numbers back and save: dragging works again.
+86. Tab to play: the grid, the outlines and the bar are gone, and the
+    game plays as always.
+87. A game with no scene (your own platformer, or Duck Peaks): Build
+    mode is exactly as before, with the paint tools at once, no Scene
+    list and no Inspector tab.
+88. Tell me how "Starts at and Now" felt in 73 to 79. If it confused
+    you, we take the fallback: the editor always shows the scene as it
+    starts, and Tab plays from the start.

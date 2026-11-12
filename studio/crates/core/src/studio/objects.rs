@@ -141,6 +141,18 @@ impl Studio {
         title: String,
         stroke: Option<u64>,
     ) -> Result<String, Problem> {
+        self.change_scene_keeping(changes, Vec::new(), title, stroke)
+    }
+
+    /// [`change_scene`](Self::change_scene), with what Undo has to put
+    /// back in the frozen game besides the file (`now`).
+    fn change_scene_keeping(
+        &mut self,
+        changes: Vec<(u64, Map<String, Value>)>,
+        now: Vec<NowEdit>,
+        title: String,
+        stroke: Option<u64>,
+    ) -> Result<String, Problem> {
         let open = self.open_game()?;
         let doc = open.scene.as_ref().ok_or_else(no_scene)?;
         let after = doc.with_set(&changes)?;
@@ -162,7 +174,7 @@ impl Studio {
                 after,
             }],
             stroke,
-            now: Vec::new(),
+            now,
         });
         open.edited_since_snapshot = true;
         Ok(title)
@@ -339,20 +351,31 @@ impl Studio {
         let open = self.open_game()?;
         let doc = open.scene.as_ref().ok_or_else(no_scene)?;
         let mut changes = Vec::new();
+        // Undo has to leave each object where it is now, with its old
+        // start back: once they're the same, the game can't tell "it
+        // walked here" from "it starts here".
+        let mut stays = Vec::new();
         for id in &ids {
             let start = doc.object(*id).map(|object| object.at);
             let now = scene_edit::at_now(doc, open.drawn_scene(), *id);
             if let Some(now) = now
                 && start != Some(now)
             {
-                changes.push((*id, Map::from_iter([(String::from("at"), pair(now))])));
+                let at = Map::from_iter([(String::from("at"), pair(now))]);
+                stays.push(NowEdit {
+                    file: doc.name.clone(),
+                    id: *id,
+                    before: at.clone(),
+                    after: at.clone(),
+                });
+                changes.push((*id, at));
             }
         }
         if changes.is_empty() {
             return Ok(format!("{} is already where it starts", open.called(&ids)));
         }
         let title = format!("Start {} here", open.called(&ids));
-        self.change_scene(changes, title, None)
+        self.change_scene_keeping(changes, stays, title, None)
     }
 
     /// "Back to its start": each object goes to where the file starts it,

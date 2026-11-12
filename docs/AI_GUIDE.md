@@ -1719,8 +1719,29 @@ agent might meet:
   `scenes/*.json` twice a second. A scene file you write while a person
   has the game open reaches their game at once (frozen or playing, as a
   `"file"` event in the session), and is one step of their Undo, called
-  "Changed outside the Studio". The Studio doesn't edit scenes itself
-  yet: that's the next steps of `docs/phase5-design.md`.
+  "Changed outside the Studio".
+- **The scene editor.** With a game that has scenes frozen, the Studio
+  lists the scene's objects, selects and moves them, and has an
+  Inspector for their keys. Every click is a command you can send too:
+  `{"do": "object.set", "ids": [4], "set": {"layer": "front", "turn": 10}}`
+  (keys as the scene file has them; `null` puts a key back to its usual
+  value), `{"do": "object.move", "ids": [4, 5], "by": [8, 0]}` (or
+  `"to": [96, 208]`: the first goes there, the rest along),
+  `{"do": "object.rename", "id": 4, "name": "sign"}`. These change the
+  scene's **file** (how it starts): the Studio writes the whole file the
+  way `tools/write_ids` does (one object a line, every id written), the
+  game takes it at once, and it's one step of Undo. A file with a
+  mistake isn't written again until it's fixed.
+  `object.set_now` and `object.move_now` (`{"do": "object.move_now",
+  "id": 9, "to": [200, 208]}`) change an object **on the frozen frame
+  only**: the file stays, the session records an `"object"` event, and
+  Undo takes it back until the game plays on. `object.start_here` makes
+  where objects are now their start; `object.back_to_start` is the
+  other way. `select.set` / `select.add` / `select.all` / `select.none`,
+  `view.tool` (`select` or `move`), `view.snap` (`{"on": true, "step":
+  8}`), `view.grid` and `view.show` (`frozen`, or `start` for the scene
+  as its file has it) set what a person sees. A game needs nothing new
+  for any of this beyond `scene.reload` in its `reload` hook.
 
 `docs/phase4-design.md` has the whole design, and
 `docs/phase5-design.md` the plan for the editor.

@@ -171,6 +171,16 @@ the Studio: nothing is added to the engine or to games.
   `level.txt` at once and the frozen game takes it; Undo and Redo undo
   paint strokes and Feel changes. A game with no level to paint says what
   there is to do instead: Feel, sounds, pictures, files, frame by frame.
+- **The scene editor** (Build mode of a game with scenes, like the Scene
+  demo): the left side lists the scene's objects; click one there or in
+  the game to select it, drag it to move it on the grid (Alt: freely),
+  and the **Inspector** on the right has its name, position, picture,
+  layer and the rest. Edits are saved to the scene's file at once, the
+  frozen game shows them, and Undo takes them back. An object the game
+  has moved since the start shows a dashed outline where it starts: drag
+  the outline to change the file, or the object itself to move it for
+  this run only. **As it starts** shows the scene as its file has it.
+  Selecting the tile map in the list brings back the paint tools.
 - **Files** (a tab beside Feel in Build mode) shows the game's own folder
   as a tree: click a picture to see it, a sound to hear it, anything else
   opens in its own program. Drop files on the game's screen from File
@@ -211,11 +221,11 @@ cargo run --release -p studio_app
 `docs/phase4-design.md` is the design, and `docs/studio-screens/` has a
 picture of every screen. `docs/phase5-design.md` is the plan for the next
 phase, a real editor (scenes, objects, an Inspector, a Code panel). Its
-first step is built: **scenes**, below. The Studio doesn't edit them
-yet, but it plays a game that has one, and when a scene file is saved
-from outside (Notepad, an agent) it sends the change to the game, frozen
-or playing, and makes it a step for Undo. Try it with the Scene demo,
-under "Examples that came with Duck Forge".
+first two steps are built: **scenes**, below, and selecting and moving
+their objects in the Studio. A scene file saved from outside (Notepad,
+an agent) reaches the game too, frozen or playing, and is a step for
+Undo. Try it with the Scene demo, under "Examples that came with Duck
+Forge".
 
 ## Features
 

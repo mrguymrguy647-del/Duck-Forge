@@ -61,7 +61,7 @@ Every event is an object with a `"frame"` and exactly **one** action:
 | `"mouse_release"` | `{"frame": 12, "mouse_release": "Left"}` | Lets go of a mouse button. |
 | `"scroll"` | `{"frame": 10, "scroll": 1}` | Rolls the wheel for one frame: positive is up (away from you), negative is down. |
 
-Two more kinds of event are **changes made while the game ran** (in Duck
+Three more kinds of event are **changes made while the game ran** (in Duck
 Forge Studio, or by editing a file while a window is open). Recordings
 write them; they're applied just before that frame's update, before its
 inputs:
@@ -70,6 +70,7 @@ inputs:
 |--------|---------|--------------|
 | `"file"` | `{"frame": 413, "file": "examples/mygame/level.txt", "text": "..."}` | A file the game read has this new text. The game's `reload` hook is called, as when it happened. |
 | `"tune"` | `{"frame": 413, "tune": {"jump_speed": 380}}` | `ctx.tune` gives these values from now on. |
+| `"object"` | `{"frame": 413, "object": 9, "in": "examples/mygame/scenes/pond.json", "set": {"at": [200, 208]}}` | An object of a scene (by its id, in that scene file) gets these keys as it is now. The scene's file is left alone: it's a move "for this run only", made in the Studio on a frozen game. The game's `reload` hook is called with the scene file's name, and `scene.reload` makes the change. |
 
 ### What "frame" means
 

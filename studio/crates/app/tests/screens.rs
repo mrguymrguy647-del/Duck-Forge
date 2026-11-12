@@ -1007,6 +1007,24 @@ fn the_scene_editor_selects_and_moves_objects_with_the_mouse() {
         open.drawn_scene().is_some_and(|drawn| drawn.as_it_starts)
     });
     shoot(&mut shots, "28-as-it-starts");
+    // What's dragged there is how the scene starts: the file.
+    let crate_at = middle_of(&shots, 5, false);
+    let to = crate_at + egui::vec2(16.0 * each, 0.0);
+    drag(&mut shots, crate_at, to);
+    let_go(&mut shots, to);
+    assert!(
+        on_disk().contains(r#"{"id": 5, "name": "crate", "at": [264, 208]"#),
+        "{}",
+        on_disk()
+    );
+    assert!(
+        middle_of(&shots, 5, false).x > crate_at.x + 10.0 * each,
+        "and the picture of the start shows it"
+    );
+    shots
+        .harness
+        .key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    shots.play_for(Duration::from_millis(300));
     shots.harness.get_by_label("Frozen moment").click();
     shots.until("the frozen moment again", Duration::from_secs(10), |app| {
         let open = app.studio.open.as_ref().unwrap();
@@ -1039,6 +1057,33 @@ fn the_scene_editor_selects_and_moves_objects_with_the_mouse() {
     assert!(
         on_disk().contains(r#"{"id": 4, "name": "sign", "at": [136, 208]"#),
         "across only, whatever the pointer did up and down: {}",
+        on_disk()
+    );
+
+    // Two selected: dragging one takes the other along, as one step.
+    shots.harness.key_press(egui::Key::V);
+    shots.harness.run_steps(2);
+    shots.run(Command::SelectSet { ids: vec![4, 5] });
+    shots.harness.run_steps(3);
+    shots.harness.get_by_label("2 objects");
+    let crate_at = middle_of(&shots, 5, false);
+    let to = crate_at + egui::vec2(16.0 * each, 0.0);
+    drag(&mut shots, crate_at, to);
+    let_go(&mut shots, to);
+    let text = on_disk();
+    assert!(
+        text.contains(r#"{"id": 4, "name": "sign", "at": [152, 208]"#)
+            && text.contains(r#"{"id": 5, "name": "crate", "at": [264, 208]"#),
+        "{text}"
+    );
+    shots
+        .harness
+        .key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    shots.play_for(Duration::from_millis(300));
+    assert!(
+        on_disk().contains(r#"{"id": 5, "name": "crate", "at": [248, 208]"#)
+            && on_disk().contains(r#"{"id": 4, "name": "sign", "at": [136, 208]"#),
+        "one Undo puts both back: {}",
         on_disk()
     );
 

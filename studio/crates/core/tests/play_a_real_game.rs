@@ -780,6 +780,56 @@ fn objects_are_selected_and_moved_in_the_frozen_game_and_it_all_replays() {
         duck.now
     );
 
+    // Undo of "Start here" leaves the duck where it is and brings its old
+    // start back; Redo makes it its start again.
+    say(&mut studio, Step::Do(Command::EditUndo));
+    settle(&mut studio);
+    let open = studio.open.as_ref().unwrap();
+    let duck = open.drawn_scene().unwrap().object(9).unwrap();
+    assert_eq!(duck.now["at"], serde_json::json!([200, 208]));
+    assert_eq!(duck.start_rect, Some(duck_started));
+    say(&mut studio, Step::Do(Command::EditRedo));
+    settle(&mut studio);
+    let open = studio.open.as_ref().unwrap();
+    let duck = open.drawn_scene().unwrap().object(9).unwrap();
+    assert!(duck.start_rect.is_none() && !duck.now.contains_key("at"));
+
+    // The duck is put on a coin and the game plays three frames: the coin
+    // is taken. It's still in the list (in italics, in the app), and
+    // where it starts can still be changed.
+    run(
+        &mut studio,
+        serde_json::json!({"do": "object.move_now", "id": 9, "to": [248, 180]}),
+    );
+    settle(&mut studio);
+    say(&mut studio, Step::Do(Command::GameStep { frames: 3 }));
+    settle(&mut studio);
+    let open = studio.open.as_ref().unwrap();
+    let rows = open.scene_rows();
+    assert_eq!(rows[6].id, 7);
+    assert_eq!(rows[6].state, RowState::Gone, "the duck took it");
+    let coin = open.drawn_scene().unwrap().object(7).unwrap().clone();
+    assert!(coin.gone && coin.rect.is_none());
+    let coin_started = coin.start_rect.expect("it shows where the coin starts");
+    assert_eq!(
+        run(
+            &mut studio,
+            serde_json::json!({"do": "object.move", "ids": [7], "by": [-96, 0]}),
+        ),
+        "Move coin"
+    );
+    settle(&mut studio);
+    let text = std::fs::read_to_string(&scene_file).unwrap();
+    assert!(
+        text.contains(r#"{"id": 7, "name": "coin", "kind": "coin", "at": [152, 176]"#),
+        "{text}"
+    );
+    let open = studio.open.as_ref().unwrap();
+    let coin = open.drawn_scene().unwrap().object(7).unwrap();
+    assert!(coin.gone, "it stays taken in this run");
+    let scale = open.drawn_scene().unwrap().scale;
+    assert_eq!(coin.start_rect.unwrap().x, coin_started.x - 96.0 * scale);
+
     say(&mut studio, Step::Do(Command::GameToggle));
     say(&mut studio, press("Right"));
     say(&mut studio, Step::Wait(Wait::Frames { frames: 30 }));

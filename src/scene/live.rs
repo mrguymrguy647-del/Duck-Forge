@@ -12,8 +12,11 @@ use std::cell::RefCell;
 
 use serde_json::{Map, Value};
 
+/// A change on its way: the scene's file, the object's id, the keys to set.
+type Change = (String, u64, Map<String, Value>);
+
 thread_local! {
-    static WAITING: RefCell<Vec<(String, u64, Map<String, Value>)>> = const { RefCell::new(Vec::new()) };
+    static WAITING: RefCell<Vec<Change>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Leaves a change for the object `id` of the scene read from `file`: the
