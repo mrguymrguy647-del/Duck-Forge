@@ -59,6 +59,8 @@ pub struct StudioApp {
     /// The scene editor: the Scene list, the view's tools, the Inspector.
     scene: crate::scene_panel::ScenePanel,
     pub right_tab: RightTab,
+    /// Objects just copied, as text for Windows' clipboard.
+    copied: Option<String>,
     /// Rename, Duplicate or Delete, from a card on Home.
     pub game_dialog: Option<home::GameDialog>,
     pub history_open: bool,
@@ -90,6 +92,7 @@ impl StudioApp {
             files: FilesPanel::default(),
             scene: crate::scene_panel::ScenePanel::default(),
             right_tab: RightTab::Feel,
+            copied: None,
             game_dialog: None,
             history_open: false,
             code_open: false,
@@ -114,13 +117,19 @@ impl StudioApp {
         ) {
             self.right_tab = RightTab::Files;
         }
-        // Picking something shows its settings.
+        // Picking something, or making something, shows its settings.
         if matches!(
             command,
-            Command::SelectSet { .. } | Command::SelectAdd { .. } | Command::SelectAll
+            Command::SelectSet { .. }
+                | Command::SelectAdd { .. }
+                | Command::SelectAll
+                | Command::ObjectAdd { .. }
+                | Command::ObjectPaste { .. }
+                | Command::ObjectDuplicate { .. }
         ) {
             self.right_tab = RightTab::Inspector;
         }
+        let copying = matches!(command, Command::ObjectCopy { .. });
         let opens = match &command {
             Command::FeelShowCode { .. } => Some(&mut self.code_open),
             Command::AssetsShowRecipe { .. } => Some(&mut self.recipe_open),
@@ -129,7 +138,16 @@ impl StudioApp {
         if let Some(window) = opens {
             *window = true;
         }
-        if let Ok(said) = self.studio.run(command) {
+        let done = self.studio.run(command);
+        if copying && done.is_ok() {
+            // Onto Windows' clipboard too, as lines of a scene file, so
+            // they can be pasted into a file in Notepad, or into another
+            // game.
+            self.copied = Some(studio_core::scene_edit::clipboard_text(
+                &self.studio.clipboard,
+            ));
+        }
+        if let Ok(said) = done {
             self.said = Some((said, Instant::now()));
         }
     }
@@ -245,7 +263,10 @@ impl StudioApp {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         let now = Instant::now();
-        let dialog = self.new_game.is_some() || self.about_open || self.game_dialog.is_some();
+        let dialog = self.new_game.is_some()
+            || self.about_open
+            || self.game_dialog.is_some()
+            || self.scene.is_adding();
         // A text box (the Console's line, a name) has the keyboard.
         let typing = ctx.egui_wants_keyboard_input();
 
@@ -278,7 +299,7 @@ impl StudioApp {
         // The scene editor's keys: V and G pick the tool, Escape lets go.
         if self.studio.screen == Screen::Game && frozen && !dialog && !typing {
             let commands = match &self.studio.open {
-                Some(open) if open.scene.is_some() => self.scene.keys(ui, open),
+                Some(open) if open.scene.is_some() => self.scene.keys(ui, open, self.placement),
                 _ => Vec::new(),
             };
             for command in commands {
@@ -708,6 +729,18 @@ impl StudioApp {
             }
         }
         egui::CentralPanel::no_frame().show(ui, |ui| self.game_area(ui));
+        if frozen {
+            let commands = match &self.studio.open {
+                Some(open) => self.scene.add_window(ui.ctx(), open),
+                None => Vec::new(),
+            };
+            for command in commands {
+                self.run_and_say(command);
+            }
+        }
+        if let Some(text) = self.copied.take() {
+            ui.ctx().copy_text(text);
+        }
     }
 
     /// Files dropped on a game's screen from File Explorer are copied into

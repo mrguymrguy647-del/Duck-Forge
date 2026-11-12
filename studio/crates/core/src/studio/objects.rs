@@ -115,6 +115,15 @@ impl Studio {
             }
             open.scene = Some(SceneDoc::read(&path, &name_from(&root, &path), text));
         }
+        // What Undo took away, or the game did, isn't selected any more.
+        let drawn: Vec<u64> = open
+            .drawn_scene()
+            .map(|drawn| drawn.objects.iter().map(|object| object.id).collect())
+            .unwrap_or_default();
+        if let Some(doc) = &open.scene {
+            open.selected
+                .retain(|id| doc.object(*id).is_some() || drawn.contains(id));
+        }
     }
 
     /// Whenever the game has played on, what was changed "for this run

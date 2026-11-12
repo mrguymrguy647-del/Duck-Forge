@@ -1104,3 +1104,324 @@ fn the_scene_editor_selects_and_moves_objects_with_the_mouse() {
     });
     shots.run(Command::GameStop);
 }
+
+/// Step 3's tools, with the mouse and the keyboard, on the real scene
+/// demo: turning on the ring, sizing by a corner, a box round several,
+/// the arrow keys, Ctrl+C, Ctrl+V, Ctrl+D and Delete, the Add window,
+/// dragging a row of the Scene list, its right-click menu, and the
+/// Inspector for several. Each change is undone with Ctrl+Z, back to the
+/// file as it was. With STUDIO_SCREENSHOTS set it saves a picture of each.
+#[test]
+fn the_scene_editors_other_tools_work_with_the_mouse_and_the_keys() {
+    use studio_core::scene_edit::{self, Tool};
+
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let pictures = std::env::var_os("STUDIO_SCREENSHOTS").map(PathBuf::from);
+    if let Some(folder) = &pictures {
+        std::fs::create_dir_all(folder).unwrap();
+    }
+    let scene_file = duck_forge().join("examples/scene_demo/scenes/pond.json");
+    let _back = FileBack {
+        text: std::fs::read_to_string(&scene_file).unwrap(),
+        path: scene_file.clone(),
+    };
+    let plain = |text: &str| text.replace("\r\n", "\n");
+    let original = plain(&_back.text);
+    let on_disk = || plain(&std::fs::read_to_string(&scene_file).unwrap());
+    let mut shots = Shots {
+        folder: pictures.clone().unwrap_or_default(),
+        harness: harness(StudioApp::new(studio()), pictures.is_some()),
+    };
+    let shoot = |shots: &mut Shots, name: &str| {
+        if pictures.is_some() {
+            shots.shoot(name);
+        }
+    };
+    // A point of the game's picture, on the screen.
+    let on_screen = |shots: &Shots, point: duckforge::prelude::Vec2| -> egui::Pos2 {
+        let placement = shots.harness.state().game_placement().unwrap();
+        let each = placement.scale / placement.pixels_per_point;
+        placement.rect.min + egui::vec2(point.x, point.y) * each
+    };
+    let shape_of = |shots: &Shots, id: u64| {
+        let open = shots.harness.state().studio.open.as_ref().unwrap();
+        let drawn = open.drawn_scene().unwrap();
+        scene_edit::shape(drawn.object(id).unwrap()).unwrap()
+    };
+    let middle_of = |shots: &Shots, id: u64| {
+        let (rect, _, _) = shape_of(shots, id);
+        on_screen(
+            shots,
+            duckforge::prelude::Vec2::new(rect.x + rect.w / 2.0, rect.y + rect.h / 2.0),
+        )
+    };
+    let click = |shots: &mut Shots, at: egui::Pos2| {
+        shots.harness.hover_at(at);
+        shots.harness.step();
+        shots.harness.drag_at(at);
+        shots.harness.step();
+        shots.harness.drop_at(at);
+        shots.harness.run_steps(4);
+    };
+    let drag = |shots: &mut Shots, from: egui::Pos2, to: egui::Pos2| {
+        shots.harness.hover_at(from);
+        shots.harness.step();
+        shots.harness.drag_at(from);
+        shots.harness.step();
+        for part in 1..=6 {
+            shots
+                .harness
+                .hover_at(from + (to - from) * (part as f32 / 6.0));
+            shots.play_for(Duration::from_millis(40));
+        }
+        shots.play_for(Duration::from_millis(150));
+    };
+    let let_go = |shots: &mut Shots, at: egui::Pos2| {
+        shots.harness.drop_at(at);
+        shots.play_for(Duration::from_millis(300));
+    };
+    let key = |shots: &mut Shots, modifiers: egui::Modifiers, key: egui::Key| {
+        shots.harness.key_press_modifiers(modifiers, key);
+        shots.play_for(Duration::from_millis(250));
+    };
+    let undo = |shots: &mut Shots| {
+        shots
+            .harness
+            .key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+        shots.play_for(Duration::from_millis(300));
+    };
+    let selected = |shots: &Shots| -> Vec<u64> {
+        shots
+            .harness
+            .state()
+            .studio
+            .open
+            .as_ref()
+            .unwrap()
+            .selected
+            .clone()
+    };
+    let ids_in_file = |shots: &Shots| -> Vec<u64> {
+        let doc = shots
+            .harness
+            .state()
+            .studio
+            .open
+            .as_ref()
+            .unwrap()
+            .scene
+            .clone()
+            .unwrap();
+        doc.file
+            .unwrap()
+            .objects
+            .iter()
+            .map(|o| o.id().number())
+            .collect()
+    };
+    let tool = |shots: &Shots| {
+        shots
+            .harness
+            .state()
+            .studio
+            .open
+            .as_ref()
+            .unwrap()
+            .view
+            .tool
+    };
+
+    shots.harness.step();
+    shots.run(Command::GameOpen {
+        name: String::from("scene_demo"),
+    });
+    shots.playing();
+    shots.play_for(Duration::from_millis(300));
+    shots.run(Command::GameFreeze);
+    shots.until(
+        "the frozen picture's objects",
+        Duration::from_secs(20),
+        |app| {
+            let open = app.studio.open.as_ref().unwrap();
+            open.drawn_scene().is_some() && app.game_placement().is_some()
+        },
+    );
+    shots.harness.run_steps(4);
+    let picture_scale = {
+        let open = shots.harness.state().studio.open.as_ref().unwrap();
+        open.drawn_scene().unwrap().scale
+    };
+
+    // R, and the sign: a ring round it. Dragged a quarter round
+    // clockwise, it lands on 75 degrees (-8 + 90, to the nearest 15).
+    shots.harness.hover_at(egui::pos2(640.0, 120.0));
+    key(&mut shots, egui::Modifiers::NONE, egui::Key::R);
+    assert_eq!(tool(&shots), Tool::Turn);
+    let sign = middle_of(&shots, 4);
+    click(&mut shots, sign);
+    assert_eq!(selected(&shots), [4]);
+    let (rect, pivot, turn) = shape_of(&shots, 4);
+    let middle = on_screen(&shots, pivot);
+    let radius = scene_edit::corners(rect, pivot, turn)
+        .iter()
+        .map(|corner| on_screen(&shots, *corner).distance(middle))
+        .fold(0.0, f32::max)
+        + 12.0;
+    let radius = radius.max(24.0);
+    shoot(&mut shots, "31-the-turn-tool");
+    drag(
+        &mut shots,
+        middle + egui::vec2(radius, 0.0),
+        middle + egui::vec2(0.0, radius),
+    );
+    let_go(&mut shots, middle + egui::vec2(0.0, radius));
+    assert!(
+        on_disk().contains(r#"{"id": 4, "name": "sign", "at": [120, 208], "turn": 75"#),
+        "{}",
+        on_disk()
+    );
+    assert_eq!(shape_of(&shots, 4).2, 75.0, "the game draws it turned");
+    undo(&mut shots);
+    assert_eq!(on_disk(), original);
+
+    // S: four corners. The top-right one dragged twice as far from the
+    // sign's feet makes it twice as big, standing where it stood.
+    key(&mut shots, egui::Modifiers::NONE, egui::Key::S);
+    assert_eq!(tool(&shots), Tool::Size);
+    let (rect, pivot, turn) = shape_of(&shots, 4);
+    let corner = scene_edit::corners(rect, pivot, turn)[1];
+    let feet = on_screen(&shots, pivot);
+    let grab = on_screen(&shots, corner);
+    shoot(&mut shots, "32-the-size-tool");
+    drag(&mut shots, grab, feet + (grab - feet) * 2.0);
+    let_go(&mut shots, feet + (grab - feet) * 2.0);
+    assert!(
+        on_disk().contains(r#""turn": -8, "scale": 2, "picture": "assets/sign.png""#),
+        "{}",
+        on_disk()
+    );
+    assert_eq!(shape_of(&shots, 4).0.w, rect.w * 2.0);
+    undo(&mut shots);
+    assert_eq!(on_disk(), original);
+
+    // V, and a box from empty sky round the small crate and the coin
+    // above it.
+    key(&mut shots, egui::Modifiers::NONE, egui::Key::V);
+    let box_from = on_screen(
+        &shots,
+        duckforge::prelude::Vec2::new(238.0, 165.0) * picture_scale,
+    );
+    let box_to = on_screen(
+        &shots,
+        duckforge::prelude::Vec2::new(262.0, 212.0) * picture_scale,
+    );
+    let scroll = {
+        let open = shots.harness.state().studio.open.as_ref().unwrap();
+        open.drawn_scene().unwrap().offset
+    };
+    let shift = on_screen(&shots, scroll) - on_screen(&shots, duckforge::prelude::Vec2::ZERO);
+    drag(&mut shots, box_from + shift, box_to + shift);
+    shoot(&mut shots, "33-a-box-round-two");
+    let_go(&mut shots, box_to + shift);
+    let mut boxed = selected(&shots);
+    boxed.sort();
+    assert_eq!(boxed, [5, 7], "the crate and the coin");
+    shots.harness.get_by_label("2 objects");
+    shoot(&mut shots, "34-two-in-the-inspector");
+
+    // Ctrl+D: copies of both, selected; Delete takes them away again.
+    key(&mut shots, egui::Modifiers::COMMAND, egui::Key::D);
+    assert_eq!(selected(&shots), [12, 13]);
+    assert_eq!(ids_in_file(&shots).len(), 13);
+    key(&mut shots, egui::Modifiers::NONE, egui::Key::Delete);
+    assert_eq!(ids_in_file(&shots).len(), 11);
+    undo(&mut shots);
+    undo(&mut shots);
+    assert_eq!(on_disk(), original);
+
+    // The arrow keys: three pixels and a grid square to the right, one
+    // step for Undo.
+    click(&mut shots, sign);
+    assert_eq!(selected(&shots), [4]);
+    for _ in 0..3 {
+        key(&mut shots, egui::Modifiers::NONE, egui::Key::ArrowRight);
+    }
+    key(&mut shots, egui::Modifiers::SHIFT, egui::Key::ArrowRight);
+    assert!(
+        on_disk().contains(r#"{"id": 4, "name": "sign", "at": [131, 208]"#),
+        "{}",
+        on_disk()
+    );
+    undo(&mut shots);
+    assert_eq!(on_disk(), original, "all four nudges were one step");
+
+    // Ctrl+C, then Ctrl+V with the pointer over the sky: a sign there.
+    key(&mut shots, egui::Modifiers::COMMAND, egui::Key::C);
+    assert_eq!(shots.harness.state().studio.clipboard.len(), 1);
+    let sky = on_screen(
+        &shots,
+        duckforge::prelude::Vec2::new(300.0, 100.0) * picture_scale,
+    ) + shift;
+    shots.harness.hover_at(sky);
+    shots.harness.step();
+    key(&mut shots, egui::Modifiers::COMMAND, egui::Key::V);
+    assert_eq!(selected(&shots), [12]);
+    assert!(
+        on_disk().contains(r#"{"id": 12, "name": "sign", "at": [304, 104], "turn": -8"#),
+        "{}",
+        on_disk()
+    );
+    undo(&mut shots);
+    assert_eq!(on_disk(), original);
+
+    // + Add: the plain kinds. An area, in the middle of the view.
+    shots.harness.get_by_label("+ Add").click();
+    shots.harness.run_steps(3);
+    shots.harness.get_by_label("Add an object");
+    shots.harness.get_by_label("Area").click();
+    shots.harness.run_steps(2);
+    shoot(&mut shots, "35-add-an-object");
+    shots.harness.get_by_label("Add it").click();
+    shots.play_for(Duration::from_millis(300));
+    assert_eq!(selected(&shots), [12]);
+    assert!(on_disk().contains(r#""kind": "area""#), "{}", on_disk());
+    shots.harness.get_by_label("Box");
+    shoot(&mut shots, "36-an-area-added");
+    undo(&mut shots);
+    assert_eq!(on_disk(), original);
+
+    // The bush dragged up the list, above the sky: first in the file.
+    let bush = shots.harness.get_by_label("bush").rect().center();
+    let sky_row = shots.harness.get_by_label("sky").rect();
+    drag(&mut shots, bush, egui::pos2(bush.x, sky_row.top() + 2.0));
+    shoot(&mut shots, "37-reordering-the-list");
+    let_go(&mut shots, egui::pos2(bush.x, sky_row.top() + 2.0));
+    assert_eq!(ids_in_file(&shots)[0], 10, "{:?}", ids_in_file(&shots));
+    undo(&mut shots);
+    assert_eq!(on_disk(), original);
+
+    // Right-click on a row: its menu.
+    shots.harness.get_by_label("crate").click_secondary();
+    shots.harness.run_steps(3);
+    shoot(&mut shots, "38-a-rows-menu");
+    shots
+        .harness
+        .get_by_label("Send to the back (drawn first)")
+        .click();
+    shots.play_for(Duration::from_millis(300));
+    assert_eq!(ids_in_file(&shots)[0], 5);
+    undo(&mut shots);
+    assert_eq!(on_disk(), original);
+
+    // Tab plays on from the same frame.
+    shots.harness.key_press(egui::Key::Escape);
+    shots.harness.run_steps(2);
+    let frame = shots.harness.state().studio.play().unwrap().frame;
+    shots.harness.key_press(egui::Key::Tab);
+    shots.until("the game to play on", Duration::from_secs(20), |app| {
+        app.studio.play().is_some_and(|play| play.frame > frame + 5)
+    });
+    shots.run(Command::GameStop);
+}
