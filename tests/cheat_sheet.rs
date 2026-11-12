@@ -844,6 +844,14 @@ fn models_from_duck_mold() -> Result<(), LoadError> {
     // A part made of parts (an assembly) too: the whole arm.
     let arm = model.part("left_arm").expect("the robot has arms");
     assert_eq!(arm.range().len(), 84);
+    // A socket, moved with the model: where a hat goes.
+    let top = model.socket("head.top").expect("the robot has a head");
+    assert_eq!(top.direction(), vec3(0.0, 1.0, 0.0));
+    let place = Transform::at(vec3(2.0, 0.0, 0.0));
+    assert_eq!(
+        place.apply(top.position()),
+        top.position() + vec3(2.0, 0.0, 0.0)
+    );
     // Only Duck Mold's .glb files load.
     let error = Mesh::load_glb(models.join("robot.inspect.json")).unwrap_err();
     assert!(

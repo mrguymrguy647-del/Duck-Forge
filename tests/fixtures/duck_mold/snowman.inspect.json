@@ -1,0 +1,483 @@
+{
+  "ok": true,
+  "summary": "snowman: 1.478 x 2.38 x 0.906 m, 600 triangles, 14 parts, 6 colours, rests on the ground, nothing floating, 5 overlaps",
+  "source": "examples/snowman.toml",
+  "name": "snowman",
+  "size": [
+    1.47779,
+    2.38,
+    0.905586
+  ],
+  "bounds": {
+    "min": [
+      -0.738895,
+      0.0,
+      -0.452793
+    ],
+    "max": [
+      0.738895,
+      2.38,
+      0.452793
+    ]
+  },
+  "triangles": 600,
+  "vertices": 1344,
+  "ground": {
+    "rests_on_ground": true,
+    "lowest_y": 0.0
+  },
+  "palette": [
+    {
+      "name": "snow",
+      "hex": "#EEF2F6",
+      "triangles": 360
+    },
+    {
+      "name": "coal",
+      "hex": "#2B2B2E",
+      "triangles": 120
+    },
+    {
+      "name": "carrot",
+      "hex": "#E8792B",
+      "triangles": 14
+    },
+    {
+      "name": "stick",
+      "hex": "#6B4A2B",
+      "triangles": 40
+    },
+    {
+      "name": "hat",
+      "hex": "#C8364A",
+      "triangles": 30
+    },
+    {
+      "name": "gold",
+      "hex": "#F2C84B",
+      "triangles": 36
+    }
+  ],
+  "parts": [
+    {
+      "name": "base",
+      "kind": "sphere",
+      "triangles": 120,
+      "size": [
+        0.9,
+        0.9,
+        0.9
+      ],
+      "bounds": {
+        "min": [
+          -0.45,
+          0.0,
+          -0.452793
+        ],
+        "max": [
+          0.45,
+          0.9,
+          0.447207
+        ]
+      },
+      "colors": [
+        "snow"
+      ],
+      "attached_to": null,
+      "parts": []
+    },
+    {
+      "name": "body",
+      "kind": "sphere",
+      "triangles": 120,
+      "size": [
+        0.66,
+        0.66,
+        0.66
+      ],
+      "bounds": {
+        "min": [
+          -0.33,
+          0.9,
+          -0.332793
+        ],
+        "max": [
+          0.33,
+          1.56,
+          0.327207
+        ]
+      },
+      "colors": [
+        "snow"
+      ],
+      "attached_to": "base.top",
+      "parts": []
+    },
+    {
+      "name": "head",
+      "kind": "sphere",
+      "triangles": 120,
+      "size": [
+        0.44,
+        0.44,
+        0.44
+      ],
+      "bounds": {
+        "min": [
+          -0.22,
+          1.56,
+          -0.222793
+        ],
+        "max": [
+          0.22,
+          2.0,
+          0.217207
+        ]
+      },
+      "colors": [
+        "snow"
+      ],
+      "attached_to": "body.top",
+      "parts": []
+    },
+    {
+      "name": "left_eye",
+      "kind": "sphere",
+      "uses": "coal",
+      "triangles": 24,
+      "size": [
+        0.064314,
+        0.065458,
+        0.065458
+      ],
+      "bounds": {
+        "min": [
+          -0.109157,
+          1.813271,
+          0.146161
+        ],
+        "max": [
+          -0.044843,
+          1.878729,
+          0.211619
+        ]
+      },
+      "colors": [
+        "coal"
+      ],
+      "attached_to": "head.left_eye",
+      "parts": []
+    },
+    {
+      "name": "right_eye",
+      "kind": "sphere",
+      "uses": "coal",
+      "triangles": 24,
+      "size": [
+        0.064314,
+        0.065458,
+        0.065458
+      ],
+      "bounds": {
+        "min": [
+          0.044843,
+          1.813271,
+          0.146161
+        ],
+        "max": [
+          0.109157,
+          1.878729,
+          0.211619
+        ]
+      },
+      "colors": [
+        "coal"
+      ],
+      "attached_to": "head.right_eye",
+      "parts": []
+    },
+    {
+      "name": "nose",
+      "kind": "cone",
+      "triangles": 14,
+      "size": [
+        0.08,
+        0.103342,
+        0.251834
+      ],
+      "bounds": {
+        "min": [
+          -0.04,
+          1.693295,
+          0.200959
+        ],
+        "max": [
+          0.04,
+          1.796637,
+          0.452793
+        ]
+      },
+      "colors": [
+        "carrot"
+      ],
+      "attached_to": "head.nose",
+      "parts": []
+    },
+    {
+      "name": "button_top",
+      "kind": "sphere",
+      "uses": "coal",
+      "triangles": 24,
+      "size": [
+        0.060622,
+        0.05977,
+        0.067615
+      ],
+      "bounds": {
+        "min": [
+          -0.030311,
+          1.348615,
+          0.253609
+        ],
+        "max": [
+          0.030311,
+          1.408385,
+          0.321224
+        ]
+      },
+      "colors": [
+        "coal"
+      ],
+      "attached_to": "body.button_top",
+      "parts": []
+    },
+    {
+      "name": "button_middle",
+      "kind": "sphere",
+      "uses": "coal",
+      "triangles": 24,
+      "size": [
+        0.060622,
+        0.0525,
+        0.07
+      ],
+      "bounds": {
+        "min": [
+          -0.030311,
+          1.20375,
+          0.292207
+        ],
+        "max": [
+          0.030311,
+          1.25625,
+          0.362207
+        ]
+      },
+      "colors": [
+        "coal"
+      ],
+      "attached_to": "body.button_middle",
+      "parts": []
+    },
+    {
+      "name": "button_bottom",
+      "kind": "sphere",
+      "uses": "coal",
+      "triangles": 24,
+      "size": [
+        0.060622,
+        0.05977,
+        0.067615
+      ],
+      "bounds": {
+        "min": [
+          -0.030311,
+          1.051615,
+          0.253609
+        ],
+        "max": [
+          0.030311,
+          1.111385,
+          0.321224
+        ]
+      },
+      "colors": [
+        "coal"
+      ],
+      "attached_to": "body.button_bottom",
+      "parts": []
+    },
+    {
+      "name": "left_arm",
+      "kind": "cylinder",
+      "uses": "arm",
+      "triangles": 20,
+      "size": [
+        0.44502,
+        0.155106,
+        0.046188
+      ],
+      "bounds": {
+        "min": [
+          -0.738895,
+          1.326181,
+          -0.025887
+        ],
+        "max": [
+          -0.293875,
+          1.481287,
+          0.020301
+        ]
+      },
+      "colors": [
+        "stick"
+      ],
+      "attached_to": "body.left_arm",
+      "parts": []
+    },
+    {
+      "name": "right_arm",
+      "kind": "cylinder",
+      "uses": "arm",
+      "triangles": 20,
+      "size": [
+        0.44502,
+        0.155106,
+        0.046188
+      ],
+      "bounds": {
+        "min": [
+          0.293875,
+          1.326181,
+          -0.025887
+        ],
+        "max": [
+          0.738895,
+          1.481287,
+          0.020301
+        ]
+      },
+      "colors": [
+        "stick"
+      ],
+      "attached_to": "body.right_arm",
+      "parts": []
+    },
+    {
+      "name": "hat",
+      "kind": "cone",
+      "triangles": 30,
+      "size": [
+        0.28,
+        0.3,
+        0.28
+      ],
+      "bounds": {
+        "min": [
+          -0.14,
+          2.0,
+          -0.142793
+        ],
+        "max": [
+          0.14,
+          2.3,
+          0.137207
+        ]
+      },
+      "colors": [
+        "hat"
+      ],
+      "attached_to": "head.top",
+      "parts": []
+    },
+    {
+      "name": "pompom",
+      "kind": "sphere",
+      "triangles": 24,
+      "size": [
+        0.069282,
+        0.08,
+        0.06
+      ],
+      "bounds": {
+        "min": [
+          -0.034641,
+          2.3,
+          -0.032793
+        ],
+        "max": [
+          0.034641,
+          2.38,
+          0.027207
+        ]
+      },
+      "colors": [
+        "gold"
+      ],
+      "attached_to": "hat.top",
+      "parts": []
+    },
+    {
+      "name": "badge",
+      "kind": "box",
+      "triangles": 12,
+      "size": [
+        0.098994,
+        0.093937,
+        0.050925
+      ],
+      "bounds": {
+        "min": [
+          -0.049497,
+          2.105146,
+          0.046275
+        ],
+        "max": [
+          0.049497,
+          2.199083,
+          0.0972
+        ]
+      },
+      "colors": [
+        "gold"
+      ],
+      "attached_to": "hat.front",
+      "parts": []
+    }
+  ],
+  "floating": [],
+  "overlapping": [
+    {
+      "a": "button_top",
+      "b": "body",
+      "depth": 0.033883,
+      "hidden": false
+    },
+    {
+      "a": "button_middle",
+      "b": "body",
+      "depth": 0.032729,
+      "hidden": false
+    },
+    {
+      "a": "button_bottom",
+      "b": "body",
+      "depth": 0.033883,
+      "hidden": false
+    },
+    {
+      "a": "left_eye",
+      "b": "head",
+      "depth": 0.035,
+      "hidden": false
+    },
+    {
+      "a": "right_eye",
+      "b": "head",
+      "depth": 0.035,
+      "hidden": false
+    }
+  ],
+  "warnings": [],
+  "errors": []
+}

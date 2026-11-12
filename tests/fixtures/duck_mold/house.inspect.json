@@ -1,6 +1,6 @@
 {
   "ok": true,
-  "summary": "house: 3.40 x 3.40 x 2.80 m, 76 triangles, 7 parts, 5 colours, rests on the ground, nothing floating, nothing overlapping",
+  "summary": "house: 3.40 x 3.40 x 2.80 m, 88 triangles, 8 parts, 5 colours, rests on the ground, nothing floating, nothing overlapping",
   "source": "examples/house.toml",
   "name": "house",
   "size": [
@@ -20,8 +20,8 @@
       1.4
     ]
   },
-  "triangles": 76,
-  "vertices": 156,
+  "triangles": 88,
+  "vertices": 180,
   "ground": {
     "rests_on_ground": true,
     "lowest_y": 0.0
@@ -45,7 +45,7 @@
     {
       "name": "glass",
       "hex": "#9CC8E0",
-      "triangles": 24
+      "triangles": 36
     },
     {
       "name": "brick",
@@ -273,6 +273,33 @@
         "brick"
       ],
       "attached_to": "walls.chimney",
+      "parts": []
+    },
+    {
+      "name": "skylight",
+      "kind": "box",
+      "triangles": 12,
+      "size": [
+        0.7,
+        0.331306,
+        0.435928
+      ],
+      "bounds": {
+        "min": [
+          -0.15,
+          2.35469,
+          0.496567
+        ],
+        "max": [
+          0.55,
+          2.685996,
+          0.932495
+        ]
+      },
+      "colors": [
+        "glass"
+      ],
+      "attached_to": "roof.skylight",
       "parts": []
     }
   ],

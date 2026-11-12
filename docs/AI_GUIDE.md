@@ -1060,7 +1060,9 @@ bottom from one `Tileset`). Models made in Duck Mold (`.glb`; they face
 `duckforge::glb::GlbModel::load(path)?` for its `name`, `palette` and
 `parts`, then `model.to_mesh()`, and `model.part("left_arm/hand")` (or
 `"left_arm"`, the whole arm) with `part.range()` to recolour its
-`mesh.triangles[..]`. Block worlds: `BlockPalette::new(&atlas,
+`mesh.triangles[..]`, and `model.socket("head.top")` with `.position()`
+and `.direction()` (in the model's own space: `place.apply(..)` moves it
+with the model) to put something on it. Block worlds: `BlockPalette::new(&atlas,
 &[BlockKind::new("stone", ["stone"; 3]), BlockKind::new("glass",
 ["glass"; 3]).see_through(), BlockKind::new("leaves", ["leaves";
 3]).inner_faces(), BlockKind::new("lamp", ["lamp"; 3]).glowing()])`
@@ -1502,9 +1504,16 @@ it with `duckforge::glb::GlbModel::load(path)?` and call
 `range()` of triangles, so `for t in &mut mesh.triangles[part.range()] {
 t.color = gold; }` recolours it. A part made of parts (an *assembly*)
 has a range too, covering every part inside it: `model.part("left_arm")`
-is the whole arm (`model.assemblies` lists them). Only Duck Mold's
-`.glb` files load (not other glTF or OBJ files); anything else is a
-`LoadError` saying so.
+is the whole arm (`model.assemblies` lists them). **Sockets**: the model
+keeps the named points where its recipe joined its parts, so a game can
+put things there. `model.socket("head.top")` (or `"left_arm.grip"`, or
+`"left_arm/hand.bottom"` for a part inside another, or `"top"` for the
+whole model) gives `position()` and `direction()` (the way it faces) in
+the model's own space; `place.apply(socket.position())` is where it is
+in the world, with `place` the `Transform` the model is drawn with.
+`duck-mold inspect recipe.toml --sockets` lists every name. The
+turntable puts a hat on `head.top`. Only Duck Mold's `.glb` files load
+(not other glTF or OBJ files); anything else is a `LoadError` saying so.
 
 **Textures and atlases.** `mesh.with_texture(sprite)` paints a picture on
 it, where its texture coordinates say (every built-in shape has them: a
