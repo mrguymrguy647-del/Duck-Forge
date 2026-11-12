@@ -917,8 +917,11 @@ way: `--headless --time`):
   made every existing game 100,000 bytes (1.5%) bigger. That's over the
   rule, so it became a tool of its own (`tools/write_ids.rs`), and
   existing games link none of the scene code.
-- The Windows numbers are printed by the release workflow on every run
-  from now on; `docs/decisions.md` has them.
+- On GitHub's Windows machine, after Step 1: the Platformer starter is
+  3,888,640 bytes and draws a frame in 104 to 106 µs; the scene demo is
+  4,103,168 bytes (5.5% bigger) and draws one in 105 µs. The release
+  workflow prints these on every run from now on, and
+  `docs/decisions.md` has the whole table.
 
 ## Decided
 

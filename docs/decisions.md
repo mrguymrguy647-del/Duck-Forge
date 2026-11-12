@@ -4246,3 +4246,21 @@ drawing).
 - Engine tests: 331 unit tests (24 new for scenes), 6 play tests in the
   demo, 1 new in the cheat sheet's test, 1 new in the Studio's.
 
+On GitHub's Windows machine (run 43197202570, release builds, the same
+`--headless --time`), after Step 1. There's no "before" from that
+machine (the option that measures is new), so these are what later steps
+are measured against there:
+
+| Game | Size | An update | Drawing a frame |
+|---|---|---|---|
+| Platformer starter | 3,888,640 bytes | 1.70 to 1.77 µs | 104 to 106 µs |
+| Shooter starter | 3,770,368 bytes | 2.44 to 2.55 µs | 20.9 to 21.3 µs |
+| 3D runner starter | 9,190,912 bytes | 1.97 to 2.25 µs | 1,424 to 1,438 µs |
+| Scene demo | 4,103,168 bytes | 4.03 to 4.09 µs | 104.7 to 105.5 µs |
+
+The scene demo there is 5.5% bigger than the Platformer starter, draws a
+frame in the same time, and takes 4 µs an update against 1.7. That run
+also passed the engine's tests five times both ways, the Studio's tests
+(the scene edited while frozen, replayed exactly, among them), the zip,
+the installer, an upgrade over the top and the uninstall.
+

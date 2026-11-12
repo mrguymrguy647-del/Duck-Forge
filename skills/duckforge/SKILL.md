@@ -10,7 +10,7 @@ saving pictures, sound, a short summary and a log. You never play the game; you 
 contact sheet, and let tests and a fuzzer play it for you.
 
 Read [QUICKSTART.md](../../docs/QUICKSTART.md) first (one page). The full reference is
-[AI_GUIDE.md](../../docs/AI_GUIDE.md) (7: API cheat sheet, 11: 3D).
+[AI_GUIDE.md](../../docs/AI_GUIDE.md) (7: API cheat sheet, 11: 3D, 14: scene files).
 
 ## 1. Get it and build headless
 
