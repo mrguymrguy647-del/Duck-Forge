@@ -189,7 +189,9 @@ cargo run --release -p studio_app
 ```
 
 `docs/phase4-design.md` is the design, and `docs/studio-screens/` has a
-picture of every screen.
+picture of every screen. `docs/phase5-design.md` is the plan for the next
+phase, a real editor (scenes, objects, an Inspector, a Code panel); none
+of it is built yet.
 
 ## Features
 
