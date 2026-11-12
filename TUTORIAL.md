@@ -2373,6 +2373,43 @@ and one triangle per slice:
 mesh.add_triangle(center, ring[next], ring[i], color);
 ```
 
+### Meshes from a file: models made in Duck Mold
+
+A mesh can also come from a file. Duck Mold, a sister tool, builds models
+from text recipes ("a box for the body, a sphere on top for the head") and
+saves them as `.glb` files: glTF, the common 3D format, in one file.
+`Mesh::load_glb("assets/robot.glb")?` loads one, and `src/glb.rs` shows
+how. A `.glb` is a 12-byte header, then a block of JSON that describes
+the model, then a block of plain numbers, four bytes each: every corner's
+position and colour, and, for each triangle, which three corners it uses.
+The reader finds each list through the JSON and turns its bytes into
+numbers:
+
+```rust
+fn f32_at(list: &[u8], at: usize) -> f32 {
+    let four = &list[at * 4..at * 4 + 4];
+    f32::from_le_bytes([four[0], four[1], four[2], four[3]])
+}
+```
+
+(`le` is *little-endian*: the smallest byte comes first.) Two things need
+care. glTF's "right" is -x, where ours is +x, so every x is negated. That
+mirrors the model, and a mirror turns every triangle's corners from
+clockwise to anticlockwise, so they'd all face inwards and be skipped as
+back faces. Swapping the last two corners puts them right again:
+
+```rust
+corners: [vertex_of_corner[a], vertex_of_corner[c], vertex_of_corner[b]],
+```
+
+And colours in glTF are *linear light* (a number proportional to how much
+light there is), not the `0` to `255` of `Color::rgb`, which follow a
+curve closer to how our eyes see. The reader turns them back with the
+standard sRGB curve, and gets exactly the palette's numbers back.
+`tests/duck_mold_models.rs` loads five of Duck Mold's models and checks
+them against what Duck Mold measured: their size, their triangles, which
+colour paints how many, and which way they face (+z).
+
 ### Pictures on triangles: textures
 
 A *texture* is a picture painted on a mesh. Each triangle corner says

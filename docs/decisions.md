@@ -4264,3 +4264,94 @@ also passed the engine's tests five times both ways, the Studio's tests
 (the scene edited while frozen, replayed exactly, among them), the zip,
 the installer, an upgrade over the top and the uninstall.
 
+# Models from Duck Mold
+
+Duck Mold (a sister tool: 3D models from text recipes, no window) saves
+its models as `.glb` files. Until now Duck Forge couldn't load any model
+file. Now `Mesh::load_glb(path)` loads a Duck Mold model as a mesh, with
+its colours, ready to draw.
+
+## What was built
+
+- `src/glb.rs`: the reader, `Mesh::load_glb`, and `GlbModel` (the
+  model's name, palette, parts and assemblies) with `GlbModel::load`,
+  `to_mesh`, `part(name)` and `GlbPart::range`.
+- `examples/turntable/`: the robot from Duck Mold's examples, facing
+  the camera and slowly turning (Space stops it, Left/Right turn it by
+  hand). Its recipe is in `art/`, its `.glb` in `assets/`.
+- `tests/duck_mold_models.rs` and `tests/fixtures/duck_mold/`: Duck
+  Mold's five golden models with the reports `duck-mold inspect --json`
+  gave for them, checked against each other. A test in `src/gpu.rs`
+  draws the robot on the GPU and the CPU and compares them.
+- `Mesh::cube`'s faces are called near (-z) and far (+z) in its
+  comments, not front and back; the guide says models face +z.
+
+## Decisions made on the way
+
+**The reader is Duck Mold's, copied byte for byte, not written again.**
+Duck Mold ships a reader meant for this (`docs/forge/duck_mold_glb.rs`),
+which its own tests run against every model it makes, and which shares
+no code with its exporter. Everything between its two `// ====` marker
+lines is the same in `glb.rs`, so both projects read the file the same
+way, and the first marker names the reader's version (2). Duck Mold's
+`docs/forge-handoff.md` has the one-line check that the two copies are
+the same; a change starts there and is copied here. Outside the markers
+are Duck Forge's own introduction and imports, and, after the reader,
+the functions that tie it to the engine.
+
+The first copy found two things, both now fixed in Duck Mold and so
+here: sizes inside the file were added and multiplied without checks,
+so a damaged file claiming more numbers (or a part claiming more
+triangles) than any file could hold overflowed, a panic in a debug
+build, instead of being refused (now tested on both sides); and a part
+made of parts (a robot's arm) had no triangle range of its own. Duck
+Mold now lists those *assemblies* in the file, each with the triangles of
+every part inside it, so `model.part("left_arm")` recolours a whole arm.
+Duck Mold regenerated its golden files for that, and the copies in
+`tests/fixtures/duck_mold/` and `examples/turntable/assets/` are the new
+ones.
+
+**No new dependency.** The reader needs `serde_json`, which the engine
+already uses for sprite sheets, and the standard library.
+`tests/dependencies.rs` didn't change.
+
+**`Mesh::load_glb` for the usual case, `GlbModel` for the rest.** Most
+games want a mesh to draw: `Mesh::load_glb`, named like
+`Sprite::load_png`. `GlbModel` is for the palette and the parts, kept out
+of the prelude (`duckforge::glb::GlbModel`) since few games need it. The
+mesh keeps the file's triangle order, so a part's `range()` picks out
+its triangles in the mesh too, and recolouring a part (a team colour, a
+hit flash on one arm) is a loop over `mesh.triangles[part.range()]`.
+`part(name)` finds a part or an assembly: one name, whichever it is.
+
+**Corners in the same place become one vertex.** Duck Mold's file gives
+every face corners of its own (glTF needs that for flat shading); the
+reader merges them, so the crate is 8 vertices and 12 triangles, like
+`Mesh::cube`. Nothing is lost: Duck Forge lights each triangle by its own
+direction, worked out from its corners.
+
+**The example puts the camera in front, rather than turning the model.**
+A model faces +z, and so does a camera with no turn: it would see the
+robot's back. The turntable's camera stands on the robot's +z side
+looking back at it, so the robot faces it with no turn, and the code has
+no half turn for a reader to wonder about. The guide shows both ways.
+
+**Near and far, not front and back.** Duck Mold decided a model faces
++z, so its front is +z and its own left is -x (a character's left arm is
+its left). `Mesh::cube` called its -z face "front", because that's what
+a camera with no turn sees. Only comments said so, and a cube looks the
+same from both sides, but two words for one direction would confuse the
+next person. The comments now say near (-z) and far (+z).
+
+**Fixed on the way:** the guide's list of what the engine can't do still
+said "no fog", though `canvas.set_fog` has existed since Phase 3.
+
+## The numbers
+
+| | |
+|---|---|
+| Loading the robot (384 triangles, 35 KB), 200 times in a row | 0.13 ms each in a plain build, 0.08 ms with `--release` |
+| Duck Mold's five models | the triangles, size, box, and triangles per palette colour that `duck-mold inspect` reported, for all five; every part a closed solid facing outwards; the crate exactly 1 cubic metre |
+| Facing, drawn | the house's door seen only from its +z side, its chimney (on its own left, -x) on your right as you face it; the robot's eyes seen from in front, not from a camera with no turn until the robot is turned half round |
+| Engine tests on Linux | 607 pass with everything on, 572 headless (`--no-default-features`); none fail. The GPU tests ran on a software driver, not skipped |
+| GPU against CPU (Mesa's software Vulkan driver, lavapipe) | the turntable's first frame and frame 200: the same PNG, byte for byte; the robot under a coloured sun: within the GPU tests' usual 2% |

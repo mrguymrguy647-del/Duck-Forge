@@ -147,3 +147,7 @@ test = true
 [[example]]
 name = "duck_craft"
 test = true
+
+[[example]]
+name = "turntable"
+test = true

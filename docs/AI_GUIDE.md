@@ -1055,7 +1055,12 @@ segments)`, `Mesh::pyramid(color)`, `Mesh::cylinder(color, segments)`,
 `Mesh::cone(color, segments)`, `Mesh::quad(width, height)` (standing,
 facing -z), `Mesh::checkerboard(tiles, tile_size, a, b)`,
 `Mesh::block(&atlas, ["grass_top", "grass_side", "dirt"])` (top, sides,
-bottom from one `Tileset`). Block worlds: `BlockPalette::new(&atlas,
+bottom from one `Tileset`). Models made in Duck Mold (`.glb`; they face
++z and stand on y = 0): `Mesh::load_glb("assets/robot.glb")?`, or
+`duckforge::glb::GlbModel::load(path)?` for its `name`, `palette` and
+`parts`, then `model.to_mesh()`, and `model.part("left_arm/hand")` (or
+`"left_arm"`, the whole arm) with `part.range()` to recolour its
+`mesh.triangles[..]`. Block worlds: `BlockPalette::new(&atlas,
 &[BlockKind::new("stone", ["stone"; 3]), BlockKind::new("glass",
 ["glass"; 3]).see_through(), BlockKind::new("leaves", ["leaves";
 3]).inner_faces(), BlockKind::new("lamp", ["lamp"; 3]).glowing()])`
@@ -1444,9 +1449,11 @@ They can also send *you* a game: F10 in the window records it to
 **Units and directions.** 1 unit is about a metre; x is right, **y is
 up**, z is forward (away from a camera with no turn). The built-in
 meshes are 1 unit big and centred on (0, 0, 0), so `Transform::at(p)
-.sized(2.0)` is a 2-metre one at `p`. Gravity is about `-9.8` on y; in a
-game, choose what feels right (the runner starter uses 18 with a jump
-speed of 6: one unit high).
+.sized(2.0)` is a 2-metre one at `p`. **Models face +z**: a model made in
+Duck Mold has its front (its face, its door) on its +z side and its own
+left at -x, so a camera with no turn sees its back. Gravity is about
+`-9.8` on y; in a game, choose what feels right (the runner starter uses
+18 with a jump speed of 6: one unit high).
 
 **Which way rotations turn.** Angles are in radians, and a positive angle
 turns:
@@ -1474,6 +1481,30 @@ health bar over a character, a label, or sorting.
 checkerboard. Make a shape from parts with `merge` (each part placed by a
 transform), and draw it as one mesh: one draw instead of dozens. Every
 triangle is one flat colour times the light (flat shading).
+
+**Models from Duck Mold.** Duck Mold makes 3D models from text recipes
+(`duck-mold export robot.toml` writes `robot.glb`, with no window). Load
+one once, in your game's `new`, and draw it like any mesh:
+
+```rust
+let robot = Mesh::load_glb("examples/mygame/assets/robot.glb")?; // in new()
+canvas.draw_mesh(&self.robot, &Transform::at(position), &self.camera); // in draw()
+```
+
+Its triangles keep their palette colours and are lit like any mesh's;
+it is in metres and **stands on y = 0** (so `Transform::at` puts its
+feet at the point), and **faces +z**. A camera with no turn looks along
++z, so it sees the model's back: put the camera on the model's +z side
+looking back at it (`examples/turntable/`), or turn the model half round,
+`.rotated(vec3(0.0, PI, 0.0))`. For the model's palette and parts, load
+it with `duckforge::glb::GlbModel::load(path)?` and call
+`model.to_mesh()`: `model.part("left_arm/hand")` gives that part's
+`range()` of triangles, so `for t in &mut mesh.triangles[part.range()] {
+t.color = gold; }` recolours it. A part made of parts (an *assembly*)
+has a range too, covering every part inside it: `model.part("left_arm")`
+is the whole arm (`model.assemblies` lists them). Only Duck Mold's
+`.glb` files load (not other glTF or OBJ files); anything else is a
+`LoadError` saying so.
 
 **Textures and atlases.** `mesh.with_texture(sprite)` paints a picture on
 it, where its texture coordinates say (every built-in shape has them: a
@@ -1607,9 +1638,10 @@ Plan around these. Don't spend time looking for them:
 - No running in a web browser.
 - One built-in pixel font (ASCII only), and no other fonts.
 - No gamepads.
-- 3D: no shadows, no smooth (per-pixel) lighting, no fog, one texture
-  per mesh, no model files (build shapes in code, or merge the built-in
-  ones), no animated 3D models (use billboards for characters).
+- 3D: no shadows, no smooth (per-pixel) lighting, one texture per mesh,
+  no animated 3D models (use billboards for characters). Model files:
+  only Duck Mold's `.glb` (`Mesh::load_glb`), not other glTF or OBJ
+  files; or build shapes in code and merge the built-in ones.
 
 For anything else, read the source: it's small, commented, and the
 tutorial (`TUTORIAL.md`) explains every part.

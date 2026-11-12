@@ -55,7 +55,7 @@ Details: the guide's section 7 (cheat sheet) and section 11 (3D).
   gives a bot its way, hop by hop.
 - **Art** from Duck Quill: `quill export art/hero.json --sheet --out assets`, then
   `SpriteSheet::load("assets/hero.json")?` and `sheet.draw(canvas, "walk", time, feet, blit)` (by the pivot).
-  Tiles: `Tileset::grid(&sheet, 16, 16, &names)`.
+  Tiles: `Tileset::grid(&sheet, 16, 16, &names)`. 3D models from Duck Mold: `Mesh::load_glb(path)?` (they face +z).
 - **Backgrounds**: `Background::new(image).parallax_xy(0.3, 0.1)`, drawn with `canvas.draw_background(&sky,
   &camera)` before `push_camera`; no seams.
 - **Music and hums**: a Duck Echo `.wav` with `ctx.play_loop(&music, 0.6)`; `ctx.stop_loop(id)`.

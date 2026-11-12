@@ -3,3 +3,6 @@
 *.bat text eol=crlf
 *.iss text eol=crlf
 *.sh text eol=lf
+
+# Models (Duck Mold .glb files) are bytes, never text.
+*.glb binary
