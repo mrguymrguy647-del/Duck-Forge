@@ -14,7 +14,8 @@
 //! ```
 //!
 //! [`GlbModel::load`] gives more: the model's name, its palette by name,
-//! and which triangles belong to which part, to recolour one.
+//! and which triangles belong to which part, and to which assembly (a
+//! part made of parts, like a robot's arm), to recolour one.
 //!
 //! **Which way a model faces.** Duck Mold's directions are Duck Forge's (x
 //! right, y up, z forward, 1 unit about a metre), and a model **faces
@@ -23,15 +24,16 @@
 //! model from behind: put the camera on the model's +z side looking back
 //! at it, or turn the model half round, `rotated(vec3(0.0, PI, 0.0))`.
 //!
-//! **Where this code comes from.** The reader below
-//! ([`read_duck_mold_glb`] and the `Glb*` types) is Duck Mold's own
-//! `docs/forge/duck_mold_glb.rs` (its commit 5141608), copied as it was
-//! so the two projects read the file the same way. Duck Mold's tests run
-//! that file against every model it makes. Changes here: this
-//! introduction; a list of numbers or a part whose size doesn't fit in
-//! the file is refused instead of overflowing; and, after the reader,
-//! [`GlbModel::load`], [`GlbModel::to_mesh`], [`GlbModel::part`],
-//! [`GlbPart::range`] and [`Mesh::load_glb`], which tie it to the engine.
+//! **Where this code comes from.** Everything between the two `// ====`
+//! marker lines below is Duck Mold's reader (its
+//! `docs/forge/duck_mold_glb.rs`), byte for byte, so the two projects
+//! read the file the same way; the first marker says its version. Duck
+//! Mold's tests run that reader against every model it makes. Change it
+//! there first, then copy the lines between the markers here; Duck Mold's
+//! `docs/forge-handoff.md` has the one-line check that the copies are the
+//! same. Above the markers are this introduction and the imports; below
+//! them, Duck Forge's own [`GlbModel::load`], [`GlbModel::to_mesh`],
+//! [`GlbModel::part`], [`GlbPart::range`] and [`Mesh::load_glb`].
 //! `docs/decisions.md` ("Models from Duck Mold") says why.
 //!
 //! The file format, and what is done to its numbers, is in Duck Mold's
@@ -55,6 +57,13 @@ use crate::error::LoadError;
 use crate::math::vec3;
 use crate::render3d::Mesh;
 
+// ==== Duck Mold's .glb reader, version 2 ====================================
+//
+// Version 2: a part made of parts (an "assembly") has a triangle range too,
+// in `assemblies`; and sizes read from the file are checked before they are
+// added or multiplied, so a damaged file is refused instead of overflowing.
+// Version 1 was Duck Mold's Phase 0.
+
 /// A model read from a Duck Mold `.glb`, in Duck Forge's directions:
 /// x is right, y is up, z is forward, 1 unit is about a metre. The model
 /// faces forward (+z) and stands on y = 0.
@@ -69,8 +78,16 @@ pub struct GlbModel {
     pub triangles: Vec<GlbTriangle>,
     /// The model's palette, by name.
     pub palette: Vec<GlbColor>,
-    /// The model's parts and which triangles each owns, in order.
+    /// The model's parts and which triangles each owns, in order. Each
+    /// part has a shape of its own; together they own every triangle,
+    /// once each.
     pub parts: Vec<GlbPart>,
+    /// The parts made of other parts (a robot's arm made of an upper arm,
+    /// an elbow and a hand, say), each with the range of all its parts'
+    /// triangles, outer ones before the parts inside them. A part inside
+    /// one is named after it: `left_arm/hand` is in `left_arm`. Empty for
+    /// a model with none, and for files from before version 2.
+    pub assemblies: Vec<GlbPart>,
 }
 
 /// One triangle: three places in `vertices`, clockwise seen from the
@@ -93,7 +110,8 @@ pub struct GlbColor {
     pub rgb: [u8; 3],
 }
 
-/// One part of the model.
+/// One part of the model, or one assembly, and its triangles: those
+/// from `first_triangle` on, `triangles` of them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GlbPart {
     /// Its name; a part inside another is written `left_arm/hand`.
@@ -238,36 +256,8 @@ pub fn read_duck_mold_glb(bytes: &[u8]) -> Result<GlbModel, String> {
             rgb: [channel(1)?, channel(3)?, channel(5)?],
         });
     }
-    let mut parts = Vec::new();
-    for entry in extras["parts"]
-        .as_array()
-        .map(Vec::as_slice)
-        .unwrap_or_default()
-    {
-        let part = GlbPart {
-            name: entry["name"]
-                .as_str()
-                .ok_or("a part has no name")?
-                .to_owned(),
-            first_triangle: entry["first_triangle"]
-                .as_u64()
-                .ok_or("a part has no first triangle")? as usize,
-            triangles: entry["triangles"]
-                .as_u64()
-                .ok_or("a part has no triangle count")? as usize,
-        };
-        if part
-            .first_triangle
-            .checked_add(part.triangles)
-            .is_none_or(|end| end > triangles.len())
-        {
-            return Err(format!(
-                "the part \"{}\" names triangles that aren't there",
-                part.name
-            ));
-        }
-        parts.push(part);
-    }
+    let parts = part_list(&extras["parts"], "part", triangles.len())?;
+    let assemblies = part_list(&extras["assemblies"], "assembly", triangles.len())?;
 
     Ok(GlbModel {
         name: extras["name"].as_str().unwrap_or("model").to_owned(),
@@ -275,7 +265,48 @@ pub fn read_duck_mold_glb(bytes: &[u8]) -> Result<GlbModel, String> {
         triangles,
         palette,
         parts,
+        assemblies,
     })
+}
+
+/// A list of parts (or of assemblies) with their triangles, each checked
+/// against the `count` of triangles there are. A missing list is empty.
+fn part_list(list: &serde_json::Value, what: &str, count: usize) -> Result<Vec<GlbPart>, String> {
+    let a = if what.starts_with(['a', 'e', 'i', 'o', 'u']) {
+        "an"
+    } else {
+        "a"
+    };
+    let mut parts = Vec::new();
+    for entry in list.as_array().map(Vec::as_slice).unwrap_or_default() {
+        let whole = |field: &str| {
+            entry[field]
+                .as_u64()
+                .and_then(|number| usize::try_from(number).ok())
+                .ok_or_else(|| format!("{a} {what} has no {}", field.replace('_', " ")))
+        };
+        let part = GlbPart {
+            name: entry["name"]
+                .as_str()
+                .ok_or_else(|| format!("{a} {what} has no name"))?
+                .to_owned(),
+            first_triangle: whole("first_triangle")?,
+            triangles: whole("triangles")?,
+        };
+        // Checked, so a damaged file can't overflow the sum.
+        if part
+            .first_triangle
+            .checked_add(part.triangles)
+            .is_none_or(|end| end > count)
+        {
+            return Err(format!(
+                "the {what} \"{}\" names triangles that aren't there",
+                part.name
+            ));
+        }
+        parts.push(part);
+    }
+    Ok(parts)
 }
 
 /// The bytes of one list of numbers, found through the description: an
@@ -343,6 +374,8 @@ fn srgb(linear: f32) -> u8 {
     (curved * 255.0).round().clamp(0.0, 255.0) as u8
 }
 
+// ==== end of Duck Mold's .glb reader, version 2 =============================
+
 // ---- Duck Forge's side: files, meshes and parts ------------------------------
 
 impl GlbModel {
@@ -383,14 +416,19 @@ impl GlbModel {
     }
 
     /// The part with this name (`"head"`, or `"left_arm/hand"` for a part
-    /// inside another), if the model has one.
+    /// inside another), or the assembly (`"left_arm"`: the whole arm), if
+    /// the model has one.
     pub fn part(&self, name: &str) -> Option<&GlbPart> {
-        self.parts.iter().find(|part| part.name == name)
+        self.parts
+            .iter()
+            .chain(&self.assemblies)
+            .find(|part| part.name == name)
     }
 }
 
 impl GlbPart {
-    /// Which of the model's triangles are this part's: use it on
+    /// Which of the model's triangles are this part's (or, for an
+    /// assembly, belong to the parts inside it): use it on
     /// `mesh.triangles[part.range()]` to recolour the part.
     pub fn range(&self) -> Range<usize> {
         self.first_triangle..self.first_triangle + self.triangles

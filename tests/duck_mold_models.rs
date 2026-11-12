@@ -232,11 +232,26 @@ fn the_model_knows_its_name_palette_and_parts() -> Result<(), LoadError> {
     }
     assert_eq!(next, robot.triangles.len());
     assert!(robot.part("left_arm/hand").is_some());
-    assert!(
-        robot.part("left_arm").is_none(),
-        "an assembly has no triangles of its own"
-    );
     assert!(robot.part("tail").is_none());
+    // A part made of parts (an assembly) is found by name too: its range
+    // is the triangles of every part inside it.
+    let arm = robot.part("left_arm").expect("the whole arm");
+    assert_eq!(arm.triangles, 84);
+    let inside: Vec<&str> = robot
+        .parts
+        .iter()
+        .filter(|part| arm.range().contains(&part.first_triangle))
+        .map(|part| part.name.as_str())
+        .collect();
+    assert_eq!(
+        inside,
+        [
+            "left_arm/upper",
+            "left_arm/elbow",
+            "left_arm/forearm",
+            "left_arm/hand"
+        ]
+    );
 
     // A part's range picks out its triangles in the mesh too: recolour
     // the hands gold, and exactly their triangles change.
@@ -258,6 +273,59 @@ fn the_model_knows_its_name_palette_and_parts() -> Result<(), LoadError> {
         mesh.triangles.iter().filter(|t| t.color == red).count(),
         84 - 24
     );
+    // A whole arm in one go: its upper arm, elbow, forearm and hand.
+    for triangle in &mut mesh.triangles[arm.range()] {
+        triangle.color = gold;
+    }
+    let golden = mesh.triangles.iter().filter(|t| t.color == gold).count();
+    assert_eq!(golden, 84 + 12, "the left arm and the other hand");
+    Ok(())
+}
+
+#[test]
+fn every_assembly_duck_mold_reported_has_the_triangles_of_its_parts() -> Result<(), LoadError> {
+    // The report lists the tree of parts; the file lists the assemblies
+    // (parts made of parts), outer ones first, each with the triangles of
+    // every part inside it, one after the other.
+    fn assemblies(parts: &serde_json::Value, into: &mut Vec<(String, usize)>) {
+        for part in parts.as_array().unwrap() {
+            if part["kind"] == "assembly" {
+                into.push((
+                    part["name"].as_str().unwrap().to_owned(),
+                    part["triangles"].as_u64().unwrap() as usize,
+                ));
+                assemblies(&part["parts"], into);
+            }
+        }
+    }
+    let (_folder, models) = fixtures("duck-mold-assemblies");
+    let mut found_any = 0;
+    for name in MODELS {
+        let model = GlbModel::load(models.join(format!("{name}.glb")))?;
+        let mut expected = Vec::new();
+        assemblies(&report(&models, name)["parts"], &mut expected);
+        let found: Vec<(String, usize)> = model
+            .assemblies
+            .iter()
+            .map(|a| (a.name.clone(), a.triangles))
+            .collect();
+        assert_eq!(found, expected, "{name}");
+        for assembly in &model.assemblies {
+            let inside = format!("{}/", assembly.name);
+            let parts: Vec<_> = model
+                .parts
+                .iter()
+                .filter(|part| part.name.starts_with(&inside))
+                .collect();
+            assert_eq!(parts[0].first_triangle, assembly.first_triangle, "{name}");
+            let triangles: usize = parts.iter().map(|part| part.triangles).sum();
+            assert_eq!(triangles, assembly.triangles, "{name}: {}", assembly.name);
+            assert_eq!(model.part(&assembly.name), Some(assembly));
+        }
+        found_any += model.assemblies.len();
+    }
+    // The house's roof, and the robot's arms and legs.
+    assert_eq!(found_any, 5);
     Ok(())
 }
 

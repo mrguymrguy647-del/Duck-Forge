@@ -1051,9 +1051,9 @@ facing -z), `Mesh::checkerboard(tiles, tile_size, a, b)`,
 bottom from one `Tileset`). Models made in Duck Mold (`.glb`; they face
 +z and stand on y = 0): `Mesh::load_glb("assets/robot.glb")?`, or
 `duckforge::glb::GlbModel::load(path)?` for its `name`, `palette` and
-`parts`, then `model.to_mesh()`, and `model.part("left_arm/hand")` with
-`part.range()` to recolour that part's `mesh.triangles[..]`. Block
-worlds: `BlockPalette::new(&atlas,
+`parts`, then `model.to_mesh()`, and `model.part("left_arm/hand")` (or
+`"left_arm"`, the whole arm) with `part.range()` to recolour its
+`mesh.triangles[..]`. Block worlds: `BlockPalette::new(&atlas,
 &[BlockKind::new("stone", ["stone"; 3]), BlockKind::new("glass",
 ["glass"; 3]).see_through(), BlockKind::new("leaves", ["leaves";
 3]).inner_faces(), BlockKind::new("lamp", ["lamp"; 3]).glowing()])`
@@ -1440,8 +1440,11 @@ looking back at it (`examples/turntable/`), or turn the model half round,
 it with `duckforge::glb::GlbModel::load(path)?` and call
 `model.to_mesh()`: `model.part("left_arm/hand")` gives that part's
 `range()` of triangles, so `for t in &mut mesh.triangles[part.range()] {
-t.color = gold; }` recolours it. Only Duck Mold's `.glb` files load
-(not other glTF or OBJ files); anything else is a `LoadError` saying so.
+t.color = gold; }` recolours it. A part made of parts (an *assembly*)
+has a range too, covering every part inside it: `model.part("left_arm")`
+is the whole arm (`model.assemblies` lists them). Only Duck Mold's
+`.glb` files load (not other glTF or OBJ files); anything else is a
+`LoadError` saying so.
 
 **Textures and atlases.** `mesh.with_texture(sprite)` paints a picture on
 it, where its texture coordinates say (every built-in shape has them: a

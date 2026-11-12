@@ -841,6 +841,9 @@ fn models_from_duck_mold() -> Result<(), LoadError> {
         mesh.triangles.iter().filter(|t| t.color == gold).count(),
         12
     );
+    // A part made of parts (an assembly) too: the whole arm.
+    let arm = model.part("left_arm").expect("the robot has arms");
+    assert_eq!(arm.range().len(), 84);
     // Only Duck Mold's .glb files load.
     let error = Mesh::load_glb(models.join("robot.inspect.json")).unwrap_err();
     assert!(

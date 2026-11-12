@@ -338,9 +338,11 @@ A camera with no turn looks along +z too, so it would see the model's
 back: put the camera on the model's +z side looking back at it, or turn
 the model half round with `.rotated(vec3(0.0, PI, 0.0))`.
 [examples/turntable/](examples/turntable/main.rs) shows the robot from
-Duck Mold's examples, facing you and slowly turning. Only Duck Mold's
-own `.glb` files load (not other glTF or OBJ files); anything else gives
-a one-sentence error saying so.
+Duck Mold's examples, facing you and slowly turning. For the model's
+palette and parts (to recolour one arm, say), load it with
+`duckforge::glb::GlbModel::load`. Only Duck Mold's own `.glb` files load
+(not other glTF or OBJ files); anything else gives a one-sentence error
+saying so.
 
 ### With physics
 

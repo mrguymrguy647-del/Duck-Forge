@@ -2,8 +2,9 @@
 
 The robot is a model made with Duck Mold (`duck-mold`), which builds 3D
 models from text recipes and needs no window. `robot.toml` is its recipe
-(Duck Mold's own example, from its `claude/nifty-dirac-vt09ym` branch,
-commit d107b0e); the file the game loads is `../assets/robot.glb`.
+(Duck Mold's own example, from its `claude/nifty-dirac-vt09ym` branch;
+`robot.glb` is from commit d029f9d); the file the game loads is
+`../assets/robot.glb`.
 
 | Source | Makes | With (run in `examples/turntable`) |
 |---|---|---|

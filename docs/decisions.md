@@ -4040,8 +4040,8 @@ its colours, ready to draw.
 ## What was built
 
 - `src/glb.rs`: the reader, `Mesh::load_glb`, and `GlbModel` (the
-  model's name, palette and parts) with `GlbModel::load`, `to_mesh`,
-  `part(name)` and `GlbPart::range`.
+  model's name, palette, parts and assemblies) with `GlbModel::load`,
+  `to_mesh`, `part(name)` and `GlbPart::range`.
 - `examples/turntable/`: the robot from Duck Mold's examples, facing
   the camera and slowly turning (Space stops it, Left/Right turn it by
   hand). Its recipe is in `art/`, its `.glb` in `assets/`.
@@ -4054,17 +4054,28 @@ its colours, ready to draw.
 
 ## Decisions made on the way
 
-**The reader is Duck Mold's, copied, not written again.** Duck Mold
-ships a reader meant for this (`docs/forge/duck_mold_glb.rs`), which its
-own tests run against every model it makes, and which shares no code
-with its exporter. Copying it means both projects read the file the same
-way, and a later change on one side can be compared line by line with
-the other. Three changes, all listed at the top of `glb.rs`: an
-introduction for Duck Forge; sizes inside the file are added and
-multiplied with checks, so a damaged file that claims more numbers (or a
-part claiming more triangles) than any file could hold is refused with a
-sentence instead of overflowing, which in a debug build is a panic
-(tested); and the functions that tie it to the engine, after the reader.
+**The reader is Duck Mold's, copied byte for byte, not written again.**
+Duck Mold ships a reader meant for this (`docs/forge/duck_mold_glb.rs`),
+which its own tests run against every model it makes, and which shares
+no code with its exporter. Everything between its two `// ====` marker
+lines is the same in `glb.rs`, so both projects read the file the same
+way, and the first marker names the reader's version (2). Duck Mold's
+`docs/forge-handoff.md` has the one-line check that the two copies are
+the same; a change starts there and is copied here. Outside the markers
+are Duck Forge's own introduction and imports, and, after the reader,
+the functions that tie it to the engine.
+
+The first copy found two things, both now fixed in Duck Mold and so
+here: sizes inside the file were added and multiplied without checks,
+so a damaged file claiming more numbers (or a part claiming more
+triangles) than any file could hold overflowed, a panic in a debug
+build, instead of being refused (now tested on both sides); and a part
+made of parts (a robot's arm) had no triangle range of its own. Duck
+Mold now lists those *assemblies* in the file, each with the triangles of
+every part inside it, so `model.part("left_arm")` recolours a whole arm.
+Duck Mold regenerated its golden files for that, and the copies in
+`tests/fixtures/duck_mold/` and `examples/turntable/assets/` are the new
+ones.
 
 **No new dependency.** The reader needs `serde_json`, which the engine
 already uses for sprite sheets, and the standard library.
@@ -4077,6 +4088,7 @@ of the prelude (`duckforge::glb::GlbModel`) since few games need it. The
 mesh keeps the file's triangle order, so a part's `range()` picks out
 its triangles in the mesh too, and recolouring a part (a team colour, a
 hit flash on one arm) is a loop over `mesh.triangles[part.range()]`.
+`part(name)` finds a part or an assembly: one name, whichever it is.
 
 **Corners in the same place become one vertex.** Duck Mold's file gives
 every face corners of its own (glTF needs that for flat shading); the
@@ -4107,5 +4119,5 @@ said "no fog", though `canvas.set_fog` has existed since Phase 3.
 | Loading the robot (384 triangles, 35 KB), 200 times in a row | 0.13 ms each in a plain build, 0.08 ms with `--release` |
 | Duck Mold's five models | the triangles, size, box, and triangles per palette colour that `duck-mold inspect` reported, for all five; every part a closed solid facing outwards; the crate exactly 1 cubic metre |
 | Facing, drawn | the house's door seen only from its +z side, its chimney (on its own left, -x) on your right as you face it; the robot's eyes seen from in front, not from a camera with no turn until the robot is turned half round |
-| Engine tests on Linux | 606 pass with everything on, 571 headless (`--no-default-features`); none fail. The GPU tests ran on a software driver, not skipped |
+| Engine tests on Linux | 607 pass with everything on, 572 headless (`--no-default-features`); none fail. The GPU tests ran on a software driver, not skipped |
 | GPU against CPU (Mesa's software Vulkan driver, lavapipe) | the turntable's first frame and frame 200: the same PNG, byte for byte; the robot under a coloured sun: within the GPU tests' usual 2% |
