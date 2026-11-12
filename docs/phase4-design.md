@@ -797,3 +797,33 @@ with no window and no mouse. By hand, on your PC:
 40. Double-click `Start Duck Forge Studio.bat` in a downloaded copy of the
     code, and `tools\Run tests (for developers).bat`: both say what
     they're doing, and the tests all pass.
+
+## What you test on Windows after the first-hour fixes
+
+41. `tools\Run tests (for developers).bat`: every test passes, the quick
+    start's included (it used to fail on a Windows checkout).
+42. Home, New game: Empty is first. Every starter says what it has and
+    "Has a level to paint." or "No level to paint." Make an Empty game: a
+    blue window, and `main.rs` says where to start.
+43. Under your game's card: Duplicate, name the copy, Make the copy. It's
+    on Home and plays. Rename the copy: its card has the new name, and it
+    still plays and checks.
+44. Delete the copy: the question names it. Move it to the Recycle Bin:
+    it's gone from Home, and the Recycle Bin on the desktop has its folder
+    and files (Restore puts them back, and it's on Home again). The
+    examples that came with Duck Forge show only Duplicate.
+45. Open a game, Tab, then the Files tab on the right: the game's folder
+    as a tree. Click a picture: it shows. Click a sound: you hear it. Click
+    `main.rs`: it opens in its program.
+46. Drag a picture from File Explorer onto the Studio: "Drop to copy
+    into ..." shows, and after dropping it's in the tree (a second one
+    with the same name becomes "name 2"). New folder, Rename, Delete (it's
+    in the Recycle Bin).
+47. Tab in the shooter or the 3D runner: Build mode says what you can do
+    there (Feel, sounds, pictures, files, frame by frame).
+48. A game whose card shows two letters (Hello, Quickstart): open it and
+    play two seconds, then Home: its card shows the game. Or Check one
+    that has never been played: the card gets a picture afterwards.
+49. With the Studio maximized on the wide screen, Home: if the tiny copy
+    in the bottom-right corner is still there, take a screenshot
+    (Windows key + Shift + S) and send it with a note of when it appears.

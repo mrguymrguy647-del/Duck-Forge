@@ -36,7 +36,10 @@ explosions); for 3D, [examples/starter_runner3d/](examples/starter_runner3d/main
 over the 3D). Each has a playthrough recorded by its bot, rules and play
 tests, and passes `tools/verify.sh`. One command makes a new game from any
 of them, renamed and ready: `tools/new_game.sh mygame topdown` (or
-`platformer`, `shooter`, `runner3d`, `tiny`; on Windows `tools\new_game.bat`).
+`empty`, `platformer`, `shooter`, `runner3d`, `tiny`; on Windows
+`tools\new_game.bat`). `empty` is a window and a background colour and
+nothing else ([examples/empty/](examples/empty/main.rs)), for writing a
+game from the very start.
 
 **New to Rust? Start with [TUTORIAL.md](TUTORIAL.md)**. It teaches the
 language through this engine's code and explains how every part works.
@@ -145,7 +148,16 @@ downloaded without that click; with no internet it says nothing. Settings,
 the Studio: nothing is added to the engine or to games.
 
 - **Home** lists your games as cards ("Checks pass" or "Needs a look") and
-  makes new ones from a starter.
+  makes new ones from a starter: **Empty** (a window and a background
+  colour, nothing else), the platformer, top-down, shooter, 3D runner and
+  Tiny, each saying what it has and whether it has a level to paint. Under
+  each of your cards, **Rename**, **Duplicate** and **Delete**; the examples
+  that came with Duck Forge can only be duplicated. Delete names the game
+  and asks first, then moves its folder, tune and feel files,
+  playthroughs and what the Studio keeps about it to the **Recycle Bin**
+  (never deleted for good) and takes its lines out of `Cargo.toml`. A card
+  with no picture gets a real one the first time the game plays two
+  seconds or is checked (`out/thumbnails/<game>.png`).
 - **The game screen** shows the game in the middle, exactly as it draws
   itself (enlarged by a whole number, never smoothed). **Tab** freezes it
   on the frame it's on, and Tab again carries on from exactly there. F1
@@ -155,7 +167,13 @@ the Studio: nothing is added to the engine or to games.
   picture (or the whole level), put coins and the Start where you want,
   fill, move an area, and play from any tile. Every edit is saved to
   `level.txt` at once and the frozen game takes it; Undo and Redo undo
-  paint strokes and Feel changes.
+  paint strokes and Feel changes. A game with no level to paint says what
+  there is to do instead: Feel, sounds, pictures, files, frame by frame.
+- **Files** (a tab beside Feel in Build mode) shows the game's own folder
+  as a tree: click a picture to see it, a sound to hear it, anything else
+  opens in its own program. Drop files on the game's screen from File
+  Explorer to copy them in (never replacing one); New folder, Rename and
+  Delete (to the Recycle Bin).
 - **Feel** shows the game's `ctx.tune` values as sliders (labels, ranges
   and presets from `examples/<game>.feel.json`), saved to its tune file.
   Its sounds can be played and their recipes read; its pictures open in

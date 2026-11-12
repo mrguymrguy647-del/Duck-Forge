@@ -29,7 +29,7 @@ blocks, a billboard duck, lighting, a HUD over the 3D) copy
 `tools/verify.sh`. Section 3 has an even smaller template.
 
 **Don't copy by hand: `tools/new_game.sh mygame topdown`** (or
-`platformer`, `shooter`, `runner3d`, `tiny`) copies the starter (not its
+`empty`, `platformer`, `shooter`, `runner3d`, `tiny`) copies the starter (not its
 tune file: the new game uses its code's values until you make one),
 renames its main type (`TopDown` becomes `Mygame`), sets the window title,
 points its bot at `playthroughs/mygame.json`, adds the `[[example]]` entry
@@ -1581,7 +1581,13 @@ agent might meet:
   `cargo run -p studio_app -- --run script.json` (from `studio/`) runs a
   JSON list of the Studio's commands and waits, like
   `[{"do": "game.open", "name": "dodge"}, {"wait": "playing"}, {"wait": "frames", "frames": 120}, {"do": "game.toggle"}, {"do": "check.run"}, {"wait": "idle"}]`.
-  `-- --commands` lists every command. A script can say what must be
+  `-- --commands` lists every command, among them Home's
+  `game.delete` (to the Recycle Bin, never for good), `game.rename`,
+  `game.duplicate` and `game.thumbnail`, and the Files panel's
+  `files.select`, `files.open`, `files.play`, `files.add` (copy files in),
+  `files.new_folder`, `files.rename` and `files.delete`, whose paths are
+  inside the open game's folder (`{"do": "files.add", "files":
+  ["C:/Users/me/duck.png"], "to": "assets"}`). A script can say what must be
   true by now, and stops if it isn't:
   `{"expect": "check", "passed": false, "says": "can't win"}` (the last
   Check, and words in one of its lines); `{"shot": "a name"}` saves the

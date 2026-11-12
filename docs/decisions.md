@@ -4029,3 +4029,94 @@ own tags, a cut-short download and a release with no installer.
 | The Studio starting with no window (`--run` of nothing), here: built from the code | 0.014 to 0.018 s |
 | The same, installed, the first time (makes `Documents\Duck Forge`: 234 files, 10.5 MB) | 0.05 to 0.06 s |
 | The same, installed, later (checks the folder is up to date) | 0.03 to 0.04 s |
+
+# Small Studio fixes from the first hour on a real PC
+
+## Tests and \r\n
+
+The quickstart test split `docs/QUICKSTART.md` on "```rust\n"; a
+Windows checkout (`core.autocrlf=true`, Git's default there) gives
+every text file `\r\n`, so it found no code blocks: the one failure in
+all five Windows runs. It now reads `\r\n` as `\n`. To find any other
+test that assumes `\n`, the repository was cloned on Linux with
+`core.autocrlf=true` (every text file then has `\r\n`, as on that PC)
+and every engine and Studio test run there. That showed two more
+things: `tools/*.sh` can't run with `\r\n` (Git Bash and WSL on Windows
+would hit it), so `.gitattributes` keeps `*.sh` on `\n` as it keeps
+`*.bat` on `\r\n`; and two tests of the games folder's build setting
+failed whenever `CARGO_TARGET_DIR` was set, so they check the folder's
+own setting now.
+
+## Delete, rename and duplicate
+
+`studio_core::manage`, as `game.delete`, `game.rename` and
+`game.duplicate`. A game is its code (a folder or one file), its tune and
+feel files, its playthroughs, its `[[example]]` table in `Cargo.toml`,
+and what the Studio keeps about it (`history/<game>`, `out/verify/<game>`,
+`out/sessions/<game>`). Rename and duplicate also change where the code
+names itself, and only that: `examples/<game>/` and `examples/<game>.`,
+`playthroughs/<game>` followed by `.`, `-` or `_`, `--example <game>` as a
+whole word, `out/verify/<game>`, `out/sessions/<game>`, and the window title
+`"<Title> - duckforge"`. A variable that happens to be called like the
+game isn't touched, and neither is another game whose name starts the
+same (bee_maze_two when renaming bee_maze). The game's type keeps its
+name: two examples can each have a `struct Game`. The examples that came
+with Duck Forge can't be deleted or renamed (a newer Studio would bring
+them back, and the list of what came with it would be wrong); they can
+be duplicated, which is a good way to start from one.
+
+Deleting goes to the Recycle Bin (`studio_core::recycle`): on Windows
+`SHFileOperationW` with "allow undo", which is what the Recycle Bin is,
+plus "warn if it can't be recycled", so on a drive without one Windows
+asks before deleting anything for good; on Linux the freedesktop.org
+Trash (`~/.local/share/Trash`, with its `.trashinfo`), on macOS
+`~/.Trash`. If something can't go to the bin it's reported and nothing
+is deleted. Clips stay in `out/clips`.
+
+## The Empty starter
+
+`examples/empty/main.rs`: a window, a background colour, an empty
+`update` and `draw`, and a comment saying where to start. It's first in
+New game and in `tools/new_game` (`empty`). It has no tests or bot, so
+`tools/verify` says "0 passed" and "no playthroughs", and passes. Its
+words avoid the word "empty" itself, since `tools/new_game` replaces the
+starter's name in sentences.
+
+## The Files panel
+
+`studio_core::game_files` and the `files.*` commands; the app only draws
+(`files_panel.rs`), so the scene dragging planned for later can use the
+same commands. Paths are places inside the open game's folder, with `/`,
+and anything reaching outside it (`..`, a drive, a whole path, a colon)
+is refused. Kinds come from the name: `.rs` code, PNG/GIF/BMP/JPEG
+pictures, WAV/OGG/MP3/FLAC sounds, a `.txt` that's `level*.txt` or has a
+`.legend.json` beside it is a level. A WAV plays in the Studio itself
+(Windows' `PlaySoundW`, nothing to install); other sounds and every other
+file open in their own program (`explorer <file>`, so no console window
+flashes). Dropped files are read and written again into the folder, so
+they're ordinary files there (not read-only, without the downloaded
+mark), and a name that's taken gets " 2". `main.rs` can't be deleted or
+renamed there. Drops are taken anywhere on a game's screen, and the
+window says where they'll go while files are dragged over it.
+
+## Thumbnails
+
+A card with no picture showed two letters until the game had a checked
+playthrough. Now `out/thumbnails/<game>.png` is made the first time it
+plays two seconds in the Studio (or stops after at least ten frames),
+from the picture the Studio already has; or, after a Check that drew
+nothing (no playthrough), by running it two seconds with no window
+(`game.thumbnail`). Check pictures still come first; the docs' picture
+last. Empty has one in `docs/` for New game.
+
+## Home's tiny copy
+
+On a 2576 x 1080 window, a tiny copy of Home showed in the bottom-right
+corner. It didn't show here: Home drawn with no window at 2576 x 1080 at
+100, 125 and 150 per cent scaling and with the Console open, and the
+real app on a 2576 x 1080 virtual X screen, resized from its first size
+as maximizing does. Nothing in the app draws in that corner (no extra
+viewport, no layer painter, no picture of the screen). So it's in the
+path only Windows takes (DirectX 12, the window compositor, the
+maximized window) and isn't fixed; checklist item 49 asks for a
+screenshot.

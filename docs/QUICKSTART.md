@@ -69,8 +69,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     duckforge::run(Config::default(), new_game())
 }
 ```
-Bigger starts: `tools/new_game.sh mygame topdown` makes `examples/mygame/` from a starter (`platformer`,
-`topdown`, `shooter`, `runner3d`, `tiny`) and verifies it. Built in (guide 7, 11): tile maps, levels as
+Bigger starts: `tools/new_game.sh mygame topdown` makes `examples/mygame/` from a starter (`empty`,
+`platformer`, `topdown`, `shooter`, `runner3d`, `tiny`) and verifies it. Built in (guide 7, 11): tile maps, levels as
 files, backgrounds, Quill sheets, music, 3D textures, billboards, block worlds, fog, mouse look.
 
 ## The loop
