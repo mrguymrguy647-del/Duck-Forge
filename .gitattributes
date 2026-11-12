@@ -1,3 +1,5 @@
-# Windows scripts need Windows line endings to run.
+# Windows scripts need Windows line endings to run, and shell scripts
+# need plain \n ones (in Git Bash or WSL on Windows, too).
 *.bat text eol=crlf
 *.iss text eol=crlf
+*.sh text eol=lf

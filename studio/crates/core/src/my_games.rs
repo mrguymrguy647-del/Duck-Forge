@@ -421,9 +421,15 @@ fn write_cargo_config(games: &Path, build: &Path) -> std::io::Result<()> {
 /// The folder `cargo` builds in for a games folder: `CARGO_TARGET_DIR`, or
 /// the `target-dir` its `.cargo/config.toml` names, or its `target`.
 pub fn target_folder(games: &Path) -> PathBuf {
-    if let Some(dir) = std::env::var_os("CARGO_TARGET_DIR") {
-        return games.join(dir);
+    match std::env::var_os("CARGO_TARGET_DIR") {
+        Some(dir) => games.join(dir),
+        None => configured_target_folder(games),
     }
+}
+
+/// The folder the games folder's own `.cargo/config.toml` builds in (or its
+/// `target`), whatever `CARGO_TARGET_DIR` says.
+fn configured_target_folder(games: &Path) -> PathBuf {
     let config =
         std::fs::read_to_string(games.join(".cargo").join("config.toml")).unwrap_or_default();
     for line in config.lines() {
@@ -556,7 +562,7 @@ mod tests {
             "built programs aren't copied"
         );
         assert!(crate::folder::GamesFolder::open(&games).is_ok());
-        assert_eq!(target_folder(&games), build, "builds go outside the folder");
+        assert_eq!(configured_target_folder(&games), build, "builds go outside the folder");
         let record: Record = serde_json::from_str(&read(&games, RECORD)).unwrap();
         assert_eq!(record.studio, "0.1.0");
         assert!(record.files.contains_key("src/lib.rs"));
@@ -708,14 +714,14 @@ mod tests {
             Some(&test.join("Build \"quoted\" here")),
         )
         .unwrap();
-        assert_eq!(target_folder(&games), test.join("Build \"quoted\" here"));
+        assert_eq!(configured_target_folder(&games), test.join("Build \"quoted\" here"));
         std::fs::write(
             games.join(".cargo/config.toml"),
             "[build]\ntarget-dir = 'mine'\n",
         )
         .unwrap();
         prepare(&own, &games, "0.1.0", Some(&test.join("b"))).unwrap();
-        assert_eq!(target_folder(&games), games.join("mine"));
+        assert_eq!(configured_target_folder(&games), games.join("mine"));
     }
 
     #[test]

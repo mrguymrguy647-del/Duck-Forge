@@ -1,10 +1,16 @@
 //! Keeps docs/QUICKSTART.md true: its game and its play test must be
 //! exactly `examples/quickstart.rs`, which Cargo compiles and tests.
 
+/// The text with plain `\n` line ends. A Windows checkout gives every text
+/// file `\r\n` ones, which must not count as a difference.
+fn plain(text: &str) -> String {
+    text.replace("\r\n", "\n")
+}
+
 #[test]
 fn the_quick_start_game_is_the_quickstart_example() {
-    let page = include_str!("../docs/QUICKSTART.md");
-    let example = include_str!("../examples/quickstart.rs");
+    let page = plain(include_str!("../docs/QUICKSTART.md"));
+    let example = plain(include_str!("../examples/quickstart.rs"));
     let blocks: Vec<&str> = page
         .split("```rust\n")
         .skip(1)
