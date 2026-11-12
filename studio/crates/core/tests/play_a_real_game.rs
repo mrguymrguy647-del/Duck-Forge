@@ -894,3 +894,266 @@ fn objects_are_selected_and_moved_in_the_frozen_game_and_it_all_replays() {
         "the replay ends on the session's last picture"
     );
 }
+
+/// Step 3's commands on the real scene demo, frozen: add, turn, size,
+/// duplicate, reorder, copy and paste, delete. The frozen game shows each
+/// change; Undo takes every one back, to the file as it was; Redo brings
+/// them back, the game plays on, and the session replays to the same
+/// picture.
+#[test]
+fn objects_are_added_turned_sized_copied_reordered_and_deleted_and_it_all_replays() {
+    let _one = THE_SCENE_DEMOS_FILE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut studio = studio();
+    let say = |studio: &mut Studio, step: Step| {
+        run_step(studio, &step).unwrap_or_else(|problem| {
+            panic!("{problem}\n{}", problem.details);
+        })
+    };
+    let run = |studio: &mut Studio, command: serde_json::Value| {
+        let command: Command = serde_json::from_value(command).unwrap();
+        run_step(studio, &Step::Do(command)).unwrap_or_else(|problem| {
+            panic!("{problem}\n{}", problem.details);
+        })
+    };
+    let settle = |studio: &mut Studio| {
+        run_step(studio, &Step::Wait(Wait::Seconds { seconds: 0.3 })).unwrap();
+    };
+    let scene_file = duck_forge().join("examples/scene_demo/scenes/pond.json");
+    let _put_back = PutBack {
+        text: std::fs::read_to_string(&scene_file).unwrap(),
+        path: scene_file.clone(),
+    };
+    let plain = |text: &str| text.replace("\r\n", "\n");
+    let original = plain(&_put_back.text);
+    let on_disk = || plain(&std::fs::read_to_string(&scene_file).unwrap());
+    let ids_in_file = |studio: &Studio| -> Vec<u64> {
+        let doc = studio.open.as_ref().unwrap().scene.as_ref().unwrap();
+        doc.file
+            .as_ref()
+            .unwrap()
+            .objects
+            .iter()
+            .map(|o| o.id().number())
+            .collect()
+    };
+    let drawn = |studio: &Studio, id: u64| {
+        studio
+            .open
+            .as_ref()
+            .unwrap()
+            .drawn_scene()
+            .and_then(|drawn| drawn.object(id).cloned())
+    };
+    let selected = |studio: &Studio| studio.open.as_ref().unwrap().selected.clone();
+
+    say(
+        &mut studio,
+        Step::Do(Command::GameOpen {
+            name: String::from("scene_demo"),
+        }),
+    );
+    say(&mut studio, Step::Wait(Wait::Playing));
+    say(&mut studio, Step::Wait(Wait::Frames { frames: 10 }));
+    say(&mut studio, Step::Do(Command::GameToggle));
+    settle(&mut studio);
+    let frozen = studio.play().unwrap().picture.clone().unwrap();
+    let scale = studio.open.as_ref().unwrap().drawn_scene().unwrap().scale;
+
+    // Add a crate: id 12, last in the file, selected, and in the game.
+    assert_eq!(
+        run(
+            &mut studio,
+            serde_json::json!({"do": "object.add", "kind": "picture", "at": [96, 208],
+                "set": {"picture": "assets/crate.png"}})
+        ),
+        "Add crate"
+    );
+    settle(&mut studio);
+    assert!(
+        on_disk().contains(
+            r#"{"id": 12, "name": "crate", "at": [96, 208], "picture": "assets/crate.png"}"#
+        ),
+        "{}",
+        on_disk()
+    );
+    assert_eq!(selected(&studio), [12]);
+    let added = drawn(&studio, 12).expect("the game has it");
+    let width = added.rect.unwrap().w;
+    assert_eq!(
+        added.pivot,
+        Some(
+            duckforge::prelude::Vec2::new(96.0, 208.0) * scale
+                + studio.open.as_ref().unwrap().drawn_scene().unwrap().offset
+        )
+    );
+
+    // Turned and sized: the game draws it so.
+    run(
+        &mut studio,
+        serde_json::json!({"do": "object.turn", "ids": [12], "to": 45}),
+    );
+    run(
+        &mut studio,
+        serde_json::json!({"do": "object.resize", "ids": [12], "to": [2, 2]}),
+    );
+    settle(&mut studio);
+    assert!(
+        on_disk().contains(r#""turn": 45, "scale": 2, "picture": "assets/crate.png""#),
+        "{}",
+        on_disk()
+    );
+    let sized = drawn(&studio, 12).unwrap();
+    assert_eq!(sized.turn, 45.0);
+    assert_eq!(sized.rect.unwrap().w, width * 2.0);
+
+    // Duplicated: just after it, a grid square right, and selected.
+    run(
+        &mut studio,
+        serde_json::json!({"do": "object.duplicate", "ids": [12]}),
+    );
+    settle(&mut studio);
+    assert_eq!(selected(&studio), [13]);
+    assert_eq!(&ids_in_file(&studio)[10..], [11, 12, 13]);
+    assert!(
+        on_disk().contains(r#"{"id": 13, "name": "crate", "at": [104, 208], "turn": 45"#),
+        "{}",
+        on_disk()
+    );
+
+    // To the back: first in the file, so drawn first in its layer.
+    assert_eq!(
+        run(
+            &mut studio,
+            serde_json::json!({"do": "object.order", "ids": [13], "to": "back"})
+        ),
+        "Send crate to the back"
+    );
+    assert_eq!(ids_in_file(&studio)[0], 13);
+    run(
+        &mut studio,
+        serde_json::json!({"do": "object.order", "ids": [13], "to": "forward"}),
+    );
+    assert_eq!(&ids_in_file(&studio)[..3], [1, 13, 2]);
+
+    // The sign, copied and pasted somewhere else.
+    run(
+        &mut studio,
+        serde_json::json!({"do": "object.copy", "ids": [4]}),
+    );
+    assert_eq!(studio.clipboard.len(), 1);
+    run(
+        &mut studio,
+        serde_json::json!({"do": "object.paste", "at": [300, 100]}),
+    );
+    settle(&mut studio);
+    assert_eq!(selected(&studio), [14]);
+    assert!(
+        on_disk().contains(r#"{"id": 14, "name": "sign", "at": [300, 100], "turn": -8"#),
+        "{}",
+        on_disk()
+    );
+    assert!(drawn(&studio, 14).is_some_and(|sign| sign.rect.is_some()));
+
+    // The small crate deleted: out of the file, and out of the game.
+    assert_eq!(
+        run(
+            &mut studio,
+            serde_json::json!({"do": "object.delete", "ids": [5]})
+        ),
+        "Delete crate"
+    );
+    settle(&mut studio);
+    assert!(!ids_in_file(&studio).contains(&5));
+    assert!(drawn(&studio, 5).is_none(), "the game took it away");
+
+    // An area: invisible in the game, but it has a place to click.
+    run(
+        &mut studio,
+        serde_json::json!({"do": "object.add", "kind": "area", "at": [160, 176]}),
+    );
+    settle(&mut studio);
+    let area = drawn(&studio, 15).unwrap();
+    assert_eq!(
+        area.rect.map(|r| (r.w, r.h)),
+        Some((32.0 * scale, 32.0 * scale))
+    );
+
+    // What can't be added yet says so, and changes nothing.
+    let text = studio
+        .run(
+            serde_json::from_value(serde_json::json!({"do": "object.add", "kind": "text"}))
+                .unwrap(),
+        )
+        .unwrap_err();
+    assert!(text.what.contains("step 7"), "{text:?}");
+    let no_picture = studio
+        .run(
+            serde_json::from_value(serde_json::json!({"do": "object.add", "kind": "picture"}))
+                .unwrap(),
+        )
+        .unwrap_err();
+    assert!(
+        no_picture.what.contains("needs a picture"),
+        "{no_picture:?}"
+    );
+    studio.problem = None;
+
+    // Undo, nine times: the file is exactly as it was, and so is the game.
+    for _ in 0..9 {
+        say(&mut studio, Step::Do(Command::EditUndo));
+    }
+    settle(&mut studio);
+    assert_eq!(on_disk(), original);
+    assert!(studio.play().unwrap().picture.as_ref().unwrap().pixels == frozen.pixels);
+
+    // Redo, nine times; then play on.
+    for _ in 0..9 {
+        say(&mut studio, Step::Do(Command::EditRedo));
+    }
+    settle(&mut studio);
+    assert!(ids_in_file(&studio).contains(&15) && !ids_in_file(&studio).contains(&5));
+    say(&mut studio, Step::Do(Command::GameToggle));
+    say(&mut studio, press("Right"));
+    say(&mut studio, Step::Wait(Wait::Frames { frames: 40 }));
+    say(&mut studio, release("Right"));
+    say(&mut studio, Step::Do(Command::GameFreeze));
+    settle(&mut studio);
+    let last = studio.play().unwrap().picture.clone().unwrap();
+    say(&mut studio, Step::Do(Command::GameStop));
+    let session = studio.open.as_ref().unwrap().last_session.clone().unwrap();
+
+    // Replayed with no window, from the file as it was: the session has
+    // every change on its frame.
+    std::fs::write(&scene_file, &_put_back.text).unwrap();
+    let replays = TestFolder::new("replay-step3");
+    let out = replays.join("out");
+    let replay = std::process::Command::new("cargo")
+        .args([
+            "run",
+            "-q",
+            "--no-default-features",
+            "--example",
+            "scene_demo",
+            "--",
+        ])
+        .args(["--headless", "--inputs"])
+        .arg(&session)
+        .arg("--out")
+        .arg(&out)
+        .current_dir(duck_forge())
+        .output()
+        .unwrap();
+    let said = String::from_utf8_lossy(&replay.stdout);
+    assert!(
+        replay.status.success(),
+        "{said}{}",
+        String::from_utf8_lossy(&replay.stderr)
+    );
+    let (_, _, pixels) = png_pixels(&out.join("last.png"));
+    assert!(
+        pixels == last.pixels,
+        "the replay ends on the session's last picture"
+    );
+}

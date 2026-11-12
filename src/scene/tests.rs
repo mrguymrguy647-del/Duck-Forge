@@ -669,6 +669,10 @@ fn a_frozen_picture_says_where_every_object_is_and_where_it_starts() {
     assert_eq!(duck.start_rect, Some(Rect::new(12.0, 32.0, 8.0, 8.0)));
     assert_eq!(duck.now.get("at"), Some(&serde_json::json!([30, 40])));
     assert_eq!(duck.now.len(), 1, "only what changed: {:?}", duck.now);
+    // It turns round its feet (its "at"), on the canvas; so does its start.
+    assert_eq!(duck.pivot, Some(vec2(26.0, 40.0)));
+    assert_eq!(duck.start_pivot, Some(vec2(16.0, 40.0)));
+    assert_eq!((duck.turn, duck.start_turn), (0.0, 0.0));
     assert_eq!(duck.origin, Origin::File);
     // The lamp hasn't: one place, nothing changed.
     let lamp = scene.object(3).unwrap();
@@ -680,7 +684,8 @@ fn a_frozen_picture_says_where_every_object_is_and_where_it_starts() {
     assert_eq!(score.rect, Some(Rect::new(2.0, 2.0, 8.0, 8.0)));
     // The coin was taken: gone, with where it starts.
     let coin = scene.object(2).unwrap();
-    assert!(coin.gone && coin.rect.is_none());
+    assert!(coin.gone && coin.rect.is_none() && coin.pivot.is_none());
+    assert_eq!(coin.start_pivot, Some(vec2(30.0, 40.0)));
     assert_eq!(coin.start_rect, Some(Rect::new(26.0, 32.0, 8.0, 8.0)));
     // The spark was made while playing: its whole line is "now".
     let spark = scene
@@ -753,4 +758,58 @@ fn a_scene_files_object_changes_by_its_keys_or_says_whats_wrong() {
     assert!(wrong.contains("\"at\""), "{wrong}");
     assert_eq!(file.object(Id(3)).unwrap().at, Vec2::new(96.0, 200.0));
     assert!(file.set(Id(9), &set("{}")).unwrap_err().contains("id 9"));
+}
+
+#[test]
+fn tools_add_remove_and_reorder_a_scene_files_objects() {
+    let mut file = SceneFile::parse(
+        r#"{"objects": [
+  {"id": 1, "name": "sky", "kind": "background", "picture": "sky.png"},
+  {"id": 2, "name": "sign", "at": [40, 208]},
+  {"id": 5, "name": "duck", "at": [10, 208]}
+]}"#,
+    )
+    .unwrap();
+    let line = |text: &str| serde_json::from_str::<serde_json::Map<_, _>>(text).unwrap();
+    let names =
+        |file: &SceneFile| -> Vec<String> { file.objects.iter().map(|o| o.name.clone()).collect() };
+
+    // A new object gets the next id, whatever its line says.
+    let crate_id = file
+        .add(
+            &line(r#"{"id": 2, "name": "crate", "at": [96, 208]}"#),
+            Some(Id(5)),
+        )
+        .unwrap();
+    assert_eq!(crate_id, Id(6));
+    assert_eq!(names(&file), ["sky", "sign", "crate", "duck"]);
+    let last = file
+        .add(
+            &line(r#"{"name": "area", "kind": "area", "box": [0, 0, 32, 32]}"#),
+            None,
+        )
+        .unwrap();
+    assert_eq!(last, Id(7));
+    assert_eq!(names(&file).last().unwrap(), "area");
+    let wrong = file.add(&line(r#"{"at": "here"}"#), None).unwrap_err();
+    assert!(wrong.contains("\"at\""), "{wrong}");
+    assert_eq!(file.objects.len(), 5, "nothing added");
+
+    // Reordering keeps the moved objects' own order.
+    file.move_before(&[Id(7), Id(2)], Some(Id(6))).unwrap();
+    assert_eq!(names(&file), ["sky", "sign", "area", "crate", "duck"]);
+    file.move_before(&[Id(1)], None).unwrap();
+    assert_eq!(names(&file), ["sign", "area", "crate", "duck", "sky"]);
+    assert!(file.move_before(&[Id(1)], Some(Id(1))).is_err());
+    assert!(file.move_before(&[Id(1)], Some(Id(99))).is_err());
+
+    let gone = file.remove(Id(6)).unwrap();
+    assert_eq!(gone.name, "crate");
+    assert!(file.remove(Id(6)).is_none());
+    assert_eq!(names(&file), ["sign", "area", "duck", "sky"]);
+
+    // Written and read again, the same.
+    let again = SceneFile::parse(&file.to_text()).unwrap();
+    assert_eq!(names(&again), names(&file));
+    assert_eq!(again.object(Id(7)).unwrap().kind, "area");
 }

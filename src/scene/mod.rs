@@ -66,7 +66,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ops::{Index, IndexMut};
 use std::path::{Path, PathBuf};
 
-pub use file::{Layer, Problem, SCENE_FILE_VERSION, SceneFile, Space, write_ids};
+pub use file::{Layer, Problem, SCENE_FILE_VERSION, SceneFile, Space, line_text, write_ids};
 pub use object::{Anchor, Id, Object};
 
 use crate::background::Background;
@@ -80,7 +80,9 @@ use crate::sprite::Sprite;
 use crate::spritesheet::SpriteSheet;
 use crate::tilemap::{Contacts, LetterKind, TileMap};
 use crate::tileset::Tileset;
-use object::{FIRST_MADE_ID, USUAL_LAYER};
+use object::FIRST_MADE_ID;
+/// The layer an object is on when its line doesn't name one.
+pub use object::USUAL_LAYER;
 
 /// Where a scene's camera is until the first update, when the screen's
 /// size is known: if the game hasn't moved it by then, it goes to the
@@ -614,7 +616,9 @@ impl Scene {
                 Origin::Made
             }
         };
-        let placed = |object: &Object| -> Option<Rect> {
+        // Where an object's picture is on the canvas (before it's
+        // turned), and the point it turns round.
+        let placed = |object: &Object| -> Option<(Rect, Vec2)> {
             if matches!(object.kind.as_str(), "tilemap" | "background") {
                 return None;
             }
@@ -626,13 +630,14 @@ impl Scene {
             };
             let stays = self.starts.layers[self.layer_of(object)].stays_on_screen;
             let view = if stays { on_screen } else { in_scene };
-            (area.w > 0.0 && area.h > 0.0).then(|| view.apply_rect(area))
+            (area.w > 0.0 && area.h > 0.0).then(|| (view.apply_rect(area), view.apply(object.at)))
         };
         let record = |object: &Object, start: Option<&Object>, gone: bool| {
-            let rect = if gone { None } else { placed(object) };
-            let start_rect = start
-                .and_then(placed)
-                .filter(|start| gone || Some(*start) != rect);
+            let here = if gone { None } else { placed(object) };
+            let rect = here.map(|(rect, _)| rect);
+            let start_here = start.and_then(|start| placed(start).map(|p| (p, start.turn)));
+            let start_here = start_here
+                .filter(|((start, _), turn)| gone || Some(*start) != rect || *turn != object.turn);
             let now = match start {
                 Some(start) if !gone => {
                     let (was, is) = (start.to_json(true), object.to_json(true));
@@ -651,7 +656,11 @@ impl Scene {
                 origin: origin(object.id),
                 stays_on_screen: self.starts.layers[self.layer_of(object)].stays_on_screen,
                 rect,
-                start_rect,
+                start_rect: start_here.map(|((rect, _), _)| rect),
+                pivot: here.map(|(_, pivot)| pivot),
+                turn: object.turn,
+                start_pivot: start_here.map(|((_, pivot), _)| pivot),
+                start_turn: start_here.map_or(0.0, |(_, turn)| turn),
                 gone,
                 now,
             }

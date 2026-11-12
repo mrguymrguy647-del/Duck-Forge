@@ -368,6 +368,74 @@ pub enum Command {
     /// Each object goes back to where it starts, on the frozen frame.
     #[serde(rename = "object.back_to_start")]
     ObjectBackToStart { ids: Vec<u64> },
+    /// Add an object: `{"do": "object.add", "kind": "picture", "set":
+    /// {"picture": "assets/crate.png"}}`. Without `at`, it goes in the
+    /// middle of what the view shows. A picture or a background needs a
+    /// `picture`, a tile map a `level`.
+    #[serde(rename = "object.add")]
+    ObjectAdd {
+        kind: String,
+        #[serde(default)]
+        at: Option<[f32; 2]>,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        set: serde_json::Map<String, serde_json::Value>,
+    },
+    /// Turn objects: `by` so many degrees clockwise, or the first `to` a
+    /// turn and the rest by as much.
+    #[serde(rename = "object.turn")]
+    ObjectTurn {
+        ids: Vec<u64>,
+        #[serde(default)]
+        by: Option<f32>,
+        #[serde(default)]
+        to: Option<f32>,
+        #[serde(default)]
+        stroke: Option<u64>,
+    },
+    /// Make objects bigger or smaller: `by` so many times across and
+    /// down, or the first `to` a size and the rest by as much. Each keeps
+    /// its `at` where it is.
+    #[serde(rename = "object.resize")]
+    ObjectResize {
+        ids: Vec<u64>,
+        #[serde(default)]
+        by: Option<[f32; 2]>,
+        #[serde(default)]
+        to: Option<[f32; 2]>,
+        #[serde(default)]
+        stroke: Option<u64>,
+    },
+    /// Change where objects come in the scene's order (the drawing order
+    /// within a layer): `to` "front", "back", "forward" or "backward", or
+    /// `before` another object.
+    #[serde(rename = "object.order")]
+    ObjectOrder {
+        ids: Vec<u64>,
+        #[serde(default)]
+        to: Option<String>,
+        #[serde(default)]
+        before: Option<u64>,
+    },
+    /// Take objects out of the scene.
+    #[serde(rename = "object.delete")]
+    ObjectDelete { ids: Vec<u64> },
+    /// Copies of objects, just after each, one grid square to the right.
+    #[serde(rename = "object.duplicate")]
+    ObjectDuplicate { ids: Vec<u64> },
+    /// Copy objects to the Studio's clipboard.
+    #[serde(rename = "object.copy")]
+    ObjectCopy { ids: Vec<u64> },
+    /// Paste objects: `text` (lines of a scene file), or else what was
+    /// copied. With `at`, the first goes there.
+    #[serde(rename = "object.paste")]
+    ObjectPaste {
+        #[serde(default)]
+        at: Option<[f32; 2]>,
+        #[serde(default)]
+        text: Option<String>,
+    },
     /// Select these objects (and no others).
     #[serde(rename = "select.set")]
     SelectSet { ids: Vec<u64> },
@@ -710,6 +778,46 @@ pub const COMMANDS: &[CommandInfo] = &[
         needs: "ids: like [7]",
     },
     CommandInfo {
+        name: "object.add",
+        title: "Add an object",
+        needs: "kind: picture, area, background or tilemap; set: like {\"picture\": \"assets/crate.png\"}; at: like [96, 208] (or the middle of the view)",
+    },
+    CommandInfo {
+        name: "object.turn",
+        title: "Turn objects",
+        needs: "ids: like [7]; by: degrees clockwise, like 15, or to: like 90",
+    },
+    CommandInfo {
+        name: "object.resize",
+        title: "Make objects bigger or smaller",
+        needs: "ids: like [7]; by: like [2, 2] (twice as big), or to: like [1.5, 1]",
+    },
+    CommandInfo {
+        name: "object.order",
+        title: "Change where objects come in the list (drawing order)",
+        needs: "ids: like [7]; to: front, back, forward or backward; or before: an id",
+    },
+    CommandInfo {
+        name: "object.delete",
+        title: "Delete objects",
+        needs: "ids: like [7, 9]",
+    },
+    CommandInfo {
+        name: "object.duplicate",
+        title: "Duplicate objects",
+        needs: "ids: like [7]",
+    },
+    CommandInfo {
+        name: "object.copy",
+        title: "Copy objects",
+        needs: "ids: like [7]",
+    },
+    CommandInfo {
+        name: "object.paste",
+        title: "Paste objects",
+        needs: "at: like [96, 208] (optional); text: lines of a scene file (optional)",
+    },
+    CommandInfo {
         name: "select.set",
         title: "Select objects",
         needs: "ids: like [7, 9]",
@@ -732,7 +840,7 @@ pub const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         name: "view.tool",
         title: "Pick the view's tool",
-        needs: "tool: select or move",
+        needs: "tool: select, move, turn or size",
     },
     CommandInfo {
         name: "view.snap",
@@ -959,6 +1067,10 @@ pub struct Studio {
     pub buttons_down: Vec<MouseButton>,
     /// F1: the game draws its debug overlay. Kept across restarts.
     pub debug_overlay: bool,
+    /// Objects copied (Ctrl+C), as lines of a scene file, and how many
+    /// times they've been pasted since.
+    pub clipboard: Vec<serde_json::Map<String, serde_json::Value>>,
+    pastes: u32,
 }
 
 impl Studio {
@@ -982,6 +1094,8 @@ impl Studio {
             recycle_bin: RecycleBin::System,
             thumbnail_jobs: Vec::new(),
             buttons_down: Vec::new(),
+            clipboard: Vec::new(),
+            pastes: 0,
         };
         studio.console.path = studio.rust.as_ref().ok().and_then(|rust| rust.path.clone());
         let wanted = studio.games_folder_to_use();
@@ -1760,6 +1874,29 @@ impl Studio {
             }
             Command::ObjectStartHere { ids } => self.object_start_here(ids),
             Command::ObjectBackToStart { ids } => self.object_back_to_start(ids),
+            Command::ObjectAdd {
+                kind,
+                at,
+                name,
+                set,
+            } => self.object_add(kind, at, name, set),
+            Command::ObjectTurn {
+                ids,
+                by,
+                to,
+                stroke,
+            } => self.object_turn(ids, by, to, stroke),
+            Command::ObjectResize {
+                ids,
+                by,
+                to,
+                stroke,
+            } => self.object_resize(ids, by, to, stroke),
+            Command::ObjectOrder { ids, to, before } => self.object_order(ids, to, before),
+            Command::ObjectDelete { ids } => self.object_delete(ids),
+            Command::ObjectDuplicate { ids } => self.object_duplicate(ids),
+            Command::ObjectCopy { ids } => self.object_copy(ids),
+            Command::ObjectPaste { at, text } => self.object_paste(at, text),
             Command::SelectSet { ids } => self.select(ids, false),
             Command::SelectAdd { ids } => self.select(ids, true),
             Command::SelectAll => self.select_all(),
@@ -2857,6 +2994,14 @@ mod tests {
             r#"{"do": "object.move_now", "id": 9, "to": [96, 208], "stroke": 3}"#,
             r#"{"do": "object.start_here", "ids": [9]}"#,
             r#"{"do": "object.back_to_start", "ids": [9]}"#,
+            r#"{"do": "object.add", "kind": "picture", "set": {"picture": "assets/crate.png"}}"#,
+            r#"{"do": "object.turn", "ids": [4], "by": 15, "stroke": 2}"#,
+            r#"{"do": "object.resize", "ids": [4], "to": [2, 1.5]}"#,
+            r#"{"do": "object.order", "ids": [4], "to": "front"}"#,
+            r#"{"do": "object.delete", "ids": [4, 5]}"#,
+            r#"{"do": "object.duplicate", "ids": [4]}"#,
+            r#"{"do": "object.copy", "ids": [4]}"#,
+            r#"{"do": "object.paste", "at": [96, 208]}"#,
             r#"{"do": "select.set", "ids": [7, 9]}"#,
             r#"{"do": "select.add", "ids": [4]}"#,
             r#"{"do": "select.all"}"#,

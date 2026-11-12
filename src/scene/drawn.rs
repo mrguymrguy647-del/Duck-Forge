@@ -53,6 +53,14 @@ pub struct DrawnObject {
     /// Where it would be drawn as the file has it, if that's somewhere
     /// else (it has moved since the start), or if it's gone.
     pub start_rect: Option<Rect>,
+    /// The point of the canvas it turns round (its `at`), and how far it
+    /// is turned, in degrees clockwise: `rect` is its picture before it's
+    /// turned. `None` with no `rect`.
+    pub pivot: Option<Vec2>,
+    pub turn: f32,
+    /// The same for `start_rect`.
+    pub start_pivot: Option<Vec2>,
+    pub start_turn: f32,
     /// The file has it, and the game has removed it (a coin that was
     /// taken).
     pub gone: bool,
@@ -84,6 +92,21 @@ fn rect_json(rect: Option<Rect>) -> Value {
     }
 }
 
+fn point_json(point: Option<Vec2>) -> Value {
+    match point {
+        Some(p) => json!([p.x, p.y]),
+        None => Value::Null,
+    }
+}
+
+fn point_of(value: &Value) -> Option<Vec2> {
+    let pair = value.as_array()?;
+    Some(vec2(
+        pair.first()?.as_f64()? as f32,
+        pair.get(1)?.as_f64()? as f32,
+    ))
+}
+
 fn rect_of(value: &Value) -> Option<Rect> {
     let numbers: Vec<f32> = value
         .as_array()?
@@ -113,6 +136,10 @@ impl DrawnScene {
                 "stays": object.stays_on_screen,
                 "rect": rect_json(object.rect),
                 "start_rect": rect_json(object.start_rect),
+                "pivot": point_json(object.pivot),
+                "turn": object.turn,
+                "start_pivot": point_json(object.start_pivot),
+                "start_turn": object.start_turn,
                 "gone": object.gone,
                 "now": object.now,
             })).collect::<Vec<_>>(),
@@ -144,6 +171,10 @@ impl DrawnScene {
                             stays_on_screen: object["stays"].as_bool().unwrap_or(false),
                             rect: rect_of(&object["rect"]),
                             start_rect: rect_of(&object["start_rect"]),
+                            pivot: point_of(&object["pivot"]),
+                            turn: object["turn"].as_f64().unwrap_or(0.0) as f32,
+                            start_pivot: point_of(&object["start_pivot"]),
+                            start_turn: object["start_turn"].as_f64().unwrap_or(0.0) as f32,
                             gone: object["gone"].as_bool().unwrap_or(false),
                             now: object["now"].as_object().cloned().unwrap_or_default(),
                         })

@@ -451,6 +451,71 @@ impl SceneFile {
         Ok(())
     }
 
+    /// Adds an object from its line, as the file writes one
+    /// (`{"name": "crate", "at": [96, 208], "picture": "assets/crate.png"}`),
+    /// with an id of its own (one more than the highest: an `"id"` in the
+    /// line is ignored). It goes just before the object `before`, or last
+    /// (drawn on top) if that's `None` or not in the file. If a value is
+    /// wrong, `Err` says so in plain words and nothing is added. (The
+    /// Studio's Add, Paste and Duplicate use this.)
+    pub fn add(&mut self, line: &Map<String, Value>, before: Option<Id>) -> Result<Id, String> {
+        let mut line = line.clone();
+        line.remove("id");
+        let mut wrong = Vec::new();
+        let mut object = Object::from_json(&line, &mut wrong);
+        if let Some(first) = wrong.first() {
+            return Err(first.clone());
+        }
+        let id = self.free_id();
+        object.id = id;
+        let index = before
+            .and_then(|before| self.objects.iter().position(|o| o.id == before))
+            .unwrap_or(self.objects.len());
+        self.objects.insert(index, object);
+        if self.lines.len() >= index {
+            self.lines.insert(index, None);
+        }
+        Ok(id)
+    }
+
+    /// Takes the object with this id out of the file, and gives it back.
+    pub fn remove(&mut self, id: Id) -> Option<Object> {
+        let index = self.objects.iter().position(|object| object.id == id)?;
+        if index < self.lines.len() {
+            self.lines.remove(index);
+        }
+        Some(self.objects.remove(index))
+    }
+
+    /// Moves these objects, keeping their order, to just before the object
+    /// `before`, or to the end (drawn last, on top) if that's `None`. The
+    /// file's order is the drawing order within each layer; it doesn't
+    /// change the order objects update in. `Err` if `before` is one of
+    /// them or isn't in the file.
+    pub fn move_before(&mut self, ids: &[Id], before: Option<Id>) -> Result<(), String> {
+        if let Some(before) = before {
+            if ids.contains(&before) {
+                return Err(format!("object {before} can't go before itself"));
+            }
+            if self.object(before).is_none() {
+                return Err(format!("The scene has no object with id {before}"));
+            }
+        }
+        let mut lines = std::mem::take(&mut self.lines);
+        lines.resize(self.objects.len(), None);
+        let (moving, staying): (Vec<_>, Vec<_>) = std::mem::take(&mut self.objects)
+            .into_iter()
+            .zip(lines)
+            .partition(|(object, _)| ids.contains(&object.id));
+        let mut staying = staying;
+        let index = before
+            .and_then(|before| staying.iter().position(|(o, _)| o.id == before))
+            .unwrap_or(staying.len());
+        staying.splice(index..index, moving);
+        (self.objects, self.lines) = staying.into_iter().unzip();
+        Ok(())
+    }
+
     /// The first mistake that writing the file again would lose: a key
     /// or an object that couldn't be read is left out when it's written.
     /// (A missing `"duckforge_scene"` isn't one: writing puts it in.)
@@ -598,6 +663,13 @@ fn is_value_byte(byte: u8) -> bool {
 }
 
 /// JSON on one line, with a space after each comma and colon.
+/// One object's line as a scene file writes it, in the same order and
+/// spacing: `{"name": "crate", "at": [96, 208], "picture": "assets/crate.png"}`.
+/// (The Studio puts copied objects on the clipboard this way.)
+pub fn line_text(line: &Map<String, Value>) -> String {
+    compact_in_order(&Value::Object(line.clone()), &COMMON_KEYS)
+}
+
 pub(crate) fn compact(value: &Value) -> String {
     compact_in_order(value, &[])
 }
