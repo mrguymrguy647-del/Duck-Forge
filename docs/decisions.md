@@ -4545,6 +4545,23 @@ The same speed for all four.
   app 13 unit tests and 10 screen tests, two of which drive the scene
   editor with a pretend mouse and keyboard.
 
+On GitHub's Windows machine (run 43298784786, release builds, the same
+`--headless --time`), against Step 2's run 43248333794 there:
+
+| Game | Size after Step 2 | after Step 3 | An update | Drawing a frame |
+|---|---|---|---|---|
+| Platformer starter | 3,876,864 | 3,873,280 | 1.29 to 1.58 µs | 83.4 to 90.9 µs |
+| Shooter starter | 3,768,320 | 3,764,224 | 1.73 to 1.82 µs | 16.4 to 17.7 µs |
+| 3D runner starter | 9,181,696 | 9,177,088 | 1.56 to 1.77 µs | 1,162 to 1,176 µs |
+| Scene demo | 4,096,000 | 4,095,488 | 3.07 to 3.21 µs | 84.6 to 85.4 µs |
+
+There, every game is a little smaller than after Step 2 (512 to 4,608
+bytes), the other way from Linux, which is the arrangement again. The
+times are Step 2's there (82.1 to 82.8 µs for the Platformer starter's
+frame, 85.3 to 86.6 for the scene demo's; one run of the Platformer at
+90.9 is the machine). That run also passed the engine's tests five times
+both ways and the Studio's tests, the two new ones among them.
+
 # Models from Duck Mold
 
 Duck Mold (a sister tool: 3D models from text recipes, no window) saves
