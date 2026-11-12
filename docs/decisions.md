@@ -4402,6 +4402,104 @@ On GitHub's Windows machine (run 43248333794, release builds, the same
   at the same moment (each saw the other's edit). They take turns now.
 
 
+## Step 3: the other tools
+
+**Every action is a command, and every change is one step of Undo.**
+New: `object.add`, `object.turn`, `object.resize`, `object.order`,
+`object.delete`, `object.duplicate`, `object.copy`, `object.paste`, and
+`view.tool` `turn` and `size`. The Studio changes the file the same way
+for all of them: read it with the engine's reader, change its objects
+(`SceneFile::add`, `remove`, `move_before`, `set`), write it whole the
+engine's one way, send it to the frozen game. Copy is the one command
+that changes nothing, so it isn't a step.
+
+**Turn and Size change the file, always.** Step 2's rule for a drag (the
+file if the object is where it starts, this run only if the game has
+moved it) is about *where* things are, because that's what a game
+changes. Games almost never change an object's turn or size, so these
+change how it starts, and the reload merge gives the frozen object the
+same value (unless the game had changed that key itself). Nudging with
+the arrow keys is a move, so it follows Step 2's rule.
+
+**Both turn and grow round the object's `at`**, which is where the
+engine turns it and what its anchor puts on the ground. So a crate made
+bigger still stands on the ground, and a sign turned leans on its foot.
+The ring is drawn round that point. For Size, the corners are handles; a
+corner level with the feet (the bottom corners of something standing)
+changes only the width, because there's no height between it and the
+feet to stretch. Other editors keep the opposite corner still instead;
+for a platformer, keeping the feet still is what you'd want almost
+every time.
+
+**What snaps.** Turning snaps to 15 degrees, the turn itself (not how
+far it moved), so a sign at -8 lands on 0, 15, 30. With several
+selected, the first snaps and the others turn by as much, keeping their
+differences. Sizes snap to quarters (1, 1.25, 1.5, 2), never below a
+quarter: pixel art looks right at those. Alt is free for both: whole
+degrees, hundredths of a size. The grid's own snapping is for places.
+
+**Turned objects are clicked where they're drawn.** A frozen picture now
+also says what each object turns round and how far it's turned (and the
+same for where it starts), so a click, a box and an outline all follow
+the turned picture. That's four more fields in the link's JSON, with
+defaults when they're missing, so the link's version is unchanged; and,
+like the rest of it, only in builds with the `studio` feature.
+
+**A box selects what it touches**, not only what's wholly inside: a box
+round the middle of a pile gets the pile. It starts only from empty
+space, so a drag on an object still moves it. Shift adds to what's
+selected.
+
+**Copy and paste go through Windows' clipboard too**, as lines of a scene
+file. So objects can be pasted from one game into another, from the
+Studio into a scene file in Notepad, and from Notepad into the Studio.
+On Windows, Ctrl+C, Ctrl+X and Ctrl+V reach the app as Copy, Cut and
+Paste rather than as keys, so that's what the Studio listens for. A paste
+goes where the pointer is if it's over the game, or else one more grid
+square to the right each time; copies go last in the file, drawn on top,
+and are selected. An object the game made while playing can be copied
+(as it is now) and pasted: that's one way to keep something the game
+made. Names are kept as they are: names needn't be different (four coins
+called "coin" are normal), and `scene.find` finds the first.
+
+**Duplicate** puts each copy just after its own object and a grid
+square to the right, so it's drawn at the same depth. **Delete** takes
+objects out of the file; objects the game made aren't in the file, so
+they're left, and the status bar says so.
+
+**Reordering is the file's order.** That's the drawing order within a
+layer and nothing else: objects update in the order of their ids (Step
+1), so dragging a row never changes how the game plays. Moving an object
+past one on another layer changes nothing you can see, which is right:
+layers come first. The list's right-click menu has the four usual
+moves, and rows can be dragged.
+
+**Add offers the plain kinds** the design lists. Picture, Area,
+Background and Tile map can be added now; the engine already draws
+three of them, and an Area is a box the game can ask about, which the
+Studio shows dashed because the game draws nothing. Text, Button and
+Sound are listed, greyed, with the step that brings them (7, 7 and 4),
+because an object that shows nothing and does nothing would only
+confuse. The ready-made kinds (step 6) and the game's own (step 5) come
+later; `object.add` already takes any kind name, for agents and for
+games like the scene demo whose code knows "coin". A Picture or a
+Background asks which picture; a Tile map asks which level (a `.txt`
+with a `.legend.json` beside it). The new object goes in the middle of
+what the view shows, on the grid, and is selected.
+
+**The Inspector for several** shows what they share: picture, layer,
+turn, size, and the three on-and-off keys (a box half-ticked when they
+differ). A change sets it on all of them. Position isn't there: drag
+them, or nudge them, and they move together.
+
+**Small things.** Whatever Undo takes away is no longer selected. The
+Scene list has a search box. Nudges in a row (less than a second and a
+half apart, same selection) are one step of Undo, like a drag.
+
+**Engine additions an agent might use:** `SceneFile::add`, `remove`,
+`move_before`; `scene::line_text` (one object's line as a file writes
+it); `scene::USUAL_LAYER`.
+
 # Models from Duck Mold
 
 Duck Mold (a sister tool: 3D models from text recipes, no window) saves

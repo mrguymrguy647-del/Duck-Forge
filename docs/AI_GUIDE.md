@@ -1751,6 +1751,20 @@ agent might meet:
   8}`), `view.grid` and `view.show` (`frozen`, or `start` for the scene
   as its file has it) set what a person sees. A game needs nothing new
   for any of this beyond `scene.reload` in its `reload` hook.
+  More that change the file, each one step of Undo:
+  `{"do": "object.add", "kind": "picture", "set": {"picture": "assets/crate.png"}}`
+  (also `area`, `background` with a picture, `tilemap` with
+  `{"level": "level.txt"}`, or any kind your code knows; `at`, or the
+  middle of the view), `{"do": "object.turn", "ids": [4], "by": 15}` (or
+  `"to"`: degrees clockwise, round each object's `at`),
+  `{"do": "object.resize", "ids": [4], "by": [2, 2]}` (or `"to"`: the
+  scale; each grows round its `at`), `{"do": "object.order", "ids": [4],
+  "to": "front"}` (`back`, `forward`, `backward`, or `"before": 7`: the
+  file's order, which is the drawing order within a layer and never the
+  update order), `object.delete`, `object.duplicate` (just after each,
+  a grid square right), `object.copy` and `{"do": "object.paste", "at":
+  [96, 208]}` (or `"text"`: lines of a scene file). `view.tool` also takes
+  `turn` and `size`.
 
 `docs/phase4-design.md` has the whole design, and
 `docs/phase5-design.md` the plan for the editor.

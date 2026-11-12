@@ -807,7 +807,7 @@ to copy.
 |---|---|---|---|
 | 1 | **Scenes in the engine.** The file, `Scene`, drawing in layers, turned and resized pictures, a tile map as an object, `reload` that merges, mistakes in plain words. A small demo game. **Built** | Open the demo in the Studio, play it, edit its scene file in Notepad while it's frozen, and see the change | Stronger |
 | 2 | **Scene list, Inspector, select and move.** The link's new questions, the `object` and `select` commands, snap and grid, Undo, "Starts at and Now". **Built** | Click an object, drag it, change its name, position, picture and layer, undo, and play on from the frozen frame | Stronger |
-| 3 | **The other tools.** Turn, Size, several at once, box select, copy, paste, duplicate, delete, nudge, reorder, Add (plain kinds) | Build a small picture of a level by hand | Cheaper |
+| 3 | **The other tools.** Turn, Size, several at once, box select, copy, paste, duplicate, delete, nudge, reorder, Add (plain kinds). **Built** | Build a small picture of a level by hand | Cheaper |
 | 4 | **Dragging from Files.** Onto the scene and onto Inspector boxes, and from Windows | Drag a picture in, drag a sound onto a box | Cheaper |
 | 5 | **Kinds.** `Kind`, `Settings`, `SceneGame`, the Inspector's boxes drawn from the game's own list, "New kind in code", "Show me the code" | Add a kind's skeleton from the Studio, give it a setting in code, and see the box appear | Stronger |
 | 6 | **Ready-made behaviours and saved things.** The eight, one small file and one test each; "Turn into code"; two scene starters | Make a platformer with coins, a snail, a lift and a door, with no code. Turn the snail into code | Cheaper, one behaviour at a time. The first one (platformer player) by the stronger model, as the pattern |
@@ -1179,3 +1179,111 @@ right and reads clearly. That's these, with no terminal:
 88. Tell me how "Starts at and Now" felt in 73 to 79. If it confused
     you, we take the fallback: the editor always shows the scene as it
     starts, and Tab plays from the start.
+
+## What Step 3 built
+
+The bar above the view has **Turn** (R) and **Size** (S) beside Select
+and Move. Turn draws a ring round the selected object and turns it round
+its feet, in steps of 15 degrees; Size gives it four corners and grows
+it round its feet, in quarters. Shift keeps the shape; Alt is free for
+both. A drag that starts on empty space draws a box and selects what it
+touches. Ctrl+A, Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+D, Delete and the arrow
+keys work on the selection, and copies go on Windows' clipboard as lines
+of a scene file. The Scene list has **+ Add**, a search box, rows that
+can be dragged up and down, and a right-click menu. The Inspector shows
+what several objects share, and an area's box. Pictures 31 to 38 in
+`docs/studio-screens/` are the real screens. `docs/decisions.md` ("Step
+3: the other tools") says why each works as it does.
+
+Different from the plan, on purpose:
+
+- **Turn and Size work round the object's feet** (its `at`), not round a
+  corner or the middle: that's where the engine turns it, and a crate
+  made bigger still stands on the ground. A bottom corner of something
+  standing on its feet changes only its width.
+- **Add offers Picture, Area, Background and Tile map now.** Text, Button
+  and Sound are in the window, greyed, saying which step brings them (7,
+  7 and 4): until then they would show nothing and do nothing. The
+  ready-made kinds come in step 6 and the game's own in step 5.
+- **The Inspector for several** has no position: drag or nudge them, and
+  they move together.
+
+## What you test on Windows after Step 3
+
+GitHub's Windows machine runs a test that does most of this with a
+pretend mouse and keyboard on the real Scene demo (the ring, a corner, a
+box, the arrow keys, Ctrl+C, Ctrl+V, Ctrl+D, Delete, Add, dragging a
+row, the right-click menu, and Ctrl+Z after each), and one that adds,
+turns, sizes, duplicates, reorders, pastes and deletes, undoes it all,
+plays on and replays the session to the same picture. What it can't
+judge is whether it feels right. These need your PC, with no terminal:
+
+89. Open **Scene demo**, walk the duck a little, and press Tab. The bar
+    above the game has Select, Move, **Turn** and **Size**. The Scene list
+    has a yellow **+ Add** and a "Find an object..." box.
+90. Click the sign and press **R**. A yellow ring goes round it, centred
+    on its foot. Press on the ring and drag round it clockwise: the sign
+    turns round its foot in steps, with the angle beside the pointer.
+    Let go. Hold **Alt** and turn it again: now it turns a degree at a
+    time. Ctrl+Z twice puts it back.
+91. Press **S**: four white squares at the sign's corners. Drag the
+    top-right one up and to the right: the sign grows in steps, its foot
+    stays on the ground, and the size shows beside the pointer ("2 x 2").
+    Try a bottom corner: only the width changes. Hold **Shift**: it keeps
+    its shape. Ctrl+Z.
+92. Turn the big crate with the ring, then click a corner of it where
+    it's drawn now: it's selected, and its yellow outline is turned too.
+    Ctrl+Z.
+93. Press **V**. Press on empty sky to the left of the small crate and
+    drag a box round the crate and the coin above it. Let go: both are
+    selected, and the Inspector says "2 objects", with "Solid" half-ticked
+    (one is solid, the other isn't). Hold Shift and drag another box round
+    the sign: now three.
+94. With the three selected, in the Inspector: **Layer** front, then
+    **Size** x 2. All three change. Ctrl+Z twice.
+95. **Ctrl+D**: a copy of each appears one grid square to the right,
+    and the copies are selected. **Delete**: they go. Ctrl+Z brings them
+    back; Ctrl+Z again takes the copies away.
+96. Click the sign. Press the **right arrow** three times: it moves a
+    pixel each time. **Shift+right arrow**: a whole grid square. One
+    Ctrl+Z puts all four back.
+97. Click the duck (it has walked since the start) and press the left
+    arrow: the status bar says "Move duck for this run", and in Notepad
+    `pond.json` still says where it starts. Ctrl+Z.
+98. Click the sign, **Ctrl+C**, point at the sky, **Ctrl+V**: a copy of
+    the sign where the pointer is. Open `scenes/pond.json` in Notepad: its
+    line is there.
+99. Still in Notepad, select the whole line of the bush and copy it
+    (Ctrl+C). Back in the Studio, point at the sky and Ctrl+V: a bush
+    appears there. The other way: click the crate in the Studio, Ctrl+C,
+    then paste in a new Notepad window: you get the crate's line.
+100. Click the coin above the crate and press **Ctrl+X**: it's gone. Point
+     somewhere else and Ctrl+V: it's back, there.
+101. Press **+ Add**. Text, Button and Sound are greyed: hold the pointer
+     on them to see which step brings them. Click **Picture**, choose
+     `assets/crate.png` under "Which picture", and **Add it**: a crate in
+     the middle of the view, selected.
+102. **+ Add**, **Area**, Add it: a dashed light-blue box. The Inspector
+     has **Box** w and h; make w 64. Drag it somewhere. Press Tab: the game
+     doesn't draw it. Freeze again: it's dashed again.
+103. **+ Add**, **Background**, choose `assets/hills.png`, Add it: hills
+     appear behind the duck. Walk a little: they move slower than the
+     ground. Ctrl+Z.
+104. **+ Add**, **Tile map**: "Which level" lists `level.txt`. Cancel.
+105. Type `coin` in "Find an object...": only the coins and the coin icon
+     are listed. Clear it.
+106. Drag the **bush** row up the list, above **duck**: a yellow line
+     shows where it'll go. Let go: the bush is now drawn behind the duck.
+     Ctrl+Z: in front again.
+107. Right-click **big crate** in the list: Rename, Duplicate, Copy,
+     Delete and four ways to reorder. Choose "Send to the back (drawn
+     first)": it moves to the top of the list. Ctrl+Z.
+108. **Ctrl+A** selects every object but the ground, the sky and the
+     hills. **Esc** selects nothing.
+109. After all that, Tab: it plays on from the same frame. "Restart the
+     game": it starts as the file says now. Check: if it says the
+     recorded playthrough is from an older level, "Record it again".
+110. Your own platformer, or Duck Peaks: Build mode is as it was; R, S,
+     Delete and the arrow keys do nothing to it.
+111. Tell me anything that felt wrong or surprising, especially sizing
+     round the feet (item 91) and pasting from Notepad (item 99).

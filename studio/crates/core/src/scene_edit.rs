@@ -774,6 +774,8 @@ pub fn new_line(kind: &str, at: Vec2, chosen: Option<&str>, layer: &str) -> Map<
             return line;
         }
         "background" => {
+            // Its top edge halfway down the view; it repeats across.
+            line.insert(String::from("at"), pair(Vec2::new(0.0, at.y)));
             if let Some(picture) = chosen {
                 line.insert(String::from("picture"), Value::from(picture));
             }
@@ -1219,7 +1221,10 @@ mod tests {
             r#"{"name": "level2", "kind": "tilemap", "level": "level2.txt"}"#
         );
         let back = new_line("background", at, Some("assets/sky.png"), "far");
-        assert!(duckforge::scene::line_text(&back).contains(r#""layer": "far""#));
+        assert_eq!(
+            duckforge::scene::line_text(&back),
+            r#"{"name": "sky", "kind": "background", "at": [0, 208], "picture": "assets/sky.png", "layer": "far", "parallax": 0.5}"#
+        );
         assert!(plain_kind("text").unwrap().not_yet.is_some());
         assert!(plain_kind("area").unwrap().not_yet.is_none());
         // What the engine reads back is what was meant.

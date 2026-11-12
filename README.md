@@ -181,6 +181,12 @@ the Studio: nothing is added to the engine or to games.
   the outline to change the file, or the object itself to move it for
   this run only. **As it starts** shows the scene as its file has it.
   Selecting the tile map in the list brings back the paint tools.
+  **Turn** (R) and **Size** (S) work round an object's feet; drag on
+  empty space for a box round several; Ctrl+C, Ctrl+V, Ctrl+D, Delete
+  and the arrow keys do what they usually do (copied objects can be
+  pasted into a scene file in Notepad, and back). **+ Add** puts in a
+  picture, an area, a background or a tile map, and rows of the Scene
+  list can be dragged to change what's drawn in front.
 - **Files** (a tab beside Feel in Build mode) shows the game's own folder
   as a tree: click a picture to see it, a sound to hear it, anything else
   opens in its own program. Drop files on the game's screen from File
@@ -221,8 +227,9 @@ cargo run --release -p studio_app
 `docs/phase4-design.md` is the design, and `docs/studio-screens/` has a
 picture of every screen. `docs/phase5-design.md` is the plan for the next
 phase, a real editor (scenes, objects, an Inspector, a Code panel). Its
-first two steps are built: **scenes**, below, and selecting and moving
-their objects in the Studio. A scene file saved from outside (Notepad,
+first three steps are built: **scenes**, below, and selecting, moving,
+turning, sizing, adding, copying and deleting their objects in the
+Studio. A scene file saved from outside (Notepad,
 an agent) reaches the game too, frozen or playing, and is a step for
 Undo. Try it with the Scene demo, under "Examples that came with Duck
 Forge".
