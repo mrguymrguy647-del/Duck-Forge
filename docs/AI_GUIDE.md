@@ -1514,6 +1514,13 @@ in the world, with `place` the `Transform` the model is drawn with.
 `duck-mold inspect recipe.toml --sockets` lists every name. The
 turntable puts a hat on `head.top`. Only Duck Mold's `.glb` files load
 (not other glTF or OBJ files); anything else is a `LoadError` saying so.
+**Old and new files.** From Duck Mold 0.5 a `.glb` is laid out as a tree
+of parts, each at the join it turns about (`model.joins`: for every
+part, its `pivot` and the `parent` it hangs from; a socket's `join` is
+the part that carries it). It loads and draws exactly as before, and
+files exported earlier still load (their `joins` is empty). A file from
+a Duck Mold newer than this Duck Forge is refused with a sentence that
+says to update Duck Forge.
 
 **Textures and atlases.** `mesh.with_texture(sprite)` paints a picture on
 it, where its texture coordinates say (every built-in shape has them: a

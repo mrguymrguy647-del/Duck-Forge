@@ -35,6 +35,14 @@
 //!
 //! `duck-mold inspect robot.toml --sockets` lists a model's sockets.
 //!
+//! From Duck Mold's Phase 5 a file is laid out as a tree: every part is
+//! an object of its own, at the join it turns about, hanging from the
+//! part it is joined to. [`GlbModel::joins`] is that tree (what each part
+//! turns about and hangs from), and a socket says which part carries it.
+//! A model is put together at rest when it is loaded, so it loads and
+//! draws as it always did. Files from before still load too; they have
+//! no joins.
+//!
 //! **Which way a model faces.** Duck Mold's directions are Duck Forge's (x
 //! right, y up, z forward, 1 unit about a metre), and a model **faces
 //! forward, +z**, standing on y = 0. So its `left` is -x: its own left.
@@ -58,7 +66,9 @@
 //!
 //! The file format, and what is done to its numbers, is in Duck Mold's
 //! `docs/forge-handoff.md`. In short: a `.glb` is a 12-byte header, a
-//! block of JSON describing the model and a block of plain numbers. glTF's
+//! block of JSON describing the model and a block of plain numbers. A
+//! part's corners are measured from its pivot, and the pivot from the
+//! pivot of the part it hangs from; the reader adds them up. glTF's
 //! "right" is -x where Duck Forge's is +x, so x is negated and each
 //! triangle's last two corners swap, which keeps the corners clockwise
 //! seen from the front. Colours are stored as *linear light* (0 to 1),
@@ -77,9 +87,12 @@ use crate::error::LoadError;
 use crate::math::{Vec3, vec3};
 use crate::render3d::Mesh;
 
-// ==== Duck Mold's .glb reader, version 3 ====================================
+// ==== Duck Mold's .glb reader, version 4 ====================================
 //
-// Version 3: the model's named sockets, in `sockets`, so a game can put a
+// Version 4: files laid out as a tree of parts (Duck Mold's Phase 5), each
+// part an object at the join it turns about: `joins`, and each socket's
+// `join`. Files from before still load, as they always did. Version 3: the
+// model's named sockets, in `sockets`, so a game can put a
 // hat on `head.top`. Version 2: a part made of parts (an "assembly") has a
 // triangle range too, in `assemblies`; and sizes read from the file are
 // checked before they are added or multiplied, so a damaged file is refused
@@ -92,8 +105,10 @@ use crate::render3d::Mesh;
 pub struct GlbModel {
     /// The model's name.
     pub name: String,
-    /// The corner points. Corners in the same place are shared, so a box
-    /// has 8.
+    /// The corner points. Corners of a part that are in the same place
+    /// are shared, so a box has 8. In a file laid out as a tree, no two
+    /// parts share a corner (each part's are next to each other: see
+    /// [`GlbJoin`]), so that a part can move by itself.
     pub vertices: Vec<[f32; 3]>,
     /// The triangles.
     pub triangles: Vec<GlbTriangle>,
@@ -115,6 +130,33 @@ pub struct GlbModel {
     /// path (`left_arm/hand.bottom`). Parts without a name have none
     /// here. Empty for files from before version 3.
     pub sockets: Vec<GlbSocket>,
+    /// The tree the model moves by: one join for every part and every
+    /// assembly, each hanging from the one it is joined to (or inside),
+    /// and always after it in this list, so that one pass from first to
+    /// last meets every join after the one it hangs from. Empty for a
+    /// file that isn't laid out as a tree (from before version 4): such
+    /// a model can be drawn, not posed.
+    pub joins: Vec<GlbJoin>,
+}
+
+/// One join of the model's tree: a part (or an assembly), the point it
+/// turns about, and what it hangs from.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GlbJoin {
+    /// The part's name, as in `parts` and `assemblies`: `head`,
+    /// `left_arm`, `left_arm/hand`.
+    pub name: String,
+    /// The join it hangs from, as a place in `joins`: turning that one
+    /// carries this one along. `None`: it hangs from the model itself.
+    pub parent: Option<usize>,
+    /// The point it turns about, in the model's own space, as the model
+    /// stands at rest: the socket it is joined to, or its own middle.
+    pub pivot: [f32; 3],
+    /// The first of the part's own corners, as a place in `vertices`.
+    pub first_vertex: usize,
+    /// How many corners it has of its own: none for an assembly, whose
+    /// corners are those of the parts inside it.
+    pub vertices: usize,
 }
 
 /// One triangle: three places in `vertices`, clockwise seen from the
@@ -161,6 +203,10 @@ pub struct GlbSocket {
     /// The way it faces, 1 long: something joined there faces the other
     /// way, the two pressed together.
     pub facing: [f32; 3],
+    /// The join that carries it, as a place in `joins`: when that part
+    /// moves, the socket moves with it. `None` for a socket of the whole
+    /// model that no part carries, and in files from before version 4.
+    pub join: Option<usize>,
 }
 
 /// Reads the bytes of a `.glb` file written by Duck Mold.
@@ -195,82 +241,175 @@ pub fn read_duck_mold_glb(bytes: &[u8]) -> Result<GlbModel, String> {
     let gltf: serde_json::Value = serde_json::from_slice(json)
         .map_err(|error| format!("the JSON block is broken: {error}"))?;
 
-    // ---- The description. Duck Mold writes one mesh with one list of
-    // triangles.
+    // ---- The description. Version 0 of it (Duck Mold's Phases 0 to 4)
+    // is one object with one list of triangles. Version 1 (Phase 5) is a
+    // tree of objects, one for every part, each with its own triangles,
+    // measured from the point the part turns about.
     let extras = &gltf["extras"]["duck_mold"];
-    if extras["version"].as_i64() != Some(0) {
-        return Err("this .glb wasn't written by Duck Mold (no extras.duck_mold version 0)".into());
-    }
-    let primitive = &gltf["meshes"][0]["primitives"][0];
-    if primitive["mode"].as_u64().unwrap_or(4) != 4 {
-        return Err("the mesh isn't a list of triangles".into());
-    }
-    // The numbers 5126 and 5125 are glTF's names for "32-bit decimal"
-    // and "32-bit whole number".
-    let positions = numbers(
-        &gltf,
-        bin,
-        &primitive["attributes"]["POSITION"],
-        "VEC3",
-        5126,
-    )?;
-    let colors = numbers(
-        &gltf,
-        bin,
-        &primitive["attributes"]["COLOR_0"],
-        "VEC3",
-        5126,
-    )?;
-    let indices = numbers(&gltf, bin, &primitive["indices"], "SCALAR", 5125)?;
-    let corner_count = positions.len() / 12;
-    if colors.len() != positions.len() || indices.len() % 12 != 0 {
-        return Err("the lists of positions, colours and triangles don't match".into());
+    let tree = match extras["version"].as_i64() {
+        Some(0) => false,
+        Some(1) => true,
+        Some(_) => {
+            return Err(
+                "this .glb was written by a newer Duck Mold than this reader knows: update Duck Forge"
+                    .into(),
+            );
+        }
+        None => {
+            return Err(
+                "this .glb wasn't written by Duck Mold (no extras.duck_mold version)".into(),
+            );
+        }
+    };
+
+    // ---- The tree: which object hangs from which, and where each is.
+    // An object's place is its own shift added to those of everything it
+    // hangs from. At rest nothing is turned or stretched: only shifted.
+    let mut pivots: Vec<[f64; 3]> = Vec::new();
+    let mut parents: Vec<Option<usize>> = Vec::new();
+    // The objects in the order of a walk down the tree from the model
+    // (object 0), so each comes after the one it hangs from.
+    let mut walk: Vec<usize> = Vec::new();
+    if tree {
+        let nodes = gltf["nodes"]
+            .as_array()
+            .ok_or("a .glb laid out as a tree has no objects")?;
+        pivots = vec![[0.0; 3]; nodes.len()];
+        parents = vec![None; nodes.len()];
+        let mut reached = vec![false; nodes.len()];
+        let mut waiting = vec![0usize];
+        while let Some(node) = waiting.pop() {
+            let object = nodes
+                .get(node)
+                .ok_or("an object names one that isn't there")?;
+            if std::mem::replace(&mut reached[node], true) {
+                return Err("an object hangs from two others, or from itself".into());
+            }
+            if ["rotation", "scale", "matrix"]
+                .iter()
+                .any(|field| !object[*field].is_null())
+            {
+                return Err(
+                    "an object is turned or stretched at rest, which Duck Mold never writes".into(),
+                );
+            }
+            let mut place = match parents[node] {
+                Some(parent) => pivots[parent],
+                None => [0.0; 3],
+            };
+            match object["translation"].as_array().map(Vec::as_slice) {
+                None => {}
+                Some([x, y, z]) => match (x.as_f64(), y.as_f64(), z.as_f64()) {
+                    (Some(x), Some(y), Some(z)) => {
+                        // x is negated, like the points.
+                        place = [place[0] - x, place[1] + y, place[2] + z];
+                    }
+                    _ => return Err("an object's place isn't three numbers".into()),
+                },
+                Some(_) => return Err("an object's place isn't three numbers".into()),
+            }
+            // Kept as 32-bit numbers, like every number of the file: the
+            // corners of its part were measured from exactly there.
+            pivots[node] = place.map(|number| f64::from(number as f32));
+            walk.push(node);
+            // Pushed last to first, so they are taken first to last.
+            let children = object["children"]
+                .as_array()
+                .map(Vec::as_slice)
+                .unwrap_or_default();
+            for child in children.iter().rev() {
+                let child = child
+                    .as_u64()
+                    .and_then(|child| usize::try_from(child).ok())
+                    .filter(|child| *child < nodes.len())
+                    .ok_or("an object names one that isn't there")?;
+                parents[child] = Some(node);
+                waiting.push(child);
+            }
+        }
     }
 
-    // ---- Points. glTF's "right" is -x and Duck Forge's is +x, so x is
-    // negated. Corners in the same place become one vertex.
-    let mut vertices: Vec<[f32; 3]> = Vec::new();
-    let mut vertex_of_corner: Vec<usize> = Vec::with_capacity(corner_count);
-    let mut seen: HashMap<[u32; 3], usize> = HashMap::new();
-    for corner in 0..corner_count {
-        let point = [
-            // `+ 0.0` turns -0 into 0, so that the two count as one place.
-            -f32_at(positions, corner * 3) + 0.0,
-            f32_at(positions, corner * 3 + 1) + 0.0,
-            f32_at(positions, corner * 3 + 2) + 0.0,
-        ];
-        let vertex = *seen.entry(point.map(f32::to_bits)).or_insert_with(|| {
-            vertices.push(point);
-            vertices.len() - 1
-        });
-        vertex_of_corner.push(vertex);
-    }
-
-    // ---- Triangles. Negating x turns every triangle inside out, so the
+    // ---- The lumps of triangles: the whole model's in a file from
+    // before; in a tree, each part's own, in the order of `parts`. Each
+    // lump is read the same way.
+    //
+    // Points: glTF's "right" is -x and Duck Forge's is +x, so x is
+    // negated. Corners of a lump in the same place become one vertex.
+    // Triangles: negating x turns every triangle inside out, so the
     // second and third corners swap: that gives Duck Forge's order,
     // clockwise seen from the front. All three corners of a triangle
     // carry the same colour; it is read from the first.
-    let mut triangles = Vec::with_capacity(indices.len() / 12);
-    for triangle in 0..indices.len() / 12 {
-        let corner =
-            |which: usize| u32_at(indices, (triangle * 3 + which) * 4).map(|at| at as usize);
-        let (a, b, c) = (corner(0)?, corner(1)?, corner(2)?);
-        if a >= corner_count || b >= corner_count || c >= corner_count {
-            return Err(format!(
-                "triangle {triangle} names a corner that isn't there"
-            ));
+    let mut vertices: Vec<[f32; 3]> = Vec::new();
+    let mut triangles: Vec<GlbTriangle> = Vec::new();
+    // In a tree: for each object, the name of its part and its corners.
+    let mut named: Vec<Option<(String, usize, usize)>> = vec![None; pivots.len()];
+    if tree {
+        for (list, with_shape) in [(&extras["parts"], true), (&extras["assemblies"], false)] {
+            for entry in list.as_array().map(Vec::as_slice).unwrap_or_default() {
+                let name = entry["name"].as_str().ok_or("a part has no name")?;
+                let node = entry["node"]
+                    .as_u64()
+                    .and_then(|node| usize::try_from(node).ok())
+                    .filter(|node| *node > 0 && *node < pivots.len() && parents[*node].is_some())
+                    .ok_or_else(|| format!("the part \"{name}\" has no object in the tree"))?;
+                if named[node].is_some() {
+                    return Err(format!(
+                        "the part \"{name}\" shares its object with another"
+                    ));
+                }
+                let first_vertex = vertices.len();
+                if with_shape {
+                    // The parts are in the order of their triangles.
+                    if entry["first_triangle"].as_u64() != Some(triangles.len() as u64) {
+                        return Err(format!("the part \"{name}\" isn't where its triangles are"));
+                    }
+                    // (A part with no triangles has no mesh.)
+                    let before = triangles.len();
+                    if let Some(mesh) = gltf["nodes"][node]["mesh"].as_u64() {
+                        add_lump(
+                            &gltf,
+                            bin,
+                            &gltf["meshes"][mesh as usize]["primitives"][0],
+                            pivots[node],
+                            &mut vertices,
+                            &mut triangles,
+                        )?;
+                    }
+                    if entry["triangles"].as_u64() != Some((triangles.len() - before) as u64) {
+                        return Err(format!(
+                            "the part \"{name}\" names triangles that aren't there"
+                        ));
+                    }
+                }
+                named[node] = Some((name.to_owned(), first_vertex, vertices.len() - first_vertex));
+            }
         }
-        triangles.push(GlbTriangle {
-            corners: [
-                vertex_of_corner[a],
-                vertex_of_corner[c],
-                vertex_of_corner[b],
-            ],
-            color: [
-                srgb(f32_at(colors, a * 3)),
-                srgb(f32_at(colors, a * 3 + 1)),
-                srgb(f32_at(colors, a * 3 + 2)),
-            ],
+    } else {
+        add_lump(
+            &gltf,
+            bin,
+            &gltf["meshes"][0]["primitives"][0],
+            [0.0; 3],
+            &mut vertices,
+            &mut triangles,
+        )?;
+    }
+
+    // ---- The joins: every object but the model itself, in the order of
+    // the walk.
+    let mut join_of_node: Vec<Option<usize>> = vec![None; pivots.len()];
+    let mut joins: Vec<GlbJoin> = Vec::new();
+    for &node in walk.iter().skip(1) {
+        let (name, first_vertex, count) = named[node]
+            .take()
+            .ok_or("an object of the tree is no part of the model")?;
+        join_of_node[node] = Some(joins.len());
+        joins.push(GlbJoin {
+            name,
+            parent: parents[node].and_then(|parent| join_of_node[parent]),
+            pivot: pivots[node].map(|number| number as f32 + 0.0),
+            first_vertex,
+            vertices: count,
         });
     }
 
@@ -317,10 +456,23 @@ pub fn read_duck_mold_glb(bytes: &[u8]) -> Result<GlbModel, String> {
             },
             _ => Err(format!("the socket \"{name}\" has no {field}")),
         };
+        // The object that carries it; the model itself carries the rest.
+        let join = match entry["node"].as_u64() {
+            None | Some(0) => None,
+            Some(node) => Some(
+                usize::try_from(node)
+                    .ok()
+                    .and_then(|node| join_of_node.get(node).copied().flatten())
+                    .ok_or_else(|| {
+                        format!("the socket \"{name}\" is on an object that isn't there")
+                    })?,
+            ),
+        };
         sockets.push(GlbSocket {
             name: name.to_owned(),
             at: three("at")?,
             facing: three("facing")?,
+            join,
         });
     }
 
@@ -332,7 +484,80 @@ pub fn read_duck_mold_glb(bytes: &[u8]) -> Result<GlbModel, String> {
         parts,
         assemblies,
         sockets,
+        joins,
     })
+}
+
+/// Reads one lump of triangles (the whole model's in a file from before
+/// version 4, one part's in a tree) and adds its points and triangles to
+/// the model's. `from` is where its points are measured from.
+fn add_lump(
+    gltf: &serde_json::Value,
+    bin: &[u8],
+    primitive: &serde_json::Value,
+    from: [f64; 3],
+    vertices: &mut Vec<[f32; 3]>,
+    triangles: &mut Vec<GlbTriangle>,
+) -> Result<(), String> {
+    if primitive["mode"].as_u64().unwrap_or(4) != 4 {
+        return Err("the mesh isn't a list of triangles".into());
+    }
+    // The numbers 5126 and 5125 are glTF's names for "32-bit decimal"
+    // and "32-bit whole number".
+    let positions = numbers(
+        gltf,
+        bin,
+        &primitive["attributes"]["POSITION"],
+        "VEC3",
+        5126,
+    )?;
+    let colors = numbers(gltf, bin, &primitive["attributes"]["COLOR_0"], "VEC3", 5126)?;
+    let indices = numbers(gltf, bin, &primitive["indices"], "SCALAR", 5125)?;
+    let corner_count = positions.len() / 12;
+    if colors.len() != positions.len() || indices.len() % 12 != 0 {
+        return Err("the lists of positions, colours and triangles don't match".into());
+    }
+    let mut vertex_of_corner: Vec<usize> = Vec::with_capacity(corner_count);
+    let mut seen: HashMap<[u32; 3], usize> = HashMap::new();
+    for corner in 0..corner_count {
+        // Measured from `from` (zero, in a file from before), and
+        // added up with more digits than are kept. `+ 0.0` turns -0
+        // into 0, so that the two count as one place.
+        let point = [
+            (from[0] - f64::from(f32_at(positions, corner * 3))) as f32 + 0.0,
+            (from[1] + f64::from(f32_at(positions, corner * 3 + 1))) as f32 + 0.0,
+            (from[2] + f64::from(f32_at(positions, corner * 3 + 2))) as f32 + 0.0,
+        ];
+        let vertex = *seen.entry(point.map(f32::to_bits)).or_insert_with(|| {
+            vertices.push(point);
+            vertices.len() - 1
+        });
+        vertex_of_corner.push(vertex);
+    }
+    for triangle in 0..indices.len() / 12 {
+        let corner =
+            |which: usize| u32_at(indices, (triangle * 3 + which) * 4).map(|at| at as usize);
+        let (a, b, c) = (corner(0)?, corner(1)?, corner(2)?);
+        if a >= corner_count || b >= corner_count || c >= corner_count {
+            return Err(format!(
+                "triangle {} names a corner that isn't there",
+                triangles.len()
+            ));
+        }
+        triangles.push(GlbTriangle {
+            corners: [
+                vertex_of_corner[a],
+                vertex_of_corner[c],
+                vertex_of_corner[b],
+            ],
+            color: [
+                srgb(f32_at(colors, a * 3)),
+                srgb(f32_at(colors, a * 3 + 1)),
+                srgb(f32_at(colors, a * 3 + 2)),
+            ],
+        });
+    }
+    Ok(())
 }
 
 /// A list of parts (or of assemblies) with their triangles, each checked
@@ -440,7 +665,7 @@ fn srgb(linear: f32) -> u8 {
     (curved * 255.0).round().clamp(0.0, 255.0) as u8
 }
 
-// ==== end of Duck Mold's .glb reader, version 3 =============================
+// ==== end of Duck Mold's .glb reader, version 4 =============================
 
 // ---- Duck Forge's side: files, meshes and parts ------------------------------
 
