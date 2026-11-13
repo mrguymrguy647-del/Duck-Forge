@@ -4562,6 +4562,74 @@ frame, 85.3 to 86.6 for the scene demo's; one run of the Platformer at
 90.9 is the machine). That run also passed the engine's tests five times
 both ways and the Studio's tests, the two new ones among them.
 
+## Step 4: dragging from Files
+
+**One command for every drop.** `files.use` takes a file's place and
+either where in the scene (`at`) or which objects and which box (`ids`,
+`key`). Dragging from Files, dropping from Windows, an agent and a test
+all go through it, and each use is one step of Undo. It works out what
+the file is the same way every time: a `.png` is a picture, unless a
+Duck Quill sheet beside it names it as its image, and then it's the
+sheet (that's what Duck Quill exports, and a duck should come in as a
+duck, not as a strip of frames); a sheet's `.json` is the sheet; a
+`.wav` is a sound; a `.txt` with a `.legend.json` beside it is a level.
+
+**Only what the engine reads.** The engine draws `.png` and plays
+`.wav`. A `.jpg`, `.mp3` or `.ogg` dragged in says that and what to use
+instead, rather than making an object that shows nothing or stays
+silent. Dropped from Windows, such files are still copied into the
+folder, as before Step 4: copying in was always allowed, it just isn't
+an object.
+
+**Files dropped from Windows are copied in first, and stay.** They go
+into `assets/` (where the starters keep pictures and sounds), named as
+they were; a file that's already there with the same bytes is used
+again, so dropping the same picture twice doesn't make `flower 2.png`.
+A sheet brings its picture with it, and its `"image"` is changed if the
+picture had to be renamed. Undo takes the object away and leaves the
+file: it's the person's, it's harmless where it is, and Files' Delete
+(to the Recycle Bin) is there for it. Undoing a copy would also make
+Redo depend on a file outside the game still being there.
+
+**Where it lands.** Dragged from Files, a picture goes on the grid
+point under the pointer, snapped like a move (Alt: free); the dashed
+square shows that point before letting go. Dropped from Windows, it
+goes where Windows says the pointer was, and several go a grid square
+apart; Windows doesn't always tell a window where the pointer is while
+something is dragged in from outside it, so when it doesn't, they go in
+the middle of the view, like + Add. A sound goes in the middle of the
+view (it isn't drawn, so where doesn't matter) and a tile map at the
+top left, as it always is.
+
+**Only while frozen, and only in the scene.** Dropping a picture on a
+playing game copies it in, as before: objects are added only in Build
+mode, where the person can see them and undo. And only onto the game's
+picture: a drop on the panels is a copy into the folder.
+
+**A box takes only its kind.** The Picture box lights yellow for a
+picture or a sheet and red for anything else, saying why ("sign.png
+isn't a sound"), and letting go of the wrong kind does nothing, rather
+than opening a window to say what the red already said. `files.use` with
+the wrong kind still says why, for agents.
+
+**The Sound kind.** `{"kind": "sound", "sound": "assets/music.wav",
+"loops": true, "volume": 0.5}` plays when the scene starts (or when the
+object appears, if it's added while the game runs). It loops if
+`loops`, with the volume, which follows the file while it plays; a
+sound that doesn't loop plays once at full volume, because the engine's
+one-shot sounds have no volume. `"shown": false` silences it, and it
+stops when it's removed or the scene changes the sound. A sound dragged
+in from Files loops, because the design's Sound is music; a sound that
+plays once is the box's other setting. A missing sound is a problem
+with its line, like a missing picture, and the scene plays on silent.
+Recordings keep the sounds' frames, so a replay plays the same music
+from the same frame, and `log.json` lists it.
+
+**Files moves under the Scene list** in a game with scenes, as the
+panel table puts it, so dragging from it into the scene is a short way
+and the Inspector stays open while dragging onto it. The right side
+loses its Files tab there; a game without scenes keeps the tab.
+
 # Models from Duck Mold
 
 Duck Mold (a sister tool: 3D models from text recipes, no window) saves

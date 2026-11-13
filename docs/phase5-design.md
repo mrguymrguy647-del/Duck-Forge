@@ -808,7 +808,7 @@ to copy.
 | 1 | **Scenes in the engine.** The file, `Scene`, drawing in layers, turned and resized pictures, a tile map as an object, `reload` that merges, mistakes in plain words. A small demo game. **Built** | Open the demo in the Studio, play it, edit its scene file in Notepad while it's frozen, and see the change | Stronger |
 | 2 | **Scene list, Inspector, select and move.** The link's new questions, the `object` and `select` commands, snap and grid, Undo, "Starts at and Now". **Built** | Click an object, drag it, change its name, position, picture and layer, undo, and play on from the frozen frame | Stronger |
 | 3 | **The other tools.** Turn, Size, several at once, box select, copy, paste, duplicate, delete, nudge, reorder, Add (plain kinds). **Built** | Build a small picture of a level by hand | Cheaper |
-| 4 | **Dragging from Files.** Onto the scene and onto Inspector boxes, and from Windows | Drag a picture in, drag a sound onto a box | Cheaper |
+| 4 | **Dragging from Files.** Onto the scene and onto Inspector boxes, and from Windows. **Built** | Drag a picture in, drag a sound onto a box | Cheaper |
 | 5 | **Kinds.** `Kind`, `Settings`, `SceneGame`, the Inspector's boxes drawn from the game's own list, "New kind in code", "Show me the code" | Add a kind's skeleton from the Studio, give it a setting in code, and see the box appear | Stronger |
 | 6 | **Ready-made behaviours and saved things.** The eight, one small file and one test each; "Turn into code"; two scene starters | Make a platformer with coins, a snail, a lift and a door, with no code. Turn the snail into code | Cheaper, one behaviour at a time. The first one (platformer player) by the stronger model, as the pattern |
 | 7 | **Several scenes.** `game.json`, numbers, going between scenes, Text and Button, the scene chooser, New scene, the Scenes page, Play this scene | Make a title, a level select and two levels, and play through them | Stronger for the engine half, cheaper for the Scenes page |
@@ -1287,3 +1287,113 @@ judge is whether it feels right. These need your PC, with no terminal:
      Delete and the arrow keys do nothing to it.
 111. Tell me anything that felt wrong or surprising, especially sizing
      round the feet (item 91) and pasting from Notepad (item 99).
+
+## What Step 4 built
+
+In a game with scenes, **Files** sits under the Scene list, as the
+panel table says (the Files tab on the right is for games without
+scenes). Its pictures, sounds and levels can be dragged:
+
+- into the frozen scene: a dashed square on the grid point where it will
+  go, the label "Let go to add "crate" here 304, 104", and the help strip
+  along the bottom of the view. A picture or a Duck Quill sheet becomes a
+  Picture object there, named after the file; a sound becomes a **Sound**
+  object (music: it loops, and it sits in the middle of the view, where
+  it doesn't matter); a level's `.txt` becomes a Tile map.
+- onto the Inspector's **Picture** box (one object, or several): it
+  lights up yellow, "Let go to use bush.png", and that object gets the
+  picture. The **Sound** box of a Sound object works the same way. The
+  wrong kind of file lights it red ("sign.png isn't a sound") and
+  letting go changes nothing.
+
+Pictures and sounds dropped on the frozen scene from File Explorer are
+copied into `assets/` first, then added where they were let go (several
+side by side). Other files, or a drop while the game plays, are only
+copied in, as before. **+ Add** has Sound now, with "Which sound". A
+Sound object's Inspector has its Sound, a Play button, "Plays over and
+over (music)" and Volume. All of it is one command, `files.use`, one step
+of Undo each. Pictures 39 to 46 in `docs/studio-screens/` are the real
+screens (23 to 38 were taken again, with Files on the left);
+`docs/decisions.md` ("Step 4: dragging from Files") says why.
+
+Different from the plan, on purpose:
+
+- **Only `.png` pictures and `.wav` sounds** can be dropped in: they're
+  what the engine reads. An `.mp3` or `.ogg` (or a `.jpg`) says so and
+  what to use instead, rather than being copied in to do nothing.
+- **A file copied in from Windows stays in `assets/` after Undo.** Undo
+  takes the object away; the file is the person's, and Files' own Delete
+  is there for it.
+- **A sound dragged into the scene loops**, because the design's line for
+  it is music. Untick "Plays over and over" for a sound that plays once
+  when the scene starts.
+
+## What you test on Windows after Step 4
+
+GitHub's Windows machine runs a test that does most of this with a
+pretend mouse on the real Scene demo (crate.png into the sky, bush.png
+onto the sign's Picture box, music.wav into the scene, coin.wav onto its
+Sound box, a picture onto a Sound box, a picture "dropped from File
+Explorer", Add's Sound, and Ctrl+Z after each), and one that does the
+same through commands, plays on and replays the session to the same
+picture and the same sounds. What it can't do is hear the music or drag
+a real file out of a real File Explorer. These need your PC, with no
+terminal:
+
+112. Open **Scene demo** and press Tab. Under the Scene list, on the
+     left, there's **Files** with the game's folder; the right side has
+     Inspector and Feel, and no Files tab.
+113. Drag **crate.png** from Files over the game. A dashed yellow square
+     follows the pointer on the grid, with "Let go to add "crate" here"
+     and where; the bottom of the view says what you can drop where. Let
+     go in the sky: a crate is there, selected, and the Scene list has it
+     at the bottom. Ctrl+Z: gone.
+114. Drag crate.png out and back onto the Files panel and let go there:
+     nothing happens.
+115. Click the sign. Drag **bush.png** onto the Inspector's **Picture**
+     box: it lights up yellow, "Let go to use bush.png". Let go: the sign
+     is a bush. Ctrl+Z.
+116. Drag **hero.png** into the scene: a second duck, not a strip of
+     pictures, because the Duck Quill sheet beside it (`hero.json`) comes
+     with it. The Inspector has its Animation box. Ctrl+Z.
+117. Drag **music.wav** into the scene: "music", a Sound object, is
+     selected. The Inspector has Sound, **Play**, "Plays over and over
+     (music)" ticked, and Volume. Click Play: you hear it once. Press
+     Tab: the music plays, over and over. Tab to freeze, drag Volume
+     well to the left, Tab again: the music carries on, quieter. Tab to
+     freeze.
+118. Drag **coin.wav** onto its **Sound** box: yellow, then the setting is
+     coin.wav. Drag **sign.png** onto the same box: it goes red, "sign.png
+     isn't a sound", and letting go changes nothing.
+119. Untick "Plays over and over" and press Tab: the coin sounds once.
+     Click "Restart the game": once more, as the scene starts. Freeze,
+     and Ctrl+Z until the music object is gone (the status bar says what
+     each undid).
+120. Select two crates (Shift+click), drag **sign.png** onto the Picture
+     box: both are signs. Ctrl+Z.
+121. **+ Add**: Sound isn't greyed any more. Click it: "Which sound" lists
+     the game's `.wav` files. Choose music.wav, Add it. Ctrl+Z.
+122. In File Explorer, find any small `.png` picture outside the game's
+     folder (one from your Pictures folder). Drag it onto the frozen
+     game: the window says "Drop pictures and sounds to add them to the
+     scene. They're copied into assets/ first." Let go over the sky: it
+     appears where you let go, the status bar says "Copied it in as
+     assets/...", and Files shows it in `assets`. Ctrl+Z: the object goes,
+     the file stays.
+123. Drop the same picture again: it's added again, and Files has no
+     second copy of it.
+124. Drop a `.wav` from File Explorer on the game: a Sound object. Ctrl+Z.
+125. Drop an `.mp3` (any song) on the frozen game: it's copied into the
+     folder like any other file, and no object is added. Drag it from
+     Files into the scene: the Studio says it can't use an .mp3 and to
+     use a .wav.
+126. Press Tab and drop a picture from File Explorer while the game
+     plays: it's only copied in (Files shows it), as before Step 4.
+127. After all that, Check: it passes, or says the recorded playthrough is
+     from an older level ("Record it again").
+128. Your own platformer, or Duck Peaks (games without scenes): Files is
+     still a tab on the right, and dropping a file copies it in as
+     before.
+129. Tell me anything that felt wrong or surprising, especially where a
+     picture lands when you let go (items 113 and 122), and whether a
+     dragged sound should loop (item 117).
