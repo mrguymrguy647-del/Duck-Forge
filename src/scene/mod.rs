@@ -619,8 +619,15 @@ impl Scene {
     /// Every object whose kind is one of the game's scripts runs it: in the
     /// order of their ids, each started just before its first update.
     fn run_scripts(&mut self, ctx: &mut Context) {
-        if self.scripts.is_empty() && self.running.is_empty() {
-            return; // a scene with no scripts does nothing more
+        // The usual case, every update: no object has a script. Found
+        // without making anything.
+        if self.running.is_empty()
+            && !self
+                .objects
+                .iter()
+                .any(|object| self.scripts.has(&object.kind))
+        {
+            return;
         }
         // An object that's gone, or has another kind now, stops its script.
         let objects = &self.objects;
