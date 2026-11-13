@@ -1774,6 +1774,15 @@ agent might meet:
   outside the game's folder (`"C:/Users/me/flower.png"`) is copied into
   `assets/` first, and stays there after Undo. Only `.png` pictures and
   `.wav` sounds can be used; anything else says so.
+  Scripts (section 14): `{"do": "script.new", "name": "bee", "folder":
+  "scripts"}` writes `scripts/bee.rs` from the skeleton, adds it to the
+  game's `scripts.rs` and opens it in the code editor (the game builds it
+  in and comes back to the same frozen frame by itself);
+  `{"do": "files.use", "path": "scripts/bee.rs", "ids": [4]}` gives
+  object 4 the script (without `ids`, with `at`: a new object with it);
+  `{"do": "script.remove", "ids": [4]}` takes it off with its settings.
+  Its settings are set like any key: `{"do": "object.set", "ids": [4],
+  "set": {"speed": 60}}`.
 
 `docs/phase4-design.md` has the whole design, and
 `docs/phase5-design.md` the plan for the editor.
@@ -1877,6 +1886,65 @@ walked on, stays where it is, and `scene.starts_as(duck)` has where the
 file now says it starts. New objects appear, objects taken out go, and
 an object the game removed (a coin that was taken) stays gone. A file
 that isn't JSON changes nothing until it reads again.
+
+**Scripts: code for one object.** A script is a type with `Script`, in a
+file of its own; an object whose `"kind"` names it runs it. Duck Forge
+Studio makes them (Files, right-click, New script) and keeps their list in
+the game's `scripts.rs`; the scene demo's `scripts/bob.rs` is one:
+
+```rust
+use duckforge::prelude::*;
+
+#[derive(Default)]
+pub struct Bee {
+    speed: f32, // a setting: a box in the Inspector
+    time: f32,  // remembered while the game runs: no box
+}
+
+impl Script for Bee {
+    fn settings(&mut self, s: &mut Settings) {
+        s.number("speed", &mut self.speed, 40.0).range(0.0, 200.0).help("Pixels a second");
+    }
+    fn start(&mut self, me: Id, scene: &mut Scene, ctx: &mut Context) {} // once, first
+    fn update(&mut self, me: Id, scene: &mut Scene, ctx: &mut Context) {
+        self.time += ctx.dt();
+        scene[me].at.x += self.speed * ctx.dt();
+    }
+    // fn draw(&self, me: &Object, scene: &Scene, canvas: &mut Canvas): the
+    // usual is scene.draw_picture(me, canvas).
+}
+```
+
+```rust
+// scripts.rs, beside main.rs (the Studio writes it; by hand is fine):
+#[path = "scripts/bee.rs"]
+mod bee;
+pub fn all() -> Scripts {
+    Scripts::new().add::<bee::Bee>("bee")
+}
+// main.rs: `mod scripts;`, and the scene is given them:
+// Scene::load(file)?.with_scripts(scripts::all())
+```
+
+- A setting is named once, in `settings`, with its field and its value
+  at the start: `number`, `whole`, `flag`, `words`, `choice` (with the
+  words it can be), `colour` (`"#rrggbb"`), `picture`, `sound`; then
+  `.range(low, high)`, `.label("...")`, `.help("...")`, `.group("...")`,
+  `.expert()`. The object's line gives the values: `{"id": 4, "name":
+  "sign", "kind": "bee", "speed": 60}`; one it leaves out is the default.
+  Don't name a setting after a key every object has (`at`, `picture`...).
+- Scripted objects run in the order of their ids, after the scene's
+  camera, each `start` just before its first `update`. When the file
+  changes, running scripts take the new values (their other fields stay);
+  a new `"kind"` starts the new script afresh.
+- `scene.script::<Bee>(id)` (and `script_mut`) reach a script's fields
+  from the game's code. One script per object for now; `"kinds"` is kept
+  for several.
+- A wrong value (`"speed": "fast"`) is a problem with its line, and the
+  default is used.
+- `SceneGame::new("examples/mygame").with_scripts(scripts::all()).run()`
+  is a whole game with no code but its scripts: it plays the scene
+  `game.json` names (`{"first": "level1"}`), or the first in `scenes/`.
 
 **Testing a scene game.** As in section 6, with two additions from the
 demo's `tests.rs`: test what must stay true of the real file (it reads

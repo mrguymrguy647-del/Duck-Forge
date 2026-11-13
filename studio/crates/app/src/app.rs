@@ -746,6 +746,17 @@ impl StudioApp {
             for command in commands {
                 self.run_and_say(command);
             }
+            // Add's New script: Files asks for its name.
+            if self.scene.take_new_script() {
+                let scripts_folder = self
+                    .studio
+                    .open
+                    .as_ref()
+                    .and_then(|open| open.game.folder.as_ref())
+                    .is_some_and(|folder| folder.join("scripts").is_dir());
+                self.files
+                    .new_script(if scripts_folder { "scripts" } else { "" });
+            }
         }
         if let Some(text) = self.copied.take() {
             ui.ctx().copy_text(text);
@@ -1040,6 +1051,14 @@ impl StudioApp {
                         .show(ui, |ui| {
                             ui.add_space(4.0);
                             ui.heading("Files");
+                            // The game's scripts can be dragged onto objects.
+                            self.files.scripts = open
+                                .game
+                                .folder
+                                .as_deref()
+                                .and_then(studio_core::scripts::ScriptsFile::read)
+                                .map(|list| list.entries.into_iter().map(|e| e.path).collect())
+                                .unwrap_or_default();
                             egui::ScrollArea::vertical()
                                 .id_salt("files under the scene list")
                                 .show(ui, |ui| {

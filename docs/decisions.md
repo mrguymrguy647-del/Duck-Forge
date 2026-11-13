@@ -4697,6 +4697,130 @@ bytes bigger for the three games without scenes, which Linux says isn't
 their code; Step 3's run is being run again on today's Windows machine
 to see how much of that is the machine rather than the step.
 
+## Step 5: scripts, the way Unity has them
+
+**A script is a type with `Script`, and an object's `"kind"` names it.**
+The design called the trait `Kind`; it's `Script`, the word Unity users
+and the Studio's screens use, and the file's key stays `"kind"`, so no
+scene file changes. A game's scripts are a `Scripts` list
+(`Scripts::new().add::<bee::Bee>("bee")`) given to its scenes with
+`with_scripts`. It's given, not found by itself: Rust has no way to
+find every type of a kind without a library that runs before `main`, and
+giving the list is one line a beginner never has to write (the Studio
+writes it).
+
+**What a script can say about a setting.** `number`, `whole`, `flag`,
+`words`, `choice`, `colour`, `picture` and `sound`, each with `.range`,
+`.label`, `.help`, `.group` and `.expert`. The design's other boxes
+come with the steps that need them: a point to drag in the view and
+another object (step 6, for the ready-made scripts), a scene (step 7), a
+saved thing (step 6), a key (step 6's player). `.expert()` is noted now
+and hides nothing until Beginner and Expert (step 9).
+
+**When scripts run.** In `scene.update`, after the scene's clock and
+camera and before its sounds, in the order of the objects' ids, as the
+design says, so the file's order never changes how the game plays. A
+script's `start` runs just before its first update. An object a script
+adds starts at the next update; one it removes stops at once. An object
+whose kind changes (in the file, or in code) starts the new script
+afresh. When the scene's file changes, running scripts take their
+objects' values again through the same `settings`, so `speed` changes
+and what the script remembers stays. A copy of a scene (the Studio's
+"As it starts" view is one) starts its scripts again rather than sharing
+them.
+
+**`draw` gets the scene.** The design had `fn draw(&self, me: &Object,
+canvas)`, with the usual drawing its picture. To draw a picture it needs
+the scene's loaded pictures, so it's `draw(&self, me, scene, canvas)`,
+and `scene.draw_picture(me, canvas)` draws it as an object with no
+script is drawn.
+
+**Mistakes in plain words.** A value of the wrong kind for a setting is
+a problem with the object's line ("\"fast bee\"'s \"speed\" should be a
+number, like 40; it's \"fast\", so it has the script's 30") and the
+script uses its default. A script with a setting called `at` (or any key
+every object has), or named after a plain kind, is a problem too.
+
+**The skeleton.** As the design shows it, with one change: it has no
+`start`. An empty `start` with its three inputs unused makes Rust print
+three warnings in the Console for every new script, which would look
+like something went wrong; the comment at the end of the skeleton shows
+what a `start` looks like, and the guide has the rest. `speed` starts at
+0, so a script given to an object never moves anything by surprise, and
+the first thing to try is in the Inspector.
+
+**`scripts.rs` is the Studio's.** It's written whole, the same way every
+time, like a scene file, with `#[rustfmt::skip]` on its list so `cargo
+fmt` leaves it as written. It reads back whatever its shape (a list
+`rustfmt` put on one line, one written by hand), so it can be fixed by
+hand. A script's line names its file with `#[path]`, so a script can be
+in any folder.
+
+**Names.** "Big bee" is the script `big_bee` (its kind and file) and the
+type `BigBee`. The Studio refuses, saying why: no name, a name that
+starts with a number, letters Rust can't use, a word Rust keeps for
+itself (`move`), a plain kind (`sound`), a name Duck Forge already
+gives a type a script uses (`scene` would hide `Scene`), and a name the
+game has already.
+
+**Connecting `main.rs` once, outside Undo.** The first New script in a
+game adds `mod scripts;` after its `use` lines and
+`.with_scripts(scripts::all())` after its one `SceneGame::new(...)` or
+`Scene::load(...)?` (or `.expect(...)`). If there are several, the
+Studio says the line to add and opens `main.rs`, rather than guessing in
+someone's code. Like a file copied in (Step 4), the connection stays
+after Undo: it's harmless, and undoing it would break a game whose
+`main.rs` was edited since.
+
+**Undo never loses code.** Undo of New script takes the script's file to
+the Recycle Bin, not away for good, and so does any Undo that would
+write over a `.rs` file edited since its step: a script written in the
+code editor can always be found again.
+
+**Giving a script to an object.** A Picture or an Area can take one, and
+so can an object that has one (the new script takes its place, and the
+old one's settings go with it: one per object). A tile map, a
+background or a sound already has a job, and a kind the game's code
+looks for (the demo's `"coin"`) is the code's, so the Studio says so
+instead. A script let go on empty space is a new object with it, named
+after it, with a box like an Area's (it has no picture yet), shown
+dashed as an Area is. **Remove** takes the script and its settings off;
+an object with no picture becomes an Area, so it can still be seen and
+picked. A value is saved only when it differs from the script's
+default, so changing a default in the code changes every object still
+using it, as in Unity; the small x beside a box puts the default back.
+
+**Files keeps `scripts.rs` up to date.** Rename moves a script's file and
+its line follows; the script keeps its name, so scenes don't change.
+Delete takes it out of the list, and objects keep their kind (it becomes
+a kind the game's code can still look for). Files also has a right-click
+menu now: New script, New folder, Open, Rename, Delete. The box for a
+name opens as a small window, because at the bottom of a long list it
+was out of sight.
+
+**A new build of a frozen game with scripts comes back to the same
+frame.** Phase 4 kept a finished build behind "New build ready" while
+the game ran. When the game is frozen and has `scripts.rs`, the Studio
+now does "Restart and replay my moves" by itself, from a recording made
+at that moment (so edits made while frozen are in it), and asks the new
+game for its frozen picture, its scripts and its Feel. So a new script,
+or a new setting saved in the code editor, arrives without losing the
+moment. Games without scripts behave as before.
+
+**A replay fix that made it work.** An edit made while frozen is kept on
+the next frame. A replay that stopped on the frozen frame left those
+edits waiting, and made them at the next update, over anything newer.
+Now the game makes them as soon as it reaches that frame
+(`Simulation::catch_up_changes`), as they were made at the time. Replays
+of whole sessions were never affected: they play past that frame.
+
+**The scene demo** has `scripts.rs` and one script, `bob` (an object
+bobs gently where it starts), which no object in `pond.json` has, so the
+demo and its playthroughs are frame for frame what they were. A test
+gives it to the sign and watches it bob. `SceneGame` is built as small
+as step 5 needs: it plays the scene `game.json` names, or the first in
+`scenes/`, with its scripts; several scenes come in step 7.
+
 # Models from Duck Mold
 
 Duck Mold (a sister tool: 3D models from text recipes, no window) saves

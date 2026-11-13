@@ -942,7 +942,7 @@ to copy.
 | 2 | **Scene list, Inspector, select and move.** The link's new questions, the `object` and `select` commands, snap and grid, Undo, "Starts at and Now". **Built** | Click an object, drag it, change its name, position, picture and layer, undo, and play on from the frozen frame | Stronger |
 | 3 | **The other tools.** Turn, Size, several at once, box select, copy, paste, duplicate, delete, nudge, reorder, Add (plain kinds). **Built** | Build a small picture of a level by hand | Cheaper |
 | 4 | **Dragging from Files.** Onto the scene and onto Inspector boxes, and from Windows. **Built** | Drag a picture in, drag a sound onto a box | Cheaper |
-| 5 | **Scripts, the way Unity has them.** `Script`, `Settings`, `Scripts` and `scripts.rs`, `SceneGame`; New script in Files; dragging a script onto an object, onto empty space or onto the Script box; its settings in the Inspector, drawn from the game's own list; Remove; "Open bee.rs". The scene demo gets `scripts.rs` and one script of its own | Right-click in Files, New script "bee", give it to the sign by dragging, type a speed in the Inspector, press Tab and watch the sign go. Add a setting in the code, save, and see its box appear | Stronger |
+| 5 | **Scripts, the way Unity has them.** `Script`, `Settings`, `Scripts` and `scripts.rs`, `SceneGame`; New script in Files; dragging a script onto an object, onto empty space or onto the Script box; its settings in the Inspector, drawn from the game's own list; Remove; "Open bee.rs". The scene demo gets `scripts.rs` and one script of its own. **Built** | Right-click in Files, New script "bee", give it to the sign by dragging, type a speed in the Inspector, press Tab and watch the sign go. Add a setting in the code, save, and see its box appear | Stronger |
 | 6 | **Ready-made behaviours and saved things.** The eight, one small file and one test each; "Turn into code"; two scene starters | Make a platformer with coins, a snail, a lift and a door, with no code. Turn the snail into code | Cheaper, one behaviour at a time. The first one (platformer player) by the stronger model, as the pattern |
 | 7 | **Several scenes.** `game.json`, numbers, going between scenes, Text and Button, the scene chooser, New scene, the Scenes page, Play this scene | Make a title, a level select and two levels, and play through them | Stronger for the engine half, cheaper for the Scenes page |
 | 8 | **Check and bots.** Scene checks, reach with objects, the ready-made bot, problems that select their object, `tools/verify` | Put a coin out of reach and be told which; break a door and be told which | Stronger |
@@ -1557,3 +1557,121 @@ terminal:
 129. Tell me anything that felt wrong or surprising, especially where a
      picture lands when you let go (items 113 and 122), and whether a
      dragged sound should loop (item 117).
+
+## What Step 5 built
+
+Scripts, as section 2 describes them, and as Unity has them:
+
+- **Files** has a right-click menu on every line: **New script...**,
+  New folder..., Open, Rename..., Delete; and a New script button. New
+  script asks for a name in a small window ("bee.rs, with Bee in it"
+  under the box), writes the file in that folder from the skeleton, adds
+  it to `scripts.rs`, and opens it in your code editor. The game builds
+  it in and comes back to the same frozen frame by itself. Scripts are
+  marked "script" in Files.
+- **Dragging a script** from Files onto an object outlines that object
+  ("Let go to give sign the script bee"); letting go gives it the
+  script. On empty space it makes a new object with the script, shown
+  dashed until it has a picture. On the Inspector's **Script** box it
+  goes to the selected object, or to all of them.
+- **The Inspector** has the Script box (with the game's scripts to choose
+  from, and Remove), then the script's settings as boxes, under its name
+  ("Bee (script)"): sliders for numbers with a range, tick boxes, words,
+  choices, colours, pictures and sounds (a file from Files can be
+  dropped on those), each with its help under the pointer and an x to
+  put the script's default back. **Open bee.rs** opens it.
+- **+ Add** has "Your scripts" (an object with that script, in the
+  middle of the view) and New script.
+- The engine runs them, the scene demo has `scripts.rs` and its own
+  script (`bob`, on no object yet), and agents have `script.new`,
+  `script.remove` and `files.use` for them.
+
+Pictures 47 to 51 in `docs/studio-screens/` are the real screens;
+`docs/decisions.md` ("Step 5: scripts, the way Unity has them") says why
+each works as it does.
+
+Different from the plan, on purpose:
+
+- **The skeleton has no `start`**: an empty one makes Rust print three
+  warnings for every new script. Its last comment shows what one looks
+  like.
+- **A script's `draw` is given the scene** (`draw(&self, me, scene,
+  canvas)`), which it needs to draw its picture.
+- **Some of section 2's boxes wait for the steps that need them**: a
+  point to drag, another object, a scene, a saved thing and a key.
+- **Renaming a script's file keeps the script's name**, so scenes
+  don't change; deleting it leaves objects with that kind as it is.
+- **A new build of a frozen game with scripts comes back to the same
+  frame by itself**, where Phase 4 waited behind "New build ready".
+
+## What you test on Windows after Step 5
+
+GitHub's Windows machine runs a test that does most of this with a
+pretend mouse on the real Scene demo (New script from the right-click
+menu, building it in, dragging it onto the sign, a speed that moves the
+sign, another script dropped on the Script box, Add's "Your scripts",
+and Undo back to the start), and one that does it through commands. What
+it can't do is open your code editor, or let you change the code and
+see it. These need your PC, with no terminal:
+
+130. Open **Scene demo** and press Tab. In Files (bottom left), open the
+     **scripts** folder: `bob.rs` is there, marked "script".
+131. Right-click **scripts** in Files: a menu with **New script...**, New
+     folder..., Rename... and Delete. Choose **New script...**. A small
+     window asks for its name. Type `big bee`: under the box it says
+     "big_bee.rs, with BigBee in it". Type `sound` instead: it says Duck
+     Forge already has a kind called "sound". Type `bee` and press
+     **OK**.
+132. Your code editor opens `bee.rs` (if Windows asks which program to
+     use, choose yours, or Notepad). Read it: the comments say what each
+     part does. Leave it open.
+133. Back in the Studio, the status bar says "New script bee:
+     scripts/bee.rs. Building it in...". Within a few seconds (longer the
+     very first time) the game comes back to the same frozen frame, and
+     `bee.rs` is in Files, marked "script".
+134. Drag **bee.rs** from Files onto the **sign** in the game: the sign
+     gets a yellow outline and "Let go to give sign the script bee". Let
+     go. Click the sign: the Inspector says Kind: bee, Script **bee**,
+     and under **Bee (script)** a box **speed** at 0.
+135. Make speed **60** (drag the number, or double-click it and type).
+     Press Tab: the sign slides right. Press Tab again to freeze.
+     Ctrl+Z twice: speed and script are gone from the sign (it stays
+     where it slid to in this run; "Restart the game" puts it back).
+136. Give the sign bee again. In your code editor, add a second setting
+     under speed: in `pub struct Bee`, the line `fall: f32,`; in
+     `settings`, the line
+     `s.number("fall", &mut self.fall, 0.0).range(0.0, 100.0);`; in
+     `update`, the line `scene[me].at.y += self.fall * ctx.dt();`. Save.
+     After a few seconds the game comes back to the same frame, and the
+     Inspector has a **fall** slider. Set it to 20 and press Tab: the sign
+     slides down too. (If you made a typing mistake, the Studio says
+     what's wrong instead: fix it and save again.)
+137. Drag **bob.rs** onto the **Script** box in the Inspector: the sign
+     has bob now, with "Bobs up and down by" and "Bobs a second"
+     sliders, and bee's speed and fall are gone from its line in
+     `scenes/pond.json`. Press Tab: it bobs. Freeze.
+138. Drag **bee.rs** onto empty sky: a new object called bee appears
+     there, a dashed box. Drag `crate.png` from Files onto its Picture
+     box: it's a crate that slides right once you give it a speed.
+139. Drag **bee.rs** onto a **coin**: nothing changes, and the Studio
+     says the coin's kind is one the game's code looks for.
+140. Click the sign, then **Remove** beside its Script box: the script
+     and its settings come off; it's a plain picture again.
+141. **+ Add**: under the kinds, "Your scripts" lists bob and bee, and
+     **New script...**. Click **bob**: an object with bob in the middle
+     of the view. Ctrl+Z.
+142. Press Ctrl+Z until the status bar says it undid "New script bee":
+     `bee.rs` is in the Recycle Bin (open it from the desktop to see),
+     with the setting you added, and `scripts.rs` lists only bob.
+143. New script `wasp`, then right-click `wasp.rs` in Files,
+     **Rename...**, call it `hornet.rs`. Open `scripts.rs` in Notepad: its
+     line now says `scripts/hornet.rs`, and the game still builds. Right-
+     click `hornet.rs`, **Delete**: it goes to the Recycle Bin, and
+     `scripts.rs` lists only bob again.
+144. "Restart the game", then Check: it passes (or says the playthrough
+     is from an older level: "Record it again").
+145. Your own platformer, or Duck Peaks (no scenes): Files has its tab on
+     the right as before, and its right-click menu has no New script.
+146. Tell me anything that felt wrong or surprising, especially whether
+     the skeleton's comments were easy to follow (item 132), and how long
+     building a script in took on your PC (item 133).

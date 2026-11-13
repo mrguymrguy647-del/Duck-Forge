@@ -191,6 +191,11 @@ the Studio: nothing is added to the engine or to games.
   scene to add it there, or onto the Inspector's Picture or Sound box to
   give an object that file. Pictures and sounds dropped on the scene from
   File Explorer are copied into `assets/` and added where they land.
+  **Scripts**, the way Unity has them: right-click in Files, **New
+  script**, give it a name, and it opens in your code editor, connected to
+  the game. Drag it onto an object (or onto the Inspector's Script box) to
+  give that object the script; its settings show in the Inspector as
+  boxes. The game builds it in and comes back to the same frozen moment.
 - **Files** (a tab beside Feel in Build mode; under the Scene list in a
   game with scenes) shows the game's own folder
   as a tree: click a picture to see it, a sound to hear it, anything else
@@ -232,9 +237,10 @@ cargo run --release -p studio_app
 `docs/phase4-design.md` is the design, and `docs/studio-screens/` has a
 picture of every screen. `docs/phase5-design.md` is the plan for the next
 phase, a real editor (scenes, objects, an Inspector, a Code panel). Its
-first four steps are built: **scenes**, below, and selecting, moving,
+first five steps are built: **scenes**, below, and selecting, moving,
 turning, sizing, adding, copying and deleting their objects in the
-Studio, and dragging pictures and sounds in from Files or from Windows. A scene file saved from outside (Notepad,
+Studio, dragging pictures and sounds in from Files or from Windows, and
+scripts: code for one object, made and given to objects from the Studio. A scene file saved from outside (Notepad,
 an agent) reaches the game too, frozen or playing, and is a step for
 Undo. Try it with the Scene demo, under "Examples that came with Duck
 Forge".

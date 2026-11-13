@@ -1090,6 +1090,10 @@ impl Play {
             self.frozen_picture = waiting.updates == 0 && self.state != PlayState::Replaying;
             if self.state == PlayState::Replaying {
                 self.state = PlayState::Frozen; // caught up: wait here
+                // A frozen picture of it, which says where its objects are,
+                // and its Feel values and sounds, as a freeze has them.
+                self.redraw();
+                self.ask_about_feel();
             } else {
                 self.samples.push_back(Sample {
                     at: now,

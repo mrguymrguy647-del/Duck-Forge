@@ -25,6 +25,7 @@ use crate::files_panel::{self, DraggedFile};
 use crate::keys::Placement;
 use crate::theme;
 use studio_core::game_files::FileKind;
+use studio_core::scripts::{ScriptsFile, SettingInfo};
 
 /// The first stroke number of this panel, well away from the ones paint
 /// strokes and Feel's sliders count up from: two edits join one Undo step
@@ -147,11 +148,15 @@ pub struct ScenePanel {
     animations: HashMap<PathBuf, Vec<String>>,
     /// The game's sounds, like `pictures`.
     sounds: Option<(PathBuf, Instant, Vec<String>)>,
+    /// The game's `scripts.rs`, read again every second.
+    scripts: Option<(PathBuf, Instant, ScriptsFile)>,
     /// The last nudge with the arrow keys: its stroke, when, and what it
     /// moved.
     nudge: Option<(u64, Instant, Vec<u64>)>,
     /// The Add window, while it's open.
     adding: Option<Adding>,
+    /// Add's New script was pressed: the app asks for the name in Files.
+    new_script: bool,
     /// The Scene list's search.
     find: String,
     /// Objects being dragged up or down the Scene list.
@@ -169,8 +174,10 @@ impl Default for ScenePanel {
             pictures: None,
             animations: HashMap::new(),
             sounds: None,
+            scripts: None,
             nudge: None,
             adding: None,
+            new_script: false,
             find: String::new(),
             list_drag: None,
         }
@@ -258,6 +265,19 @@ fn take_drop(
             key: Some(String::from(key)),
         });
     }
+}
+
+/// The object of the scene's file under the pointer, which a script let
+/// go there goes onto.
+fn script_target(
+    open: &OpenGame,
+    drawn: &duckforge::scene::drawn::DrawnScene,
+    placement: Placement,
+    pointer: Pos2,
+) -> Option<u64> {
+    let doc = open.scene.as_ref()?;
+    scene_edit::object_at(drawn, placement.to_game(pointer), None)
+        .filter(|id| doc.object(*id).is_some())
 }
 
 /// A point of the canvas, on screen.
@@ -1211,7 +1231,33 @@ impl ScenePanel {
             let at = open
                 .view
                 .place(drawn.to_scene(placement.to_game(pointer)), alt);
+            // A script goes onto the object under the pointer (one of the
+            // file's), or makes a new one there.
+            let onto = (file.kind == FileKind::Code)
+                .then(|| script_target(open, drawn, placement, pointer))
+                .flatten();
+            if let Some(object) = onto.and_then(|id| drawn.object(id))
+                && let Some(shape) = scene_edit::shape(object)
+            {
+                outline(
+                    &painter,
+                    screen_corners(placement, shape),
+                    Stroke::new(3.0, theme::DUCK_YELLOW),
+                    false,
+                );
+            }
             let words = match file.kind {
+                FileKind::Code => match onto.and_then(|id| drawn.object(id)) {
+                    Some(object) => {
+                        format!("Let go to give {} the script {}", object.name, file.stem())
+                    }
+                    None => format!(
+                        "Let go to add an object with the script {} here   {}, {}",
+                        file.stem(),
+                        at.x,
+                        at.y
+                    ),
+                },
                 FileKind::Sound => format!(
                     "Let go to add the sound \"{}\": it plays when the scene starts",
                     file.stem()
@@ -1224,7 +1270,7 @@ impl ScenePanel {
                     at.y
                 ),
             };
-            if file.kind == FileKind::Picture {
+            if file.kind == FileKind::Picture || (file.kind == FileKind::Code && onto.is_none()) {
                 // A dashed outline on the grid point where it will go.
                 let here = screen_point(placement, at * drawn.scale + drawn.offset);
                 let outline = Rect::from_center_size(here, vec2(40.0, 40.0));
@@ -1264,6 +1310,12 @@ impl ScenePanel {
                     "Dragging {} from Files. Drop it in the scene to add it as a tile map.",
                     file.name()
                 ),
+                FileKind::Code => format!(
+                    "Dragging the script {} from Files. Drop it on an object to give it this \
+                     script, on empty space for a new object with it, or on the Script box in \
+                     the Inspector.",
+                    file.name()
+                ),
                 _ => format!(
                     "Dragging {} from Files. Drop it in the scene to add it as an object, or on \
                      a Picture box in the Inspector to give that object this picture. A sound \
@@ -1287,8 +1339,20 @@ impl ScenePanel {
         }
         if let Some(file) = response.dnd_release_payload::<DraggedFile>() {
             let pointer = ui.input(|i| i.pointer.latest_pos());
+            let onto = pointer
+                .filter(|_| file.kind == FileKind::Code)
+                .and_then(|pointer| script_target(open, drawn, placement, pointer));
+            if let Some(id) = onto {
+                commands.push(Command::FilesUse {
+                    path: file.path.clone(),
+                    at: None,
+                    ids: vec![id],
+                    key: None,
+                });
+                return commands;
+            }
             let at = pointer
-                .filter(|_| file.kind == FileKind::Picture)
+                .filter(|_| matches!(file.kind, FileKind::Picture | FileKind::Code))
                 .map(|pointer| {
                     let at = open
                         .view
@@ -1313,7 +1377,23 @@ impl ScenePanel {
                 scene_edit::object_at(drawn, point, None)
                     .or_else(|| scene_edit::start_at(drawn, point))
             });
-        draw_outlines(&painter, placement, drawn, &open.selected, hovered);
+        // Objects the game draws nothing for (an Area, an object with a
+        // script and no picture) are dashed, so they can be seen.
+        let unseen: Vec<u64> = doc
+            .file
+            .as_ref()
+            .map(|file| {
+                file.objects
+                    .iter()
+                    .filter(|object| {
+                        object.picture.is_none()
+                            && !matches!(object.kind.as_str(), "tilemap" | "background" | "sound")
+                    })
+                    .map(|object| object.id().number())
+                    .collect()
+            })
+            .unwrap_or_default();
+        draw_outlines(&painter, placement, drawn, &open.selected, hovered, &unseen);
         if let Some(from) = arrows {
             draw_arrows(&painter, from, hover);
         }
@@ -1499,13 +1579,48 @@ impl ScenePanel {
                     }
                 });
             }
+            // The game's own scripts: an object with one, in the middle.
+            if let Some(folder) = &folder
+                && open.scene.is_some()
+            {
+                let list = self.scripts_of(folder);
+                ui.add_space(6.0);
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new("Your scripts").strong());
+                    for entry in &list.entries {
+                        if ui
+                            .button(&entry.name)
+                            .on_hover_text(format!(
+                                "An object with the script {}, in the middle of the view",
+                                entry.name
+                            ))
+                            .clicked()
+                        {
+                            commands.push(Command::FilesUse {
+                                path: entry.path.clone(),
+                                at: None,
+                                ids: Vec::new(),
+                                key: None,
+                            });
+                            keep = false;
+                        }
+                    }
+                    if ui
+                        .button("New script...")
+                        .on_hover_text("Code for one object: it opens in your code editor")
+                        .clicked()
+                    {
+                        self.new_script = true;
+                        keep = false;
+                    }
+                });
+            }
             ui.add_space(6.0);
             ui.label(
                 RichText::new(
-                    "Text and Button come with several scenes (step 7). Ready-made kinds, like \
-                     a player or a moving platform, come in step 6, and kinds written in your \
-                     own code in step 5. You can also drag a picture or a sound from Files \
-                     straight into the scene.",
+                    "Text and Button come with several scenes (step 7), and ready-made scripts, \
+                     like a player or a moving platform, in step 6. You can also drag a picture, \
+                     a sound or a script from Files straight into the scene.",
                 )
                 .weak()
                 .small(),
@@ -1765,6 +1880,350 @@ impl ScenePanel {
         commands
     }
 
+    /// The game's `scripts.rs`, read again every second.
+    fn scripts_of(&mut self, folder: &Path) -> ScriptsFile {
+        let fresh = self
+            .scripts
+            .as_ref()
+            .is_some_and(|(of, when, _)| of == folder && when.elapsed() < Duration::from_secs(1));
+        if !fresh {
+            let list = ScriptsFile::read(folder).unwrap_or_default();
+            self.scripts = Some((folder.to_path_buf(), Instant::now(), list));
+        }
+        self.scripts
+            .as_ref()
+            .map_or_else(ScriptsFile::default, |(_, _, list)| list.clone())
+    }
+
+    /// An object's Script box (a script from Files can be dropped on it),
+    /// and its script's settings as boxes, as Unity shows a script's public
+    /// values.
+    fn script_boxes(&mut self, ui: &mut egui::Ui, open: &OpenGame, start: &Object) -> Vec<Command> {
+        let mut commands = Vec::new();
+        let Some(folder) = open.game.folder.as_deref() else {
+            return commands;
+        };
+        if open.scene.is_none() {
+            return commands;
+        }
+        let list = self.scripts_of(folder);
+        let has = list.get(&start.kind).cloned();
+        // A tile map, a sound, a background has a job already; a kind the
+        // game's code looks for keeps it.
+        if has.is_none() && !matches!(start.kind.as_str(), "picture" | "area") {
+            return commands;
+        }
+        let id = start.id().number();
+        ui.horizontal(|ui| {
+            ui.label("Script");
+            let shown = has.as_ref().map_or("(none)", |entry| entry.name.as_str());
+            let combo = egui::ComboBox::from_id_salt("script")
+                .selected_text(shown)
+                .width(130.0)
+                .show_ui(ui, |ui| {
+                    if ui.selectable_label(has.is_none(), "(none)").clicked() && has.is_some() {
+                        commands.push(Command::ScriptRemove { ids: vec![id] });
+                    }
+                    for entry in &list.entries {
+                        let chosen = has.as_ref().is_some_and(|has| has.name == entry.name);
+                        if ui.selectable_label(chosen, &entry.name).clicked() && !chosen {
+                            commands.push(Command::FilesUse {
+                                path: entry.path.clone(),
+                                at: None,
+                                ids: vec![id],
+                                key: None,
+                            });
+                        }
+                    }
+                });
+            take_drop(
+                &combo.response,
+                FileKind::Code,
+                &[id],
+                "script",
+                &mut commands,
+            );
+            if has.is_some()
+                && ui
+                    .button("Remove")
+                    .on_hover_text("Takes the script off, with its settings")
+                    .clicked()
+            {
+                commands.push(Command::ScriptRemove { ids: vec![id] });
+            }
+        });
+        let Some(entry) = has else {
+            if list.entries.is_empty() {
+                ui.label(
+                    RichText::new("Make one with New script: right-click in Files.")
+                        .weak()
+                        .small(),
+                );
+            }
+            return commands;
+        };
+        // Its settings.
+        ui.add_space(4.0);
+        ui.label(RichText::new(format!("{} (script)", entry.type_name)).strong());
+        match open
+            .game_scripts()
+            .and_then(|scripts| scripts.get(&entry.name))
+        {
+            Some(info) if info.settings.is_empty() => {
+                ui.label(
+                    RichText::new(
+                        "No settings yet. Name one in its settings, like \
+                         s.number(\"speed\", &mut self.speed, 40.0), and its box appears here.",
+                    )
+                    .weak()
+                    .small(),
+                );
+            }
+            Some(info) => {
+                let mut group: Option<&str> = None;
+                for setting in &info.settings {
+                    if setting.group.as_deref() != group {
+                        group = setting.group.as_deref();
+                        if let Some(heading) = group {
+                            ui.label(RichText::new(heading).small().strong());
+                        }
+                    }
+                    commands.extend(self.setting_box(ui, open, start, setting));
+                }
+            }
+            None => {
+                ui.label(
+                    RichText::new(format!(
+                        "{} is being built in: its boxes appear when the game has it.",
+                        entry.name
+                    ))
+                    .weak()
+                    .small(),
+                );
+            }
+        }
+        let file = entry
+            .path
+            .rsplit('/')
+            .next()
+            .unwrap_or(&entry.path)
+            .to_string();
+        if ui
+            .button(format!("Open {file}"))
+            .on_hover_text("In your code editor")
+            .clicked()
+        {
+            commands.push(Command::FilesOpen {
+                path: entry.path.clone(),
+            });
+        }
+        ui.add_space(6.0);
+        commands
+    }
+
+    /// One setting of an object's script: a box of its kind, showing the
+    /// object's value or the script's default. A value equal to the
+    /// default is taken out of the file, so changing the default in the
+    /// code changes this object too.
+    fn setting_box(
+        &mut self,
+        ui: &mut egui::Ui,
+        open: &OpenGame,
+        start: &Object,
+        setting: &SettingInfo,
+    ) -> Vec<Command> {
+        let mut commands = Vec::new();
+        let id = start.id().number();
+        let name = setting.name.as_str();
+        let value = start.setting(name).cloned();
+        let current = value.clone().unwrap_or_else(|| setting.default.clone());
+        let mut give = |value: Value, stroke: Option<u64>| {
+            let value = if value == setting.default
+                || (value.as_f64().is_some() && value.as_f64() == setting.default.as_f64())
+            {
+                Value::Null
+            } else {
+                value
+            };
+            commands.push(Command::ObjectSet {
+                ids: vec![id],
+                set: set_of(name, value),
+                stroke,
+            });
+        };
+        let folder = open.game.folder.clone();
+        ui.horizontal(|ui| {
+            let label = ui.label(setting.title());
+            if let Some(help) = &setting.help {
+                label.on_hover_text(help);
+            }
+            match setting.kind.as_str() {
+                "number" => {
+                    let mut n = current.as_f64().unwrap_or(0.0);
+                    let response = match setting.range {
+                        Some([low, high]) => {
+                            ui.add(egui::Slider::new(&mut n, f64::from(low)..=f64::from(high)))
+                        }
+                        None => ui.add(egui::DragValue::new(&mut n).speed(0.5)),
+                    };
+                    let stroke = self.stroke_of(&response);
+                    if response.changed() {
+                        give(number((n * 100.0).round() / 100.0), stroke);
+                    }
+                }
+                "whole" => {
+                    let mut n = current.as_i64().unwrap_or(0);
+                    let response = ui.add(egui::DragValue::new(&mut n).speed(0.2));
+                    let stroke = self.stroke_of(&response);
+                    if response.changed() {
+                        give(json!(n), stroke);
+                    }
+                }
+                "flag" => {
+                    let mut on = current.as_bool().unwrap_or(false);
+                    if ui.checkbox(&mut on, "").changed() {
+                        give(json!(on), None);
+                    }
+                }
+                "choice" => {
+                    let now = current.as_str().unwrap_or_default().to_string();
+                    egui::ComboBox::from_id_salt(("choice", name))
+                        .selected_text(&now)
+                        .show_ui(ui, |ui| {
+                            for choice in &setting.choices {
+                                if ui.selectable_label(*choice == now, choice).clicked()
+                                    && *choice != now
+                                {
+                                    give(json!(choice), None);
+                                }
+                            }
+                        });
+                }
+                "colour" => {
+                    let word = current.as_str().unwrap_or("#ffffff");
+                    let hex = u32::from_str_radix(word.trim_start_matches('#'), 16).unwrap_or(0);
+                    let mut rgb = [(hex >> 16) as u8, (hex >> 8) as u8, hex as u8];
+                    if ui.color_edit_button_srgb(&mut rgb).changed() {
+                        give(
+                            json!(format!("#{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2])),
+                            None,
+                        );
+                    }
+                }
+                kind @ ("picture" | "sound") => {
+                    let now = current.as_str().unwrap_or_default().to_string();
+                    let files = match (&folder, kind) {
+                        (Some(folder), "picture") => self.pictures_of(folder),
+                        (Some(folder), _) => self.sounds_of(folder),
+                        _ => Vec::new(),
+                    };
+                    let combo = egui::ComboBox::from_id_salt((kind, name))
+                        .selected_text(if now.is_empty() { "(none)" } else { &now })
+                        .width(150.0)
+                        .show_ui(ui, |ui| {
+                            for file in &files {
+                                if ui.selectable_label(*file == now, file).clicked() && *file != now
+                                {
+                                    give(json!(file), None);
+                                }
+                            }
+                        });
+                    // A file from Files dropped on the box.
+                    let wants = if kind == "picture" {
+                        FileKind::Picture
+                    } else {
+                        FileKind::Sound
+                    };
+                    let mut dropped = Vec::new();
+                    take_drop(&combo.response, wants, &[id], kind, &mut dropped);
+                    if let Some(Command::FilesUse { path, .. }) = dropped.pop() {
+                        give(json!(path), None);
+                    }
+                }
+                _ => {
+                    // Words.
+                    let now = current.as_str().unwrap_or_default().to_string();
+                    if let TextBox::Done(Some(text)) = self.text_box(ui, id, name, &now, false) {
+                        give(json!(text), None);
+                    }
+                }
+            }
+            if value.is_some() {
+                // Back to the script's value.
+                if ui
+                    .small_button("x")
+                    .on_hover_text(format!("Back to the script's {}", setting.default))
+                    .clicked()
+                {
+                    give(Value::Null, None);
+                }
+            }
+        });
+        commands
+    }
+
+    /// The Script box for several objects: one script for them all.
+    fn script_of_several(
+        &mut self,
+        ui: &mut egui::Ui,
+        open: &OpenGame,
+        objects: &[&Object],
+    ) -> Vec<Command> {
+        let mut commands = Vec::new();
+        let Some(folder) = open.game.folder.as_deref() else {
+            return commands;
+        };
+        let list = self.scripts_of(folder);
+        let can_take = |object: &&Object| {
+            list.get(&object.kind).is_some() || matches!(object.kind.as_str(), "picture" | "area")
+        };
+        if objects.is_empty() || !objects.iter().all(can_take) {
+            return commands;
+        }
+        let ids: Vec<u64> = objects.iter().map(|o| o.id().number()).collect();
+        let first = &objects[0].kind;
+        let same = objects.iter().all(|o| &o.kind == first);
+        let shown = match list.get(first) {
+            Some(entry) if same => entry.name.clone(),
+            _ if same => String::from("(none)"),
+            _ => String::from("(different)"),
+        };
+        ui.horizontal(|ui| {
+            ui.label("Script");
+            let combo = egui::ComboBox::from_id_salt("script of several")
+                .selected_text(shown)
+                .width(130.0)
+                .show_ui(ui, |ui| {
+                    if ui.selectable_label(false, "(none)").clicked() {
+                        commands.push(Command::ScriptRemove { ids: ids.clone() });
+                    }
+                    for entry in &list.entries {
+                        if ui.selectable_label(false, &entry.name).clicked() {
+                            commands.push(Command::FilesUse {
+                                path: entry.path.clone(),
+                                at: None,
+                                ids: ids.clone(),
+                                key: None,
+                            });
+                        }
+                    }
+                });
+            take_drop(
+                &combo.response,
+                FileKind::Code,
+                &ids,
+                "script",
+                &mut commands,
+            );
+        });
+        commands
+    }
+
+    /// Whether Add's New script was pressed (once).
+    pub fn take_new_script(&mut self) -> bool {
+        std::mem::take(&mut self.new_script)
+    }
+
     /// The Inspector: the selected object's settings.
     pub fn inspector(&mut self, ui: &mut egui::Ui, open: &OpenGame) -> Vec<Command> {
         let mut commands = Vec::new();
@@ -1843,6 +2302,7 @@ impl ScenePanel {
             );
         }
         ui.label("Drag one of them in the game to move them all. A change here changes them all.");
+        commands.extend(self.script_of_several(ui, open, &objects));
         let (Some(first), Some(file)) = (objects.first(), &doc.file) else {
             return commands;
         };
@@ -2052,6 +2512,7 @@ impl ScenePanel {
             }
         });
         ui.label(RichText::new(format!("Kind: {}", start.kind)).weak());
+        commands.extend(self.script_boxes(ui, open, start));
         if gone {
             ui.label(
                 RichText::new(
@@ -2119,8 +2580,15 @@ impl ScenePanel {
             );
             ui.add_space(6.0);
         }
-        if start.kind == "area" {
-            // An area has no picture: its box is what it is.
+        let boxed = start.kind == "area"
+            || (start.picture.is_none()
+                && !matches!(
+                    start.kind.as_str(),
+                    "tilemap" | "background" | "sound" | "picture"
+                ));
+        if boxed {
+            // An area (or an object with a script and no picture) has no
+            // picture: its box is what it is.
             let size = start.hitbox.map_or(
                 Vec2::new(scene_edit::AREA_SIZE, scene_edit::AREA_SIZE),
                 |b| Vec2::new(b.w, b.h),
@@ -2330,9 +2798,12 @@ impl ScenePanel {
                 } else {
                     &[]
                 };
+                // So do a script's settings.
+                let of_script = open.script_settings(&start.kind);
                 let names: Vec<String> = start
                     .setting_names()
                     .filter(|name| !shown_above.contains(name))
+                    .filter(|name| !of_script.iter().any(|setting| setting == name))
                     .map(String::from)
                     .collect();
                 if !names.is_empty() {
@@ -2543,6 +3014,7 @@ fn draw_outlines(
     drawn: &DrawnScene,
     selected: &[u64],
     hovered: Option<u64>,
+    unseen: &[u64],
 ) {
     let area_colour = Color32::from_rgba_unmultiplied(120, 220, 255, 170);
     for object in &drawn.objects {
@@ -2602,7 +3074,7 @@ fn draw_outlines(
             outline(painter, points, Stroke::new(2.0, theme::DUCK_YELLOW), false);
         } else if hover {
             outline(painter, points, Stroke::new(1.0, Color32::WHITE), false);
-        } else if object.kind == "area" {
+        } else if object.kind == "area" || unseen.contains(&object.id) {
             outline(painter, points, Stroke::new(1.0, area_colour), true);
         }
     }
