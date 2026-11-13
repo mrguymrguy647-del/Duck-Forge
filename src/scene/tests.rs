@@ -813,3 +813,75 @@ fn tools_add_remove_and_reorder_a_scene_files_objects() {
     assert_eq!(names(&again), names(&file));
     assert_eq!(again.object(Id(7)).unwrap().kind, "area");
 }
+
+#[test]
+fn a_sound_object_plays_when_the_scene_starts_and_follows_its_file() {
+    use crate::simulation::Simulation;
+    let folder = game("scene-sound");
+    let samples = crate::sound::wav_bytes((0..2205).map(|i| (i % 50) as i16 * 100), 2205);
+    std::fs::write(folder.join("assets/music.wav"), &samples).unwrap();
+    std::fs::write(folder.join("assets/ding.wav"), &samples).unwrap();
+    let (path, _) = one_scene(&folder);
+    let name = crate::files::name_of(&path);
+    let text = |music: &str| {
+        format!(
+            r##"{{"duckforge_scene": 1, "objects": [
+            {{"id": 1, "name": "duck", "at": [20, 40], "picture": "assets/blue.png"}},
+            {music}
+            {{"id": 6, "name": "ding", "kind": "sound", "sound": "assets/ding.wav"}}]}}"##
+        )
+    };
+    std::fs::write(
+        &path,
+        text(r#"{"id": 5, "name": "music", "kind": "sound", "sound": "assets/music.wav", "loops": true, "volume": 0.5},"#),
+    )
+    .unwrap();
+    let scene = Scene::load(&path).unwrap();
+    assert!(scene.problems().is_empty(), "{:?}", scene.problems());
+    let mut sim = Simulation::new(small_screen(), OneScene { scene });
+    sim.run(3);
+    // The music loops from the first update; the ding plays once.
+    let loops = sim.loops().to_vec();
+    assert_eq!(loops.len(), 1);
+    assert_eq!(
+        (loops[0].name.as_str(), loops[0].start, loops[0].stop),
+        ("music", 1, None)
+    );
+    assert_eq!(loops[0].volumes, [(1, 0.5)]);
+    assert_eq!(sim.sound_frames("ding"), [1]);
+
+    // Louder, from the file: the same loop, a new volume.
+    let louder = text(
+        r#"{"id": 5, "name": "music", "kind": "sound", "sound": "assets/music.wav", "loops": true, "volume": 1},"#,
+    );
+    assert!(sim.change_file(&name, &louder));
+    sim.run(2);
+    assert_eq!(sim.loops().len(), 1);
+    assert_eq!(sim.loops()[0].volumes, [(1, 0.5), (4, 1.0)]);
+    assert_eq!(sim.sound_frames("ding"), [1], "the ding isn't played again");
+
+    // Hidden: it stops. Taken out of the file: nothing starts again.
+    let hidden = text(
+        r#"{"id": 5, "name": "music", "kind": "sound", "sound": "assets/music.wav", "loops": true, "shown": false},"#,
+    );
+    assert!(sim.change_file(&name, &hidden));
+    sim.run(1);
+    assert_eq!(sim.loops()[0].stop, Some(6));
+    assert!(sim.change_file(&name, &text("")));
+    sim.run(2);
+    assert_eq!(sim.loops().len(), 1);
+
+    // A sound that isn't there is said, with its line, and is silent.
+    // (A file of its own: the one above is read from the change now.)
+    let missing = text(
+        r#"{"id": 5, "name": "music", "kind": "sound", "sound": "assets/gone.wav", "loops": true},"#,
+    );
+    let other = folder.file("scenes/missing.json", &missing);
+    let scene = Scene::load(&other).unwrap();
+    let said = scene.problems().join("\n");
+    assert!(
+        said.contains("line 3") && said.contains("\"music\" has the sound \"assets/gone.wav\""),
+        "{said}"
+    );
+    assert!(said.contains("so it's silent"), "{said}");
+}

@@ -76,6 +76,7 @@ use crate::color::Color;
 use crate::engine::Context;
 use crate::error::LoadError;
 use crate::math::{Rect, Vec2, vec2};
+use crate::sound::{LoopId, Wav};
 use crate::sprite::Sprite;
 use crate::spritesheet::SpriteSheet;
 use crate::tilemap::{Contacts, LetterKind, TileMap};
@@ -96,6 +97,17 @@ enum Picture {
     Sheet(SpriteSheet),
     /// It couldn't be loaded: why, in one sentence.
     Missing(String),
+}
+
+/// A Sound object's sound that's playing (or, for one that doesn't loop,
+/// has been played).
+#[derive(Debug, Clone)]
+struct Playing {
+    sound: String,
+    loops: bool,
+    volume: f32,
+    /// Its loop, if it loops.
+    id: Option<LoopId>,
 }
 
 /// A tile map object's level, loaded.
@@ -128,6 +140,10 @@ pub struct Scene {
     objects: Vec<Object>,
     maps: BTreeMap<Id, MapPart>,
     pictures: BTreeMap<String, Picture>,
+    /// Sound objects' sounds, loaded (or why they couldn't be).
+    sounds: BTreeMap<String, Result<Wav, String>>,
+    /// Sound objects playing, by id.
+    playing: BTreeMap<Id, Playing>,
     /// The colour behind everything, if any.
     pub background: Option<Color>,
     /// The camera the world is drawn through. Move it as any
@@ -189,6 +205,8 @@ impl Scene {
             objects: Vec::new(),
             maps: BTreeMap::new(),
             pictures: BTreeMap::new(),
+            sounds: BTreeMap::new(),
+            playing: BTreeMap::new(),
             background: None,
             camera: Camera2D::new(CAMERA_NOT_MOVED.x * 2.0, CAMERA_NOT_MOVED.y * 2.0),
             camera_placed: false,
@@ -535,9 +553,86 @@ impl Scene {
             self.camera_placed = true;
         }
         self.camera.update(ctx);
-        // A picture the code named since the last update.
+        // A picture or a sound the code named since the last update.
         if self.load_new_pictures() {
             self.say_problems();
+        }
+        self.play_sounds(ctx);
+    }
+
+    /// Sound objects play: each starts when the scene does (or when it
+    /// appears), and over and over if it says `"loops": true`. One that's
+    /// taken away, hidden (`"shown": false`) or given another sound stops;
+    /// a change of `"volume"` is heard at once.
+    fn play_sounds(&mut self, ctx: &mut Context) {
+        let mut wanted: BTreeMap<Id, (String, bool, f32)> = BTreeMap::new();
+        for object in &self.objects {
+            if object.kind != "sound" || !object.shown {
+                continue;
+            }
+            if let Some(sound) = object.text("sound") {
+                let loops = object.flag("loops").unwrap_or(false);
+                let volume = object.number("volume").unwrap_or(1.0).max(0.0);
+                wanted.insert(object.id, (sound.to_string(), loops, volume));
+            }
+        }
+        let stopping: Vec<Id> = self
+            .playing
+            .iter()
+            .filter(|(id, playing)| {
+                !wanted.get(id).is_some_and(|(sound, loops, _)| {
+                    *sound == playing.sound && *loops == playing.loops
+                })
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for id in stopping {
+            if let Some(Playing {
+                id: Some(loop_id), ..
+            }) = self.playing.remove(&id)
+            {
+                ctx.stop_loop(loop_id);
+            }
+        }
+        for (id, (sound, loops, volume)) in wanted {
+            if let Some(playing) = self.playing.get_mut(&id) {
+                if playing.volume != volume {
+                    if let Some(loop_id) = playing.id {
+                        ctx.set_loop_volume(loop_id, volume);
+                    }
+                    playing.volume = volume;
+                }
+                continue;
+            }
+            // One that couldn't be loaded was said once, when it was read.
+            let Some(Ok(wav)) = self.sounds.get(&sound) else {
+                continue;
+            };
+            let loop_id = if loops {
+                Some(ctx.play_loop(wav, volume))
+            } else {
+                ctx.play_wav(wav);
+                None
+            };
+            self.playing.insert(
+                id,
+                Playing {
+                    sound,
+                    loops,
+                    volume,
+                    id: loop_id,
+                },
+            );
+        }
+    }
+
+    /// Stops every Sound object's sound. Call it before the game stops
+    /// using this scene for another, so its music doesn't play on.
+    pub fn stop_sounds(&mut self, ctx: &mut Context) {
+        for (_, playing) in std::mem::take(&mut self.playing) {
+            if let Some(loop_id) = playing.id {
+                ctx.stop_loop(loop_id);
+            }
         }
     }
 
@@ -1100,8 +1195,26 @@ impl Scene {
             .iter()
             .filter_map(|object| object.picture.as_ref())
             .all(|picture| self.pictures.contains_key(picture));
-        if all_loaded {
+        let sounds_loaded = self
+            .objects
+            .iter()
+            .filter(|object| object.kind == "sound")
+            .filter_map(|object| object.text("sound"))
+            .all(|sound| self.sounds.contains_key(sound));
+        if all_loaded && sounds_loaded {
             return false; // the usual case: nothing to do, nothing made
+        }
+        let new_sounds: Vec<String> = self
+            .objects
+            .iter()
+            .filter(|object| object.kind == "sound")
+            .filter_map(|object| object.text("sound"))
+            .filter(|sound| !self.sounds.contains_key(*sound))
+            .map(String::from)
+            .collect();
+        for sound in &new_sounds {
+            let loaded = Wav::load(self.folder.join(sound)).map_err(|error| error.to_string());
+            self.sounds.insert(sound.clone(), loaded);
         }
         let wanted: Vec<String> = self
             .objects
@@ -1110,7 +1223,7 @@ impl Scene {
             .filter(|picture| !self.pictures.contains_key(*picture))
             .cloned()
             .collect();
-        let any = !wanted.is_empty();
+        let any = !wanted.is_empty() || !new_sounds.is_empty();
         for picture in wanted {
             if self.pictures.contains_key(&picture) {
                 continue;
@@ -1275,6 +1388,28 @@ impl Scene {
         };
         for object in &self.objects {
             let called = &object.name;
+            if object.kind == "sound" {
+                match object.text("sound") {
+                    None => say(
+                        object,
+                        format!(
+                            "{called:?} is a sound with no \"sound\", so it's silent; give it \
+                             one like \"sound\": \"assets/music.wav\""
+                        ),
+                    ),
+                    Some(sound) => {
+                        if let Some(Err(why)) = self.sounds.get(sound) {
+                            say(
+                                object,
+                                format!(
+                                    "{called:?} has the sound {sound:?}, which couldn't be \
+                                     loaded, so it's silent ({why})"
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
             if let Some(picture) = &object.picture {
                 match self.pictures.get(picture) {
                     Some(Picture::Missing(why)) => say(

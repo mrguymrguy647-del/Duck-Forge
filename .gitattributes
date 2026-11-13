@@ -6,3 +6,7 @@
 
 # Models (Duck Mold .glb files) are bytes, never text.
 *.glb binary
+
+# Sounds and pictures are bytes too.
+*.wav binary
+*.png binary
