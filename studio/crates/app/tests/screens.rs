@@ -223,7 +223,7 @@ fn the_files_panel_shows_the_games_folder_and_clicks_are_commands() {
     let mut panel = FilesPanel::default();
     let mut pictures = Pictures::default();
     let mut screen = egui_kittest::Harness::new_ui(move |ui| {
-        let more = panel.show(ui, Some(&folder), None, &mut pictures);
+        let more = panel.show(ui, Some(&folder), None, &mut pictures, false);
         seen.borrow_mut().extend(more);
     });
     screen.run();
@@ -907,7 +907,8 @@ fn the_scene_editor_selects_and_moves_objects_with_the_mouse() {
 
     // The Scene list, and nothing selected.
     shots.harness.get_by_label("Scene");
-    shots.harness.get_by_label("pond.json");
+    // Beside "Scene", and in Files below it.
+    assert!(shots.harness.get_all_by_label("pond.json").count() >= 2);
     shots.harness.get_by_label("big crate");
     shots.harness.get_by_label_contains("1 flag painted on it");
     shots.harness.get_by_label("Frozen moment");
@@ -1423,5 +1424,293 @@ fn the_scene_editors_other_tools_work_with_the_mouse_and_the_keys() {
     shots.until("the game to play on", Duration::from_secs(20), |app| {
         app.studio.play().is_some_and(|play| play.frame > frame + 5)
     });
+    shots.run(Command::GameStop);
+}
+
+/// A file dropped on the window from File Explorer, the way Windows gives
+/// it.
+#[derive(Debug)]
+struct FromExplorer(PathBuf);
+
+impl egui::DroppedFile for FromExplorer {
+    fn path(&self) -> &Path {
+        &self.0
+    }
+
+    fn bytes(&self) -> Result<Vec<u8>, String> {
+        std::fs::read(&self.0).map_err(|e| e.to_string())
+    }
+}
+
+/// Takes a file away at the end, even if the test fails.
+struct TakeAway(PathBuf);
+
+impl Drop for TakeAway {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// Step 4 with the mouse: pictures and sounds dragged from Files into the
+/// scene and onto the Inspector's boxes, a picture dropped from File
+/// Explorer, and Sound in Add.
+#[test]
+fn files_drag_into_the_scene_and_onto_the_inspectors_boxes() {
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let pictures = std::env::var_os("STUDIO_SCREENSHOTS").map(PathBuf::from);
+    if let Some(folder) = &pictures {
+        std::fs::create_dir_all(folder).unwrap();
+    }
+    let game = duck_forge().join("examples/scene_demo");
+    let scene_file = game.join("scenes/pond.json");
+    let _back = FileBack {
+        text: std::fs::read_to_string(&scene_file).unwrap(),
+        path: scene_file.clone(),
+    };
+    let _flower = TakeAway(game.join("assets/flower.png"));
+    let plain = |text: &str| text.replace("\r\n", "\n");
+    let original = plain(&_back.text);
+    let on_disk = || plain(&std::fs::read_to_string(&scene_file).unwrap());
+    let mut shots = Shots {
+        folder: pictures.clone().unwrap_or_default(),
+        harness: harness(StudioApp::new(studio()), pictures.is_some()),
+    };
+    let shoot = |shots: &mut Shots, name: &str| {
+        if pictures.is_some() {
+            shots.shoot(name);
+        }
+    };
+    let on_screen = |shots: &Shots, point: duckforge::prelude::Vec2| -> egui::Pos2 {
+        let placement = shots.harness.state().game_placement().unwrap();
+        let each = placement.scale / placement.pixels_per_point;
+        placement.rect.min + egui::vec2(point.x, point.y) * each
+    };
+    let middle_of = |shots: &Shots, id: u64| {
+        let open = shots.harness.state().studio.open.as_ref().unwrap();
+        let drawn = open.drawn_scene().unwrap();
+        let (rect, _, _) = studio_core::scene_edit::shape(drawn.object(id).unwrap()).unwrap();
+        on_screen(
+            shots,
+            duckforge::prelude::Vec2::new(rect.x + rect.w / 2.0, rect.y + rect.h / 2.0),
+        )
+    };
+    let click = |shots: &mut Shots, at: egui::Pos2| {
+        shots.harness.hover_at(at);
+        shots.harness.step();
+        shots.harness.drag_at(at);
+        shots.harness.step();
+        shots.harness.drop_at(at);
+        shots.harness.run_steps(4);
+    };
+    let drag = |shots: &mut Shots, from: egui::Pos2, to: egui::Pos2| {
+        shots.harness.hover_at(from);
+        shots.harness.step();
+        shots.harness.drag_at(from);
+        shots.harness.step();
+        for part in 1..=6 {
+            shots
+                .harness
+                .hover_at(from + (to - from) * (part as f32 / 6.0));
+            shots.play_for(Duration::from_millis(40));
+        }
+        shots.play_for(Duration::from_millis(150));
+    };
+    let let_go = |shots: &mut Shots, at: egui::Pos2| {
+        shots.harness.drop_at(at);
+        shots.play_for(Duration::from_millis(300));
+    };
+    let undo = |shots: &mut Shots| {
+        shots
+            .harness
+            .key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+        shots.play_for(Duration::from_millis(300));
+    };
+    let selected = |shots: &Shots| -> Vec<u64> {
+        let open = shots.harness.state().studio.open.as_ref().unwrap();
+        open.selected.clone()
+    };
+    // A line of Files (the Feel tab lists the pictures too, as links).
+    let row = |shots: &Shots, name: &str| {
+        shots
+            .harness
+            .get_by_role_and_label(egui::accesskit::Role::Button, name)
+            .rect()
+            .center()
+    };
+    // A line of Files scrolled into view first.
+    let file_row = |shots: &mut Shots, name: &str| {
+        shots
+            .harness
+            .get_by_role_and_label(egui::accesskit::Role::Button, name)
+            .scroll_to_me();
+        shots.harness.run_steps(3);
+        row(shots, name)
+    };
+    // A box of the Inspector, by what it shows.
+    let a_box = |shots: &Shots, showing: &str| shots.harness.get_by_value(showing).rect().center();
+
+    shots.harness.step();
+    shots.run(Command::GameOpen {
+        name: String::from("scene_demo"),
+    });
+    shots.playing();
+    shots.play_for(Duration::from_millis(300));
+    shots.run(Command::GameFreeze);
+    shots.until(
+        "the frozen picture's objects",
+        Duration::from_secs(20),
+        |app| {
+            let open = app.studio.open.as_ref().unwrap();
+            open.drawn_scene().is_some() && app.game_placement().is_some()
+        },
+    );
+    shots.harness.run_steps(4);
+    let (scale, scroll) = {
+        let open = shots.harness.state().studio.open.as_ref().unwrap();
+        let drawn = open.drawn_scene().unwrap();
+        (drawn.scale, drawn.offset)
+    };
+    // A point of the scene, on the screen.
+    let in_scene = |shots: &Shots, x: f32, y: f32| {
+        on_screen(shots, duckforge::prelude::Vec2::new(x, y) * scale + scroll)
+    };
+
+    // Files sits under the Scene list. crate.png dragged into the sky:
+    // a new crate where it's let go, on the grid, selected.
+    shots.harness.get_by_label("Files");
+    let crate_row = file_row(&mut shots, "crate.png");
+    let sky = in_scene(&shots, 300.0, 100.0);
+    drag(&mut shots, crate_row, sky);
+    let dragging = studio_app::files_panel::dragging(&shots.harness.ctx);
+    assert_eq!(dragging.unwrap().path, "assets/crate.png");
+    shoot(&mut shots, "39-dragging-a-picture-from-files");
+    let_go(&mut shots, sky);
+    assert_eq!(selected(&shots), [12]);
+    assert!(
+        on_disk().contains(r#"{"id": 12, "name": "crate 2", "at": [304, 104]"#)
+            || on_disk().contains(r#""at": [304, 104], "picture": "assets/crate.png""#),
+        "{}",
+        on_disk()
+    );
+    shoot(&mut shots, "40-a-crate-dropped-in-the-sky");
+    undo(&mut shots);
+    assert_eq!(on_disk(), original);
+
+    // The sign selected, and bush.png dragged onto its Picture box: the
+    // sign is a bush now.
+    let sign = middle_of(&shots, 4);
+    click(&mut shots, sign);
+    assert_eq!(selected(&shots), [4]);
+    shots.harness.run_steps(3);
+    let picture_box = a_box(&shots, "assets/sign.png");
+    let bush = file_row(&mut shots, "bush.png");
+    drag(&mut shots, bush, picture_box);
+    shots.harness.get_by_label("Let go to use bush.png");
+    shoot(&mut shots, "41-a-picture-onto-the-picture-box");
+    let_go(&mut shots, picture_box);
+    let sign_line = |text: &str| {
+        text.lines()
+            .find(|line| line.contains(r#""id": 4,"#))
+            .unwrap_or_default()
+            .to_string()
+    };
+    assert!(
+        sign_line(&on_disk()).contains(r#""picture": "assets/bush.png""#),
+        "{}",
+        on_disk()
+    );
+    undo(&mut shots);
+    assert_eq!(on_disk(), original);
+
+    // music.wav dragged into the scene: a Sound object that loops, with
+    // its own boxes in the Inspector.
+    let music_row = file_row(&mut shots, "music.wav");
+    drag(&mut shots, music_row, sky);
+    let_go(&mut shots, sky);
+    assert_eq!(selected(&shots), [12]);
+    assert!(
+        on_disk().contains(r#""kind": "sound", "sound": "assets/music.wav", "loops": true"#)
+            || on_disk().contains(r#""sound": "assets/music.wav""#),
+        "{}",
+        on_disk()
+    );
+    shots.harness.run_steps(3);
+    shots.harness.get_by_label("Plays over and over (music)");
+    shots.harness.get_by_label("Volume");
+    shoot(&mut shots, "42-a-sound-in-the-scene");
+
+    // coin.wav onto its Sound box: that setting gets the coin.
+    let sound_box = a_box(&shots, "assets/music.wav");
+    let coin = file_row(&mut shots, "coin.wav");
+    drag(&mut shots, coin, sound_box);
+    shoot(&mut shots, "43-a-sound-onto-the-sound-box");
+    let_go(&mut shots, sound_box);
+    assert!(
+        on_disk().contains(r#""sound": "assets/coin.wav""#),
+        "{}",
+        on_disk()
+    );
+    // A picture isn't a sound: the box says so, and nothing changes.
+    let sound_box = a_box(&shots, "assets/coin.wav");
+    let before = on_disk();
+    let sign_png = file_row(&mut shots, "sign.png");
+    drag(&mut shots, sign_png, sound_box);
+    shots.harness.get_by_label("sign.png isn't a sound");
+    let_go(&mut shots, sound_box);
+    assert_eq!(on_disk(), before);
+    undo(&mut shots);
+    undo(&mut shots);
+    assert_eq!(on_disk(), original);
+
+    // A picture from File Explorer, dropped on the sky: copied into
+    // assets/ first, then added where it was let go.
+    let elsewhere = studio_core::test_folder::TestFolder::new("screens-explorer");
+    let flower = elsewhere.join("flower.png");
+    std::fs::copy(game.join("assets/sign.png"), &flower).unwrap();
+    shots.harness.hover_at(sky);
+    shots.harness.step();
+    shots
+        .harness
+        .input_mut()
+        .hovered_files
+        .push(egui::HoveredFile {
+            path: Some(flower.clone()),
+            mime: String::new(),
+        });
+    shots.harness.run_steps(2);
+    shoot(&mut shots, "44-a-picture-from-file-explorer-over-the-scene");
+    shots
+        .harness
+        .input_mut()
+        .dropped_files
+        .push(std::sync::Arc::new(FromExplorer(flower.clone())));
+    shots.harness.input_mut().hovered_files.clear();
+    shots.play_for(Duration::from_millis(300));
+    assert!(game.join("assets/flower.png").exists());
+    assert!(
+        on_disk().contains(r#""at": [304, 104], "picture": "assets/flower.png""#),
+        "{}",
+        on_disk()
+    );
+    shoot(&mut shots, "45-the-flower-copied-in-and-added");
+    undo(&mut shots);
+    assert_eq!(on_disk(), original);
+    assert!(
+        game.join("assets/flower.png").exists(),
+        "a file copied in stays"
+    );
+
+    // + Add has Sound now, with the game's sounds to pick from.
+    shots.harness.get_by_label("+ Add").click();
+    shots.harness.run_steps(3);
+    shots.harness.get_by_label("Sound").click();
+    shots.harness.run_steps(2);
+    shots.harness.get_by_label("Which sound");
+    shoot(&mut shots, "46-add-a-sound");
+    shots.harness.get_by_label("Cancel").click();
+    shots.harness.run_steps(2);
+    assert_eq!(on_disk(), original);
     shots.run(Command::GameStop);
 }

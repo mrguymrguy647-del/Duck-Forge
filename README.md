@@ -185,9 +185,14 @@ the Studio: nothing is added to the engine or to games.
   empty space for a box round several; Ctrl+C, Ctrl+V, Ctrl+D, Delete
   and the arrow keys do what they usually do (copied objects can be
   pasted into a scene file in Notepad, and back). **+ Add** puts in a
-  picture, an area, a background or a tile map, and rows of the Scene
-  list can be dragged to change what's drawn in front.
-- **Files** (a tab beside Feel in Build mode) shows the game's own folder
+  picture, a sound, an area, a background or a tile map, and rows of the
+  Scene list can be dragged to change what's drawn in front. **Files**
+  sits under the Scene list: drag a picture or a sound from it into the
+  scene to add it there, or onto the Inspector's Picture or Sound box to
+  give an object that file. Pictures and sounds dropped on the scene from
+  File Explorer are copied into `assets/` and added where they land.
+- **Files** (a tab beside Feel in Build mode; under the Scene list in a
+  game with scenes) shows the game's own folder
   as a tree: click a picture to see it, a sound to hear it, anything else
   opens in its own program. Drop files on the game's screen from File
   Explorer to copy them in (never replacing one); New folder, Rename and
@@ -227,9 +232,9 @@ cargo run --release -p studio_app
 `docs/phase4-design.md` is the design, and `docs/studio-screens/` has a
 picture of every screen. `docs/phase5-design.md` is the plan for the next
 phase, a real editor (scenes, objects, an Inspector, a Code panel). Its
-first three steps are built: **scenes**, below, and selecting, moving,
+first four steps are built: **scenes**, below, and selecting, moving,
 turning, sizing, adding, copying and deleting their objects in the
-Studio. A scene file saved from outside (Notepad,
+Studio, and dragging pictures and sounds in from Files or from Windows. A scene file saved from outside (Notepad,
 an agent) reaches the game too, frozen or playing, and is a step for
 Undo. Try it with the Scene demo, under "Examples that came with Duck
 Forge".
@@ -255,7 +260,8 @@ Forge".
   and list it in `log.json`, so tests can check sounds too.
 - **Scenes:** a game's objects in a plain file, one per line
   (`examples/scene_demo/scenes/pond.json`): a name, a kind, a position,
-  a picture, a turn, a scale, a layer, and settings of its own. `Scene`
+  a picture, a turn, a scale, a layer, and settings of its own; a
+  `sound` object plays music when the scene starts. `Scene`
   loads it, draws it in layers, finds objects by name or kind, says what
   touches what, moves an object against the tile map and solid objects,
   and takes a changed file while the game runs: what the game hasn't

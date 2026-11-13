@@ -126,6 +126,7 @@ impl StudioApp {
                 | Command::ObjectAdd { .. }
                 | Command::ObjectPaste { .. }
                 | Command::ObjectDuplicate { .. }
+                | Command::FilesUse { .. }
         ) {
             self.right_tab = RightTab::Inspector;
         }
@@ -168,6 +169,11 @@ impl StudioApp {
                 if self.right_tab == RightTab::Inspector && !has_scene {
                     self.right_tab = RightTab::Feel;
                 }
+                // A game with scenes has Files on the left, under its
+                // objects, so they can be dragged into the scene.
+                if self.right_tab == RightTab::Files && has_scene {
+                    self.right_tab = RightTab::Inspector;
+                }
                 ui.horizontal_wrapped(|ui| {
                     if has_scene {
                         ui.selectable_value(&mut self.right_tab, RightTab::Inspector, "Inspector")
@@ -183,7 +189,9 @@ impl StudioApp {
                         },
                     )
                     .on_hover_text("Feel, sounds and pictures");
-                    ui.selectable_value(&mut self.right_tab, RightTab::Files, "Files");
+                    if !has_scene {
+                        ui.selectable_value(&mut self.right_tab, RightTab::Files, "Files");
+                    }
                 });
                 ui.separator();
                 if self.right_tab == RightTab::Inspector {
@@ -203,6 +211,7 @@ impl StudioApp {
                                 open.game.folder.as_deref(),
                                 open.files_selected.as_deref(),
                                 &mut self.pictures,
+                                false,
                             );
                         }
                     });
@@ -753,8 +762,20 @@ impl StudioApp {
         let Some(folder) = open.game.folder.clone() else {
             return;
         };
+        // While frozen in a game with scenes, pictures and sounds dropped
+        // on it become objects of the scene, where they're let go.
+        let into_the_scene = open.scene.is_some()
+            && self.play_state() == Some(&PlayState::Frozen)
+            && self.placement.is_some();
         if files_panel::being_dragged_in(ctx) {
-            let words = format!("Drop to copy into {}'s folder", open.game.title);
+            let words = if into_the_scene {
+                String::from(
+                    "Drop pictures and sounds to add them to the scene. They're copied into \
+                     assets/ first.",
+                )
+            } else {
+                format!("Drop to copy into {}'s folder", open.game.title)
+            };
             let screen = ctx.content_rect();
             let painter = ctx.layer_painter(egui::LayerId::new(
                 egui::Order::Foreground,
@@ -770,9 +791,47 @@ impl StudioApp {
             );
         }
         let dropped = files_panel::dropped(ctx);
-        if !dropped.is_empty() {
+        if dropped.is_empty() {
+            return;
+        }
+        let (usable, others) = if into_the_scene {
+            files_panel::usable_in_a_scene(&dropped)
+        } else {
+            (Vec::new(), dropped)
+        };
+        let mut commands = Vec::new();
+        if !others.is_empty() {
             let selected = open.files_selected.clone();
-            let command = files_panel::add_dropped(&folder, selected.as_deref(), dropped);
+            commands.push(files_panel::add_dropped(
+                &folder,
+                selected.as_deref(),
+                others,
+            ));
+        }
+        // Where it was let go; Windows doesn't always say, and then it's
+        // the middle of the view. More than one go side by side.
+        let pointer = ctx.input(|i| i.pointer.latest_pos());
+        let mut at = match (self.placement, pointer) {
+            (Some(placement), Some(pointer)) if placement.rect.contains(pointer) => {
+                self.scene.scene_point(open, placement, pointer)
+            }
+            _ => None,
+        };
+        for file in usable {
+            let picture = !file
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("wav"));
+            commands.push(Command::FilesUse {
+                path: file.to_string_lossy().into_owned(),
+                at: at.filter(|_| picture),
+                ids: Vec::new(),
+                key: None,
+            });
+            if picture && let Some([x, y]) = at {
+                at = Some([x + 32.0, y]);
+            }
+        }
+        for command in commands {
             self.run_and_say(command);
         }
     }
@@ -966,6 +1025,34 @@ impl StudioApp {
             .default_size(230.0)
             .min_size(200.0)
             .show(ui, |ui| {
+                // A game with scenes: Files under the Scene list, to drag
+                // pictures and sounds from into the scene.
+                let scene_files = self
+                    .studio
+                    .open
+                    .as_ref()
+                    .filter(|open| open.scene.is_some() && open.game.folder.is_some());
+                if let Some(open) = scene_files {
+                    egui::Panel::bottom("files of a scene game")
+                        .resizable(true)
+                        .default_size(260.0)
+                        .min_size(90.0)
+                        .show(ui, |ui| {
+                            ui.add_space(4.0);
+                            ui.heading("Files");
+                            egui::ScrollArea::vertical()
+                                .id_salt("files under the scene list")
+                                .show(ui, |ui| {
+                                    commands.extend(self.files.show(
+                                        ui,
+                                        open.game.folder.as_deref(),
+                                        open.files_selected.as_deref(),
+                                        &mut self.pictures,
+                                        true,
+                                    ));
+                                });
+                        });
+                }
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     ui.heading("Build");
                     ui.label(

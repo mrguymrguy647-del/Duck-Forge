@@ -17,6 +17,33 @@ use studio_core::studio::Command;
 use crate::pictures::Pictures;
 use crate::theme;
 
+/// A file being dragged out of the panel: into the scene, or onto an
+/// object's Picture or Sound box.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DraggedFile {
+    /// Its place in the game's folder: `assets/sign.png`.
+    pub path: String,
+    pub kind: FileKind,
+}
+
+impl DraggedFile {
+    /// Its own name: `sign.png`.
+    pub fn name(&self) -> &str {
+        self.path.rsplit('/').next().unwrap_or(&self.path)
+    }
+
+    /// The name an object made of it gets: `sign`.
+    pub fn stem(&self) -> &str {
+        let name = self.name();
+        name.split('.').next().unwrap_or(name)
+    }
+}
+
+/// The file being dragged out of the panel right now, if one is.
+pub fn dragging(ctx: &egui::Context) -> Option<std::sync::Arc<DraggedFile>> {
+    egui::DragAndDrop::payload::<DraggedFile>(ctx)
+}
+
 /// What the panel remembers between frames.
 #[derive(Default)]
 pub struct FilesPanel {
@@ -37,13 +64,15 @@ pub enum Naming {
 
 impl FilesPanel {
     /// Draws the panel for the game whose folder is `folder` (`None` for a
-    /// one-file game). Returns the commands to run.
+    /// one-file game). With `drag`, pictures, sounds and levels can be
+    /// dragged out into the scene. Returns the commands to run.
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
         folder: Option<&Path>,
         selected: Option<&str>,
         pictures: &mut Pictures,
+        drag: bool,
     ) -> Vec<Command> {
         let mut commands = Vec::new();
         let Some(folder) = folder else {
@@ -117,9 +146,28 @@ impl FilesPanel {
                     }
                     _ => entry.name.clone(),
                 };
-                let response = ui
-                    .selectable_label(picked, text)
-                    .on_hover_text(hover_text(entry));
+                let usable = drag
+                    && matches!(
+                        entry.kind,
+                        FileKind::Picture | FileKind::Sound | FileKind::Level
+                    );
+                let response = ui.selectable_label(picked, text);
+                let response = if usable {
+                    response
+                        .interact(egui::Sense::drag())
+                        .on_hover_text(drag_text(entry))
+                } else {
+                    response.on_hover_text(hover_text(entry))
+                };
+                if usable && response.drag_started() {
+                    egui::DragAndDrop::set_payload(
+                        ui.ctx(),
+                        DraggedFile {
+                            path: entry.path.clone(),
+                            kind: entry.kind,
+                        },
+                    );
+                }
                 if response.clicked() {
                     commands.extend(self.clicked(entry));
                 }
@@ -301,6 +349,19 @@ impl FilesPanel {
     }
 }
 
+/// What a line says when it can be dragged into the scene.
+fn drag_text(entry: &FileEntry) -> String {
+    match entry.kind {
+        FileKind::Picture => String::from(
+            "Click to see it. Drag it into the scene to add it there, or onto a Picture box",
+        ),
+        FileKind::Sound => {
+            String::from("Click to hear it. Drag it into the scene for music, or onto a Sound box")
+        }
+        _ => String::from("Click to open it. Drag it into the scene to add it as a tile map"),
+    }
+}
+
 /// Files dropped on the Studio's window from File Explorer this frame.
 pub fn dropped(ctx: &egui::Context) -> Vec<PathBuf> {
     ctx.input(|i| {
@@ -325,6 +386,30 @@ pub fn add_dropped(folder: &Path, selected: Option<&str>, files: Vec<PathBuf>) -
         files,
         to: target_folder(&entries, selected),
     }
+}
+
+/// Which of the files dropped from File Explorer a scene can use straight
+/// away (pictures, sprite sheets and sounds); the rest are only copied in.
+/// A picture dropped with its sheet comes in with the sheet, so it isn't
+/// one by itself.
+pub fn usable_in_a_scene(files: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let extension = |path: &Path| {
+        path.extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase()
+    };
+    files.iter().cloned().partition(|path| {
+        let name = path
+            .file_name()
+            .map_or(String::new(), |n| n.to_string_lossy().to_lowercase());
+        match extension(path).as_str() {
+            "wav" => true,
+            "json" => !name.ends_with(".legend.json"),
+            "png" => !files.contains(&path.with_extension("json")),
+            _ => false,
+        }
+    })
 }
 
 /// Where new folders and dropped files go: the folder that's picked, the

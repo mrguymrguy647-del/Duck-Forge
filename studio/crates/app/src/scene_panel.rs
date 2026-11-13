@@ -21,8 +21,10 @@ use serde_json::{Map, Value, json};
 use studio_core::scene_edit::{self, Needs, PLAIN_KINDS, RowState, SceneDoc, Show, Tool, pair};
 use studio_core::studio::{Command, OpenGame};
 
+use crate::files_panel::{self, DraggedFile};
 use crate::keys::Placement;
 use crate::theme;
+use studio_core::game_files::FileKind;
 
 /// The first stroke number of this panel, well away from the ones paint
 /// strokes and Feel's sliders count up from: two edits join one Undo step
@@ -143,6 +145,8 @@ pub struct ScenePanel {
     pictures: Option<(PathBuf, Instant, Vec<String>)>,
     /// Sprite sheets' animation names, by file.
     animations: HashMap<PathBuf, Vec<String>>,
+    /// The game's sounds, like `pictures`.
+    sounds: Option<(PathBuf, Instant, Vec<String>)>,
     /// The last nudge with the arrow keys: its stroke, when, and what it
     /// moved.
     nudge: Option<(u64, Instant, Vec<u64>)>,
@@ -164,6 +168,7 @@ impl Default for ScenePanel {
             renaming: None,
             pictures: None,
             animations: HashMap::new(),
+            sounds: None,
             nudge: None,
             adding: None,
             find: String::new(),
@@ -203,6 +208,55 @@ fn number(value: f64) -> Value {
         Value::from(value as i64)
     } else {
         Value::from((value * 1000.0).round() / 1000.0)
+    }
+}
+
+/// A box of the Inspector that takes a file dragged from Files: it lights
+/// up while one is over it (red, saying why, if it's the wrong kind of
+/// file), and letting go gives the objects the file as their `key`.
+fn take_drop(
+    response: &egui::Response,
+    wants: FileKind,
+    ids: &[u64],
+    key: &str,
+    commands: &mut Vec<Command>,
+) {
+    if let Some(file) = response.dnd_hover_payload::<DraggedFile>() {
+        let right = file.kind == wants;
+        let colour = if right {
+            theme::DUCK_YELLOW
+        } else {
+            theme::BAD
+        };
+        response
+            .ctx
+            .layer_painter(egui::LayerId::new(
+                egui::Order::Foreground,
+                egui::Id::unique("drop on a box"),
+            ))
+            .rect_stroke(
+                response.rect.expand(2.0),
+                3.0,
+                Stroke::new(2.0, colour),
+                StrokeKind::Outside,
+            );
+        let words = if right {
+            format!("Let go to use {}", file.name())
+        } else {
+            format!("{} isn't a {key}", file.name())
+        };
+        response.show_tooltip_text(words);
+    }
+    if let Some(file) = response
+        .dnd_release_payload::<DraggedFile>()
+        .filter(|file| file.kind == wants)
+    {
+        commands.push(Command::FilesUse {
+            path: file.path.clone(),
+            at: None,
+            ids: ids.to_vec(),
+            key: Some(String::from(key)),
+        });
     }
 }
 
@@ -819,6 +873,20 @@ impl ScenePanel {
 
     /// Over the game's frozen picture: the grid, the outlines, and the
     /// pointer selecting, moving, turning and sizing objects.
+    /// Where a point of the screen is in the scene, snapped like a move
+    /// is (Alt held: not snapped).
+    pub fn scene_point(
+        &self,
+        open: &OpenGame,
+        placement: Placement,
+        pos: Pos2,
+    ) -> Option<[f32; 2]> {
+        let drawn = open.drawn_scene()?;
+        let alt = false;
+        let at = open.view.place(drawn.to_scene(placement.to_game(pos)), alt);
+        Some([at.x, at.y])
+    }
+
     pub fn on_the_view(
         &mut self,
         ui: &mut egui::Ui,
@@ -1133,6 +1201,109 @@ impl ScenePanel {
             return commands;
         }
 
+        // A file from Files, over the game: where it'll go, and letting go
+        // puts it there.
+        if let Some(file) = response.dnd_hover_payload::<DraggedFile>() {
+            // (hover_pos is None while something else is being dragged.)
+            let pointer = ui
+                .input(|i| i.pointer.latest_pos())
+                .unwrap_or(placement.rect.center());
+            let at = open
+                .view
+                .place(drawn.to_scene(placement.to_game(pointer)), alt);
+            let words = match file.kind {
+                FileKind::Sound => format!(
+                    "Let go to add the sound \"{}\": it plays when the scene starts",
+                    file.stem()
+                ),
+                FileKind::Level => format!("Let go to add {} as a tile map", file.name()),
+                _ => format!(
+                    "Let go to add \"{}\" here   {}, {}",
+                    file.stem(),
+                    at.x,
+                    at.y
+                ),
+            };
+            if file.kind == FileKind::Picture {
+                // A dashed outline on the grid point where it will go.
+                let here = screen_point(placement, at * drawn.scale + drawn.offset);
+                let outline = Rect::from_center_size(here, vec2(40.0, 40.0));
+                let corners = [
+                    outline.left_top(),
+                    outline.right_top(),
+                    outline.right_bottom(),
+                    outline.left_bottom(),
+                    outline.left_top(),
+                ];
+                painter.extend(egui::Shape::dashed_line(
+                    &corners,
+                    Stroke::new(2.0, theme::DUCK_YELLOW),
+                    6.0,
+                    4.0,
+                ));
+                painter.circle_filled(here, 3.0, theme::DUCK_YELLOW);
+            }
+            let label =
+                painter.layout_no_wrap(words, egui::FontId::proportional(14.0), theme::INK_NAVY);
+            // Beside the pointer, inside the view.
+            let view = placement.rect.shrink(8.0);
+            let mut place = pointer + vec2(16.0, -28.0);
+            if place.x + label.size().x > view.right() {
+                place.x = pointer.x - 16.0 - label.size().x;
+            }
+            place.x = place.x.max(view.left());
+            place.y = place.y.max(view.top());
+            let back = Rect::from_min_size(place, label.size()).expand(5.0);
+            painter.rect_filled(back, 4.0, theme::DUCK_YELLOW);
+            painter.galley(place, label, theme::INK_NAVY);
+        }
+        if let Some(file) = files_panel::dragging(ui.ctx()) {
+            // What can be done with it, along the bottom of the view.
+            let words = match file.kind {
+                FileKind::Level => format!(
+                    "Dragging {} from Files. Drop it in the scene to add it as a tile map.",
+                    file.name()
+                ),
+                _ => format!(
+                    "Dragging {} from Files. Drop it in the scene to add it as an object, or on \
+                     a Picture box in the Inspector to give that object this picture. A sound \
+                     works the same way.",
+                    file.name()
+                ),
+            };
+            let strip = Rect::from_min_max(
+                pos2(placement.rect.left(), placement.rect.bottom() - 30.0),
+                placement.rect.max,
+            );
+            painter.rect_filled(strip, 0.0, theme::INK_NAVY.gamma_multiply(0.9));
+            let label = painter.layout(
+                words,
+                egui::FontId::proportional(13.0),
+                egui::Color32::WHITE,
+                strip.width() - 16.0,
+            );
+            let place = pos2(strip.left() + 8.0, strip.center().y - label.size().y / 2.0);
+            painter.galley(place, label, egui::Color32::WHITE);
+        }
+        if let Some(file) = response.dnd_release_payload::<DraggedFile>() {
+            let pointer = ui.input(|i| i.pointer.latest_pos());
+            let at = pointer
+                .filter(|_| file.kind == FileKind::Picture)
+                .map(|pointer| {
+                    let at = open
+                        .view
+                        .place(drawn.to_scene(placement.to_game(pointer)), alt);
+                    [at.x, at.y]
+                });
+            commands.push(Command::FilesUse {
+                path: file.path.clone(),
+                at,
+                ids: Vec::new(),
+                key: None,
+            });
+            return commands;
+        }
+
         // Nothing is being dragged: what's selected, what has moved, the
         // tool's handles, and what's under the pointer.
         let hover = response.hover_pos();
@@ -1287,6 +1458,9 @@ impl ScenePanel {
             .as_deref()
             .map_or(Vec::new(), |folder| self.pictures_of(folder));
         let levels = folder.as_deref().map_or(Vec::new(), levels_in);
+        let sounds = folder
+            .as_deref()
+            .map_or(Vec::new(), |folder| self.sounds_of(folder));
         let mut keep = true;
         let modal = egui::Modal::new(egui::Id::unique("add an object")).show(ctx, |ui| {
             ui.set_width(600.0);
@@ -1318,6 +1492,7 @@ impl ScenePanel {
                             adding.choice = match plain.needs {
                                 Needs::Picture => pictures.first().cloned(),
                                 Needs::Level => levels.first().cloned(),
+                                Needs::Sound => sounds.first().cloned(),
                                 Needs::Nothing => None,
                             };
                         }
@@ -1327,9 +1502,10 @@ impl ScenePanel {
             ui.add_space(6.0);
             ui.label(
                 RichText::new(
-                    "Text and Button come with several scenes (step 7), Sound with dragging it \
-                     in from Files (step 4). Ready-made kinds, like a player or a moving \
-                     platform, come in step 6, and kinds written in your own code in step 5.",
+                    "Text and Button come with several scenes (step 7). Ready-made kinds, like \
+                     a player or a moving platform, come in step 6, and kinds written in your \
+                     own code in step 5. You can also drag a picture or a sound from Files \
+                     straight into the scene.",
                 )
                 .weak()
                 .small(),
@@ -1349,9 +1525,14 @@ impl ScenePanel {
                     &levels,
                     "This game has no level yet: a .txt file with a .legend.json beside it.",
                 ),
+                Some(Needs::Sound) => (
+                    "Which sound",
+                    &sounds,
+                    "This game has no sounds yet. Add a .wav file in Files first.",
+                ),
                 _ => ("", &pictures, ""),
             };
-            if matches!(needs, Some(Needs::Picture | Needs::Level)) {
+            if matches!(needs, Some(Needs::Picture | Needs::Level | Needs::Sound)) {
                 ui.add_space(6.0);
                 if choices.is_empty() {
                     ui.label(RichText::new(none).color(theme::LOOK));
@@ -1393,6 +1574,7 @@ impl ScenePanel {
                         let key = match needs {
                             Some(Needs::Picture) => Some("picture"),
                             Some(Needs::Level) => Some("level"),
+                            Some(Needs::Sound) => Some("sound"),
                             _ => None,
                         };
                         let mut set = Map::new();
@@ -1484,6 +1666,103 @@ impl ScenePanel {
                     .unwrap_or_default()
             })
             .clone()
+    }
+
+    /// The game's `.wav` sounds, as scene files name them, read again
+    /// every couple of seconds.
+    fn sounds_of(&mut self, folder: &Path) -> Vec<String> {
+        let fresh = self
+            .sounds
+            .as_ref()
+            .is_some_and(|(of, when, _)| of == folder && when.elapsed() < Duration::from_secs(2));
+        if !fresh {
+            let mut found = Vec::new();
+            look_for(folder, folder, 0, &mut found, &|path: &Path| {
+                path.extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("wav"))
+            });
+            found.sort();
+            self.sounds = Some((folder.to_path_buf(), Instant::now(), found));
+        }
+        self.sounds
+            .as_ref()
+            .map_or(Vec::new(), |(_, _, sounds)| sounds.clone())
+    }
+
+    /// A Sound object's boxes: which sound (a sound from Files can be
+    /// dropped on it), whether it loops, how loud.
+    fn sound_boxes(&mut self, ui: &mut egui::Ui, open: &OpenGame, start: &Object) -> Vec<Command> {
+        let mut commands = Vec::new();
+        let id = start.id().number();
+        let set = |commands: &mut Vec<Command>, key: &str, value: Value, stroke| {
+            commands.push(Command::ObjectSet {
+                ids: vec![id],
+                set: set_of(key, value),
+                stroke,
+            });
+        };
+        let sounds = open
+            .game
+            .folder
+            .as_deref()
+            .map_or(Vec::new(), |folder| self.sounds_of(folder));
+        let sound = start.text("sound").unwrap_or_default().to_string();
+        ui.horizontal(|ui| {
+            ui.label("Sound");
+            let combo = egui::ComboBox::from_id_salt("sound")
+                .selected_text(if sound.is_empty() { "(none)" } else { &sound })
+                .width(150.0)
+                .show_ui(ui, |ui| {
+                    for name in &sounds {
+                        if ui.selectable_label(*name == sound, name).clicked() && *name != sound {
+                            set(&mut commands, "sound", json!(name), None);
+                        }
+                    }
+                });
+            take_drop(
+                &combo.response,
+                FileKind::Sound,
+                &[id],
+                "sound",
+                &mut commands,
+            );
+            if ui
+                .add_enabled(!sound.is_empty(), egui::Button::new("Play"))
+                .on_hover_text("Hear it now")
+                .clicked()
+            {
+                commands.push(Command::FilesPlay {
+                    path: sound.clone(),
+                });
+            }
+        });
+        let mut loops = start.flag("loops").unwrap_or(false);
+        if ui
+            .checkbox(&mut loops, "Plays over and over (music)")
+            .changed()
+        {
+            set(&mut commands, "loops", json!(loops), None);
+        }
+        ui.horizontal(|ui| {
+            ui.label("Volume");
+            let mut volume = start.number("volume").unwrap_or(1.0);
+            let response = ui.add(egui::Slider::new(&mut volume, 0.0..=1.0).fixed_decimals(2));
+            let stroke = self.stroke_of(&response);
+            if response.changed() {
+                let value = number((f64::from(volume) * 100.0).round() / 100.0);
+                set(&mut commands, "volume", value, stroke);
+            }
+        });
+        ui.label(
+            RichText::new(
+                "It plays when the scene starts. Press Tab to hear it in the game; Shown off \
+                 keeps it quiet.",
+            )
+            .weak()
+            .small(),
+        );
+        ui.add_space(6.0);
+        commands
     }
 
     /// The Inspector: the selected object's settings.
@@ -1592,7 +1871,7 @@ impl ScenePanel {
         };
         ui.horizontal(|ui| {
             ui.label("Picture");
-            egui::ComboBox::from_id_salt("picture of several")
+            let combo = egui::ComboBox::from_id_salt("picture of several")
                 .selected_text(shown_picture)
                 .width(160.0)
                 .show_ui(ui, |ui| {
@@ -1610,6 +1889,13 @@ impl ScenePanel {
                         }
                     }
                 });
+            take_drop(
+                &combo.response,
+                FileKind::Picture,
+                &in_file,
+                "picture",
+                &mut commands,
+            );
         });
         // Layer.
         let same_layer = objects.iter().all(|o| o.layer == first.layer);
@@ -1874,17 +2160,20 @@ impl ScenePanel {
             );
             ui.add_space(6.0);
         }
+        if start.kind == "sound" {
+            commands.extend(self.sound_boxes(ui, open, start));
+        }
         // Picture, and its animation if it's a sprite sheet.
         let folder = open.game.folder.clone();
         let pictures = folder
             .as_deref()
             .map_or(Vec::new(), |folder| self.pictures_of(folder));
         let picture = start.picture.clone().unwrap_or_default();
-        let has_picture = !matches!(start.kind.as_str(), "tilemap" | "area");
+        let has_picture = !matches!(start.kind.as_str(), "tilemap" | "area" | "sound");
         if has_picture {
             ui.horizontal(|ui| {
                 ui.label("Picture");
-                egui::ComboBox::from_id_salt("picture")
+                let combo = egui::ComboBox::from_id_salt("picture")
                     .selected_text(if picture.is_empty() {
                         "(none)"
                     } else {
@@ -1918,6 +2207,13 @@ impl ScenePanel {
                             }
                         }
                     });
+                take_drop(
+                    &combo.response,
+                    FileKind::Picture,
+                    &[id],
+                    "picture",
+                    &mut commands,
+                );
             });
         }
         if picture.ends_with(".json")
@@ -1945,8 +2241,8 @@ impl ScenePanel {
             }
         }
 
-        // Layer.
-        if let Some(file) = &doc.file {
+        // Layer (a sound isn't drawn, so it has none worth choosing).
+        if let Some(file) = doc.file.as_ref().filter(|_| start.kind != "sound") {
             ui.horizontal(|ui| {
                 ui.label("Layer");
                 egui::ComboBox::from_id_salt("layer")
@@ -2028,7 +2324,17 @@ impl ScenePanel {
                     }
                 });
                 // The object's own settings.
-                let names: Vec<String> = start.setting_names().map(String::from).collect();
+                // A sound's own keys have boxes of their own, above.
+                let shown_above: &[&str] = if start.kind == "sound" {
+                    &["sound", "loops", "volume"]
+                } else {
+                    &[]
+                };
+                let names: Vec<String> = start
+                    .setting_names()
+                    .filter(|name| !shown_above.contains(name))
+                    .map(String::from)
+                    .collect();
                 if !names.is_empty() {
                     ui.add_space(4.0);
                     ui.label(RichText::new("Its own settings").strong());
@@ -2107,6 +2413,21 @@ fn made_at(object: &DrawnObject) -> Option<Vec2> {
 
 /// Pictures and sprite sheets under `folder`, as `assets/duck.png`.
 fn look_for_pictures(root: &Path, folder: &Path, depth: usize, found: &mut Vec<String>) {
+    look_for(root, folder, depth, found, &|path: &Path| {
+        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        // A sprite sheet is a .json beside a .png of the same name.
+        extension == "png" || (extension == "json" && path.with_extension("png").exists())
+    });
+}
+
+/// Files under `folder` that `wanted` likes, as `assets/duck.png`.
+fn look_for(
+    root: &Path,
+    folder: &Path,
+    depth: usize,
+    found: &mut Vec<String>,
+    wanted: &dyn Fn(&Path) -> bool,
+) {
     let Ok(entries) = std::fs::read_dir(folder) else {
         return;
     };
@@ -2117,14 +2438,11 @@ fn look_for_pictures(root: &Path, folder: &Path, depth: usize, found: &mut Vec<S
                 .file_name()
                 .is_some_and(|name| name.to_string_lossy().starts_with('.'));
             if depth < 3 && !hidden {
-                look_for_pictures(root, &path, depth + 1, found);
+                look_for(root, &path, depth + 1, found, wanted);
             }
             continue;
         }
-        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        // A sprite sheet is a .json beside a .png of the same name.
-        let is_sheet = extension == "json" && path.with_extension("png").exists();
-        if extension == "png" || is_sheet {
+        if wanted(&path) {
             let name = path
                 .strip_prefix(root)
                 .unwrap_or(&path)

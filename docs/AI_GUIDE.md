@@ -1765,6 +1765,15 @@ agent might meet:
   a grid square right), `object.copy` and `{"do": "object.paste", "at":
   [96, 208]}` (or `"text"`: lines of a scene file). `view.tool` also takes
   `turn` and `size`.
+  `{"do": "files.use", "path": "assets/sign.png", "at": [128, 208]}` is a
+  file dragged from Files into the scene: a `.png` or Duck Quill sheet
+  becomes a Picture there, named after the file; a `.wav` becomes a
+  `sound` object that loops (music); a level's `.txt` becomes a Tile map.
+  With `"ids": [4], "key": "picture"` (or `"sound"`) it's a file dropped
+  on that box of the Inspector instead: those objects get it. A path
+  outside the game's folder (`"C:/Users/me/flower.png"`) is copied into
+  `assets/` first, and stays there after Undo. Only `.png` pictures and
+  `.wav` sounds can be used; anything else says so.
 
 `docs/phase4-design.md` has the whole design, and
 `docs/phase5-design.md` the plan for the editor.
@@ -1804,7 +1813,7 @@ and it's the usual:
 |---|---|---|
 | `id` | A whole number from 1, never used twice in the scene | the engine gives one (below) |
 | `name` | What the code asks for: `scene.find("duck")`. Several can share one | its kind |
-| `kind` | What it is. `picture`: drawn, does nothing. `tilemap`: a level on a grid (`"level": "level.txt"`, with its `level.legend.json` beside it, as in section 7). `background`: a picture that repeats and moves slower than the world (`"parallax": 0.2`, or `[0.5, 0.1]`; `"repeat_x"`, `"repeat_y"`). Anything else is a name your code asks for: `scene.of_kind("coin")` | `picture` |
+| `kind` | What it is. `picture`: drawn, does nothing. `tilemap`: a level on a grid (`"level": "level.txt"`, with its `level.legend.json` beside it, as in section 7). `background`: a picture that repeats and moves slower than the world (`"parallax": 0.2`, or `[0.5, 0.1]`; `"repeat_x"`, `"repeat_y"`). `sound`: plays when the scene starts (`"sound": "assets/music.wav"`, a `.wav`; `"loops": true` for music, `"volume"` 0 to 1 for a sound that loops); `"shown": false` stops it, and it stops when it's removed. Anything else is a name your code asks for: `scene.of_kind("coin")` | `picture` |
 | `at` | Where its anchor is, in pixels, y downwards | `[0, 0]` |
 | `anchor` | The point of it on `at`: `feet` (bottom middle), `middle`, `top_left`, `top`, `top_right`, `left`, `right`, `bottom_left`, `bottom_right` | `feet`, or a Duck Quill sheet's own pivot; `top_left` for a tile map or a background |
 | `turn` | Degrees clockwise, round its anchor (its box isn't turned) | 0 |
