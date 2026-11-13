@@ -84,7 +84,8 @@ pub enum ToGame {
     /// input script; `"tunes"` for the `ctx.tune` values (a JSON list of
     /// name, value, default and source); `"sounds"` for the sounds played
     /// so far (name, and a `.wav`'s file or a synthesizer sound's recipe);
-    /// `"files"` for the text files the game read.
+    /// `"files"` for the text files the game read; `"scripts"` for the
+    /// scripts its scenes were given, each with its settings.
     Ask { id: u64, what: String },
     /// Say goodbye (the game's `quit` runs) and end.
     Quit,

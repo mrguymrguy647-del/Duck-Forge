@@ -885,3 +885,241 @@ fn a_sound_object_plays_when_the_scene_starts_and_follows_its_file() {
     );
     assert!(said.contains("so it's silent"), "{said}");
 }
+
+// ---- Scripts ----
+
+/// A script for the tests: it moves right at `speed`, counts its starts,
+/// remembers how long it has run, and notes its id on the "log" object so
+/// the order scripts run in can be seen.
+#[derive(Default)]
+struct Bee {
+    speed: f32,
+    buzz: bool,
+    starts: u32,
+    time: f32,
+}
+
+impl Script for Bee {
+    fn settings(&mut self, s: &mut Settings) {
+        s.number("speed", &mut self.speed, 30.0)
+            .range(0.0, 200.0)
+            .label("Speed");
+        s.flag("buzz", &mut self.buzz, false).help("Makes a noise");
+    }
+
+    fn start(&mut self, _me: Id, _scene: &mut Scene, _ctx: &mut Context) {
+        self.starts += 1;
+    }
+
+    fn update(&mut self, me: Id, scene: &mut Scene, ctx: &mut Context) {
+        self.time += ctx.dt();
+        scene[me].at.x += self.speed * ctx.dt();
+        if let Some(log) = scene.find("log") {
+            let before = scene[log].text("order").unwrap_or_default().to_string();
+            scene[log].set_text("order", &format!("{before}{},", me.number()));
+        }
+    }
+}
+
+/// A script that draws a green square where its object is, instead of its
+/// picture.
+#[derive(Default)]
+struct Square;
+
+impl Script for Square {
+    fn draw(&self, me: &Object, _scene: &Scene, canvas: &mut Canvas) {
+        canvas.fill_rect(Rect::new(me.at.x, me.at.y, 4.0, 4.0), GREEN);
+    }
+}
+
+fn bees() -> Scripts {
+    Scripts::new().add::<Bee>("bee").add::<Square>("square")
+}
+
+#[test]
+fn a_script_lists_its_settings_with_their_defaults() {
+    let scripts = bees();
+    assert_eq!(scripts.names(), ["bee", "square"]);
+    let settings = scripts.settings_of("bee").unwrap();
+    assert_eq!(settings.len(), 2);
+    assert_eq!(settings[0].name, "speed");
+    assert_eq!(settings[0].kind, SettingKind::Number);
+    assert_eq!(settings[0].default, serde_json::json!(30.0));
+    assert_eq!(settings[0].range, Some((0.0, 200.0)));
+    assert_eq!(settings[0].label.as_deref(), Some("Speed"));
+    assert_eq!(settings[1].kind, SettingKind::Flag);
+    assert_eq!(settings[1].help.as_deref(), Some("Makes a noise"));
+    let json = scripts.to_json();
+    assert_eq!(json[0]["name"], "bee");
+    assert_eq!(json[0]["type"], "Bee");
+    assert_eq!(json[0]["settings"][0]["kind"], "number");
+    assert_eq!(
+        json[0]["settings"][0]["range"],
+        serde_json::json!([0.0, 200.0])
+    );
+    assert_eq!(json[1]["settings"], serde_json::json!([]));
+}
+
+#[test]
+fn objects_run_their_scripts_in_the_order_of_their_ids_and_follow_the_file() {
+    use crate::simulation::Simulation;
+    let folder = game("scene-scripts");
+    let text = |two: &str| {
+        format!(
+            r##"{{"duckforge_scene": 1, "objects": [
+            {two}
+            {{"id": 1, "name": "one", "kind": "bee", "at": [0, 10]}},
+            {{"id": 3, "name": "sign", "at": [50, 10], "picture": "assets/red.png"}},
+            {{"id": 9, "name": "log", "kind": "words"}}]}}"##
+        )
+    };
+    let path = folder.file(
+        "scenes/bees.json",
+        &text(r#"{"id": 2, "name": "two", "kind": "bee", "at": [0, 20], "speed": 60},"#),
+    );
+    let name = crate::files::name_of(&path);
+    let scene = Scene::load(&path).unwrap().with_scripts(bees());
+    assert!(scene.problems().is_empty(), "{:?}", scene.problems());
+    let mut sim = Simulation::new(small_screen(), OneScene { scene });
+    sim.run(60);
+    let scene = &sim.game().scene;
+    // A second at 30 and at 60 pixels a second; the sign has no script.
+    assert!(
+        (scene[Id(1)].at.x - 30.0).abs() < 0.01,
+        "{}",
+        scene[Id(1)].at.x
+    );
+    assert!(
+        (scene[Id(2)].at.x - 60.0).abs() < 0.01,
+        "{}",
+        scene[Id(2)].at.x
+    );
+    assert_eq!(scene[Id(3)].at.x, 50.0);
+    // Id 1 before id 2 every time, though the file has 2 first.
+    let order = scene[Id(9)].text("order").unwrap();
+    assert!(order.starts_with("1,2,1,2,"), "{order}");
+    assert_eq!(scene.script::<Bee>(Id(1)).unwrap().starts, 1);
+    assert!(scene.script::<Bee>(Id(3)).is_none());
+
+    // The file says another speed: the script takes it, and keeps what it
+    // remembers.
+    assert!(sim.change_file(
+        &name,
+        &text(r#"{"id": 2, "name": "two", "kind": "bee", "at": [0, 20], "speed": 6},"#)
+    ));
+    sim.run(1);
+    let bee = sim.game().scene.script::<Bee>(Id(2)).unwrap();
+    assert_eq!(bee.speed, 6.0);
+    assert_eq!(bee.starts, 1);
+    assert!(bee.time > 1.0);
+
+    // No longer a bee: its script stops. A bee again: it starts afresh.
+    assert!(sim.change_file(
+        &name,
+        &text(r#"{"id": 2, "name": "two", "at": [0, 20], "speed": 6},"#)
+    ));
+    sim.run(1);
+    assert!(sim.game().scene.script::<Bee>(Id(2)).is_none());
+    assert!(sim.change_file(
+        &name,
+        &text(r#"{"id": 2, "name": "two", "kind": "bee", "at": [0, 20]},"#)
+    ));
+    sim.run(1);
+    let bee = sim.game().scene.script::<Bee>(Id(2)).unwrap();
+    assert_eq!(
+        (bee.speed, bee.starts),
+        (30.0, 1),
+        "the default, started again"
+    );
+    assert!(bee.time < 0.1);
+}
+
+#[test]
+fn a_script_can_draw_its_object_its_own_way() {
+    let folder = game("scene-script-draw");
+    let path = folder.file(
+        "scenes/square.json",
+        r##"{"duckforge_scene": 1, "background": "#102030", "objects": [
+            {"id": 1, "name": "box", "kind": "square", "at": [10, 10], "picture": "assets/red.png"}]}"##,
+    );
+    let mut scene = Scene::load(&path).unwrap().with_scripts(bees());
+    let mut ctx = Context::new(128, 64, 1);
+    scene.update(&mut ctx);
+    let mut canvas = Canvas::new(128, 64);
+    scene.draw(&mut canvas);
+    assert_eq!(canvas.get_pixel(11, 11), Some(GREEN));
+    // Its picture isn't drawn (it would stand on its feet above `at`).
+    assert_ne!(canvas.get_pixel(10, 6), Some(RED));
+}
+
+#[test]
+fn a_wrong_value_for_a_setting_is_said_with_its_line() {
+    let folder = game("scene-script-wrong");
+    let path = folder.file(
+        "scenes/wrong.json",
+        r##"{"duckforge_scene": 1, "objects": [
+            {"id": 1, "name": "fast bee", "kind": "bee", "speed": "fast"}]}"##,
+    );
+    let scene = Scene::load(&path).unwrap().with_scripts(bees());
+    let said = scene.problems().join("\n");
+    assert!(
+        said.contains("line 2")
+            && said.contains("\"fast bee\"'s \"speed\" should be a number, like 40")
+            && said.contains("so it has the script's 30"),
+        "{said}"
+    );
+
+    #[derive(Default)]
+    struct Mover {
+        at: f32,
+    }
+    impl Script for Mover {
+        fn settings(&mut self, s: &mut Settings) {
+            s.number("at", &mut self.at, 0.0);
+        }
+    }
+    let scene = Scene::load(&path)
+        .unwrap()
+        .with_scripts(Scripts::new().add::<Mover>("mover"));
+    let said = scene.problems().join("\n");
+    assert!(
+        said.contains("the script \"mover\" has a setting called \"at\""),
+        "{said}"
+    );
+}
+
+#[test]
+fn a_scene_game_plays_its_first_scene_with_its_scripts() {
+    use crate::simulation::Simulation;
+    let folder = game("scene-game");
+    folder.file(
+        "scenes/b_second.json",
+        r##"{"duckforge_scene": 1, "objects": [{"id": 1, "name": "other"}]}"##,
+    );
+    folder.file(
+        "scenes/a_first.json",
+        r##"{"duckforge_scene": 1, "objects": [
+            {"id": 1, "name": "bee", "kind": "bee", "at": [0, 10], "picture": "assets/red.png"}]}"##,
+    );
+    let game = SceneGame::new(&*folder).with_scripts(bees());
+    assert!(
+        game.scene().unwrap().find("bee").is_some(),
+        "the first by name"
+    );
+    let mut sim = Simulation::new(small_screen(), game);
+    sim.run(30);
+    let scene = sim.game().scene().unwrap();
+    assert!((scene[Id(1)].at.x - 15.0).abs() < 0.01);
+
+    // game.json can name the first scene.
+    folder.file("game.json", r#"{"title": "Bees", "first": "b_second"}"#);
+    let game = SceneGame::new(&*folder);
+    assert!(game.scene().unwrap().find("other").is_some());
+
+    // No scene: it says so on the screen.
+    let empty = TestFolder::new("scene-game-empty");
+    let game = SceneGame::new(&*empty);
+    assert!(game.scene().is_none());
+    let mut canvas = Canvas::new(320, 240);
+    crate::engine::Game::draw(&game, &mut canvas);
+}

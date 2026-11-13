@@ -31,6 +31,10 @@ use std::path::Path;
 use duckforge::LoadError;
 use duckforge::prelude::*;
 
+// The game's scripts: code that belongs to one object. Duck Forge Studio
+// keeps their list in scripts.rs.
+mod scripts;
+
 const WIDTH: f32 = 320.0; // the screen, in pixels
 const HEIGHT: f32 = 240.0;
 const GRAVITY: f32 = 900.0; // pixels per second, per second
@@ -58,7 +62,7 @@ impl SceneDemo {
     /// The game on a scene file (the tests play copies of the real one).
     fn with_scene(file: impl AsRef<Path>) -> Result<SceneDemo, LoadError> {
         Ok(SceneDemo {
-            scene: Scene::load(file)?,
+            scene: Scene::load(file)?.with_scripts(scripts::all()),
             velocity: Vec2::ZERO,
             on_ground: false,
             coins: 0,

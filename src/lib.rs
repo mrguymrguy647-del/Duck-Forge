@@ -109,7 +109,7 @@ pub mod prelude {
     pub use crate::render3d::{Billboard, Camera3D, Fog, Lighting, Mesh, Renderer, Transform};
     pub use crate::report::ReportValue;
     pub use crate::rng::Rng;
-    pub use crate::scene::{Anchor, Id, Object, Scene};
+    pub use crate::scene::{Anchor, Id, Object, Scene, SceneGame, Script, Scripts, Settings};
     pub use crate::script::InputScript;
     pub use crate::simulation::Simulation;
     pub use crate::sound::{LoopId, Sound, Wav, Wave};

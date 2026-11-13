@@ -465,6 +465,7 @@ pub(crate) fn run<G: Game>(
                     "tunes" => tunes_json(&sim),
                     "sounds" => sounds.to_json(),
                     "files" => serde_json::Value::from(sim.files_read()).to_string(),
+                    "scripts" => crate::scene::script::studio_answer(),
                     _ => String::new(),
                 };
                 link.send(&ToStudio::Answer { id, what, text })?;

@@ -59,15 +59,19 @@
 #[cfg(feature = "studio")]
 pub mod drawn;
 mod file;
+mod game;
 pub(crate) mod live;
 mod object;
+pub mod script;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::{Index, IndexMut};
 use std::path::{Path, PathBuf};
 
 pub use file::{Layer, Problem, SCENE_FILE_VERSION, SceneFile, Space, line_text, write_ids};
+pub use game::SceneGame;
 pub use object::{Anchor, Id, Object};
+pub use script::{Script, Scripts, Setting, SettingInfo, SettingKind, Settings};
 
 use crate::background::Background;
 use crate::camera::Camera2D;
@@ -160,6 +164,10 @@ pub struct Scene {
     unreadable: Option<String>,
     /// The problems already printed, so each is printed once.
     printed: BTreeSet<String>,
+    /// The game's scripts, by the names objects' kinds give them.
+    scripts: Scripts,
+    /// Objects' scripts, running.
+    running: script::RunningScripts,
 }
 
 impl Scene {
@@ -215,7 +223,56 @@ impl Scene {
             problems: Vec::new(),
             unreadable: None,
             printed: BTreeSet::new(),
+            scripts: Scripts::new(),
+            running: script::RunningScripts::default(),
         }
+    }
+
+    /// Gives the scene the game's scripts: each object whose `"kind"` names
+    /// one runs it, from the next update. A game made with Duck Forge
+    /// Studio has them in `scripts.rs`:
+    ///
+    /// ```ignore
+    /// let scene = Scene::load("examples/mygame/scenes/level1.json")?.with_scripts(scripts::all());
+    /// ```
+    pub fn with_scripts(mut self, scripts: Scripts) -> Scene {
+        self.set_scripts(scripts);
+        self
+    }
+
+    /// [`with_scripts`](Scene::with_scripts), for a scene the game holds
+    /// already. Scripts running keep running if they're still given.
+    pub fn set_scripts(&mut self, scripts: Scripts) {
+        #[cfg(feature = "studio")]
+        script::note_for_the_studio(&scripts);
+        self.scripts = scripts;
+        self.say_problems();
+    }
+
+    /// The game's scripts, as given to the scene.
+    pub fn scripts(&self) -> &Scripts {
+        &self.scripts
+    }
+
+    /// An object's script, as its own type, to read its fields: `None` if
+    /// the object hasn't that script running (yet).
+    ///
+    /// ```ignore
+    /// if let Some(bee) = scene.script::<Bee>(id) { println!("{}", bee.speed); }
+    /// ```
+    pub fn script<T: Script>(&self, id: Id) -> Option<&T> {
+        self.running
+            .0
+            .get(&id)
+            .and_then(|running| running.script.as_any().downcast_ref::<T>())
+    }
+
+    /// An object's script, as its own type, to change its fields.
+    pub fn script_mut<T: Script>(&mut self, id: Id) -> Option<&mut T> {
+        self.running
+            .0
+            .get_mut(&id)
+            .and_then(|running| running.script.as_any_mut().downcast_mut::<T>())
     }
 
     /// Everything as the file has it: the first load.
@@ -557,7 +614,76 @@ impl Scene {
         if self.load_new_pictures() {
             self.say_problems();
         }
+        self.run_scripts(ctx);
         self.play_sounds(ctx);
+    }
+
+    /// Every object whose kind is one of the game's scripts runs it: in the
+    /// order of their ids, each started just before its first update.
+    fn run_scripts(&mut self, ctx: &mut Context) {
+        if self.scripts.is_empty() && self.running.0.is_empty() {
+            return; // a scene with no scripts does nothing more
+        }
+        // An object that's gone, or has another kind now, stops its script.
+        let objects = &self.objects;
+        self.running.0.retain(|id, running| {
+            objects
+                .iter()
+                .any(|object| object.id == *id && object.kind == running.name)
+        });
+        let mut scripted: Vec<Id> = self
+            .objects
+            .iter()
+            .filter(|object| self.scripts.has(&object.kind))
+            .map(|object| object.id)
+            .collect();
+        scripted.sort();
+        for id in scripted {
+            // An earlier script may have removed it, or changed its kind.
+            let Some(kind) = self.get(id).map(|object| object.kind.clone()) else {
+                continue;
+            };
+            let mut running = match self.running.0.remove(&id) {
+                Some(running) if running.name == kind => running,
+                _ => {
+                    let Some(mut made) = self.scripts.make(&kind) else {
+                        continue;
+                    };
+                    script::load(made.as_mut(), &self[id]);
+                    script::Running {
+                        name: kind,
+                        script: made,
+                        started: false,
+                    }
+                }
+            };
+            if !running.started {
+                running.started = true;
+                running.script.start(id, self, ctx);
+            }
+            if self.has(id) {
+                running.script.update(id, self, ctx);
+            }
+            if self
+                .get(id)
+                .is_some_and(|object| object.kind == running.name)
+            {
+                self.running.0.insert(id, running);
+            }
+        }
+    }
+
+    /// Running scripts take their objects' values again (the file
+    /// changed): their settings change, and what they remember stays.
+    fn reload_script_settings(&mut self) {
+        let objects = &self.objects;
+        for (id, running) in &mut self.running.0 {
+            if let Some(object) = objects.iter().find(|object| object.id == *id)
+                && object.kind == running.name
+            {
+                script::load(running.script.as_mut(), object);
+            }
+        }
     }
 
     /// Sound objects play: each starts when the scene does (or when it
@@ -848,7 +974,10 @@ impl Scene {
                 }
                 _ => {
                     through_camera(canvas, !stays);
-                    self.draw_object(canvas, object);
+                    match self.running.0.get(&object.id) {
+                        Some(running) => running.script.draw(object, self, canvas),
+                        None => self.draw_object(canvas, object),
+                    }
                 }
             }
         }
@@ -869,6 +998,13 @@ impl Scene {
             .repeat_x(object.flag("repeat_x").unwrap_or(true))
             .repeat_y(object.flag("repeat_y").unwrap_or(false));
         canvas.draw_background(&background, camera);
+    }
+
+    /// Draws an object's picture where it is, as the scene draws an object
+    /// with no script: for a script's own [`draw`](Script::draw), to draw
+    /// its picture as well as its own things.
+    pub fn draw_picture(&self, object: &Object, canvas: &mut Canvas) {
+        self.draw_object(canvas, object);
     }
 
     fn draw_object(&self, canvas: &mut Canvas, object: &Object) {
@@ -1011,6 +1147,7 @@ impl Scene {
         changed.id = id;
         self[id] = changed;
         self.load_new_pictures();
+        self.reload_script_settings();
     }
 
     /// Takes the scene file's new text, as [`reload`](Scene::reload) does
@@ -1066,6 +1203,7 @@ impl Scene {
         self.load_maps();
         self.arrange();
         self.load_new_pictures();
+        self.reload_script_settings();
         self.say_problems();
     }
 
@@ -1372,6 +1510,9 @@ impl Scene {
             .iter()
             .map(|problem| problem.in_file(&file))
             .collect();
+        for problem in self.scripts.problems() {
+            problems.push(format!("{file}: {problem}"));
+        }
         // Each with the line of its object (a painted thing's is its tile
         // map's), like the file's own mistakes.
         let mut say = |object: &Object, text: String| {
@@ -1387,6 +1528,9 @@ impl Scene {
             problems.push(problem.in_file(&file));
         };
         for object in &self.objects {
+            for wrong in self.scripts.wrong_values(object) {
+                say(object, wrong);
+            }
             let called = &object.name;
             if object.kind == "sound" {
                 match object.text("sound") {
