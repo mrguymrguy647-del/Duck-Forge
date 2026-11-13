@@ -39,7 +39,6 @@
 //! once, just before its first update.
 
 use std::any::Any;
-use std::collections::BTreeMap;
 #[cfg(feature = "studio")]
 use std::sync::Mutex;
 
@@ -589,10 +588,46 @@ pub(crate) struct Running {
     pub(crate) started: bool,
 }
 
-/// The scripts running in a scene, by object. A copy of a scene starts
+/// The scripts running in a scene, by object. (A plain list: a scene
+/// has few, and it keeps exported games small.) A copy of a scene starts
 /// its scripts again, so this copies as empty.
 #[derive(Default)]
-pub(crate) struct RunningScripts(pub(crate) BTreeMap<Id, Running>);
+pub(crate) struct RunningScripts(Vec<(Id, Running)>);
+
+impl RunningScripts {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub(crate) fn retain(&mut self, mut keep: impl FnMut(Id, &Running) -> bool) {
+        self.0.retain(|(id, running)| keep(*id, running));
+    }
+
+    pub(crate) fn take(&mut self, id: Id) -> Option<Running> {
+        let index = self.0.iter().position(|(have, _)| *have == id)?;
+        Some(self.0.swap_remove(index).1)
+    }
+
+    pub(crate) fn put(&mut self, id: Id, running: Running) {
+        self.take(id);
+        self.0.push((id, running));
+    }
+
+    pub(crate) fn get(&self, id: Id) -> Option<&Running> {
+        self.0.iter().find(|(have, _)| *have == id).map(|(_, r)| r)
+    }
+
+    pub(crate) fn get_mut(&mut self, id: Id) -> Option<&mut Running> {
+        self.0
+            .iter_mut()
+            .find(|(have, _)| *have == id)
+            .map(|(_, r)| r)
+    }
+
+    pub(crate) fn iter_mut(&mut self) -> impl Iterator<Item = (Id, &mut Running)> {
+        self.0.iter_mut().map(|(id, running)| (*id, running))
+    }
+}
 
 impl Clone for RunningScripts {
     fn clone(&self) -> Self {

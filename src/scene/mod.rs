@@ -262,16 +262,14 @@ impl Scene {
     /// ```
     pub fn script<T: Script>(&self, id: Id) -> Option<&T> {
         self.running
-            .0
-            .get(&id)
+            .get(id)
             .and_then(|running| running.script.as_any().downcast_ref::<T>())
     }
 
     /// An object's script, as its own type, to change its fields.
     pub fn script_mut<T: Script>(&mut self, id: Id) -> Option<&mut T> {
         self.running
-            .0
-            .get_mut(&id)
+            .get_mut(id)
             .and_then(|running| running.script.as_any_mut().downcast_mut::<T>())
     }
 
@@ -621,15 +619,15 @@ impl Scene {
     /// Every object whose kind is one of the game's scripts runs it: in the
     /// order of their ids, each started just before its first update.
     fn run_scripts(&mut self, ctx: &mut Context) {
-        if self.scripts.is_empty() && self.running.0.is_empty() {
+        if self.scripts.is_empty() && self.running.is_empty() {
             return; // a scene with no scripts does nothing more
         }
         // An object that's gone, or has another kind now, stops its script.
         let objects = &self.objects;
-        self.running.0.retain(|id, running| {
+        self.running.retain(|id, running| {
             objects
                 .iter()
-                .any(|object| object.id == *id && object.kind == running.name)
+                .any(|object| object.id == id && object.kind == running.name)
         });
         let mut scripted: Vec<Id> = self
             .objects
@@ -643,7 +641,7 @@ impl Scene {
             let Some(kind) = self.get(id).map(|object| object.kind.clone()) else {
                 continue;
             };
-            let mut running = match self.running.0.remove(&id) {
+            let mut running = match self.running.take(id) {
                 Some(running) if running.name == kind => running,
                 _ => {
                     let Some(mut made) = self.scripts.make(&kind) else {
@@ -668,7 +666,7 @@ impl Scene {
                 .get(id)
                 .is_some_and(|object| object.kind == running.name)
             {
-                self.running.0.insert(id, running);
+                self.running.put(id, running);
             }
         }
     }
@@ -677,8 +675,8 @@ impl Scene {
     /// changed): their settings change, and what they remember stays.
     fn reload_script_settings(&mut self) {
         let objects = &self.objects;
-        for (id, running) in &mut self.running.0 {
-            if let Some(object) = objects.iter().find(|object| object.id == *id)
+        for (id, running) in self.running.iter_mut() {
+            if let Some(object) = objects.iter().find(|object| object.id == id)
                 && object.kind == running.name
             {
                 script::load(running.script.as_mut(), object);
@@ -974,7 +972,7 @@ impl Scene {
                 }
                 _ => {
                     through_camera(canvas, !stays);
-                    match self.running.0.get(&object.id) {
+                    match self.running.get(object.id) {
                         Some(running) => running.script.draw(object, self, canvas),
                         None => self.draw_object(canvas, object),
                     }
