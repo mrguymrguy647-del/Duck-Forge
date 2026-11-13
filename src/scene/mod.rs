@@ -622,10 +622,11 @@ impl Scene {
         // The usual case, every update: no object has a script. Found
         // without making anything.
         if self.running.is_empty()
-            && !self
-                .objects
-                .iter()
-                .any(|object| self.scripts.has(&object.kind))
+            && (self.scripts.is_empty()
+                || !self
+                    .objects
+                    .iter()
+                    .any(|object| self.scripts.has(&object.kind)))
         {
             return;
         }
