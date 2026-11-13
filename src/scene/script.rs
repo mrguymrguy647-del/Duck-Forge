@@ -459,6 +459,9 @@ impl Scripts {
 
     /// Adds a script: objects whose `"kind"` is `name` run it. A name
     /// given twice keeps the later one.
+    // `add` reads as what it does in a list of scripts (`scripts.rs`); it
+    // isn't `+`, and takes a type as well as a name.
+    #[allow(clippy::should_implement_trait)]
     pub fn add<T: Script + Default>(mut self, name: &str) -> Scripts {
         let mut settings = Vec::new();
         T::default().settings(&mut Settings {

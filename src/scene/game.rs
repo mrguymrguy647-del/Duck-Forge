@@ -140,7 +140,7 @@ impl Game for SceneGame {
             Err(why) => {
                 canvas.clear(Color::rgb(30, 20, 70));
                 let mut y = 8.0;
-                for line in wrapped(why, (canvas.width() as usize / 6).max(10)) {
+                for line in wrapped(why, (canvas.width() / 6).max(10)) {
                     canvas.draw_text(&line, vec2(8.0, y), 1, Color::WHITE);
                     y += 10.0;
                 }
