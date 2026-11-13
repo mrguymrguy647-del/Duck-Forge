@@ -4630,6 +4630,73 @@ panel table puts it, so dragging from it into the scene is a short way
 and the Inspector stays open while dragging onto it. The right side
 loses its Files tab there; a game without scenes keeps the tab.
 
+## Step 4: the numbers
+
+Release builds with the usual features, on this Linux machine, Step 3's
+code and Step 4's built the same way side by side:
+
+| Game | Size after Step 3 | after Step 4 | The same, built as one piece |
+|---|---|---|---|
+| Platformer starter | 6,399,232 | 6,413,424 | +864 bytes |
+| Shooter starter | 6,272,680 | 6,283,304 | +880 bytes |
+| 3D runner starter | 11,605,104 | 11,618,616 | +864 bytes |
+| Scene demo | 6,622,440 | 6,699,144 | +51,672 bytes |
+
+None of the editor is in any game: the Studio's drag and drop, Files
+under the Scene list and `files.use` are all in the Studio's own crates.
+The three games without scenes are the arrangement again (Step 3's
+numbers say what that is): built as one piece, their machine code is
+byte for byte the size it was after Step 3, and the files differ by 864
+to 880 bytes of unwinding tables.
+
+The scene demo really is bigger, by about 41,000 bytes of machine code
+(0.8% of the file), and that's the Sound kind, not the editor: a scene
+can now play a sound, so `Scene` reads `.wav` files and starts, follows
+and stops them. That puts the engine's `.wav` reader in a game that
+didn't read one before (5,000 bytes), and makes `Scene::update` and
+`Scene::load_new_pictures` bigger (21,000 bytes between them, with the
+sound code copied into them), plus the lists that keep what's playing.
+Every game made of scenes carries it, whether or not its scenes have a
+sound, the same way every game carries the tile map's code. It's the
+design's Sound object, which a scene needs for its music; the rule was
+about the editor, and the editor adds nothing.
+
+Speed, with `--headless --time`, the two builds run turn about, five
+runs each (this machine was noisier today than for Step 3, so the
+middle run of five is given as well as the lowest and highest):
+
+| Game | Drawing a frame, Step 3 | Step 4 | An update, Step 3 | Step 4 |
+|---|---|---|---|---|
+| Platformer starter | 86.3 to 132.4 µs (111.2) | 92.1 to 111.6 µs (100.6) | 1.25 to 2.81 µs (2.17) | 1.20 to 1.91 µs (1.50) |
+| Shooter starter | 20.8 to 24.7 µs (23.3) | 21.0 to 35.5 µs (25.4) | 1.18 to 1.55 µs (1.47) | 1.39 to 2.17 µs (1.56) |
+| 3D runner starter | 1,826 to 2,047 µs (1,911) | 1,646 to 2,001 µs (1,896) | 3.43 to 4.89 µs (3.92) | 2.30 to 3.95 µs (3.58) |
+| Scene demo | 91.9 to 132.8 µs (105.4) | 91.4 to 123.3 µs (104.6) | 2.59 to 4.63 µs (3.23) | 2.66 to 4.07 µs (3.35) |
+
+The same speed for all four, within what this machine does from one
+run to the next. The scene demo has no sound object, so its update now
+also looks for sounds to play and finds none; that doesn't show.
+
+- Tests: the engine 616 (headless) and 651 (with a window), 345 with the
+  link; the Studio's core 79 unit tests and 8 that play real games; the
+  app 13 unit tests and 11 screen tests, three of which drive the scene
+  editor with a pretend mouse and keyboard. All of them pass on a copy
+  checked out with Windows line endings too.
+
+On GitHub's Windows machine (run 43437587053, release builds, the same
+`--headless --time`), against Step 3's run 43298784786 there:
+
+| Game | Size after Step 3 | after Step 4 | An update | Drawing a frame |
+|---|---|---|---|---|
+| Platformer starter | 3,873,280 | 3,902,464 | 1.27 to 1.33 µs | 83.6 to 84.4 µs |
+| Shooter starter | 3,764,224 | 3,795,456 | 1.66 to 1.81 µs | 16.2 to 16.8 µs |
+| 3D runner starter | 9,177,088 | 9,206,784 | 1.53 to 1.63 µs | 1,165 to 1,169 µs |
+| Scene demo | 4,095,488 | 4,185,088 | 3.16 to 3.17 µs | 85.1 to 86.0 µs |
+
+The times are Step 3's there. The sizes there are 29,000 to 31,000
+bytes bigger for the three games without scenes, which Linux says isn't
+their code; Step 3's run is being run again on today's Windows machine
+to see how much of that is the machine rather than the step.
+
 # Models from Duck Mold
 
 Duck Mold (a sister tool: 3D models from text recipes, no window) saves
