@@ -1,0 +1,321 @@
+{
+  "ok": true,
+  "summary": "house: 3.40 x 3.40 x 2.80 m, 120 triangles, 8 parts, 6 colours, rests on the ground, nothing floating, nothing overlapping",
+  "source": "examples/house.toml",
+  "name": "house",
+  "size": [
+    3.4,
+    3.4,
+    2.8
+  ],
+  "bounds": {
+    "min": [
+      -1.7,
+      0.0,
+      -1.4
+    ],
+    "max": [
+      1.7,
+      3.4,
+      1.4
+    ]
+  },
+  "triangles": 120,
+  "vertices": 244,
+  "ground": {
+    "rests_on_ground": true,
+    "lowest_y": 0.0
+  },
+  "palette": [
+    {
+      "name": "wall",
+      "hex": "#E8D8B8",
+      "triangles": 16
+    },
+    {
+      "name": "tiles",
+      "hex": "#B5523B",
+      "triangles": 12
+    },
+    {
+      "name": "door",
+      "hex": "#6B4A2B",
+      "triangles": 12
+    },
+    {
+      "name": "glass",
+      "hex": "#9CC8E0",
+      "triangles": 16
+    },
+    {
+      "name": "brick",
+      "hex": "#8A4B3A",
+      "triangles": 12
+    },
+    {
+      "name": "frame",
+      "hex": "#F2EEE6",
+      "triangles": 52
+    }
+  ],
+  "parts": [
+    {
+      "name": "walls",
+      "kind": "box",
+      "triangles": 12,
+      "size": [
+        3.0,
+        2.0,
+        2.4
+      ],
+      "bounds": {
+        "min": [
+          -1.3,
+          0.0,
+          -1.2
+        ],
+        "max": [
+          1.7,
+          2.0,
+          1.2
+        ]
+      },
+      "colors": [
+        "wall"
+      ],
+      "attached_to": null,
+      "parts": []
+    },
+    {
+      "name": "roof",
+      "kind": "assembly",
+      "uses": "roof",
+      "triangles": 16,
+      "size": [
+        3.0,
+        1.0,
+        2.8
+      ],
+      "bounds": {
+        "min": [
+          -1.3,
+          2.0,
+          -1.4
+        ],
+        "max": [
+          1.7,
+          3.0,
+          1.4
+        ]
+      },
+      "colors": [
+        "wall",
+        "tiles"
+      ],
+      "attached_to": "walls.top",
+      "parts": [
+        {
+          "name": "roof/front_half",
+          "kind": "wedge",
+          "triangles": 8,
+          "size": [
+            3.0,
+            1.0,
+            1.4
+          ],
+          "bounds": {
+            "min": [
+              -1.3,
+              2.0,
+              0.0
+            ],
+            "max": [
+              1.7,
+              3.0,
+              1.4
+            ]
+          },
+          "colors": [
+            "wall",
+            "tiles"
+          ],
+          "attached_to": null,
+          "parts": []
+        },
+        {
+          "name": "roof/back_half",
+          "kind": "wedge",
+          "triangles": 8,
+          "size": [
+            3.0,
+            1.0,
+            1.4
+          ],
+          "bounds": {
+            "min": [
+              -1.3,
+              2.0,
+              -1.4
+            ],
+            "max": [
+              1.7,
+              3.0,
+              0.0
+            ]
+          },
+          "colors": [
+            "wall",
+            "tiles"
+          ],
+          "attached_to": "front_half.back",
+          "parts": []
+        }
+      ]
+    },
+    {
+      "name": "door",
+      "kind": "box",
+      "triangles": 12,
+      "size": [
+        0.6,
+        1.2,
+        0.08
+      ],
+      "bounds": {
+        "min": [
+          -0.1,
+          0.0,
+          1.2
+        ],
+        "max": [
+          0.5,
+          1.2,
+          1.28
+        ]
+      },
+      "colors": [
+        "door"
+      ],
+      "attached_to": "walls.door",
+      "parts": []
+    },
+    {
+      "name": "window_left",
+      "kind": "box",
+      "uses": "window",
+      "changes": 2,
+      "triangles": 28,
+      "size": [
+        0.5,
+        0.5,
+        0.06
+      ],
+      "bounds": {
+        "min": [
+          -0.95,
+          0.95,
+          1.2
+        ],
+        "max": [
+          -0.45,
+          1.45,
+          1.26
+        ]
+      },
+      "colors": [
+        "glass",
+        "frame"
+      ],
+      "attached_to": "walls.window_left",
+      "parts": []
+    },
+    {
+      "name": "window_right",
+      "kind": "box",
+      "uses": "window",
+      "changes": 2,
+      "triangles": 28,
+      "size": [
+        0.5,
+        0.5,
+        0.06
+      ],
+      "bounds": {
+        "min": [
+          0.85,
+          0.95,
+          1.2
+        ],
+        "max": [
+          1.35,
+          1.45,
+          1.26
+        ]
+      },
+      "colors": [
+        "glass",
+        "frame"
+      ],
+      "attached_to": "walls.window_right",
+      "parts": []
+    },
+    {
+      "name": "chimney",
+      "kind": "box",
+      "triangles": 12,
+      "size": [
+        0.4,
+        3.4,
+        0.4
+      ],
+      "bounds": {
+        "min": [
+          -1.7,
+          0.0,
+          -0.68
+        ],
+        "max": [
+          -1.3,
+          3.4,
+          -0.28
+        ]
+      },
+      "colors": [
+        "brick"
+      ],
+      "attached_to": "walls.chimney",
+      "parts": []
+    },
+    {
+      "name": "skylight",
+      "kind": "box",
+      "triangles": 12,
+      "size": [
+        0.7,
+        0.331306,
+        0.435928
+      ],
+      "bounds": {
+        "min": [
+          -0.15,
+          2.35469,
+          0.496567
+        ],
+        "max": [
+          0.55,
+          2.685996,
+          0.932495
+        ]
+      },
+      "colors": [
+        "glass"
+      ],
+      "attached_to": "roof.skylight",
+      "parts": []
+    }
+  ],
+  "floating": [],
+  "overlapping": [],
+  "warnings": [],
+  "errors": []
+}
