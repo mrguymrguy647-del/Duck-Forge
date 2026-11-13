@@ -1407,3 +1407,250 @@ fn files_dropped_in_become_objects_pictures_and_sounds_and_it_all_replays() {
         "the music plays in the replay: {log}"
     );
 }
+
+/// Step 5 on the real scene demo: New script writes a script and connects
+/// it, the game builds it in and comes back to the same frozen frame, the
+/// script is given to the sign by its file, its setting is set and it
+/// moves the sign, it makes a new object on empty space, comes off again,
+/// and Undo takes it all back (the script's file to the Recycle Bin).
+#[test]
+fn a_new_script_is_made_given_to_an_object_and_undone() {
+    let _one = THE_SCENE_DEMOS_FILE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut studio = studio();
+    studio.opens_files = false;
+    let bin = TestFolder::new("bin-step5");
+    studio.recycle_bin = studio_core::recycle::RecycleBin::Folder(bin.to_path_buf());
+    let say = |studio: &mut Studio, step: Step| {
+        run_step(studio, &step).unwrap_or_else(|problem| {
+            panic!("{problem}\n{}", problem.details);
+        })
+    };
+    let run = |studio: &mut Studio, command: serde_json::Value| {
+        let command: Command = serde_json::from_value(command).unwrap();
+        run_step(studio, &Step::Do(command)).unwrap_or_else(|problem| {
+            panic!("{problem}\n{}", problem.details);
+        })
+    };
+    let refused = |studio: &mut Studio, command: serde_json::Value| {
+        let problem = studio
+            .run(serde_json::from_value(command).unwrap())
+            .unwrap_err();
+        studio.problem = None;
+        problem
+    };
+    let settle = |studio: &mut Studio| {
+        run_step(studio, &Step::Wait(Wait::Seconds { seconds: 0.3 })).unwrap();
+    };
+    let wait_for = |studio: &mut Studio, what: &str, done: &dyn Fn(&Studio) -> bool| {
+        let start = Instant::now();
+        while !done(studio) {
+            assert!(
+                start.elapsed().as_secs() < 900,
+                "waited too long for {what}: {:?}",
+                studio.problem
+            );
+            run_step(studio, &Step::Wait(Wait::Seconds { seconds: 0.5 })).unwrap();
+        }
+    };
+    let game = duck_forge().join("examples/scene_demo");
+    let scene_file = game.join("scenes/pond.json");
+    let put_back = |path: PathBuf| PutBack {
+        text: std::fs::read_to_string(&path).unwrap(),
+        path,
+    };
+    let _scene_back = put_back(scene_file.clone());
+    let _scripts_back = put_back(game.join("scripts.rs"));
+    let _main_back = put_back(game.join("main.rs"));
+    let bee = game.join("scripts/bee.rs");
+    let _bee = TakeAway(bee.clone());
+    let plain = |text: &str| text.replace("\r\n", "\n");
+    let original = plain(&_scene_back.text);
+    let on_disk = || plain(&std::fs::read_to_string(&scene_file).unwrap());
+    let line_of = |id: u64| {
+        on_disk()
+            .lines()
+            .find(|line| line.contains(&format!("{{\"id\": {id},")))
+            .unwrap_or_default()
+            .to_string()
+    };
+    let drawn_x = |studio: &Studio, id: u64| {
+        studio
+            .open
+            .as_ref()
+            .unwrap()
+            .drawn_scene()
+            .and_then(|drawn| drawn.object(id).and_then(|object| object.rect))
+            .map(|rect| rect.x)
+            .unwrap()
+    };
+
+    say(
+        &mut studio,
+        Step::Do(Command::GameOpen {
+            name: String::from("scene_demo"),
+        }),
+    );
+    say(&mut studio, Step::Wait(Wait::Playing));
+    say(&mut studio, Step::Wait(Wait::Frames { frames: 10 }));
+    say(&mut studio, Step::Do(Command::GameToggle));
+    settle(&mut studio);
+    wait_for(&mut studio, "the game to say its scripts", &|studio| {
+        studio
+            .open
+            .as_ref()
+            .unwrap()
+            .game_scripts()
+            .is_some_and(|scripts| scripts.given && scripts.get("bob").is_some())
+    });
+
+    // New script: the file, its line in scripts.rs; main.rs is connected
+    // already, so it's left alone.
+    let said = run(
+        &mut studio,
+        serde_json::json!({"do": "script.new", "name": "Bee", "folder": "scripts"}),
+    );
+    assert!(
+        said.starts_with("New script bee: scripts/bee.rs."),
+        "{said}"
+    );
+    let code = std::fs::read_to_string(&bee).unwrap();
+    assert!(code.contains("pub struct Bee {") && code.contains("impl Script for Bee {"));
+    let scripts = std::fs::read_to_string(game.join("scripts.rs")).unwrap();
+    assert!(
+        scripts.contains(".add::<bob::Bob>(\"bob\")\n        .add::<bee::Bee>(\"bee\")"),
+        "{scripts}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(game.join("main.rs")).unwrap(),
+        _main_back.text
+    );
+    let again = refused(
+        &mut studio,
+        serde_json::json!({"do": "script.new", "name": "bee", "folder": "scripts"}),
+    );
+    assert!(again.what.contains("already"), "{again:?}");
+    let plain_kind = refused(
+        &mut studio,
+        serde_json::json!({"do": "script.new", "name": "sound"}),
+    );
+    assert!(plain_kind.what.contains("kind called \"sound\""));
+
+    // Given to the sign by dragging its file there: straight away, while
+    // the game builds it in.
+    assert_eq!(
+        run(
+            &mut studio,
+            serde_json::json!({"do": "files.use", "path": "scripts/bee.rs", "ids": [4]})
+        ),
+        "Give sign the script bee"
+    );
+    assert!(
+        line_of(4).contains(r#""name": "sign", "kind": "bee""#),
+        "{}",
+        line_of(4)
+    );
+    let frame = studio.play().unwrap().frame;
+
+    // The build: the game comes back to the same frame, with bee in it.
+    wait_for(&mut studio, "bee to be built in", &|studio| {
+        let open = studio.open.as_ref().unwrap();
+        open.play.as_ref().is_some_and(|play| {
+            play.state == PlayState::Frozen
+                && play
+                    .scripts
+                    .as_ref()
+                    .is_some_and(|scripts| scripts.get("bee").is_some())
+        })
+    });
+    settle(&mut studio);
+    assert_eq!(studio.play().unwrap().frame, frame, "the same frozen frame");
+    let open = studio.open.as_ref().unwrap();
+    assert_eq!(open.script_settings("bee"), ["speed"]);
+    let speed = &open.game_scripts().unwrap().get("bee").unwrap().settings[0];
+    assert_eq!(
+        (speed.kind.as_str(), speed.default.as_f64()),
+        ("number", Some(0.0))
+    );
+
+    // A speed, as the Inspector sets it; a second of play: the sign goes.
+    run(
+        &mut studio,
+        serde_json::json!({"do": "object.set", "ids": [4], "set": {"speed": 60}}),
+    );
+    assert!(line_of(4).contains(r#""speed": 60"#), "{}", line_of(4));
+    settle(&mut studio);
+    let before = drawn_x(&studio, 4);
+    say(&mut studio, Step::Do(Command::GameToggle));
+    say(&mut studio, Step::Wait(Wait::Frames { frames: 60 }));
+    say(&mut studio, Step::Do(Command::GameFreeze));
+    settle(&mut studio);
+    let after = drawn_x(&studio, 4);
+    assert!(after > before + 30.0, "{before} -> {after}");
+
+    // A coin's kind is the game's code's: no script takes its place.
+    let coin = refused(
+        &mut studio,
+        serde_json::json!({"do": "files.use", "path": "scripts/bee.rs", "ids": [7]}),
+    );
+    assert!(coin.what.contains("the game's code looks for"), "{coin:?}");
+    // main.rs isn't a script.
+    let main = refused(
+        &mut studio,
+        serde_json::json!({"do": "files.use", "path": "main.rs", "ids": [4]}),
+    );
+    assert!(
+        main.what.contains("isn't one of the game's scripts"),
+        "{main:?}"
+    );
+
+    // On empty space: a new object with the script, a box to see it by.
+    assert_eq!(
+        run(
+            &mut studio,
+            serde_json::json!({"do": "files.use", "path": "scripts/bee.rs", "at": [300, 100]})
+        ),
+        "Add bee"
+    );
+    assert!(
+        line_of(12)
+            .contains(r#""name": "bee", "kind": "bee", "at": [300, 100], "box": [0, 0, 32, 32]"#),
+        "{}",
+        line_of(12)
+    );
+
+    // Off the sign again: its kind and its speed go.
+    assert_eq!(
+        run(
+            &mut studio,
+            serde_json::json!({"do": "script.remove", "ids": [4]})
+        ),
+        "Take bee off sign"
+    );
+    assert!(
+        !line_of(4).contains("kind") && !line_of(4).contains("speed"),
+        "{}",
+        line_of(4)
+    );
+
+    // Undo: the four scene changes, then New script itself.
+    for _ in 0..4 {
+        say(&mut studio, Step::Do(Command::EditUndo));
+    }
+    assert_eq!(on_disk(), original);
+    say(&mut studio, Step::Do(Command::EditUndo));
+    assert!(!bee.exists(), "the script went");
+    assert!(
+        std::fs::read_dir(&*bin)
+            .unwrap()
+            .flatten()
+            .any(|entry| entry.file_name().to_string_lossy().starts_with("bee")),
+        "to the Recycle Bin"
+    );
+    assert_eq!(
+        plain(&std::fs::read_to_string(game.join("scripts.rs")).unwrap()),
+        plain(&_scripts_back.text)
+    );
+    say(&mut studio, Step::Do(Command::GameStop));
+}

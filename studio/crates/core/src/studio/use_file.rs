@@ -213,6 +213,18 @@ impl Studio {
             }
             (path.replace('\\', "/"), false)
         };
+        // A script: the objects get it, or a new object has it there.
+        if super::scripts::is_code(&place) && !copied {
+            let entry = crate::scripts::ScriptsFile::read(&folder)
+                .and_then(|list| list.by_path(&place).cloned())
+                .ok_or_else(|| {
+                    Problem::new(
+                        format!("{place} isn't one of the game's scripts: scripts.rs doesn't list it."),
+                        "Make scripts with New script (right-click in Files); they're listed by themselves.",
+                    )
+                })?;
+            return self.use_script(entry, at, ids);
+        }
         let usable = usable(&folder, &place)?;
         let said = if ids.is_empty() {
             let (kind, set) = match &usable {

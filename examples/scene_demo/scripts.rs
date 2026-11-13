@@ -7,6 +7,8 @@ use duckforge::prelude::Scripts;
 #[path = "scripts/bob.rs"]
 mod bob;
 
+#[rustfmt::skip]
 pub fn all() -> Scripts {
-    Scripts::new().add::<bob::Bob>("bob")
+    Scripts::new()
+        .add::<bob::Bob>("bob")
 }

@@ -1123,3 +1123,42 @@ fn a_scene_game_plays_its_first_scene_with_its_scripts() {
     let mut canvas = Canvas::new(320, 240);
     crate::engine::Game::draw(&game, &mut canvas);
 }
+
+#[test]
+fn a_replay_that_stops_where_a_file_was_edited_while_frozen_has_the_edit() {
+    use crate::simulation::Simulation;
+    let folder = game("scene-catch-up");
+    let text = |speed: &str| {
+        format!(
+            r##"{{"duckforge_scene": 1, "objects": [
+            {{"id": 4, "name": "sign", "kind": "bee", "at": [10, 10]{speed}}}]}}"##
+        )
+    };
+    let path = folder.file("scenes/a.json", &text(""));
+    let name = crate::files::name_of(&path);
+    let start = || {
+        let scene = Scene::load(&path).unwrap().with_scripts(bees());
+        Simulation::new(small_screen(), OneScene { scene })
+    };
+    // Played 10 updates, then edited while it stands still.
+    let mut sim = start();
+    sim.run(10);
+    assert!(sim.change_file(&name, &text(r#", "speed": 0"#)));
+    let recording = sim.recording();
+    assert_eq!(recording.changes[0].frame, 11, "kept on the coming frame");
+
+    // The replay stops on frame 10: the edit is caught up there, once.
+    std::fs::write(&path, text("")).unwrap();
+    let mut again = start();
+    again.follow(recording);
+    again.run(10);
+    again.catch_up_changes();
+    assert_eq!(again.recording().changes.len(), 1);
+    // A newer edit, still frozen: it's the one the game plays with (the
+    // old one isn't made again at the next update, over it).
+    assert!(again.change_file(&name, &text(r#", "speed": 60"#)));
+    let x = again.game().scene[Id(4)].at.x;
+    again.run(30);
+    let moved = again.game().scene[Id(4)].at.x - x;
+    assert!((moved - 30.0).abs() < 0.01, "{moved}");
+}

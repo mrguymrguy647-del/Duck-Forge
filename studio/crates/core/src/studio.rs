@@ -100,6 +100,7 @@ fn count(n: usize, what: &str) -> String {
 }
 
 mod objects;
+mod scripts;
 mod use_file;
 
 /// Everything the Studio can be asked to do. In a script file each is a
@@ -334,6 +335,22 @@ pub enum Command {
         #[serde(default)]
         key: Option<String>,
     },
+    /// A new script: `{"do": "script.new", "name": "bee", "folder":
+    /// "scripts"}` writes `scripts/bee.rs` from a beginner's skeleton, adds
+    /// it to the game's `scripts.rs` (connecting `main.rs` the first time),
+    /// and opens it in the person's code editor. The game builds again by
+    /// itself. A step for Undo (the file goes to the Recycle Bin).
+    #[serde(rename = "script.new")]
+    ScriptNew {
+        name: String,
+        #[serde(default)]
+        folder: String,
+    },
+    /// Takes objects' scripts off them, with the scripts' settings:
+    /// `{"do": "script.remove", "ids": [4]}`. (A script is given to an
+    /// object with `files.use`, its file's path and the object's id.)
+    #[serde(rename = "script.remove")]
+    ScriptRemove { ids: Vec<u64> },
     /// Change objects of the scene, by their keys as the scene file has
     /// them: `{"do": "object.set", "ids": [7], "set": {"layer": "front"}}`.
     /// It changes the file (how the scene starts); the game takes it at
@@ -761,7 +778,17 @@ pub const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         name: "files.use",
         title: "Use a file in the scene (as an object, or an object's picture or sound)",
-        needs: "path: like assets/sign.png; at: like [128, 208] (optional); ids: objects to give it to (optional)",
+        needs: "path: like assets/sign.png, or a script like scripts/bee.rs; at: like [128, 208] (optional); ids: objects to give it to (optional)",
+    },
+    CommandInfo {
+        name: "script.new",
+        title: "Make a new script, and open it",
+        needs: "name: like bee; folder: like scripts (optional: the game's own folder)",
+    },
+    CommandInfo {
+        name: "script.remove",
+        title: "Take objects' scripts off them",
+        needs: "ids: like [4]",
     },
     CommandInfo {
         name: "object.set",
@@ -1000,9 +1027,28 @@ pub struct OpenGame {
     pub files_selected: Option<String>,
     /// Whether it's been looked at if the game needs a card picture.
     thumbnail_looked: bool,
+    /// The scripts the game last said it has, kept while it isn't running
+    /// or its code doesn't build.
+    pub scripts_known: Option<crate::scripts::GameScripts>,
 }
 
 impl OpenGame {
+    /// The game's scripts and their settings, as it last said them.
+    pub fn game_scripts(&self) -> Option<&crate::scripts::GameScripts> {
+        self.play
+            .as_ref()
+            .and_then(|play| play.scripts.as_ref())
+            .or(self.scripts_known.as_ref())
+    }
+
+    /// The names of a script's settings, as the game last said them.
+    pub fn script_settings(&self, script: &str) -> Vec<String> {
+        self.game_scripts()
+            .and_then(|scripts| scripts.get(script))
+            .map(|script| script.settings.iter().map(|s| s.name.clone()).collect())
+            .unwrap_or_default()
+    }
+
     /// The Feel panel's sliders: every value the game asked for.
     pub fn sliders(&self) -> Vec<Slider> {
         let tunes: Vec<feel::TuneValue> = self
@@ -1092,6 +1138,9 @@ pub struct Studio {
     /// times they've been pasted since.
     pub clipboard: Vec<serde_json::Map<String, serde_json::Value>>,
     pastes: u32,
+    /// Whether files are opened in their own programs (a new script in the
+    /// code editor). Tests turn it off.
+    pub opens_files: bool,
 }
 
 impl Studio {
@@ -1117,6 +1166,7 @@ impl Studio {
             buttons_down: Vec::new(),
             clipboard: Vec::new(),
             pastes: 0,
+            opens_files: true,
         };
         studio.console.path = studio.rust.as_ref().ok().and_then(|rust| rust.path.clone());
         let wanted = studio.games_folder_to_use();
@@ -1448,6 +1498,7 @@ impl Studio {
             }
             Command::FilesRename { path, to } => {
                 let new = game_files::rename(&self.files_folder()?, &path, &to)?;
+                self.scripts_follow_files(&path, Some(&new));
                 let open = self.open_game()?;
                 if open.files_selected.as_deref() == Some(path.as_str()) {
                     open.files_selected = Some(new.clone());
@@ -1457,6 +1508,7 @@ impl Studio {
             Command::FilesDelete { path } => {
                 let folder = self.files_folder()?;
                 game_files::delete(&folder, &path, &self.recycle_bin)?;
+                self.scripts_follow_files(&path, None);
                 let open = self.open_game()?;
                 let inside = |picked: &String| {
                     picked == &path
@@ -1548,6 +1600,7 @@ impl Studio {
                     art_version: 0,
                     files_selected: None,
                     thumbnail_looked: false,
+                    scripts_known: None,
                 });
                 self.screen = Screen::Game;
                 self.problem = None;
@@ -1902,6 +1955,8 @@ impl Studio {
                 set,
             } => self.object_add(kind, at, name, set),
             Command::FilesUse { path, at, ids, key } => self.files_use(path, at, ids, key),
+            Command::ScriptNew { name, folder } => self.script_new(name, folder),
+            Command::ScriptRemove { ids } => self.script_remove(ids),
             Command::ObjectTurn {
                 ids,
                 by,
@@ -2293,9 +2348,32 @@ impl Studio {
     fn apply_files(&mut self, step: &Step, before: bool) -> Result<(), Problem> {
         for edit in &step.files {
             let text = if before { &edit.before } else { &edit.after };
+            // Code changed since the step (a script written in the code
+            // editor) goes to the Recycle Bin, not away for good.
+            let other = if before { &edit.after } else { &edit.before };
+            let is_code = edit
+                .path
+                .extension()
+                .is_some_and(|end| end.eq_ignore_ascii_case("rs"));
+            let changed_since = std::fs::read_to_string(&edit.path)
+                .is_ok_and(|now| now.replace("\r\n", "\n") != other.replace("\r\n", "\n"));
+            if is_code && changed_since {
+                let _ = self
+                    .recycle_bin
+                    .throw_away(std::slice::from_ref(&edit.path));
+            }
             if text.is_empty() {
-                // It wasn't there (a tune file made by the first Feel change).
-                let _ = std::fs::remove_file(&edit.path);
+                // It wasn't there (a tune file made by the first Feel
+                // change, a new script).
+                if edit.path.exists() {
+                    if is_code {
+                        let _ = self
+                            .recycle_bin
+                            .throw_away(std::slice::from_ref(&edit.path));
+                    } else {
+                        let _ = std::fs::remove_file(&edit.path);
+                    }
+                }
             } else {
                 crate::level::write_whole(&edit.path, text)?;
             }
@@ -2532,6 +2610,11 @@ impl Studio {
         {
             let was_running = play.is_running();
             play.pump(&self.console);
+            if let Some(scripts) = &play.scripts
+                && open.scripts_known.as_ref() != Some(scripts)
+            {
+                open.scripts_known = Some(scripts.clone());
+            }
             if was_running && !play.is_running() {
                 // It ended by itself: keep what the Studio recorded, so
                 // "replay my moves" can get back to just before.
@@ -2605,6 +2688,7 @@ impl Studio {
             if build.take(event) {
                 let mut start = false;
                 let mut built = false;
+                let mut replay = false;
                 if let BuildState::Done { program } = &build.state {
                     self.settings
                         .build_parts
@@ -2616,6 +2700,16 @@ impl Studio {
                             open.program = Some(copy);
                             let running = open.play.as_ref().is_some_and(Play::is_running);
                             open.new_build_ready = running;
+                            // A game with scripts, frozen: the new build
+                            // goes back to the same frame by itself, so a
+                            // new script (or a script's new setting) is
+                            // there without losing the moment.
+                            let has_scripts = open.game.folder.as_ref().is_some_and(|folder| {
+                                folder.join(crate::scripts::SCRIPTS_FILE).is_file()
+                            });
+                            replay = running
+                                && has_scripts
+                                && open.play_state() == Some(&PlayState::Frozen);
                             start = !running
                                 && (open.play_when_built
                                     || matches!(
@@ -2635,6 +2729,23 @@ impl Studio {
                 }
                 if first_steps {
                     self.record_first_playthrough();
+                }
+                if replay {
+                    // Everything so far, edits made while frozen too.
+                    if let Some(open) = &mut self.open
+                        && let Some(play) = &mut open.play
+                    {
+                        open.last_recording =
+                            Some(play.recording(&self.console, Duration::from_millis(250)));
+                    }
+                    // Frozen at the very start, there are no moves: start
+                    // afresh, frozen.
+                    if self.run(Command::GameReplayMyMoves).is_err() {
+                        self.stop_play();
+                        if let Err(problem) = self.start_play(AfterHello::Freeze, None, None) {
+                            self.problem = Some(problem);
+                        }
+                    }
                 }
             }
             return;
@@ -2837,6 +2948,10 @@ impl Studio {
             return;
         }
         open.looked = now;
+        // New code files (a new script) are watched too.
+        if let Some(folder) = &self.folder {
+            open.watched = folder.code_files(&open.game);
+        }
         if open.watcher.look(&open.watched, now) && self.rust.is_ok() {
             if open.is_building() {
                 // Changed again mid-build: build once more when this one ends.
@@ -3010,6 +3125,8 @@ mod tests {
             r#"{"do": "files.rename", "path": "assets/duck.png", "to": "hero.png"}"#,
             r#"{"do": "files.delete", "path": "assets/old.png"}"#,
             r#"{"do": "files.use", "path": "assets/sign.png", "at": [128, 208]}"#,
+            r#"{"do": "script.new", "name": "bee", "folder": "scripts"}"#,
+            r#"{"do": "script.remove", "ids": [4]}"#,
             r#"{"do": "object.set", "ids": [7], "set": {"layer": "front", "speed": 60}}"#,
             r#"{"do": "object.move", "ids": [7, 9], "by": [8, 0]}"#,
             r#"{"do": "object.rename", "id": 7, "name": "snail"}"#,

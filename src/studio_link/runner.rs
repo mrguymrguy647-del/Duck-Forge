@@ -377,6 +377,7 @@ pub(crate) fn run<G: Game>(
                 updates,
                 script,
             } => {
+                let following = script.is_some();
                 if let Some(text) = script {
                     if sim.context().frame() > 0 {
                         break "a script can only be followed from the start";
@@ -395,6 +396,11 @@ pub(crate) fn run<G: Game>(
                     if sim.quit_requested() {
                         break;
                     }
+                }
+                if following {
+                    // What was edited while frozen on this frame is in the
+                    // game now, as it was then.
+                    sim.catch_up_changes();
                 }
                 let update_micros = started.elapsed().as_micros().min(u32::MAX as u128) as u32;
                 play_new_sounds(&mut sim, &speaker, false, &mut sounds);

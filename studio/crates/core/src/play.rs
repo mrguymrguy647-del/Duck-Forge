@@ -260,6 +260,8 @@ pub struct Play {
     pub tunes: Vec<crate::feel::TuneValue>,
     /// The sounds the game has played, as it last said them.
     pub sounds: Vec<crate::assets::SoundInfo>,
+    /// The scripts the game gave its scenes, as it said when it started.
+    pub scripts: Option<crate::scripts::GameScripts>,
 }
 
 /// What a new session does first.
@@ -365,6 +367,7 @@ impl Play {
             file_answers: Vec::new(),
             tunes: Vec::new(),
             sounds: Vec::new(),
+            scripts: None,
         })
     }
 
@@ -970,6 +973,13 @@ impl Play {
                 }
                 self.clock = StudioClock::new(hello.updates_per_second);
                 self.hello = Some(hello);
+                // Its scripts and their settings, for the Inspector.
+                let id = self.next_id;
+                self.next_id += 1;
+                self.send(&ToGame::Ask {
+                    id,
+                    what: String::from("scripts"),
+                });
                 if self.debug_overlay {
                     self.send(&ToGame::Overlay { debug: true });
                 }
@@ -990,10 +1000,12 @@ impl Play {
                             .copied()
                             .filter(|event| event.frame <= frames)
                             .collect();
+                        // With the edits made while frozen on the last
+                        // frame: the game makes them when it gets there.
                         self.changes = script
                             .changes
                             .iter()
-                            .filter(|change| change.frame <= frames)
+                            .filter(|change| change.frame <= frames + 1)
                             .cloned()
                             .collect();
                         let id = self.next_id;
@@ -1028,6 +1040,10 @@ impl Play {
                         if let Ok(sounds) = serde_json::from_str(&text) {
                             self.sounds = sounds;
                         }
+                    }
+                    "scripts" => {
+                        // An older game doesn't know the question: no answer.
+                        self.scripts = serde_json::from_str(&text).ok();
                     }
                     _ => self.answers.push((id, text)),
                 }

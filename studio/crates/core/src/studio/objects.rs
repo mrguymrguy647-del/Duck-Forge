@@ -16,7 +16,7 @@ use crate::scene_edit::{
 };
 use duckforge::scene::SceneFile;
 
-fn no_scene() -> Problem {
+pub(super) fn no_scene() -> Problem {
     Problem::new(
         "This game has no scene to edit.",
         "Its objects are made in its code. A game with a scenes folder (like scene_demo) can be edited here.",
@@ -44,7 +44,7 @@ impl OpenGame {
     }
 
     /// The selected object's name for a message, or "3 objects".
-    fn called(&self, ids: &[u64]) -> String {
+    pub(super) fn called(&self, ids: &[u64]) -> String {
         match ids {
             [] => String::from("nothing"),
             [id] => {
@@ -148,7 +148,7 @@ impl Studio {
 
     /// Changes objects in the scene's file: how the scene starts. The
     /// game takes the new file at once, and it's a step for Undo.
-    fn change_scene(
+    pub(super) fn change_scene(
         &mut self,
         changes: Vec<(u64, Map<String, Value>)>,
         title: String,
