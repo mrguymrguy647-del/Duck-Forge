@@ -689,6 +689,7 @@ pub struct PlainKind {
 pub enum Needs {
     Nothing,
     Picture,
+    Sound,
     Level,
 }
 
@@ -718,9 +719,9 @@ pub const PLAIN_KINDS: &[PlainKind] = &[
     PlainKind {
         kind: "sound",
         title: "Sound",
-        says: "Music or a sound that plays in this scene.",
-        needs: Needs::Nothing,
-        not_yet: Some("Sounds come with dragging them in from Files, in step 4."),
+        says: "Music or a sound that plays when the scene starts.",
+        needs: Needs::Sound,
+        not_yet: None,
     },
     PlainKind {
         kind: "area",
@@ -772,6 +773,14 @@ pub fn new_line(kind: &str, at: Vec2, chosen: Option<&str>, layer: &str) -> Map<
                 line.insert(String::from("level"), Value::from(level));
             }
             return line;
+        }
+        "sound" => {
+            // Music for the scene: it plays over and over.
+            line.insert(String::from("at"), pair(at));
+            if let Some(sound) = chosen {
+                line.insert(String::from("sound"), Value::from(sound));
+            }
+            line.insert(String::from("loops"), Value::from(true));
         }
         "background" => {
             // Its top edge halfway down the view; it repeats across.

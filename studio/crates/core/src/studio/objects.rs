@@ -799,11 +799,12 @@ impl Studio {
         if let Some(why) = plain.and_then(|plain| plain.not_yet) {
             return Err(Problem::new(
                 why,
-                "Picture, Area, Background and Tile map can be added now.",
+                "Picture, Sound, Area, Background and Tile map can be added now.",
             ));
         }
         let chosen_key = match plain.map(|plain| plain.needs) {
             Some(Needs::Picture) => Some("picture"),
+            Some(Needs::Sound) => Some("sound"),
             Some(Needs::Level) => Some("level"),
             _ => None,
         };
@@ -811,10 +812,10 @@ impl Studio {
             .and_then(|key| set.get(key))
             .and_then(Value::as_str);
         if let (Some(key), None) = (chosen_key, chosen) {
-            let example = if key == "level" {
-                "level.txt"
-            } else {
-                "assets/crate.png"
+            let example = match key {
+                "level" => "level.txt",
+                "sound" => "assets/music.wav",
+                _ => "assets/crate.png",
             };
             return Err(Problem::new(
                 format!(

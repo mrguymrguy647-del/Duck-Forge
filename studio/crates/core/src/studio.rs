@@ -100,6 +100,7 @@ fn count(n: usize, what: &str) -> String {
 }
 
 mod objects;
+mod use_file;
 
 /// Everything the Studio can be asked to do. In a script file each is a
 /// JSON object whose `"do"` is the command's name:
@@ -318,6 +319,21 @@ pub enum Command {
     /// Move a file or folder to the Recycle Bin.
     #[serde(rename = "files.delete")]
     FilesDelete { path: String },
+    /// Use a file in the scene: `{"do": "files.use", "path":
+    /// "assets/sign.png", "at": [128, 208]}` adds it as an object (a
+    /// picture, a looping sound, a tile map for a level); with `"ids":
+    /// [7]` those objects get it as their picture or sound. A path from
+    /// elsewhere on the computer is copied into the game's assets first.
+    #[serde(rename = "files.use")]
+    FilesUse {
+        path: String,
+        #[serde(default)]
+        at: Option<[f32; 2]>,
+        #[serde(default)]
+        ids: Vec<u64>,
+        #[serde(default)]
+        key: Option<String>,
+    },
     /// Change objects of the scene, by their keys as the scene file has
     /// them: `{"do": "object.set", "ids": [7], "set": {"layer": "front"}}`.
     /// It changes the file (how the scene starts); the game takes it at
@@ -741,6 +757,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         name: "files.delete",
         title: "Move a file or folder to the Recycle Bin",
         needs: "path: like assets/old.png (not main.rs)",
+    },
+    CommandInfo {
+        name: "files.use",
+        title: "Use a file in the scene (as an object, or an object's picture or sound)",
+        needs: "path: like assets/sign.png; at: like [128, 208] (optional); ids: objects to give it to (optional)",
     },
     CommandInfo {
         name: "object.set",
@@ -1880,6 +1901,7 @@ impl Studio {
                 name,
                 set,
             } => self.object_add(kind, at, name, set),
+            Command::FilesUse { path, at, ids, key } => self.files_use(path, at, ids, key),
             Command::ObjectTurn {
                 ids,
                 by,
@@ -2987,6 +3009,7 @@ mod tests {
             r#"{"do": "files.new_folder", "path": "assets/music"}"#,
             r#"{"do": "files.rename", "path": "assets/duck.png", "to": "hero.png"}"#,
             r#"{"do": "files.delete", "path": "assets/old.png"}"#,
+            r#"{"do": "files.use", "path": "assets/sign.png", "at": [128, 208]}"#,
             r#"{"do": "object.set", "ids": [7], "set": {"layer": "front", "speed": 60}}"#,
             r#"{"do": "object.move", "ids": [7, 9], "by": [8, 0]}"#,
             r#"{"do": "object.rename", "id": 7, "name": "snail"}"#,

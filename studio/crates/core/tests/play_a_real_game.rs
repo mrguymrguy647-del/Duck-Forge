@@ -1157,3 +1157,253 @@ fn objects_are_added_turned_sized_copied_reordered_and_deleted_and_it_all_replay
         "the replay ends on the session's last picture"
     );
 }
+
+/// Takes a file away when the test ends, however it ends.
+struct TakeAway(PathBuf);
+
+impl Drop for TakeAway {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// Step 4's `files.use` on the real scene demo, frozen: a picture, a sheet,
+/// a sound and a level become objects; a picture and a sound go onto
+/// objects; a picture from elsewhere on the computer is copied in first.
+/// Undo takes every change back, the game plays on with its music, and the
+/// session replays to the same picture, with the music in it.
+#[test]
+fn files_dropped_in_become_objects_pictures_and_sounds_and_it_all_replays() {
+    let _one = THE_SCENE_DEMOS_FILE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut studio = studio();
+    let say = |studio: &mut Studio, step: Step| {
+        run_step(studio, &step).unwrap_or_else(|problem| {
+            panic!("{problem}\n{}", problem.details);
+        })
+    };
+    let run = |studio: &mut Studio, command: serde_json::Value| {
+        let command: Command = serde_json::from_value(command).unwrap();
+        run_step(studio, &Step::Do(command)).unwrap_or_else(|problem| {
+            panic!("{problem}\n{}", problem.details);
+        })
+    };
+    let settle = |studio: &mut Studio| {
+        run_step(studio, &Step::Wait(Wait::Seconds { seconds: 0.3 })).unwrap();
+    };
+    let game = duck_forge().join("examples/scene_demo");
+    let scene_file = game.join("scenes/pond.json");
+    let _put_back = PutBack {
+        text: std::fs::read_to_string(&scene_file).unwrap(),
+        path: scene_file.clone(),
+    };
+    let _flower = TakeAway(game.join("assets/flower.png"));
+    let plain = |text: &str| text.replace("\r\n", "\n");
+    let original = plain(&_put_back.text);
+    let on_disk = || plain(&std::fs::read_to_string(&scene_file).unwrap());
+    let drawn = |studio: &Studio, id: u64| {
+        studio
+            .open
+            .as_ref()
+            .unwrap()
+            .drawn_scene()
+            .and_then(|drawn| drawn.object(id).cloned())
+    };
+    let selected = |studio: &Studio| studio.open.as_ref().unwrap().selected.clone();
+
+    say(
+        &mut studio,
+        Step::Do(Command::GameOpen {
+            name: String::from("scene_demo"),
+        }),
+    );
+    say(&mut studio, Step::Wait(Wait::Playing));
+    say(&mut studio, Step::Wait(Wait::Frames { frames: 10 }));
+    say(&mut studio, Step::Do(Command::GameToggle));
+    settle(&mut studio);
+    let frozen = studio.play().unwrap().picture.clone().unwrap();
+
+    // A picture dropped on the scene: a Picture object there, named after
+    // it, selected, and in the game.
+    assert_eq!(
+        run(
+            &mut studio,
+            serde_json::json!({"do": "files.use", "path": "assets/crate.png", "at": [96, 208]})
+        ),
+        "Add crate"
+    );
+    settle(&mut studio);
+    assert!(
+        on_disk().contains(
+            r#"{"id": 12, "name": "crate", "at": [96, 208], "picture": "assets/crate.png"}"#
+        ),
+        "{}",
+        on_disk()
+    );
+    assert_eq!(selected(&studio), [12]);
+    assert!(drawn(&studio, 12).is_some_and(|crate_| crate_.rect.is_some()));
+
+    // The hero's picture has its Duck Quill sheet beside it: the sheet.
+    run(
+        &mut studio,
+        serde_json::json!({"do": "files.use", "path": "assets/hero.png", "at": [160, 208]}),
+    );
+    assert!(
+        on_disk().contains(
+            r#"{"id": 13, "name": "hero", "at": [160, 208], "picture": "assets/hero.json"}"#
+        ),
+        "{}",
+        on_disk()
+    );
+
+    // A sound: music for the scene, playing over and over.
+    run(
+        &mut studio,
+        serde_json::json!({"do": "files.use", "path": "assets/music.wav"}),
+    );
+    assert!(
+        on_disk().contains(r#""name": "music", "kind": "sound""#)
+            && on_disk().contains(r#""loops": true, "sound": "assets/music.wav""#),
+        "{}",
+        on_disk()
+    );
+
+    // On objects' boxes: the small crate gets the sign's picture, and the
+    // music becomes the coin sound.
+    assert_eq!(
+        run(
+            &mut studio,
+            serde_json::json!({"do": "files.use", "path": "assets/sign.png", "ids": [5]})
+        ),
+        "Change crate"
+    );
+    assert!(
+        on_disk().contains(
+            r#"{"id": 5, "name": "crate", "at": [248, 208], "picture": "assets/sign.png""#
+        ),
+        "{}",
+        on_disk()
+    );
+    run(
+        &mut studio,
+        serde_json::json!({"do": "files.use", "path": "assets/coin.wav", "ids": [14], "key": "sound"}),
+    );
+    assert!(
+        on_disk().contains(r#""sound": "assets/coin.wav""#),
+        "{}",
+        on_disk()
+    );
+    let wrong = studio
+        .run(serde_json::from_value(serde_json::json!({"do": "files.use", "path": "assets/coin.wav", "ids": [5], "key": "picture"})).unwrap())
+        .unwrap_err();
+    assert!(wrong.what.contains("this box wants a picture"), "{wrong:?}");
+
+    // A level: a tile map.
+    run(
+        &mut studio,
+        serde_json::json!({"do": "files.use", "path": "level.txt"}),
+    );
+    assert!(
+        on_disk()
+            .contains(r#"{"id": 15, "name": "level", "kind": "tilemap", "level": "level.txt"}"#),
+        "{}",
+        on_disk()
+    );
+
+    // A picture from elsewhere on the computer: copied in, then used.
+    let elsewhere = TestFolder::new("flower");
+    let flower = elsewhere.join("flower.png");
+    std::fs::copy(game.join("assets/bush.png"), &flower).unwrap();
+    let said = run(
+        &mut studio,
+        serde_json::json!({"do": "files.use", "path": flower.to_string_lossy(), "at": [300, 200]}),
+    );
+    assert_eq!(said, "Copied it in as assets/flower.png. Add flower");
+    assert!(game.join("assets/flower.png").is_file());
+    assert!(
+        on_disk().contains(r#""name": "flower", "at": [300, 200], "picture": "assets/flower.png""#),
+        "{}",
+        on_disk()
+    );
+    settle(&mut studio);
+    assert!(
+        drawn(&studio, 16).is_some_and(|flower| flower.rect.is_some()),
+        "the game drew it"
+    );
+
+    // What a scene can't use says so, and changes nothing.
+    let legend = studio
+        .run(
+            serde_json::from_value(
+                serde_json::json!({"do": "files.use", "path": "level.legend.json"}),
+            )
+            .unwrap(),
+        )
+        .unwrap_err();
+    assert!(legend.what.contains("legend"), "{legend:?}");
+    studio.problem = None;
+
+    // Undo, seven times: the file is as it was; the flower stays in assets.
+    for _ in 0..7 {
+        say(&mut studio, Step::Do(Command::EditUndo));
+    }
+    settle(&mut studio);
+    assert_eq!(on_disk(), original);
+    assert!(
+        game.join("assets/flower.png").is_file(),
+        "a file brought in stays"
+    );
+    assert!(studio.play().unwrap().picture.as_ref().unwrap().pixels == frozen.pixels);
+
+    // The music again, and play on: it's heard.
+    run(
+        &mut studio,
+        serde_json::json!({"do": "files.use", "path": "assets/music.wav"}),
+    );
+    say(&mut studio, Step::Do(Command::GameToggle));
+    say(&mut studio, press("Right"));
+    say(&mut studio, Step::Wait(Wait::Frames { frames: 30 }));
+    say(&mut studio, release("Right"));
+    say(&mut studio, Step::Do(Command::GameFreeze));
+    settle(&mut studio);
+    let last = studio.play().unwrap().picture.clone().unwrap();
+    say(&mut studio, Step::Do(Command::GameStop));
+    let session = studio.open.as_ref().unwrap().last_session.clone().unwrap();
+
+    std::fs::write(&scene_file, &_put_back.text).unwrap();
+    let replays = TestFolder::new("replay-step4");
+    let out = replays.join("out");
+    let replay = std::process::Command::new("cargo")
+        .args([
+            "run",
+            "-q",
+            "--no-default-features",
+            "--example",
+            "scene_demo",
+            "--",
+        ])
+        .args(["--headless", "--inputs"])
+        .arg(&session)
+        .arg("--out")
+        .arg(&out)
+        .current_dir(duck_forge())
+        .output()
+        .unwrap();
+    let said = String::from_utf8_lossy(&replay.stdout);
+    assert!(
+        replay.status.success(),
+        "{said}{}",
+        String::from_utf8_lossy(&replay.stderr)
+    );
+    let (_, _, pixels) = png_pixels(&out.join("last.png"));
+    assert!(
+        pixels == last.pixels,
+        "the replay ends on the session's last picture"
+    );
+    let log = std::fs::read_to_string(out.join("log.json")).unwrap();
+    assert!(
+        log.contains("\"music\""),
+        "the music plays in the replay: {log}"
+    );
+}
