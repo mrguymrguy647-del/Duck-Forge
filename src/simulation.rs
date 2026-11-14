@@ -182,6 +182,7 @@ impl<G: Game> Simulation<G> {
         let seed = config.seed.unwrap_or(DEFAULT_SEED);
         let mut canvas = Canvas::new(config.width, config.height);
         canvas.set_renderer(renderer);
+        canvas.set_supersample(config.supersample);
         let tunes = crate::tune::Tunes::for_run(None, config.tune_file.as_deref(), &[])
             .unwrap_or_else(|problem| panic!("bad tune file: {problem}"));
         let mut ctx = Context::new(config.width, config.height, seed);
@@ -1031,6 +1032,7 @@ impl<G: Game> Simulation<G> {
         }
         let mut canvas = Canvas::new(width, height);
         canvas.set_renderer(self.renderer);
+        canvas.set_supersample(self.canvas.supersample());
         self.canvas = canvas;
         self.drawn_frame = None;
         self.ctx.set_size(width, height);

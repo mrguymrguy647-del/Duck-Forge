@@ -95,6 +95,12 @@ pub struct Canvas {
     /// once, not twice. Empty until the first see-through mesh.
     see_through_marks: Vec<u32>,
     see_through_mark: u32,
+    /// Lamps, shadows, glow and smooth edges (see `lights.rs`).
+    pub(crate) effects: crate::lights::Effects,
+    /// The lit renderer's 3D, waiting to be drawn (see `frame3d.rs`).
+    pub(crate) queue: crate::frame3d::Queue,
+    /// A billboard is being drawn (the lit renderer doesn't light it).
+    pub(crate) drawing_billboard: bool,
     /// Billboard quads made so far, kept so the GPU sees the same mesh
     /// every frame (and uploads it once).
     billboards: Vec<BillboardQuad>,
@@ -146,6 +152,9 @@ impl Canvas {
             drawing_in_view: false,
             see_through_marks: Vec::new(),
             see_through_mark: 0,
+            effects: crate::lights::Effects::default(),
+            queue: crate::frame3d::Queue::default(),
+            drawing_billboard: false,
             billboards: Vec::new(),
         }
     }
@@ -415,6 +424,7 @@ impl Canvas {
     /// it has).
     pub(crate) fn forget_depth(&mut self) {
         self.depth.fill(0.0);
+        self.queue.forget_depth();
         #[cfg(feature = "gpu")]
         if let GpuSlot::Running(gpu) = &mut self.gpu {
             gpu.flush(&mut self.pixels);
@@ -441,6 +451,16 @@ impl Canvas {
         #[cfg(feature = "gpu")]
         if let GpuSlot::Running(gpu) = &mut self.gpu {
             gpu.flush(&mut self.pixels);
+        }
+        if !self.queue.is_empty() {
+            crate::frame3d::render(
+                &mut self.queue,
+                &self.effects,
+                self.width,
+                self.height,
+                &mut self.pixels,
+                &mut self.depth,
+            );
         }
     }
 
@@ -499,6 +519,7 @@ impl Canvas {
         self.pixels.fill(color.to_u32());
         self.depth.fill(0.0);
         self.drawing_in_view = false;
+        self.queue.clear();
         #[cfg(feature = "gpu")]
         if let GpuSlot::Running(gpu) = &mut self.gpu {
             gpu.clear(); // throw away 3D that was never shown, and reset the GPU's depth
@@ -1325,13 +1346,16 @@ fn for_each_pixel_in_triangle(
     for y in y0..y1 {
         for x in x0..x1 {
             let p = vec2(x as f32 + 0.5, y as f32 + 0.5); // the pixel's center
-            let weights = [
-                edge(b, c, p) / area,
-                edge(c, a, p) / area,
-                edge(a, b, p) / area,
-            ];
-            if weights.iter().all(|&w| w >= 0.0) {
-                plot(y * width + x, weights);
+            let e = [edge(b, c, p), edge(c, a, p), edge(a, b, p)];
+            // Inside when every weight (edge / area) is at least 0: the
+            // signs say so without dividing, so outside pixels are quicker.
+            let inside = if area > 0.0 {
+                e.iter().all(|&v| v >= 0.0)
+            } else {
+                e.iter().all(|&v| v <= 0.0)
+            };
+            if inside {
+                plot(y * width + x, [e[0] / area, e[1] / area, e[2] / area]);
             }
         }
     }
