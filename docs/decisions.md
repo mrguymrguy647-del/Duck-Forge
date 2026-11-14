@@ -4983,3 +4983,30 @@ that every computer draws the same pixels.
 | The robot's file | 64 KB without motion, 78 KB with three animations (4.3 seconds in all) and six poses |
 | Working out one frame of the robot (23 joins, 230 corners) | about 2.5 millionths of a second, in a release build on the Linux build machine |
 
+
+# Duck Mold's Phase 5b: more models that move
+
+Duck Mold's second half of Phase 5 added the animation library (a walk
+made on one model, saved to a file and copied into another) and three
+examples that move. Nothing in the reader or in `AnimatedModel`
+changed: these are new test models, played by the same tests.
+
+**Every example animation is played here.** `tests/duck_mold_models.rs`
+plays each one frame by frame, thirty a second, and checks how low and
+how high the model goes against Duck Mold's own report on it, as it did
+for the robot alone: the robot's four (`idle`, `walk`, `wave`, and
+`jump`, which really leaves the ground), the door's `open`, the cart's
+`roll` and the gnome's `walk` and `wave`. Each is also drawn at four
+moments and compared with stored pictures; the four must all differ,
+so a wheel got one spoke rather than a bar across (a bar looks the same
+after half a turn).
+
+**The gnome walks with the robot's walk.** Its parts have the robot's
+names, so Duck Mold copied the walk in from a saved file; its poses
+were then fitted to its shorter legs. For Duck Forge that is simply
+another model with a `walk`: nothing ties the two files together.
+
+| | |
+|---|---|
+| Models that move | 4 (robot, door, cart, gnome) |
+| Animations played and pictured | 8 |

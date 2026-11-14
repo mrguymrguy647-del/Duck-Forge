@@ -1,0 +1,44 @@
+{
+  "ok": true,
+  "summary": "door, \"open\": 1 s, 3 keys, plays once, stays on the ground, nothing floating, nothing overlapping, no limits broken",
+  "source": "examples/door.toml",
+  "name": "door",
+  "animation": "open",
+  "length": 1.0,
+  "loops": false,
+  "smooth": true,
+  "keys": [
+    {
+      "key": 1,
+      "at": 0.0,
+      "pose": "rest"
+    },
+    {
+      "key": 2,
+      "at": 0.25,
+      "pose": "unlatch"
+    },
+    {
+      "key": 3,
+      "at": 1.0,
+      "pose": "door_open"
+    }
+  ],
+  "frames": 31,
+  "moves": [
+    "door",
+    "handle"
+  ],
+  "ground": {
+    "stays_on_ground": true,
+    "lowest_y": 0.0,
+    "lowest_at": 0.0,
+    "highest_y": 0.0,
+    "highest_at": 0.0
+  },
+  "floating": [],
+  "overlapping": [],
+  "limits_broken": [],
+  "warnings": [],
+  "errors": []
+}

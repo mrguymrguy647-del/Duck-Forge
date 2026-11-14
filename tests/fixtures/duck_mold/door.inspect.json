@@ -1,0 +1,214 @@
+{
+  "ok": true,
+  "summary": "door: 1.075 x 2.20 x 0.19 m, 60 triangles, 5 parts, 3 colours, rests on the ground, nothing floating, nothing overlapping",
+  "source": "examples/door.toml",
+  "name": "door",
+  "size": [
+    1.075,
+    2.2,
+    0.19
+  ],
+  "bounds": {
+    "min": [
+      -0.5375,
+      0.0,
+      -0.095
+    ],
+    "max": [
+      0.5375,
+      2.2,
+      0.095
+    ]
+  },
+  "triangles": 60,
+  "vertices": 120,
+  "ground": {
+    "rests_on_ground": true,
+    "lowest_y": 0.0
+  },
+  "palette": [
+    {
+      "name": "frame",
+      "hex": "#6B4A2B",
+      "triangles": 36
+    },
+    {
+      "name": "door",
+      "hex": "#B5835A",
+      "triangles": 12
+    },
+    {
+      "name": "brass",
+      "hex": "#D8B04C",
+      "triangles": 12
+    }
+  ],
+  "parts": [
+    {
+      "name": "post_left",
+      "kind": "box",
+      "triangles": 12,
+      "size": [
+        0.1,
+        2.1,
+        0.12
+      ],
+      "bounds": {
+        "min": [
+          -0.5375,
+          0.0,
+          -0.095
+        ],
+        "max": [
+          -0.4375,
+          2.1,
+          0.025
+        ]
+      },
+      "colors": [
+        "frame"
+      ],
+      "attached_to": null,
+      "limits": "fixed",
+      "parts": []
+    },
+    {
+      "name": "lintel",
+      "kind": "box",
+      "triangles": 12,
+      "size": [
+        1.0,
+        0.1,
+        0.12
+      ],
+      "bounds": {
+        "min": [
+          -0.4875,
+          2.1,
+          -0.095
+        ],
+        "max": [
+          0.5125,
+          2.2,
+          0.025
+        ]
+      },
+      "colors": [
+        "frame"
+      ],
+      "attached_to": "post_left.lintel",
+      "limits": "fixed",
+      "parts": []
+    },
+    {
+      "name": "post_right",
+      "kind": "box",
+      "triangles": 12,
+      "size": [
+        0.1,
+        2.1,
+        0.12
+      ],
+      "bounds": {
+        "min": [
+          0.4375,
+          0.0,
+          -0.095
+        ],
+        "max": [
+          0.5375,
+          2.1,
+          0.025
+        ]
+      },
+      "colors": [
+        "frame"
+      ],
+      "attached_to": "lintel.bottom_right",
+      "limits": "fixed",
+      "parts": []
+    },
+    {
+      "name": "door",
+      "kind": "box",
+      "triangles": 12,
+      "size": [
+        0.8,
+        2.0,
+        0.04
+      ],
+      "bounds": {
+        "min": [
+          -0.4375,
+          0.03,
+          0.025
+        ],
+        "max": [
+          0.3625,
+          2.03,
+          0.065
+        ]
+      },
+      "colors": [
+        "door"
+      ],
+      "attached_to": "post_left.hinge",
+      "limits": {
+        "y": [
+          -90.0,
+          0.0
+        ]
+      },
+      "parts": []
+    },
+    {
+      "name": "handle",
+      "kind": "box",
+      "triangles": 12,
+      "size": [
+        0.14,
+        0.03,
+        0.03
+      ],
+      "bounds": {
+        "min": [
+          0.2125,
+          1.015,
+          0.065
+        ],
+        "max": [
+          0.3525,
+          1.045,
+          0.095
+        ]
+      },
+      "colors": [
+        "brass"
+      ],
+      "attached_to": "door.handle",
+      "limits": {
+        "z": [
+          0.0,
+          40.0
+        ]
+      },
+      "parts": []
+    }
+  ],
+  "floating": [],
+  "overlapping": [],
+  "poses": [
+    "door_open",
+    "unlatch"
+  ],
+  "animations": [
+    {
+      "name": "open",
+      "length": 1.0,
+      "loops": false,
+      "keys": 3
+    }
+  ],
+  "warnings": [],
+  "errors": []
+}
