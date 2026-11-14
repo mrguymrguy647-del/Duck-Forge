@@ -101,6 +101,7 @@
         "red"
       ],
       "attached_to": "body.chest",
+      "limits": "fixed",
       "parts": []
     },
     {
@@ -128,6 +129,16 @@
         "steel"
       ],
       "attached_to": "body.neck",
+      "limits": {
+        "x": [
+          -30.0,
+          30.0
+        ],
+        "y": [
+          -80.0,
+          80.0
+        ]
+      },
       "parts": []
     },
     {
@@ -156,6 +167,7 @@
         "glow"
       ],
       "attached_to": "head.left_eye",
+      "limits": "fixed",
       "parts": []
     },
     {
@@ -184,6 +196,7 @@
         "glow"
       ],
       "attached_to": "head.right_eye",
+      "limits": "fixed",
       "parts": []
     },
     {
@@ -211,6 +224,16 @@
         "dark"
       ],
       "attached_to": "head.antenna",
+      "limits": {
+        "x": [
+          -15.0,
+          15.0
+        ],
+        "z": [
+          -15.0,
+          15.0
+        ]
+      },
       "parts": []
     },
     {
@@ -238,6 +261,7 @@
         "red"
       ],
       "attached_to": "antenna.top",
+      "limits": "fixed",
       "parts": []
     },
     {
@@ -268,6 +292,16 @@
         "red"
       ],
       "attached_to": "body.left_arm",
+      "limits": {
+        "x": [
+          -90.0,
+          180.0
+        ],
+        "z": [
+          -60.0,
+          60.0
+        ]
+      },
       "parts": [
         {
           "name": "left_arm/upper",
@@ -294,6 +328,7 @@
             "steel"
           ],
           "attached_to": null,
+          "limits": "fixed",
           "parts": []
         },
         {
@@ -321,6 +356,16 @@
             "dark"
           ],
           "attached_to": "upper.bottom",
+          "limits": {
+            "x": [
+              0.0,
+              140.0
+            ],
+            "z": [
+              -45.0,
+              45.0
+            ]
+          },
           "parts": []
         },
         {
@@ -348,6 +393,7 @@
             "steel"
           ],
           "attached_to": "elbow.bottom",
+          "limits": "fixed",
           "parts": []
         },
         {
@@ -375,6 +421,16 @@
             "red"
           ],
           "attached_to": "forearm.bottom",
+          "limits": {
+            "x": [
+              -45.0,
+              45.0
+            ],
+            "z": [
+              -45.0,
+              45.0
+            ]
+          },
           "parts": []
         }
       ]
@@ -408,6 +464,16 @@
       ],
       "attached_to": "body.right_arm",
       "mirrored": true,
+      "limits": {
+        "x": [
+          -90.0,
+          180.0
+        ],
+        "z": [
+          -60.0,
+          60.0
+        ]
+      },
       "parts": [
         {
           "name": "right_arm/upper",
@@ -435,6 +501,7 @@
           ],
           "attached_to": null,
           "mirrored": true,
+          "limits": "fixed",
           "parts": []
         },
         {
@@ -463,6 +530,16 @@
           ],
           "attached_to": "upper.bottom",
           "mirrored": true,
+          "limits": {
+            "x": [
+              0.0,
+              140.0
+            ],
+            "z": [
+              -45.0,
+              45.0
+            ]
+          },
           "parts": []
         },
         {
@@ -491,6 +568,7 @@
           ],
           "attached_to": "elbow.bottom",
           "mirrored": true,
+          "limits": "fixed",
           "parts": []
         },
         {
@@ -519,6 +597,16 @@
           ],
           "attached_to": "forearm.bottom",
           "mirrored": true,
+          "limits": {
+            "x": [
+              -45.0,
+              45.0
+            ],
+            "z": [
+              -45.0,
+              45.0
+            ]
+          },
           "parts": []
         }
       ]
@@ -550,6 +638,12 @@
         "dark"
       ],
       "attached_to": "body.left_leg",
+      "limits": {
+        "x": [
+          -60.0,
+          60.0
+        ]
+      },
       "parts": [
         {
           "name": "left_leg/thigh",
@@ -576,6 +670,7 @@
             "dark"
           ],
           "attached_to": null,
+          "limits": "fixed",
           "parts": []
         },
         {
@@ -603,6 +698,12 @@
             "steel"
           ],
           "attached_to": "thigh.bottom",
+          "limits": {
+            "x": [
+              -45.0,
+              45.0
+            ]
+          },
           "parts": []
         }
       ]
@@ -634,6 +735,12 @@
         "dark"
       ],
       "attached_to": "body.right_leg",
+      "limits": {
+        "x": [
+          -60.0,
+          60.0
+        ]
+      },
       "parts": [
         {
           "name": "right_leg/thigh",
@@ -660,6 +767,7 @@
             "dark"
           ],
           "attached_to": null,
+          "limits": "fixed",
           "parts": []
         },
         {
@@ -687,6 +795,12 @@
             "steel"
           ],
           "attached_to": "thigh.bottom",
+          "limits": {
+            "x": [
+              -45.0,
+              45.0
+            ]
+          },
           "parts": []
         }
       ]
@@ -3125,6 +3239,34 @@
         1.0,
         0.0
       ]
+    }
+  ],
+  "poses": [
+    "step_left",
+    "step_right",
+    "wave",
+    "wave_out",
+    "breathe_in",
+    "breathe_out"
+  ],
+  "animations": [
+    {
+      "name": "idle",
+      "length": 2.0,
+      "loops": true,
+      "keys": 3
+    },
+    {
+      "name": "walk",
+      "length": 0.8,
+      "loops": true,
+      "keys": 5
+    },
+    {
+      "name": "wave",
+      "length": 1.5,
+      "loops": false,
+      "keys": 6
     }
   ],
   "warnings": [],

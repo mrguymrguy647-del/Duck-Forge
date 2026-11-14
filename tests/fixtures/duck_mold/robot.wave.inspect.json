@@ -1,0 +1,77 @@
+{
+  "ok": true,
+  "summary": "robot, \"wave\": 1.5 s, 6 keys, plays once, stays on the ground, nothing floating, 2 overlaps, no limits broken",
+  "source": "examples/robot.toml",
+  "name": "robot",
+  "animation": "wave",
+  "length": 1.5,
+  "loops": false,
+  "smooth": true,
+  "keys": [
+    {
+      "key": 1,
+      "at": 0.0,
+      "pose": "rest"
+    },
+    {
+      "key": 2,
+      "at": 0.35,
+      "pose": "wave"
+    },
+    {
+      "key": 3,
+      "at": 0.6,
+      "pose": "wave_out"
+    },
+    {
+      "key": 4,
+      "at": 0.85,
+      "pose": "wave"
+    },
+    {
+      "key": 5,
+      "at": 1.1,
+      "pose": "wave_out"
+    },
+    {
+      "key": 6,
+      "at": 1.5,
+      "pose": "rest"
+    }
+  ],
+  "frames": 46,
+  "moves": [
+    "head",
+    "left_arm",
+    "left_arm/elbow"
+  ],
+  "ground": {
+    "stays_on_ground": true,
+    "lowest_y": 0.0,
+    "lowest_at": 0.0,
+    "highest_y": 0.0,
+    "highest_at": 0.0
+  },
+  "floating": [],
+  "overlapping": [
+    {
+      "a": "left_arm/elbow",
+      "b": "body",
+      "depth": 0.001151,
+      "hidden": false,
+      "at": 0.06666666666666667,
+      "new": true
+    },
+    {
+      "a": "left_arm/elbow",
+      "b": "left_arm/upper",
+      "depth": 0.016109,
+      "hidden": false,
+      "at": 0.6,
+      "new": true
+    }
+  ],
+  "limits_broken": [],
+  "warnings": [],
+  "errors": []
+}

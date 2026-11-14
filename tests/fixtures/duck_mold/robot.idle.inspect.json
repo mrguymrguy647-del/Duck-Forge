@@ -1,0 +1,72 @@
+{
+  "ok": true,
+  "summary": "robot, \"idle\": 2 s, 3 keys, loops, stays on the ground, nothing floating, 3 overlaps, no limits broken",
+  "source": "examples/robot.toml",
+  "name": "robot",
+  "animation": "idle",
+  "length": 2.0,
+  "loops": true,
+  "smooth": true,
+  "keys": [
+    {
+      "key": 1,
+      "at": 0.0,
+      "pose": "breathe_out"
+    },
+    {
+      "key": 2,
+      "at": 1.0,
+      "pose": "breathe_in"
+    },
+    {
+      "key": 3,
+      "at": 2.0,
+      "pose": "breathe_out"
+    }
+  ],
+  "frames": 61,
+  "moves": [
+    "head",
+    "antenna",
+    "left_arm",
+    "right_arm"
+  ],
+  "ground": {
+    "stays_on_ground": true,
+    "lowest_y": 0.0,
+    "lowest_at": 0.0,
+    "highest_y": 0.0,
+    "highest_at": 0.0
+  },
+  "floating": [],
+  "overlapping": [
+    {
+      "a": "antenna",
+      "b": "head",
+      "depth": 0.002088,
+      "hidden": false,
+      "at": 1.0,
+      "new": true
+    },
+    {
+      "a": "left_arm/upper",
+      "b": "body",
+      "depth": 0.00669,
+      "hidden": false,
+      "at": 1.0,
+      "new": true
+    },
+    {
+      "a": "right_arm/upper",
+      "b": "body",
+      "depth": 0.00669,
+      "hidden": false,
+      "at": 1.0,
+      "new": true
+    }
+  ],
+  "limits_broken": [],
+  "ends_as_it_starts": true,
+  "warnings": [],
+  "errors": []
+}

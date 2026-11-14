@@ -4895,3 +4895,91 @@ for it (the house 76 where it had 72); the triangles are the same.
 |---|---|
 | The robot's file | 50 KB before, 64 KB as a tree (20 objects, each with its own lists) |
 | Engine tests on Linux | 654 pass with everything on, 619 headless (`--no-default-features`); none fail |
+
+# Playing a Duck Mold model's animations
+
+Duck Mold's Phase 5 makes models that move: a recipe can say how far
+each join turns, hold poses, and hold animations made of poses at
+times. Its `.glb` files now carry the animations and the poses. This is
+Duck Forge's side: something to play them.
+
+## What was built
+
+- The reader went to Duck Mold's version 5, copied between the markers
+  byte for byte as before. `GlbModel` gained `animations` (for every
+  join an animation moves, how it stands at each of thirty times a
+  second) and `poses`; each join says the directions its turns are
+  measured in. The reader can also say where an animation has every
+  join at any time, and where that puts every corner and socket of the
+  model (`GlbAnimation::at`, `GlbModel::stands`, `GlbModel::posed`,
+  `GlbModel::turn_by`).
+- `duckforge::glb::AnimatedModel`: a loaded model that remembers what
+  it is playing. `play`, `play_once`, `play_looping`, `restart`,
+  `stop`, `resume`, `rest`, `set_pose`, `set_speed`, `set_blend`,
+  `turn`, `release`, `update(dt)`, `mesh()`, `socket(name)`,
+  `is_playing`, `finished`, `playing`, `time`, `animations`, `poses`.
+- `examples/robot_walk/`: the robot stands idle, walks where the arrow
+  keys send it, waves on Space, and keeps its hat on. It has tests of
+  its own and a playthrough (`playthroughs/robot_walk.json`).
+- `tests/fixtures/duck_mold/` holds the new robot, Duck Mold's reports
+  on its three animations, and `pictures/`: the robot at four moments
+  of each animation, drawn on the CPU.
+
+## Decisions made on the way
+
+**The file holds samples, not curves.** Duck Mold works out the smooth
+motion and stores where each part is thirty times a second, as
+standard glTF animations. The reader goes straight from one sample to
+the next. So Duck Forge knows nothing about curves or limits, and any
+glTF program plays the same file. Between two samples the straight
+step is at most about a degree off the curve, for a thirtieth of a
+second.
+
+**The player is in two halves.** What is the same for everyone (where
+an animation has a join at a time, where that puts the corners) is in
+the shared reader, so Duck Mold's tests check it against Duck Mold's
+own posing, corner by corner: the two agree to the last digits a file
+keeps at every sample. What is a game's business (what is playing,
+speed, blending, the game's own turns) is `AnimatedModel`, below the
+markers.
+
+**One mesh, moved in place.** Each `update` works out how every join
+stands, and sets the corner points of the parts that moved. The model
+is still one mesh and one draw. A part that hasn't moved, with
+everything it hangs from, keeps its points exactly, so a model at rest
+is bit for bit the mesh `Mesh::load_glb` gives.
+
+**`play` every frame is safe.** The usual game code is "if walking,
+play walk, else play idle", every frame. So asking for the animation
+that is already playing changes nothing, even one that has finished;
+`restart` is there for playing it again.
+
+**Changing over blends.** Going from one animation or pose to another
+takes 0.15 seconds, from however the model stands at that moment, so a
+walking robot that stops doesn't snap upright. `set_blend(0.0)` turns
+it off (the tests that compare frame by frame use that).
+
+**Time passes only in `update`.** Nothing reads a clock. Two runs with
+the same keys end with every corner in the same place; a test checks
+it, and a recorded playthrough plays back the same.
+
+**A wrong name doesn't stop a game.** An animation, pose or part the
+model doesn't have changes nothing, and is said once on the terminal
+with the names the model does have, the way the engine says its other
+warnings.
+
+**A game's own turn replaces the animation's, for that one join.** A
+head that looks at the player is the game's while it is turned;
+everything else keeps playing; `release` gives it back.
+
+**The stored pictures use no sines.** They are drawn by a camera that
+looks straight along +z, at a mesh turned by swapping its numbers, so
+that every computer draws the same pixels.
+
+## The numbers
+
+| | |
+|---|---|
+| The robot's file | 64 KB without motion, 78 KB with three animations (4.3 seconds in all) and six poses |
+| Working out one frame of the robot (23 joins, 230 corners) | about 2.5 millionths of a second, in a release build on the Linux build machine |
+
