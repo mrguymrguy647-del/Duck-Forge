@@ -1,0 +1,311 @@
+# A simple robot, assembled from parts with sockets.
+#
+#   duck-mold inspect examples/robot.toml
+#
+# It shows: parts defined once and used twice, assemblies inside the
+# model, sockets passed on from an inner part, and `mirror`, which makes
+# a right arm out of a left arm.
+#
+# It moves, too: at the end of the file are its poses and three
+# animations, `idle`, `walk` and `wave`. Every part turns about the
+# socket it is joined to, and `limits` says how far.
+#
+#   duck-mold inspect examples/robot.toml --joins
+#   duck-mold inspect examples/robot.toml --animation walk
+#   duck-mold render examples/robot.toml --animation walk --view right
+#
+# A model faces forward (+z). `left` and `right` are the robot's own left
+# and right: its left arm is at -x.
+
+version = 0
+name = "robot"
+description = "A small robot, assembled from parts by their sockets."
+
+[palette]
+steel = "#8A939B"
+dark  = "#3B4148"
+red   = "#D0453A"
+glow  = "#FFE08A"
+
+# ---- parts defined once ------------------------------------------------------
+
+# An arm: upper arm, elbow, forearm and hand, each hanging from the one
+# above. `color` on an assembly is the colour of everything inside it that
+# has none of its own.
+[define.arm]
+color = "steel"
+
+# What the arm offers to the outside. `from` passes on a socket of a part
+# inside it: `shoulder` is the upper arm's `joint`, and `grip` is the
+# underside of the hand.
+[define.arm.sockets]
+shoulder = { from = "upper.joint" }
+grip     = { from = "hand.bottom" }
+
+[[define.arm.parts]]
+name = "upper"
+shape = "box"
+size = [0.14, 0.32, 0.14]
+limits = "fixed"    # the whole arm turns at the shoulder, not this
+
+# On the side that touches the body, near the top.
+[define.arm.parts.sockets]
+joint = { on = "right", shift = [0, 0.6, 0] }
+
+[[define.arm.parts]]
+name = "elbow"
+shape = "sphere"
+radius = 0.07
+segments = 8
+color = "dark"
+attach = "top"
+to = "upper.bottom"
+# The elbow bends: the forearm and the hand hang from it and go along.
+limits = { x = [0, 140], z = [-45, 45] }
+
+[[define.arm.parts]]
+name = "forearm"
+shape = "box"
+size = [0.12, 0.3, 0.12]
+attach = "top"
+to = "elbow.bottom"
+limits = "fixed"
+
+[[define.arm.parts]]
+name = "hand"
+shape = "box"
+size = [0.16, 0.1, 0.16]
+color = "red"
+attach = "top"
+to = "forearm.bottom"
+limits = { x = [-45, 45], z = [-45, 45] }
+
+# A leg: a thigh and a foot that points forward.
+[define.leg]
+color = "dark"
+
+[define.leg.sockets]
+hip = { from = "thigh.top" }
+
+[[define.leg.parts]]
+name = "thigh"
+shape = "cylinder"
+radius = 0.09
+height = 0.45
+segments = 8
+limits = "fixed"    # the whole leg turns at the hip
+
+[[define.leg.parts]]
+name = "foot"
+shape = "box"
+size = [0.2, 0.08, 0.3]
+color = "steel"
+attach = "ankle"
+to = "thigh.bottom"
+limits = { x = [-45, 45] }
+
+# Towards the back of the foot, so that the toes stick out in front.
+[define.leg.parts.sockets]
+ankle = { on = "top", shift = [0, 0, -0.4] }
+
+[define.eye]
+shape = "box"
+size = [0.08, 0.08, 0.03]
+color = "glow"
+
+# ---- the robot ---------------------------------------------------------------
+
+[[parts]]
+name = "body"
+shape = "box"
+size = [0.6, 0.7, 0.36]
+color = "steel"
+
+[parts.sockets]
+neck      = { on = "top" }
+chest     = { on = "front", shift = [0, 0.3, 0] }
+left_arm  = { on = "left", shift = [0, 0.7, 0] }
+right_arm = { on = "right", shift = [0, 0.7, 0] }
+left_leg  = { on = "bottom", shift = [-0.5, 0, 0] }
+right_leg = { on = "bottom", shift = [0.5, 0, 0] }
+
+[[parts]]
+name = "panel"
+shape = "box"
+size = [0.3, 0.2, 0.02]
+color = "red"
+attach = "back"
+to = "body.chest"
+limits = "fixed"
+
+[[parts]]
+name = "head"
+shape = "box"
+size = [0.42, 0.32, 0.36]
+color = "steel"
+attach = "bottom"
+to = "body.neck"
+# It nods (around x) and looks left and right (around y).
+limits = { x = [-30, 30], y = [-80, 80] }
+
+[parts.sockets]
+left_eye  = { on = "front", shift = [-0.45, 0.15, 0] }
+right_eye = { on = "front", shift = [0.45, 0.15, 0] }
+antenna   = { on = "top" }
+
+[[parts]]
+name = "left_eye"
+use = "eye"
+attach = "back"
+to = "head.left_eye"
+limits = "fixed"
+
+[[parts]]
+name = "right_eye"
+use = "eye"
+attach = "back"
+to = "head.right_eye"
+limits = "fixed"
+
+[[parts]]
+name = "antenna"
+shape = "cylinder"
+radius = 0.015
+height = 0.2
+segments = 8
+color = "dark"
+attach = "bottom"
+to = "head.antenna"
+limits = { x = [-15, 15], z = [-15, 15] }
+
+[[parts]]
+name = "antenna_tip"
+shape = "sphere"
+radius = 0.04
+segments = 8
+color = "red"
+attach = "bottom"
+to = "antenna.top"
+limits = "fixed"
+
+# The arm's `shoulder` socket is on its right side, so the arm hangs at
+# the body's left.
+[[parts]]
+name = "left_arm"
+use = "arm"
+attach = "shoulder"
+to = "body.left_arm"
+# Around x it swings forward and back, and right up over the head;
+# around z it lifts away from the body.
+limits = { x = [-90, 180], z = [-60, 60] }
+
+# The same arm, flipped: its shoulder socket is now on its left side.
+[[parts]]
+name = "right_arm"
+use = "arm"
+mirror = "x"
+attach = "shoulder"
+to = "body.right_arm"
+limits = { x = [-90, 180], z = [-60, 60] }
+
+[[parts]]
+name = "left_leg"
+use = "leg"
+attach = "hip"
+to = "body.left_leg"
+limits = { x = [-60, 60] }
+
+[[parts]]
+name = "right_leg"
+use = "leg"
+attach = "hip"
+to = "body.right_leg"
+limits = { x = [-60, 60] }
+
+# ---- how it moves --------------------------------------------------------------
+#
+# A pose says, for the parts that aren't at rest, how far each is
+# turned: degrees around x, then y, then z, about the socket the part is
+# joined to. What hangs from a part goes with it. `rest` is always a
+# pose: the robot as it is built above.
+
+# A step with the left leg forward. Each foot is turned back as far as
+# its leg is turned, so it stays flat; the body sinks 4 cm, which is how
+# much two slanted legs are shorter than two straight ones. The arms
+# swing against the legs.
+[poses.step_left]
+body = { move = [0, -0.04, 0] }
+left_leg = [25, 0, 0]
+"left_leg/foot" = [-25, 0, 0]
+right_leg = [-25, 0, 0]
+"right_leg/foot" = [25, 0, 0]
+left_arm = [-25, 0, 0]
+right_arm = [25, 0, 0]
+
+# Its mirror image: `duck-mold edit robot.toml mirror-pose step_left --as step_right`.
+[poses.step_right]
+body = { move = [0, -0.04, 0] }
+right_leg = [25, 0, 0]
+"right_leg/foot" = [-25, 0, 0]
+left_leg = [-25, 0, 0]
+"left_leg/foot" = [25, 0, 0]
+right_arm = [-25, 0, 0]
+left_arm = [25, 0, 0]
+
+# The left arm up beside the head, its forearm tipped in, and the head
+# turned towards it.
+[poses.wave]
+left_arm = [170, 0, 0]
+"left_arm/elbow" = [0, 0, 10]
+head = [0, -15, 0]
+
+# The same, with the forearm tipped out.
+[poses.wave_out]
+left_arm = [170, 0, 0]
+"left_arm/elbow" = [0, 0, -40]
+head = [0, -15, 0]
+
+# Standing: the arms a little away from the body, the head up, the
+# antenna leaning one way...
+[poses.breathe_in]
+left_arm = [0, 0, -6]
+right_arm = [0, 0, 6]
+head = [-4, 0, 0]
+antenna = [0, 0, 8]
+
+# ...and the other.
+[poses.breathe_out]
+head = [2, 0, 0]
+antenna = [0, 0, -8]
+
+# An animation goes through poses, each reached at a time (in seconds).
+# One that loops ends on the pose it starts with.
+
+[animations.idle]
+loop = true
+keys = [
+  { at = 0, pose = "breathe_out" },
+  { at = 1, pose = "breathe_in" },
+  { at = 2, pose = "breathe_out" },
+]
+
+# In place: a game moves the robot along the ground as it plays this.
+[animations.walk]
+loop = true
+keys = [
+  { at = 0, pose = "step_left" },
+  { at = 0.2, pose = "rest" },
+  { at = 0.4, pose = "step_right" },
+  { at = 0.6, pose = "rest" },
+  { at = 0.8, pose = "step_left" },
+]
+
+[animations.wave]
+keys = [
+  { at = 0, pose = "rest" },
+  { at = 0.35, pose = "wave" },
+  { at = 0.6, pose = "wave_out" },
+  { at = 0.85, pose = "wave" },
+  { at = 1.1, pose = "wave_out" },
+  { at = 1.5, pose = "rest" },
+]

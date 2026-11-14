@@ -151,3 +151,7 @@ test = true
 [[example]]
 name = "turntable"
 test = true
+
+[[example]]
+name = "robot_walk"
+test = true

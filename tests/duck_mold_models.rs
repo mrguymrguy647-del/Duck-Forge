@@ -15,7 +15,7 @@ mod common;
 use common::TestFolder;
 
 use duckforge::LoadError;
-use duckforge::glb::GlbModel;
+use duckforge::glb::{AnimatedModel, GlbModel};
 use duckforge::prelude::*;
 
 const MODELS: [&str; 6] = ["crate", "table", "tree", "house", "robot", "snowman"];
@@ -828,4 +828,574 @@ fn a_file_from_a_newer_duck_mold_says_to_update_duck_forge() {
             .contains("newer Duck Mold than this reader knows: update Duck Forge"),
         "{error}"
     );
+}
+
+// ---- models that move (Duck Mold's Phase 5): animations and poses ------------------
+
+/// The robot's animations, each with whether it loops and how long it
+/// lasts, as its recipe wrote them.
+const ANIMATIONS: [(&str, bool, f32); 3] = [
+    ("idle", true, 2.0),
+    ("walk", true, 0.8),
+    ("wave", false, 1.5),
+];
+
+fn robot(test: &str) -> Result<(TestFolder, PathBuf, AnimatedModel), LoadError> {
+    let (folder, models) = fixtures(test);
+    let robot = AnimatedModel::load(models.join("robot.glb"))?;
+    Ok((folder, models, robot))
+}
+
+/// The lowest and highest corner of a mesh.
+fn low_and_high(mesh: &Mesh) -> (f32, f32) {
+    let (low, high) = mesh.bounds();
+    (low.y, high.y)
+}
+
+#[test]
+fn an_animated_model_names_its_animations_and_poses() -> Result<(), LoadError> {
+    let (_folder, models, robot) = robot("duck-mold-animations")?;
+    assert_eq!(robot.animations(), ["idle", "walk", "wave"]);
+    assert_eq!(
+        robot.poses(),
+        [
+            "step_left",
+            "step_right",
+            "wave",
+            "wave_out",
+            "breathe_in",
+            "breathe_out"
+        ]
+    );
+    // Duck Mold's report on the model names the same ones.
+    let report = report(&models, "robot");
+    let reported: Vec<&str> = report["animations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|animation| animation["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(robot.animations(), reported);
+    let reported: Vec<&str> = report["poses"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|pose| pose.as_str().unwrap())
+        .collect();
+    assert_eq!(robot.poses(), reported);
+    for (animation, (name, looping, length)) in robot.model().animations.iter().zip(ANIMATIONS) {
+        assert_eq!(animation.name, name);
+        assert_eq!(animation.looping, looping, "{name}");
+        assert_eq!(animation.length, length, "{name}");
+    }
+
+    // Before anything is played it stands at rest: the very mesh
+    // `Mesh::load_glb` gives.
+    let still = Mesh::load_glb(models.join("robot.glb"))?;
+    assert_eq!(robot.mesh().vertices, still.vertices);
+    assert_eq!(robot.mesh().triangles.len(), still.triangles.len());
+    assert_eq!(robot.playing(), None);
+    assert!(!robot.is_playing() && !robot.finished());
+
+    // A model with no animations loads too, and stands there.
+    let mut plain = AnimatedModel::load(models.join("crate.glb"))?;
+    assert!(plain.animations().is_empty() && plain.poses().is_empty());
+    let before = plain.mesh().vertices.clone();
+    plain.play("walk"); // said once on the terminal; nothing changes
+    plain.update(0.5);
+    assert_eq!(plain.mesh().vertices, before);
+    assert_eq!(plain.playing(), None);
+    Ok(())
+}
+
+#[test]
+fn every_animation_plays_as_duck_mold_reported() -> Result<(), LoadError> {
+    let (_folder, models, _) = robot("duck-mold-plays")?;
+    for (name, looping, length) in ANIMATIONS {
+        let text =
+            std::fs::read_to_string(models.join(format!("robot.{name}.inspect.json"))).unwrap();
+        let report: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(report["loops"].as_bool(), Some(looping), "{name}");
+        assert_eq!(report["length"].as_f64().unwrap() as f32, length, "{name}");
+
+        let mut robot = AnimatedModel::load(models.join("robot.glb"))?;
+        robot.set_blend(0.0); // straight into it, to compare frame by frame
+        robot.play(name);
+        assert_eq!(robot.playing(), Some(name));
+        assert!(robot.is_playing());
+        let start = robot.mesh().vertices.clone();
+
+        // Duck Mold looked at every frame, thirty a second, and wrote
+        // down how far the robot's lowest point goes below the ground
+        // and above it. Played here, frame by frame, it is the same.
+        let frames = report["frames"].as_u64().unwrap();
+        let (mut lowest, mut highest) = (f32::INFINITY, f32::NEG_INFINITY);
+        let mut moved = false;
+        for frame in 0..frames {
+            let (low, _) = low_and_high(robot.mesh());
+            (lowest, highest) = (lowest.min(low), highest.max(low));
+            moved |= robot.mesh().vertices != start;
+            assert_eq!(robot.playing(), Some(name));
+            if frame + 1 < frames {
+                robot.update(1.0 / 30.0);
+            }
+        }
+        assert!(moved, "{name} moves the robot");
+        let ground = &report["ground"];
+        let close = |found: f32, wanted: &serde_json::Value| {
+            (f64::from(found) - wanted.as_f64().unwrap()).abs() < 2e-4
+        };
+        assert!(close(lowest, &ground["lowest_y"]), "{name}: {lowest}");
+        assert!(close(highest, &ground["highest_y"]), "{name}: {highest}");
+
+        // On to its end, and a little past it.
+        robot.update(length);
+        if looping {
+            // Round again: still playing, somewhere inside it; and a
+            // whole number of rounds later it stands as it did.
+            assert!(robot.is_playing() && !robot.finished(), "{name}");
+            assert!(robot.time() >= 0.0 && robot.time() < length, "{name}");
+            let mut again = AnimatedModel::load(models.join("robot.glb"))?;
+            again.set_blend(0.0);
+            again.play(name);
+            again.update(0.25);
+            let early = again.mesh().vertices.clone();
+            for _ in 0..3 {
+                again.update(length);
+            }
+            for (now, then) in again.mesh().vertices.iter().zip(&early) {
+                assert!((*now - *then).length() < 1e-4, "{name}: {now:?} {then:?}");
+            }
+        } else {
+            // Played once: it stops on its last pose and says so.
+            assert!(robot.finished() && !robot.is_playing(), "{name}");
+            assert_eq!(robot.playing(), Some(name));
+            assert_eq!(robot.time(), length);
+            let end = robot.mesh().vertices.clone();
+            robot.update(1.0);
+            assert_eq!(robot.mesh().vertices, end, "{name} stays on its last pose");
+        }
+    }
+    Ok(())
+}
+
+/// A mesh turned about the model's upright: half round (to see its
+/// front from a camera looking along +z) or a quarter (to see its right
+/// side). Done by swapping numbers, so that every computer gets exactly
+/// the same picture.
+fn turned_for_the_camera(mesh: &Mesh, side: bool) -> Mesh {
+    let mut turned = mesh.clone();
+    for vertex in &mut turned.vertices {
+        *vertex = if side {
+            vec3(vertex.z, vertex.y, -vertex.x)
+        } else {
+            vec3(-vertex.x, vertex.y, -vertex.z)
+        };
+    }
+    turned
+}
+
+/// The stored picture `tests/fixtures/duck_mold/pictures/<name>`: checks
+/// that `canvas` is that picture, pixel for pixel. Run the tests with
+/// `DUCKFORGE_ACCEPT_PICTURES=1` to store what is drawn now instead.
+fn check_picture(folder: &Path, name: &str, canvas: &Canvas) {
+    let stored = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/duck_mold/pictures")
+        .join(name);
+    let drawn = folder.join(name);
+    canvas.save_png(&drawn).unwrap();
+    let drawn = std::fs::read(drawn).unwrap();
+    if std::env::var_os("DUCKFORGE_ACCEPT_PICTURES").is_some() {
+        std::fs::create_dir_all(stored.parent().unwrap()).unwrap();
+        std::fs::write(&stored, drawn).unwrap();
+        return;
+    }
+    let wanted = std::fs::read(&stored).unwrap_or_else(|_| {
+        panic!(
+            "{} is missing: store it with DUCKFORGE_ACCEPT_PICTURES=1 cargo test --test duck_mold_models",
+            stored.display()
+        )
+    });
+    assert!(
+        drawn == wanted,
+        "{name} is no longer the stored picture. If the change is meant, store the new one with DUCKFORGE_ACCEPT_PICTURES=1 cargo test --test duck_mold_models"
+    );
+}
+
+#[test]
+fn every_animation_draws_its_stored_pictures() -> Result<(), LoadError> {
+    let (folder, models, _) = robot("duck-mold-pictures")?;
+    // A camera that looks straight along +z, level, from 2.6 metres:
+    // nothing in it is worked out with sines, so every computer draws
+    // the same pixels.
+    let camera = Camera3D {
+        position: vec3(0.0, 0.95, -2.6),
+        yaw: 0.0,
+        pitch: 0.0,
+        ..Camera3D::new(Vec3::ZERO)
+    };
+    let draw = |mesh: &Mesh, side: bool| {
+        let mut canvas = Canvas::new(160, 120);
+        canvas.clear(Color::rgb(0x2a, 0x2f, 0x3a));
+        canvas.draw_mesh(
+            &turned_for_the_camera(mesh, side),
+            &Transform::default(),
+            &camera,
+        );
+        canvas
+    };
+    for (name, _, length) in ANIMATIONS {
+        // The walk shows best from the side; the others from the front.
+        let side = name == "walk";
+        let mut robot = AnimatedModel::load(models.join("robot.glb"))?;
+        robot.set_blend(0.0);
+        robot.play(name);
+        let mut pictures: Vec<Canvas> = Vec::new();
+        // Four moments: a tenth of the way in, then three tenths, a
+        // little past half and eight tenths. (Not evenly spread: a loop
+        // that goes out and back the same way would give two pairs of
+        // the same picture.)
+        for (moment, step) in [0.1, 0.2, 0.25, 0.25].into_iter().enumerate() {
+            robot.update(length * step);
+            let canvas = draw(robot.mesh(), side);
+            check_picture(
+                &folder,
+                &format!("robot.{name}.{}.png", moment + 1),
+                &canvas,
+            );
+            pictures.push(canvas);
+        }
+        // They are four different pictures: it moves.
+        for (at, one) in pictures.iter().enumerate() {
+            for other in &pictures[at + 1..] {
+                assert!(one.pixels() != other.pixels(), "{name}: two moments alike");
+            }
+        }
+    }
+    // And the robot at rest, from the front and from the side.
+    let robot = AnimatedModel::load(models.join("robot.glb"))?;
+    check_picture(&folder, "robot.rest.front.png", &draw(robot.mesh(), false));
+    check_picture(&folder, "robot.rest.side.png", &draw(robot.mesh(), true));
+    Ok(())
+}
+
+#[test]
+fn play_stop_loop_and_speed() -> Result<(), LoadError> {
+    let (_folder, _models, mut robot) = robot("duck-mold-play")?;
+    robot.set_blend(0.0);
+
+    // Asking for what is already playing changes nothing: safe to call
+    // every frame.
+    robot.play("walk");
+    robot.update(0.3);
+    let time = robot.time();
+    robot.play("walk");
+    assert_eq!(robot.time(), time);
+    // `restart` plays it from its start again.
+    robot.restart();
+    assert_eq!(robot.time(), 0.0);
+
+    // Stopped, it freezes as it stands; resumed, it carries on.
+    robot.update(0.3);
+    let frozen = robot.mesh().vertices.clone();
+    robot.stop();
+    assert!(!robot.is_playing());
+    robot.update(1.0);
+    assert_eq!(robot.mesh().vertices, frozen);
+    assert_eq!(robot.playing(), Some("walk"));
+    robot.resume();
+    assert!(robot.is_playing());
+    robot.update(0.1);
+    assert_ne!(robot.mesh().vertices, frozen);
+
+    // Twice as fast is twice as far on; a speed of 0 is still.
+    robot.restart();
+    robot.set_speed(2.0);
+    robot.update(0.1);
+    assert!((robot.time() - 0.2).abs() < 1e-6);
+    robot.set_speed(0.0);
+    robot.update(5.0);
+    assert!((robot.time() - 0.2).abs() < 1e-6);
+    robot.set_speed(1.0);
+
+    // An animation that plays once can be told to loop, and one that
+    // loops to play once.
+    robot.play_looping("wave");
+    robot.update(1.6);
+    assert!(robot.is_playing() && !robot.finished());
+    assert!((robot.time() - 0.1).abs() < 1e-4, "{}", robot.time());
+    robot.play_once("walk");
+    robot.update(0.5);
+    assert!(robot.is_playing());
+    robot.update(0.5);
+    assert!(robot.finished() && robot.time() == 0.8);
+
+    // Backwards: it starts from its end and finishes at its start. (A
+    // door's `open`, played backwards, closes it.)
+    robot.rest();
+    robot.set_speed(-1.0);
+    robot.play("wave");
+    assert_eq!(robot.time(), 1.5);
+    robot.update(0.5);
+    assert!((robot.time() - 1.0).abs() < 1e-6 && robot.is_playing());
+    robot.update(2.0);
+    assert!(robot.finished() && robot.time() == 0.0);
+    // The wave starts at rest, so backwards it ends there.
+    let still = robot.model().to_mesh();
+    assert_eq!(robot.mesh().vertices, still.vertices);
+
+    // A name it doesn't have changes nothing.
+    robot.set_speed(1.0);
+    robot.play("idle");
+    robot.update(0.4);
+    let before = (robot.time(), robot.mesh().vertices.clone());
+    robot.play("wlak");
+    robot.play("wlak");
+    assert_eq!(robot.playing(), Some("idle"));
+    assert_eq!((robot.time(), robot.mesh().vertices.clone()), before);
+    Ok(())
+}
+
+#[test]
+fn a_pose_is_held_and_rest_is_the_model_as_built() -> Result<(), LoadError> {
+    let (_folder, _models, mut robot) = robot("duck-mold-poses")?;
+    robot.set_blend(0.0);
+    let still = robot.mesh().vertices.clone();
+    let (_, at_rest) = low_and_high(robot.mesh());
+
+    // Its arm goes up, and stays up: a pose plays nothing.
+    robot.set_pose("wave");
+    let (_, waving) = low_and_high(robot.mesh());
+    assert!(waving > at_rest + 0.05, "{waving} against {at_rest}");
+    let held = robot.mesh().vertices.clone();
+    robot.update(3.0);
+    assert_eq!(robot.mesh().vertices, held);
+    assert_eq!(robot.playing(), None);
+    assert!(!robot.is_playing());
+
+    // An animation takes over from a pose, and a pose from an animation.
+    robot.play("walk");
+    robot.update(0.2);
+    assert_eq!(robot.playing(), Some("walk"));
+    robot.set_pose("step_left");
+    assert_eq!(robot.playing(), None);
+    // The step sinks the body 4 cm, with its feet still on the ground.
+    let (low, high) = low_and_high(robot.mesh());
+    assert!(low.abs() < 0.005, "{low}");
+    assert!((high - (at_rest - 0.04)).abs() < 1e-4, "{high}");
+
+    // `rest`, by its own name or as a pose, is the model as built.
+    robot.rest();
+    assert_eq!(robot.mesh().vertices, still);
+    robot.set_pose("wave");
+    robot.set_pose("rest");
+    assert_eq!(robot.mesh().vertices, still);
+
+    // A pose it doesn't have changes nothing.
+    robot.set_pose("wave");
+    robot.set_pose("waev");
+    assert_eq!(robot.mesh().vertices, held);
+    Ok(())
+}
+
+#[test]
+fn changing_animation_blends_instead_of_snapping() -> Result<(), LoadError> {
+    let (_folder, _models, mut robot) = robot("duck-mold-blend")?;
+    let (_, at_rest) = low_and_high(robot.mesh());
+    // From rest to the wave pose: 0.15 seconds, unless told otherwise.
+    robot.set_pose("wave");
+    let (_, at_once) = low_and_high(robot.mesh());
+    assert_eq!(at_once, at_rest, "nothing has moved yet");
+    let mut before = at_rest;
+    for step in 1..=9 {
+        robot.update(1.0 / 60.0);
+        let (_, now) = low_and_high(robot.mesh());
+        assert!(now >= before, "step {step}: it only goes up");
+        before = now;
+    }
+    // After 9 sixtieths (0.15 s) it is there, and stays.
+    let arrived = robot.mesh().vertices.clone();
+    let mut snapped = AnimatedModel::new(robot.model().clone());
+    snapped.set_blend(0.0);
+    snapped.set_pose("wave");
+    for (now, wanted) in arrived.iter().zip(&snapped.mesh().vertices) {
+        assert!((*now - *wanted).length() < 1e-5);
+    }
+    robot.update(1.0);
+    assert_eq!(robot.mesh().vertices, arrived);
+
+    // Half way through the change back, its hand is between up and
+    // down.
+    let hand = |robot: &AnimatedModel| robot.socket("left_arm.grip").unwrap().position().y;
+    let up = hand(&robot);
+    robot.set_blend(0.2);
+    robot.rest();
+    robot.update(0.1);
+    let half = hand(&robot);
+    robot.update(0.1);
+    let down = hand(&robot);
+    assert!(up > down + 0.8, "{up} and {down}");
+    assert!(half > down + 0.2 && half < up - 0.2, "{half}");
+
+    // A walking robot that stops doesn't snap to standing either: its
+    // corners move a little each frame, never far.
+    let mut robot = AnimatedModel::new(robot.model().clone());
+    robot.play("walk");
+    robot.update(0.4);
+    robot.play("idle");
+    let mut last = robot.mesh().vertices.clone();
+    for _ in 0..30 {
+        robot.update(1.0 / 60.0);
+        let now = robot.mesh().vertices.clone();
+        let furthest = now
+            .iter()
+            .zip(&last)
+            .map(|(a, b)| (*a - *b).length())
+            .fold(0.0, f32::max);
+        assert!(furthest < 0.06, "a corner jumped {furthest} in one frame");
+        last = now;
+    }
+    Ok(())
+}
+
+#[test]
+fn game_code_turns_a_join_and_gives_it_back() -> Result<(), LoadError> {
+    let (_folder, _models, mut robot) = robot("duck-mold-turn")?;
+    robot.set_blend(0.0);
+    let still = robot.mesh().vertices.clone();
+    let head = robot.model().part("head").unwrap().clone();
+    let eye = robot.model().socket("head.left_eye").unwrap().position();
+    // Which corners are the head's own, and its eyes' and antenna's: the
+    // corners its triangles and theirs use.
+    let on_head: Vec<usize> = robot
+        .model()
+        .parts
+        .iter()
+        .filter(|part| {
+            ["head", "left_eye", "right_eye", "antenna", "antenna_tip"]
+                .contains(&part.name.as_str())
+        })
+        .flat_map(|part| robot.mesh().triangles[part.range()].iter())
+        .flat_map(|triangle| triangle.corners)
+        .collect();
+    assert!(head.triangles == 12 && on_head.len() > 100);
+
+    // The head looks 90 degrees to its right: a positive turn around y
+    // swings its front (+z) towards +x. Its eye, which was in front, is
+    // now at its side; nothing below the neck has moved.
+    // It turns about its neck: the point the head is joined at.
+    let [neck_x, _, neck_z] = robot
+        .model()
+        .joins
+        .iter()
+        .find(|join| join.name == "head")
+        .unwrap()
+        .pivot;
+    robot.turn("head", vec3(0.0, 90.0, 0.0));
+    let now = robot.socket("head.left_eye").unwrap().position();
+    assert!(
+        (now.x - (neck_x + (eye.z - neck_z))).abs() < 1e-4
+            && (now.z - (neck_z - (eye.x - neck_x))).abs() < 1e-4,
+        "{now:?}, from {eye:?}"
+    );
+    assert!(
+        now.x > 0.1,
+        "its left eye is on its right side now: {now:?}"
+    );
+    assert!((now.y - eye.y).abs() < 1e-5);
+    for (at, (now, was)) in robot.mesh().vertices.iter().zip(&still).enumerate() {
+        if !on_head.contains(&at) {
+            assert_eq!(now, was, "corner {at} isn't on the head");
+        }
+    }
+    assert_ne!(robot.mesh().vertices, still);
+
+    // The turn stays while an animation plays the rest of the robot.
+    robot.play("walk");
+    robot.update(0.1);
+    let walking = robot.socket("head.left_eye").unwrap().position();
+    // (The walk sinks the body a little; the head still looks right.)
+    assert!((walking.x - now.x).abs() < 1e-4, "{walking:?}");
+
+    // Given back, the head is the animation's again; at rest, as built.
+    robot.release("head");
+    robot.rest();
+    assert_eq!(robot.mesh().vertices, still);
+
+    // A part it doesn't have changes nothing.
+    robot.turn("tail", vec3(0.0, 90.0, 0.0));
+    robot.release("tail");
+    assert_eq!(robot.mesh().vertices, still);
+
+    // A part inside a mirror image turns as a mirror image: both
+    // elbows, bent by the same numbers, lift both hands the same.
+    robot.turn("left_arm/elbow", vec3(90.0, 0.0, 0.0));
+    robot.turn("right_arm/elbow", vec3(90.0, 0.0, 0.0));
+    let left = robot.socket("left_arm.grip").unwrap().position();
+    let right = robot.socket("right_arm.grip").unwrap().position();
+    assert!((left.x + right.x).abs() < 1e-4, "{left:?} {right:?}");
+    assert!((left.y - right.y).abs() < 1e-4 && (left.z - right.z).abs() < 1e-4);
+    let at_rest = robot.model().socket("left_arm.grip").unwrap().position();
+    assert!(
+        left.y > at_rest.y + 0.2 && left.z > at_rest.z + 0.2,
+        "{left:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_socket_goes_with_the_part_that_carries_it() -> Result<(), LoadError> {
+    let (_folder, _models, mut robot) = robot("duck-mold-carried")?;
+    robot.set_blend(0.0);
+    let at_rest = robot.socket("head.top").unwrap();
+    assert_eq!(
+        at_rest.position(),
+        robot.model().socket("head.top").unwrap().position()
+    );
+    assert_eq!(at_rest.direction(), vec3(0.0, 1.0, 0.0));
+    assert!(robot.socket("head.bottom_of_nothing").is_none());
+
+    // A step sinks the body 4 cm: the top of the head goes down with
+    // it, still facing up.
+    robot.set_pose("step_left");
+    let stepping = robot.socket("head.top").unwrap();
+    assert!((stepping.position().y - (at_rest.position().y - 0.04)).abs() < 1e-5);
+    assert!((stepping.direction() - vec3(0.0, 1.0, 0.0)).length() < 1e-6);
+
+    // A nod tips it: the top of the head leans, and the way it faces
+    // leans with it, so a hat put there leans too.
+    robot.rest();
+    robot.turn("head", vec3(30.0, 0.0, 0.0));
+    let nodding = robot.socket("head.top").unwrap();
+    let up = nodding.direction();
+    assert!((up.length() - 1.0).abs() < 1e-5);
+    assert!((up.y - 30f32.to_radians().cos()).abs() < 1e-4, "{up:?}");
+    assert!(up.z.abs() > 0.49 && up.x.abs() < 1e-5, "{up:?}");
+    // The hand's grip is carried by the hand: waving lifts it over the
+    // head.
+    robot.release("head");
+    robot.set_pose("wave");
+    let grip = robot.socket("left_arm.grip").unwrap().position();
+    assert!(grip.y > at_rest.position().y, "{grip:?}");
+    // The whole model's own sockets stay put.
+    assert_eq!(
+        robot.socket("bottom").unwrap().position(),
+        robot.model().socket("bottom").unwrap().position()
+    );
+    Ok(())
+}
+
+#[test]
+fn a_file_from_before_the_tree_still_loads_and_stands_there() -> Result<(), LoadError> {
+    let folder = TestFolder::new("duck-mold-animated-before");
+    let old_files = folder.fixture("duck_mold_before_tree");
+    let mut robot = AnimatedModel::load(old_files.join("robot.glb"))?;
+    assert!(robot.animations().is_empty() && robot.poses().is_empty());
+    let still = robot.mesh().vertices.clone();
+    robot.play("walk");
+    robot.turn("head", vec3(0.0, 90.0, 0.0)); // it has no joins to turn
+    robot.update(1.0);
+    assert_eq!(robot.mesh().vertices, still);
+    assert!(robot.socket("head.top").is_some());
+    Ok(())
 }

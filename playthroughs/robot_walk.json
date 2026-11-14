@@ -1,0 +1,17 @@
+{
+  "duckforge_inputs": 1,
+  "seed": 1,
+  "updates_per_second": 60,
+  "frames": 420,
+  "expect": {"animation": "idle", "facing_degrees": 90, "seconds_in": 0.35000008, "x": 0.16666667, "z": 1.4999993},
+  "events": [
+    {"frame": 30, "press": "Right"},
+    {"frame": 90, "release": "Right"},
+    {"frame": 100, "press": "Down"},
+    {"frame": 190, "release": "Down"},
+    {"frame": 210, "press": "Space"},
+    {"frame": 212, "release": "Space"},
+    {"frame": 330, "press": "Left"},
+    {"frame": 400, "release": "Left"}
+  ]
+}

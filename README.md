@@ -70,6 +70,7 @@ cargo run --example world3d    # 3D world with physics: fly around, throw balls
 cargo run --release --example duck_craft   # a Minecraft-style island: dig, build, day and night
 cargo run --release --example stress3d   # thousands of spinning 3D shapes
 cargo run --example turntable  # a robot made in Duck Mold, slowly turning
+cargo run --example robot_walk # the same robot, moving: it idles, walks and waves
 cargo run --example physics    # 2D physics sandbox: click to drop balls and boxes
 cargo run --example breakout   # the classic game
 cargo run --example dodge      # dodge the falling rocks: sprites, shake and sound
@@ -101,6 +102,7 @@ cargo run --no-default-features --example breakout -- --headless --frames 600 --
 | `hello`    | Arrow keys or WASD move · click to teleport |
 | `stress3d` | 1–6 pick 500 to 20,000 objects · O toggles orbit/fly |
 | `turntable` | Space stops and starts it · Left/Right turn it by hand |
+| `robot_walk` | Arrows walk the robot about · Space makes it wave |
 | `template` | Arrows or A/D run · Up, W or Space jumps · P pauses |
 | every game | **F1** debug overlay · **F3** shows the FPS · **F10** starts and stops recording · **F12** saves a screenshot (PNG) · Escape quits |
 
@@ -412,6 +414,44 @@ let hat_at = robot_place.apply(top.position()); // moved and turned with the rob
  Only Duck Mold's own `.glb` files load
 (not other glTF or OBJ files); anything else gives a one-sentence error
 saying so.
+
+**A model that moves.** A Duck Mold recipe can hold animations (a walk,
+a wave) and poses. `AnimatedModel` loads the model and plays them:
+
+```rust
+use duckforge::glb::AnimatedModel;
+
+let mut robot = AnimatedModel::load("examples/robot_walk/assets/robot.glb")?; // in new()
+
+// in update(): say what to play, and let time pass
+if walking { self.robot.play("walk") } else { self.robot.play("idle") }
+self.robot.update(ctx.dt());
+
+// in draw(): its mesh is a mesh like any other
+canvas.draw_mesh(self.robot.mesh(), &Transform::at(self.position), &self.camera);
+```
+
+| | |
+|---|---|
+| `robot.play("walk")` | Plays it from its start. It loops if its recipe says so; otherwise it stops on its last pose. Asking for what is already playing changes nothing, so it is safe to call every frame. |
+| `robot.play_once("walk")`, `robot.play_looping("wave")` | The same, saying whether it loops yourself. `robot.restart()` plays what is playing from its start again. |
+| `robot.stop()`, `robot.resume()` | Freezes it as it stands, and carries on. |
+| `robot.rest()` | Back to the model as it was built, playing nothing. |
+| `robot.set_pose("wave")` | Holds one of the recipe's poses. |
+| `robot.set_speed(1.5)` | Faster or slower; 0 is still; negative plays backwards (a door's `open`, backwards, closes it). |
+| `robot.turn("head", vec3(0.0, 30.0, 0.0))` | Game code turns one part itself, in degrees, while everything else keeps playing: a head that looks at the player. `robot.release("head")` gives it back. |
+| `robot.is_playing()`, `robot.finished()`, `robot.playing()` | Whether something is running, whether a one-time animation has reached its end, and its name. |
+| `robot.socket("head.top")` | Where a socket is **now**: a hat stays on a nodding head, a sword in a waving hand. |
+| `robot.animations()`, `robot.poses()` | The names the model has. `duck-mold inspect robot.toml` lists them too. |
+
+Changing from one animation to another isn't a snap: the model changes
+over in 0.15 seconds (`robot.set_blend(0.0)` turns that off). A name the
+model doesn't have changes nothing and is said once on the terminal.
+An animation moves the model's parts, not the model: a walk is played
+in place, and the game moves the `Transform` it draws the model with.
+[examples/robot_walk/](examples/robot_walk/main.rs) is the robot
+standing idle, walking where the arrow keys send it, and waving, with
+its hat on.
 
 ### With physics
 
@@ -957,7 +997,7 @@ On a computer with one (in PowerShell or cmd, in the project folder):
 | `src/font.rs`     | A built-in 3-pixel-wide font: every printable ASCII character        |
 | `src/color.rs`    | Colors with alpha, and see-through blending                         |
 | `src/rng.rs`      | A tiny xorshift random number generator                             |
-| `examples/`       | `hello`, `shapes`, `template`, `starter_topdown`, `starter_shooter`, `scene_demo`, `pollen_run`, `breakout`, `dodge`, `duckling_parade`, `door_short`, `door_show_3d`, `physics`, `world3d`, `stress3d` and `turntable` |
+| `examples/`       | `hello`, `shapes`, `template`, `starter_topdown`, `starter_shooter`, `scene_demo`, `pollen_run`, `breakout`, `dodge`, `duckling_parade`, `door_short`, `door_show_3d`, `physics`, `world3d`, `stress3d`, `turntable` and `robot_walk` |
 | `tools/write_ids.rs` | Writes the ids into a scene file made by hand: `cargo run --example write_ids -- FILE` |
 | `Start Duck Forge Studio.bat` | Builds Duck Forge Studio from this folder and opens it, with a double-click |
 | `tools/Run tests (for developers).bat` | Runs every test on Windows with a double-click: the engine's both ways, then the Studio's |
