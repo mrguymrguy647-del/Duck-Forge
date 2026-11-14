@@ -44,6 +44,7 @@ pub mod font_file;
 mod frame3d;
 mod fuzz;
 pub mod glb;
+pub mod gltf;
 #[cfg(feature = "gpu")]
 mod gpu;
 pub mod headless;

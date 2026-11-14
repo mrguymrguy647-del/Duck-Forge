@@ -534,7 +534,30 @@ impl Mesh {
     /// in your game's `new`, and draw it every frame.
     ///
     /// For its palette and parts, use [`GlbModel::load`] instead.
+    ///
+    /// A `.glb` from anywhere else (Blender, say) is read as a
+    /// [`GltfModel`](crate::gltf::GltfModel) in its resting pose, with its
+    /// texture, if it has at most one (a mesh has one texture). For more
+    /// textures, its parts and its animations, load it as a `GltfModel`.
     pub fn load_glb(path: impl AsRef<Path>) -> Result<Mesh, LoadError> {
-        Ok(GlbModel::load(path)?.to_mesh())
+        let path = path.as_ref();
+        match GlbModel::load(path) {
+            Ok(model) => Ok(model.to_mesh()),
+            Err(not_duck_mold) => {
+                let Ok(model) = crate::gltf::GltfModel::load(path) else {
+                    return Err(not_duck_mold);
+                };
+                model.to_mesh().ok_or_else(|| {
+                    LoadError::new(
+                        io::ErrorKind::InvalidData,
+                        format!(
+                            "{} has parts with different textures, and a mesh has one: load it \
+                             with GltfModel::load and draw it with model.draw",
+                            path.display()
+                        ),
+                    )
+                })
+            }
+        }
     }
 }

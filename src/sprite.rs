@@ -169,42 +169,12 @@ impl Sprite {
             )
         };
 
-        let mut decoder = png::Decoder::new(BufReader::new(file));
-        // Turn every kind of PNG (palette, gray, 16 bits per channel...)
-        // into 8 bits per channel, so only four layouts are left below.
-        decoder.set_transformations(png::Transformations::normalize_to_color8());
-        let mut reader = decoder.read_info().map_err(|e| bad_png(&e))?;
-        let size = reader
-            .output_buffer_size()
-            .ok_or_else(|| bad_png(&"the image is too big"))?;
-        let mut bytes = vec![0; size];
-        let info = reader.next_frame(&mut bytes).map_err(|e| bad_png(&e))?;
-        let (width, height) = (info.width as usize, info.height as usize);
+        decode_png(BufReader::new(file)).map_err(|e| bad_png(&e))
+    }
 
-        let channels = match info.color_type {
-            png::ColorType::Grayscale => 1,
-            png::ColorType::GrayscaleAlpha => 2,
-            png::ColorType::Rgb => 3,
-            png::ColorType::Rgba => 4,
-            png::ColorType::Indexed => return Err(bad_png(&"unexpected palette image")),
-        };
-        let mut rgb = Vec::with_capacity(width * height);
-        let mut alpha = Vec::with_capacity(width * height);
-        for y in 0..height {
-            let row = &bytes[y * info.line_size..][..width * channels];
-            for p in row.chunks_exact(channels) {
-                let (r, g, b, a) = match *p {
-                    [v] => (v, v, v, 255),
-                    [v, a] => (v, v, v, a),
-                    [r, g, b] => (r, g, b, 255),
-                    [r, g, b, a] => (r, g, b, a),
-                    _ => unreachable!("chunks_exact gives exactly `channels` bytes"),
-                };
-                rgb.push(Color::rgb(r, g, b).to_u32());
-                alpha.push(a);
-            }
-        }
-        Ok(Sprite::whole(Sheet::new(width, rgb, alpha), height))
+    /// A PNG image from its bytes (a texture inside a `.glb` model).
+    pub(crate) fn from_png_bytes(bytes: &[u8]) -> Result<Sprite, String> {
+        decode_png(io::Cursor::new(bytes))
     }
 
     fn whole(sheet: Sheet, height: usize) -> Sprite {
@@ -388,6 +358,46 @@ impl fmt::Debug for Sprite {
         // Printing every pixel would flood the screen, so just give the size.
         write!(f, "Sprite({} x {})", self.width, self.height)
     }
+}
+
+/// Decodes a PNG image from `reader` into a sprite, or says why it can't.
+fn decode_png(reader: impl io::BufRead + io::Seek) -> Result<Sprite, String> {
+    let mut decoder = png::Decoder::new(reader);
+    // Turn every kind of PNG (palette, gray, 16 bits per channel...)
+    // into 8 bits per channel, so only four layouts are left below.
+    decoder.set_transformations(png::Transformations::normalize_to_color8());
+    let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
+    let size = reader
+        .output_buffer_size()
+        .ok_or_else(|| String::from("the image is too big"))?;
+    let mut bytes = vec![0; size];
+    let info = reader.next_frame(&mut bytes).map_err(|e| e.to_string())?;
+    let (width, height) = (info.width as usize, info.height as usize);
+
+    let channels = match info.color_type {
+        png::ColorType::Grayscale => 1,
+        png::ColorType::GrayscaleAlpha => 2,
+        png::ColorType::Rgb => 3,
+        png::ColorType::Rgba => 4,
+        png::ColorType::Indexed => return Err(String::from("unexpected palette image")),
+    };
+    let mut rgb = Vec::with_capacity(width * height);
+    let mut alpha = Vec::with_capacity(width * height);
+    for y in 0..height {
+        let row = &bytes[y * info.line_size..][..width * channels];
+        for p in row.chunks_exact(channels) {
+            let (r, g, b, a) = match *p {
+                [v] => (v, v, v, 255),
+                [v, a] => (v, v, v, a),
+                [r, g, b] => (r, g, b, 255),
+                [r, g, b, a] => (r, g, b, a),
+                _ => unreachable!("chunks_exact gives exactly `channels` bytes"),
+            };
+            rgb.push(Color::rgb(r, g, b).to_u32());
+            alpha.push(a);
+        }
+    }
+    Ok(Sprite::whole(Sheet::new(width, rgb, alpha), height))
 }
 
 /// The one-sentence error for a file that can't be opened. `what` is the
