@@ -1522,6 +1522,59 @@ files exported earlier still load (their `joins` is empty). A file from
 a Duck Mold newer than this Duck Forge is refused with a sentence that
 says to update Duck Forge.
 
+**Models that move.** A Duck Mold recipe can hold *animations* (`idle`,
+`walk`, `wave`) and *poses*; `duck-mold inspect robot.toml` lists their
+names. `duckforge::glb::AnimatedModel` loads the model and plays them:
+
+```rust
+let mut robot = AnimatedModel::load("examples/mygame/assets/robot.glb")?; // in new()
+robot.play("idle");
+
+// in update():
+if walking { self.robot.play("walk") } else { self.robot.play("idle") }
+self.robot.update(ctx.dt()); // time passes only here
+
+// in draw(): a mesh like any other
+canvas.draw_mesh(self.robot.mesh(), &Transform::at(self.position), &self.camera);
+```
+
+- `play(name)` starts an animation from its start. It loops if its
+  recipe says `loop = true`, else it plays once and stays on its last
+  pose. **Asking for the one already playing changes nothing**, so call
+  it every frame as above. `play_once(name)` and `play_looping(name)`
+  say whether it loops themselves; `restart()` starts what is playing
+  again.
+- `finished()` is true once a one-time animation has reached its end;
+  `is_playing()` while one is running; `playing()` is its name. A wave
+  on a key: `if pressed { robot.play("wave") }`, and until
+  `robot.finished()` leave it alone; then go back to `idle`.
+- `stop()` freezes it, `resume()` carries on; `rest()` goes back to the
+  model as built; `set_pose("wave")` holds a pose from the recipe.
+- `set_speed(2.0)` plays twice as fast; `0.0` is still; a negative
+  speed plays backwards from the end (`open` backwards closes a door).
+- Changing animation or pose **blends** over 0.15 seconds;
+  `set_blend(0.0)` snaps.
+- `turn("head", vec3(0.0, 30.0, 0.0))` turns one part from game code,
+  in degrees (around x, then y, then z, about the point the part is
+  joined at), while the rest keeps playing; `release("head")` gives it
+  back. Part names are the recipe's: `"left_arm"`, `"left_arm/elbow"`.
+- `socket("head.top")` is where that socket is **now**, moved with the
+  part that carries it: `place.apply(robot.socket("head.top")?.position())`.
+- **An animation doesn't move the model along the ground.** A walk
+  swings the legs in place; the game changes the `Transform`. Match
+  the speed to the steps or the feet slide: the example's robot takes
+  two steps of about 40 cm in 0.8 s, and walks at 1 m a second.
+- A name the model doesn't have (animation, pose or part) changes
+  nothing, and is said once on the terminal with the names it has.
+- `robot.mesh_mut()` is the mesh to recolour; `robot.model()` is the
+  `GlbModel`, for `part(..).range()`.
+- A model with no animations loads too (it stands at rest; `turn`
+  still works), and so does a file from before Duck Mold 0.5 (it has no
+  joins, so nothing turns).
+
+`examples/robot_walk/` is all of it in one small game: idle, walk with
+the arrow keys, wave with Space, a hat on `head.top`.
+
 **Textures and atlases.** `mesh.with_texture(sprite)` paints a picture on
 it, where its texture coordinates say (every built-in shape has them: a
 cube shows the whole picture on each face, a checkerboard on each

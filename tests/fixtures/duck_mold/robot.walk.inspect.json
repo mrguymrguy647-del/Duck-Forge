@@ -1,0 +1,93 @@
+{
+  "ok": true,
+  "summary": "robot, \"walk\": 0.8 s, 5 keys, loops, sinks 0.003 into the ground at 0.1 s, and is 0.002 above the ground at 0 s, nothing floating, 4 overlaps, no limits broken",
+  "source": "examples/robot.toml",
+  "name": "robot",
+  "animation": "walk",
+  "length": 0.8,
+  "loops": true,
+  "smooth": true,
+  "keys": [
+    {
+      "key": 1,
+      "at": 0.0,
+      "pose": "step_left"
+    },
+    {
+      "key": 2,
+      "at": 0.2,
+      "pose": "rest"
+    },
+    {
+      "key": 3,
+      "at": 0.4,
+      "pose": "step_right"
+    },
+    {
+      "key": 4,
+      "at": 0.6,
+      "pose": "rest"
+    },
+    {
+      "key": 5,
+      "at": 0.8,
+      "pose": "step_left"
+    }
+  ],
+  "frames": 25,
+  "moves": [
+    "body",
+    "left_arm",
+    "right_arm",
+    "left_leg",
+    "left_leg/foot",
+    "right_leg",
+    "right_leg/foot"
+  ],
+  "ground": {
+    "stays_on_ground": false,
+    "lowest_y": -0.00337,
+    "lowest_at": 0.1,
+    "highest_y": 0.002161,
+    "highest_at": 0.0
+  },
+  "floating": [],
+  "overlapping": [
+    {
+      "a": "left_leg/thigh",
+      "b": "body",
+      "depth": 0.038036,
+      "hidden": false,
+      "at": 0.0,
+      "new": true
+    },
+    {
+      "a": "right_leg/thigh",
+      "b": "body",
+      "depth": 0.038036,
+      "hidden": false,
+      "at": 0.0,
+      "new": true
+    },
+    {
+      "a": "left_leg/thigh",
+      "b": "left_leg/foot",
+      "depth": 0.038035,
+      "hidden": false,
+      "at": 0.4,
+      "new": true
+    },
+    {
+      "a": "right_leg/thigh",
+      "b": "right_leg/foot",
+      "depth": 0.038035,
+      "hidden": false,
+      "at": 0.0,
+      "new": true
+    }
+  ],
+  "limits_broken": [],
+  "ends_as_it_starts": true,
+  "warnings": [],
+  "errors": []
+}
