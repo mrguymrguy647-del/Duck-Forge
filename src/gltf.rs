@@ -494,7 +494,7 @@ fn split_glb(bytes: &[u8]) -> Result<(Value, &[u8]), String> {
         serde_json::from_slice(json).map_err(|e| format!("its JSON block is broken: {e}"))?;
     let bin = match u32_at(json_end) {
         Ok(length) if bytes.get(json_end + 4..json_end + 8) == Some(b"BIN\0") => bytes
-            .get(json_end + 8..json_end + 8 + length)
+            .get(json_end + 8..(json_end + 8).saturating_add(length))
             .ok_or("the block of numbers is cut short")?,
         _ => &[],
     };
@@ -535,7 +535,13 @@ fn floats(gltf: &Value, bin: &[u8], index: usize) -> Result<(Vec<f32>, usize), S
         .as_u64()
         .ok_or("an accessor has no count")? as usize;
     let Some(view_index) = accessor["bufferView"].as_u64() else {
-        return Ok((vec![0.0; count * per], per)); // all zeros, as the spec says
+        // All zeros, as the spec says (but not more than a file could hold).
+        if count > bin.len().max(1 << 20) {
+            return Err(String::from(
+                "an accessor claims more numbers than the file holds",
+            ));
+        }
+        return Ok((vec![0.0; count * per], per));
     };
     let view = &gltf["bufferViews"][view_index as usize];
     if view["buffer"].as_u64().unwrap_or(0) != 0 || bin.is_empty() {
@@ -543,12 +549,25 @@ fn floats(gltf: &Value, bin: &[u8], index: usize) -> Result<(Vec<f32>, usize), S
             "its numbers are in a separate file; export it as one .glb",
         ));
     }
-    let start = view["byteOffset"].as_u64().unwrap_or(0) as usize
-        + accessor["byteOffset"].as_u64().unwrap_or(0) as usize;
+    let start = (view["byteOffset"].as_u64().unwrap_or(0) as usize)
+        .saturating_add(accessor["byteOffset"].as_u64().unwrap_or(0) as usize);
     let stride = match view["byteStride"].as_u64() {
         Some(s) if s > 0 => s as usize,
         _ => per * size,
     };
+    // Checked before anything is made: a damaged file can claim more
+    // numbers than any file could hold, and that must be a refusal, not a
+    // crash.
+    let fits = count == 0
+        || (count - 1)
+            .checked_mul(stride)
+            .and_then(|last| last.checked_add(start)?.checked_add(per * size))
+            .is_some_and(|end| end <= bin.len());
+    if !fits {
+        return Err(String::from(
+            "a list of numbers runs past the end of the file",
+        ));
+    }
     let mut out = Vec::with_capacity(count * per);
     for item in 0..count {
         for c in 0..per {
@@ -602,8 +621,15 @@ fn whole_numbers(gltf: &Value, bin: &[u8], index: usize) -> Result<Vec<usize>, S
     let view = &gltf["bufferViews"][accessor["bufferView"]
         .as_u64()
         .ok_or("corners have no place")? as usize];
-    let start = view["byteOffset"].as_u64().unwrap_or(0) as usize
-        + accessor["byteOffset"].as_u64().unwrap_or(0) as usize;
+    let start = (view["byteOffset"].as_u64().unwrap_or(0) as usize)
+        .saturating_add(accessor["byteOffset"].as_u64().unwrap_or(0) as usize);
+    let fits = count
+        .checked_mul(size)
+        .and_then(|length| length.checked_add(start))
+        .is_some_and(|end| end <= bin.len());
+    if !fits {
+        return Err(String::from("the corners run past the end of the file"));
+    }
     let mut out = Vec::with_capacity(count);
     for i in 0..count {
         let at = start + i * size;
@@ -633,7 +659,7 @@ fn read_images(
             let start = view["byteOffset"].as_u64().unwrap_or(0) as usize;
             let length = view["byteLength"].as_u64().unwrap_or(0) as usize;
             Some(
-                bin.get(start..start + length)
+                bin.get(start..start.saturating_add(length))
                     .ok_or("an image runs past the end of the file")?
                     .to_vec(),
             )

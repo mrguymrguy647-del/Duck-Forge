@@ -9,9 +9,14 @@
 use std::collections::BTreeSet;
 use std::process::Command;
 
-/// The crates a headless build compiles today: duckforge, its three
-/// dependencies (png, gif and serde_json), and theirs.
+/// The crates a headless build compiles today: duckforge, its four
+/// dependencies (png, gif, serde_json and ab_glyph, for TrueType and
+/// OpenType text), and theirs. (ab_glyph and ttf-parser added about 1.8 s
+/// to a clean build of dodge, 18 s to 20 s: docs/decisions.md, "Lit 3D,
+/// fonts and video for shorts".)
 const HEADLESS_CRATES: &[&str] = &[
+    "ab_glyph",
+    "ab_glyph_rasterizer",
     "adler2",
     "bitflags",
     "cfg-if",
@@ -24,10 +29,12 @@ const HEADLESS_CRATES: &[&str] = &[
     "itoa",
     "memchr",
     "miniz_oxide",
+    "owned_ttf_parser",
     "png",
     "serde_core",
     "serde_json",
     "simd-adler32",
+    "ttf-parser",
     "weezl",
     "zmij",
 ];

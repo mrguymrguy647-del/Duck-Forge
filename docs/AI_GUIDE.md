@@ -838,6 +838,19 @@ the next; `'\n'` in `draw_text` uses it), `width()`, `height()`,
 `canvas.save_png("out/look.png")?` (in a test: `sim.picture().save_png(..)`).
 Any color with alpha below 255 is drawn see-through (`clear` ignores alpha).
 
+**Text in a real font**: `let font = Font::load("assets/fonts/DejaVuSerif-Bold.ttf")?;`
+(any `.ttf` or `.otf`; load it once, in `new`; `assets/fonts` has a serif
+TTF and a sans OTF), then `canvas.draw_font_text(&font, "text", pos,
+&TextStyle { size: 48.0, color, outline: 3.0, outline_color, shadow:
+Some(vec2(3.0, 4.0)), shadow_color, shadow_blur: 4.0, align:
+Align::Center, wrap: Some(600.0), line_spacing: 1.2 })` (start from
+`..TextStyle::default()`: 32 px, white, nothing else). `size` is a line's
+height in pixels; `pos` is the top of the first line, at its left end,
+middle or right end by `align`; `'\n'` breaks lines and `wrap` breaks
+long ones between words. Soft edges, any size; returns the text's `Rect`.
+`font.measure(text, &style)` is its size before drawing. Its lines are
+listed in scene files and `--describe` like the pixel font's.
+
 **Sprites**: `Sprite::from_ascii(&["..yy", "yyyo"], &[('y', Color::YELLOW), ('o', Color::ORANGE)])`
 (one character per pixel, `'.'` see-through; draw small art straight in
 code, no files needed), `Sprite::load_png(path)?` (returns
@@ -1024,7 +1037,13 @@ fade in/out in ms; `slide_to: 0.0` means no slide. Files:
 mono or stereo; stereo keeps its left and right, `w.is_stereo()`) then
 `ctx.play_wav(&w)`. Placed between the speakers:
 `ctx.play_panned(sound, -0.5)` and `ctx.play_wav_panned(&w, 1.0)` (-1
-left, 0 both sides, 1 right). Music and other repeating
+left, 0 both sides, 1 right). At its own volume too:
+`ctx.play_with(&w, 0.4, -0.5)` or `ctx.play_with(Sound::hit(), 1.5, 0.0)`
+(a `Sound` or a `&Wav`; volume 0 silent, 1 as it is, more louder; pan);
+`log.json` lists the volume. The mix in `audio.wav` (and videos) can't
+clip: where sounds add up past full volume, a limiter turns it down
+smoothly (looking 5 ms ahead), and `log.json` and the summary warn which
+frames and by how much, so you can turn the loudest down. Music and other repeating
 sounds: `let music: LoopId = ctx.play_loop(&w, 0.6);` (a `Wav`, or a
 `Sound` passed as it is; it repeats with no gap until stopped),
 `ctx.set_loop_volume(music, 0.3)`, `ctx.stop_loop(music)`; keep the
@@ -1053,7 +1072,14 @@ point and its depth) and `camera.world_to_screen(point, canvas)`.
 Meshes (1 unit big, centred): `Mesh::cube(color)`, `Mesh::sphere(color,
 segments)`, `Mesh::pyramid(color)`, `Mesh::cylinder(color, segments)`,
 `Mesh::cone(color, segments)`, `Mesh::quad(width, height)` (standing,
-facing -z), `Mesh::checkerboard(tiles, tile_size, a, b)`,
+facing -z), `Mesh::checkerboard(tiles, tile_size, a, b)`. Walls and
+floors in metres, cut into squares of at most 1 m, white, for a texture
+repeating every `metres` (`.with_texture(bricks)`): `Mesh::floor(width,
+depth, metres)` (on y = 0, facing up), `Mesh::wall(width, height, metres)`
+(standing, facing -z, the picture upright from its bottom edge),
+`Mesh::tiled_box(vec3(x, y, z), metres)` (faces out), `Mesh::room(vec3(x,
+y, z), metres)` (faces in: a camera inside sees floor, walls and ceiling;
+all centred on (0, 0, 0)),
 `Mesh::block(&atlas, ["grass_top", "grass_side", "dirt"])` (top, sides,
 bottom from one `Tileset`). Models made in Duck Mold (`.glb`; they face
 +z and stand on y = 0): `Mesh::load_glb("assets/robot.glb")?`, or
@@ -1062,7 +1088,14 @@ bottom from one `Tileset`). Models made in Duck Mold (`.glb`; they face
 `"left_arm"`, the whole arm) with `part.range()` to recolour its
 `mesh.triangles[..]`, and `model.socket("head.top")` with `.position()`
 and `.direction()` (in the model's own space: `place.apply(..)` moves it
-with the model) to put something on it. Block worlds: `BlockPalette::new(&atlas,
+with the model) to put something on it. Any other `.glb` (from Blender,
+say): `duckforge::gltf::GltfModel::load(path)?` keeps its textures (PNG),
+its parts and its node animations: `model.draw(canvas, &place, &camera)`,
+`model.draw_animated(canvas, &place, &camera, "walk", seconds)` (loops),
+`model.animations()` (`name`, `seconds`), `model.meshes_at("walk",
+seconds)`, `model.node_position("hand", Some("walk"), seconds)`,
+`model.warnings` (what it couldn't read); `Mesh::load_glb` loads one too,
+as one mesh, if it has at most one texture. Block worlds: `BlockPalette::new(&atlas,
 &[BlockKind::new("stone", ["stone"; 3]), BlockKind::new("glass",
 ["glass"; 3]).see_through(), BlockKind::new("leaves", ["leaves";
 3]).inner_faces(), BlockKind::new("lamp", ["lamp"; 3]).glowing()])`
@@ -1100,7 +1133,14 @@ relative to the camera: x right, y up, z ahead; it stays put on the
 screen, is lit by the world's sun, and is drawn in front of the 3D drawn
 before it, so draw it after the world). Light: `canvas.set_lighting(Lighting { sun_direction,
 sun_color, sun_strength, ambient })` (or `..Lighting::default()`, the
-light every canvas starts with), `canvas.lighting()`. Sprites in 3D:
+light every canvas starts with), `canvas.lighting()`. Lamps, shadows, glow
+and smooth edges (the lit renderer, section 11): `canvas.set_lamps(&[Lamp::point(position, color,
+power, reach), Lamp::spot(position, direction, cone, color, power,
+reach).with_shadows()])`, `canvas.set_shadows(Some(Shadows::default()))`,
+`canvas.set_bloom(Some(Bloom::default()))`,
+`canvas.set_smooth_shading(true)` (for the meshes drawn after it),
+`canvas.set_supersample(2)` or `Config { supersample: 2, .. }`,
+`canvas.set_threads(n)` (0: every core). Sprites in 3D:
 `canvas.draw_billboard(&sprite, feet, height, &camera)`, or
 `canvas.draw_billboard_with(&sprite, feet, height, &camera, Billboard {
 pivot: Some(sheet.pivot()), flip_x, face_camera, })`. Headless runs draw
@@ -1120,7 +1160,9 @@ reports or checks counts as the last frame's). Scripts: `InputScript::load(path)
 
 **Command line**: `--headless`, `--frames N`, `--out DIR`, `--seed N`,
 `--inputs FILE`, `--snapshot-every N`, `--sheet`, `--gif`,
-`--video FILE` (every frame, sharp, 1080p, with sound; needs ffmpeg),
+`--video FILE` (every frame, sharp, with sound, in the game's own shape:
+enlarged by a whole number to fit 1920 x 1080, or 1080 x 1920 for a tall
+game, no black bars; needs ffmpeg),
 `--clip FILE` (the run's last 10 seconds, or `--clip-seconds S`: a video
 with sound if ffmpeg is there, or else a full-size GIF next to it),
 `--crop X,Y,W,H`, `--zoom N`, `--grid N` (a coordinate grid on saved
@@ -1429,10 +1471,23 @@ what to look at: "the score goes up to 120 by frame 900, and the GIF shows
 the new enemy at 0:12".
 
 For a real video, add **`--video show/run.mp4`**: every frame at the
-game's full frame rate, each pixel a sharp square (the game is enlarged
-by the biggest whole number that fits in 1920 x 1080, with black bars),
-with the sound. It needs `ffmpeg`; without it the frames are saved as
-PNGs and the exact command to join them is printed.
+game's full frame rate, each pixel a sharp square, with the sound, from
+one command. The game is enlarged by the biggest whole number that fits
+in 1920 x 1080 (a tall game: 1080 x 1920), and the video is the game's own
+shape with no black bars: a 320 x 240 game is a 1280 x 960 video, a
+vertical 1080 x 1920 short a 1080 x 1920 video. Bigger games stay their
+own size (an odd last row or column is cut: videos need even sizes). The
+frame rate is the game's updates per second: for a 30 fps video, use
+`Timestep::Fixed { updates_per_second: 30 }`. It needs `ffmpeg`; without
+it the frames are saved as PNGs and the exact command to join them is
+printed.
+
+**A vertical short, start to finish**: `examples/night_cellar/` is an
+8-second 1080 x 1920 horror short at 30 fps: lamps that cast shadows,
+glow, smooth shading, supersampled edges, captions in a TrueType font,
+sounds at their own volumes. One command makes the video:
+`cargo run --release --example night_cellar -- --headless --frames 240
+--video night_cellar.mp4` (about 70 seconds on 4 cores).
 
 If the game makes sounds, the run also saves `show/audio.wav` and, with
 `--gif`, prints an `ffmpeg` command that joins the GIF and the sound into
@@ -1482,7 +1537,9 @@ health bar over a character, a label, or sorting.
 **Meshes.** Built in: cube, sphere, pyramid, cylinder, cone, quad and
 checkerboard. Make a shape from parts with `merge` (each part placed by a
 transform), and draw it as one mesh: one draw instead of dozens. Every
-triangle is one flat colour times the light (flat shading).
+triangle is one flat colour times the light (flat shading;
+`canvas.set_smooth_shading(true)` shades round things smoothly, see "Lamps,
+shadows, glow and smooth edges" below).
 
 **Models from Duck Mold.** Duck Mold makes 3D models from text recipes
 (`duck-mold export robot.toml` writes `robot.glb`, with no window). Load
@@ -1512,8 +1569,29 @@ whole model) gives `position()` and `direction()` (the way it faces) in
 the model's own space; `place.apply(socket.position())` is where it is
 in the world, with `place` the `Transform` the model is drawn with.
 `duck-mold inspect recipe.toml --sockets` lists every name. The
-turntable puts a hat on `head.top`. Only Duck Mold's `.glb` files load
-(not other glTF or OBJ files); anything else is a `LoadError` saying so.
+turntable puts a hat on `head.top`.
+
+**Any other glTF model, textured and moving.** A `.glb` from Blender or
+elsewhere loads with `GltfModel` (`use duckforge::gltf::GltfModel;`):
+
+```rust
+let fan = GltfModel::load("examples/mygame/assets/fan.glb")?; // in new()
+// in draw(): the "spin" animation, `seconds` in (it loops)
+fan.draw_animated(canvas, &Transform::at(position), &camera, "spin", seconds);
+```
+
+It keeps each part's material colour and PNG texture (inside the file or
+beside it), its tree of parts (nodes) and their animations of place,
+turn and size. `model.animations()` lists them with their lengths;
+`model.node_position("blade", Some("spin"), seconds)` says where a part
+is (fix a light to it); `model.meshes_at("spin", seconds)` gives the
+posed meshes to draw or test. What it can't read is said in
+`model.warnings` and left out (the rest still loads): JPEG textures
+(it's drawn in its colours: save textures as PNG), skinned characters
+(bones bending one mesh; animate characters by their parts instead),
+morph targets. `Mesh::load_glb` loads such a file too, as one mesh in its
+resting pose, if it has at most one texture. OBJ and `.gltf` text files
+don't load: export a `.glb`.
 
 **Textures and atlases.** `mesh.with_texture(sprite)` paints a picture on
 it, where its texture coordinates say (every built-in shape has them: a
@@ -1575,8 +1653,59 @@ comes *from*; `ambient` is how bright faces turned away from the sun are
 `.glowing()` meshes ignore it (lava, lamps, screens), and so do
 triangles given a glow with `mesh.set_glow(triangle, 1.0)`: one lamp in a
 chunk of stone is one mesh. A glow between 0 and 1 keeps a triangle at
-least that bright (the floor round a lamp at night). There are no
-shadows.
+least that bright (the floor round a lamp at night). For real lamps and
+shadows, see "Lamps, shadows, glow and smooth edges" below.
+
+**Lamps, shadows, glow and smooth edges.** These turn on the *lit
+renderer* (`src/frame3d.rs`), which works the light out at every pixel
+instead of once per triangle. Set them at the start of `draw`, before the
+3D; each stays until changed:
+
+```rust
+canvas.set_lamps(&[
+    // A bulb: lights every way. Power 1 lights a wall 1 m away fully
+    // (40% at 2 m, 20% at 3 m); nothing past `reach`, fading out before it.
+    Lamp::point(vec3(0.0, 2.5, 3.0), Color::from_hex(0xffb070), 1.4, 7.0).with_shadows(),
+    // A torch: a cone 0.7 radians wide (its edge 30% soft: `spot.softness`).
+    Lamp::spot(hand, camera.forward(), 0.7, Color::WHITE, 9.0, 16.0).with_shadows(),
+]);
+canvas.set_shadows(Some(Shadows::default())); // the sun's, and lamps' with_shadows
+canvas.set_bloom(Some(Bloom::default()));     // glowing triangles glow into the air
+canvas.set_smooth_shading(true);              // round things look round (per mesh drawn after)
+canvas.set_supersample(2);                    // smooth edges (or Config { supersample: 2 })
+```
+
+- **Lamps** add to the sun and the ambient light; as many as you like
+  (each costs a little at every pixel it reaches). A dark scene: `Lighting
+  { sun_strength: 0.0, ambient: 0.04, ..Lighting::default() }` and lamps.
+- **Shadows**: every solid mesh casts one (see-through and fully glowing
+  ones don't: a bulb doesn't shadow its own light), and a texture's
+  see-through pixels let light through. The sun's cover what the camera
+  sees up to `distance` (30 m; shorter is sharper), in a `resolution`
+  picture (2048); `softness` (1) blurs their edges, `darkness` (1) is how
+  much light they block. Lamps cast them with `.with_shadows()`; a point
+  lamp's cost six spot lamps'.
+- **Bloom**: only glowing triangles (`.glowing()`, `set_glow`) bloom, by
+  how much they glow; `strength` (1) and `radius` (0.03 of the picture's
+  height). Billboards are drawn as painted and don't bloom.
+- **Smooth shading** averages each corner's faces, leaving edges sharper
+  than 50 degrees (a cube's) sharp; it changes between meshes.
+- **Supersampling** works each pixel out at 2 x 2 (or 3 x 3, 4 x 4)
+  points and averages them: smooth edges. Each triangle is lit once per
+  pixel, so it costs much less than drawing 4 times the pixels. 2D drawn
+  over the 3D stays sharp.
+- **Speed**: the lit renderer draws the frame in bands of rows on every
+  core (`canvas.set_threads(n)`, or `DUCKFORGE_THREADS`), and the picture
+  is the same to the pixel with any number of threads, on every run. With
+  none of these settings, 3D is drawn exactly as before (a test checks the
+  two renderers agree). It's CPU only: in a window with a graphics card,
+  these settings draw on the CPU too. Measured on 4 cores: the
+  `night_cellar` short, 1080 x 1920 with 2 x 2 supersampling (8.3 million
+  points a frame), two shadowed lamps and bloom, draws in 0.25 s a frame
+  (0.84 s on one core); the same scene the old way, flat-lit at 2160 x
+  3840 to smooth its edges, took 0.47 s.
+- Meshes are collected and drawn when 2D is drawn over them or the frame
+  ends, so `canvas.get_pixel` sees 3D only after `canvas.flush_3d()`.
 
 **Fog.** `canvas.set_fog(Some(Fog { color: sky, near: 40.0, far: 120.0
 }))` fades 3D into `color` with distance: not at all nearer than `near`,
@@ -1645,12 +1774,16 @@ Plan around these. Don't spend time looking for them:
   play in the middle (or as their stereo file is).
 - Physics boxes don't rotate (balls and axis-aligned boxes only).
 - No running in a web browser.
-- One built-in pixel font (ASCII only), and no other fonts.
+- Fonts: the built-in pixel font is ASCII only; `Font::load` draws any
+  TrueType or OpenType font, without right-to-left or joined scripts'
+  shaping (Arabic, Devanagari).
 - No gamepads.
-- 3D: no shadows, no smooth (per-pixel) lighting, one texture per mesh,
-  no animated 3D models (use billboards for characters). Model files:
-  only Duck Mold's `.glb` (`Mesh::load_glb`), not other glTF or OBJ
-  files; or build shapes in code and merge the built-in ones.
+- 3D: one texture per mesh (a glTF model with several is drawn as several
+  meshes). Lamps, shadows, glow, smooth shading and supersampling are
+  drawn on the CPU only (the graphics card draws the plain look). Models:
+  `.glb` files only (Duck Mold's, or any glTF 2.0 `.glb` with
+  `GltfModel`), with PNG textures and node animation; not JPEG textures,
+  skinned characters (bones), morph targets, `.gltf` text files or OBJ.
 
 For anything else, read the source: it's small, commented, and the
 tutorial (`TUTORIAL.md`) explains every part.

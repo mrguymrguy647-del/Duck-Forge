@@ -813,6 +813,135 @@ fn three_d_textures_light_and_billboards() -> Result<(), LoadError> {
 /// The guide says which way each rotation turns (Duck Craft's arm first
 /// pointed behind the camera for want of it). Keep the words and the
 /// maths together.
+/// A tiny `.glb`: one triangle on a node called "blade", and an animation
+/// "spin" moving it 1 along glTF's x (Duck Forge's -x) over a second.
+fn a_small_glb() -> Vec<u8> {
+    let mut bin = Vec::new();
+    for v in [
+        0.0f32, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0,
+    ] {
+        bin.extend_from_slice(&v.to_le_bytes());
+    }
+    let json = r#"{"asset": {"version": "2.0"}, "scenes": [{"nodes": [0]}],
+        "nodes": [{"name": "blade", "mesh": 0}],
+        "meshes": [{"primitives": [{"attributes": {"POSITION": 0}}]}],
+        "accessors": [
+            {"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"},
+            {"bufferView": 1, "componentType": 5126, "count": 2, "type": "SCALAR"},
+            {"bufferView": 2, "componentType": 5126, "count": 2, "type": "VEC3"}],
+        "bufferViews": [
+            {"buffer": 0, "byteOffset": 0, "byteLength": 36},
+            {"buffer": 0, "byteOffset": 36, "byteLength": 8},
+            {"buffer": 0, "byteOffset": 44, "byteLength": 24}],
+        "buffers": [{"byteLength": 68}],
+        "animations": [{"name": "spin", "samplers": [{"input": 1, "output": 2}],
+            "channels": [{"sampler": 0, "target": {"node": 0, "path": "translation"}}]}]}"#;
+    let mut json = json.as_bytes().to_vec();
+    while !json.len().is_multiple_of(4) {
+        json.push(b' ');
+    }
+    let mut out = Vec::new();
+    out.extend_from_slice(b"glTF");
+    out.extend_from_slice(&2u32.to_le_bytes());
+    out.extend_from_slice(&((12 + 8 + json.len() + 8 + bin.len()) as u32).to_le_bytes());
+    out.extend_from_slice(&(json.len() as u32).to_le_bytes());
+    out.extend_from_slice(b"JSON");
+    out.extend_from_slice(&json);
+    out.extend_from_slice(&(bin.len() as u32).to_le_bytes());
+    out.extend_from_slice(b"BIN\0");
+    out.extend_from_slice(&bin);
+    out
+}
+
+#[test]
+fn lamps_shadows_glow_fonts_walls_sound_and_moving_models() -> Result<(), LoadError> {
+    // Lamps, shadows, glow, smooth shading and smooth edges.
+    let mut canvas = Canvas::new(48, 64);
+    canvas.clear(Color::BLACK);
+    canvas.set_lighting(Lighting {
+        sun_strength: 0.0,
+        ambient: 0.04,
+        ..Lighting::default()
+    });
+    let camera = Camera3D::looking_at(vec3(0.0, 1.6, -3.0), vec3(0.0, 1.0, 2.0));
+    canvas.set_lamps(&[
+        Lamp::point(vec3(0.0, 2.5, 1.0), Color::from_hex(0xffb070), 1.4, 7.0).with_shadows(),
+        Lamp::spot(
+            vec3(0.3, 1.4, -3.0),
+            camera.forward(),
+            0.7,
+            Color::WHITE,
+            9.0,
+            16.0,
+        ),
+    ]);
+    assert_eq!(canvas.lamps().len(), 2);
+    canvas.set_shadows(Some(Shadows::default()));
+    canvas.set_bloom(Some(Bloom::default()));
+    canvas.set_smooth_shading(true);
+    canvas.set_supersample(2);
+    canvas.set_threads(0);
+    // Walls and floors whose texture repeats by the metre.
+    let bricks = Sprite::from_pixels(2, 2, vec![Color::RED; 4]);
+    let room = Mesh::room(vec3(4.0, 3.0, 8.0), 1.0).with_texture(bricks.clone());
+    let floor = Mesh::floor(4.0, 8.0, 1.0).with_texture(bricks.clone());
+    let wall = Mesh::wall(4.0, 3.0, 0.5).with_texture(bricks.clone());
+    let crate_box = Mesh::tiled_box(vec3(0.8, 0.8, 0.8), 0.8).with_texture(bricks);
+    canvas.draw_mesh(&room, &Transform::at(vec3(0.0, 1.5, 0.0)), &camera);
+    canvas.draw_mesh(&floor, &Transform::at(vec3(0.0, 0.01, 0.0)), &camera);
+    canvas.draw_mesh(&wall, &Transform::at(vec3(0.0, 1.5, 3.9)), &camera);
+    canvas.draw_mesh(&crate_box, &Transform::at(vec3(1.0, 0.4, 1.0)), &camera);
+    canvas.flush_3d();
+    assert!(canvas.pixels().iter().any(|&p| p != 0), "lit");
+
+    // Text in a real font, with an outline and a shadow.
+    let font = Font::load("assets/fonts/DejaVuSerif-Bold.ttf")?;
+    let style = TextStyle {
+        size: 12.0,
+        outline: 1.0,
+        shadow: Some(vec2(1.0, 1.0)),
+        shadow_blur: 1.0,
+        align: Align::Center,
+        wrap: Some(40.0),
+        ..TextStyle::default()
+    };
+    let size = font.measure("It's here.", &style);
+    let area = canvas.draw_font_text(&font, "It's here.", vec2(24.0, 40.0), &style);
+    assert_eq!(vec2(area.w, area.h), size);
+
+    // A model from anywhere, moving.
+    let folder = TestFolder::new("cheat-sheet-gltf");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("fan.glb"), a_small_glb()).unwrap();
+    let fan = duckforge::gltf::GltfModel::load(folder.join("fan.glb"))?;
+    assert_eq!(fan.animations()[0].name, "spin");
+    fan.draw_animated(&mut canvas, &Transform::default(), &camera, "spin", 0.5);
+    let blade = fan.node_position("blade", Some("spin"), 0.5).unwrap();
+    assert!((blade.x + 0.5).abs() < 1e-5, "{blade:?}");
+    assert_eq!(fan.meshes_at("spin", 0.5).len(), 1);
+
+    // Sounds at their own volume.
+    struct Loud;
+    impl Game for Loud {
+        fn update(&mut self, ctx: &mut Context) {
+            if ctx.frame() == 1 {
+                ctx.play_with(Sound::hit(), 0.5, -0.5);
+            }
+        }
+        fn draw(&self, _: &mut Canvas) {}
+    }
+    let mut sim = Simulation::new(
+        Config {
+            supersample: 1,
+            ..Config::default()
+        },
+        Loud,
+    );
+    sim.run(2);
+    assert_eq!(sim.sound_frames("hit"), [1]);
+    Ok(())
+}
+
 #[test]
 fn models_from_duck_mold() -> Result<(), LoadError> {
     let fixtures = TestFolder::new("cheat-sheet-duck-mold");
