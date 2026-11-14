@@ -1433,7 +1433,7 @@ mod tests {
         assert_eq!(at(3, 10, 1), 4096, "a quarter of 16384 on the right");
         // Four at once would be 2.0: turned down to the ceiling, not clipped.
         let loudest = (0..100).map(|i| at(5, i, 0)).max().unwrap();
-        assert!(loudest < 32767 && loudest >= 32000, "{loudest}");
+        assert!((32000..32767).contains(&loudest), "{loudest}");
         let warning = summary
             .warnings
             .iter()

@@ -334,6 +334,16 @@ impl Canvas {
         });
     }
 
+    /// Notes a line of text drawn at `screen` (in pixels), for scene files.
+    pub(crate) fn note_text(&mut self, text: String, screen: Rect) {
+        self.texts.push(OnScreenText { text, screen });
+    }
+
+    /// The pixels, to change (after any 3D is finished: call `flush_3d`).
+    pub(crate) fn pixels_mut(&mut self) -> &mut [u32] {
+        &mut self.pixels
+    }
+
     /// Hands over the labels and text drawn since the last call.
     pub(crate) fn take_scene(&mut self) -> (Vec<Label>, Vec<OnScreenText>) {
         (

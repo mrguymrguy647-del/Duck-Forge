@@ -30,6 +30,23 @@ const ROOM: Vec3 = vec3(5.0, 3.0, 12.0);
 /// The bulb hangs here; the thing stands under it, at the far end.
 const BULB_AT: Vec3 = vec3(0.0, 2.45, 3.8);
 const THING_AT: Vec3 = vec3(0.0, 0.0, 4.4);
+/// The captions: what, from when and until when, in seconds.
+const CAPTIONS: [(&str, f32, f32); 3] = [
+    ("The cellar light was on again.", 0.4, 2.9),
+    ("I never leave it on.", 3.1, 4.5),
+    ("Something does.", 5.5, 7.9),
+];
+/// When the bulb flickers: when, and for how long.
+const FLICKERS: [(f32, f32); 5] = [
+    (1.3, 0.08),
+    (2.2, 0.05),
+    (3.4, 0.12),
+    (4.0, 0.06),
+    (4.3, 0.1),
+];
+/// When the bulb goes out, and when the eyes open.
+const BULB_OUT: f32 = 4.6;
+const EYES_OPEN: f32 = 4.9;
 
 struct Cellar {
     walls: Mesh,
@@ -40,12 +57,15 @@ struct Cellar {
     bulb_off: Mesh,
     thing: Mesh,
     eyes: Mesh,
+    font: Font,
+    /// The bulb's hum, while it's on.
+    hum: Option<LoopId>,
     /// Seconds since the start.
     time: f32,
 }
 
 impl Cellar {
-    fn new() -> Cellar {
+    fn new() -> Result<Cellar, duckforge::LoadError> {
         let bricks = bricks();
         let planks = planks();
         let walls = Mesh::room(ROOM, 1.0).with_texture(bricks);
@@ -80,7 +100,7 @@ impl Cellar {
                 &Transform::at(vec3(x, 2.0, -0.19)).sized(0.07),
             );
         }
-        Cellar {
+        Ok(Cellar {
             walls,
             floor,
             crates,
@@ -89,25 +109,20 @@ impl Cellar {
             bulb_off: Mesh::sphere(Color::from_hex(0x50_48_40), 10),
             thing,
             eyes: eyes.glowing(),
+            font: Font::load("assets/fonts/DejaVuSerif-Bold.ttf")?,
+            hum: None,
             time: 0.0,
-        }
+        })
     }
 
     /// The bulb's brightness now: flickering, and out from 4.6 seconds.
     fn bulb_power(&self) -> f32 {
         let t = self.time;
-        if t >= 4.6 {
+        if t >= BULB_OUT {
             return 0.0;
         }
         // Flickers: a few short dips, the same every run.
-        let dips: [(f32, f32); 5] = [
-            (1.3, 0.08),
-            (2.2, 0.05),
-            (3.4, 0.12),
-            (4.0, 0.06),
-            (4.3, 0.1),
-        ];
-        if dips.iter().any(|&(at, long)| t >= at && t < at + long) {
+        if FLICKERS.iter().any(|&(at, long)| t >= at && t < at + long) {
             return 0.15;
         }
         1.4
@@ -133,7 +148,7 @@ impl Cellar {
         );
         let at = camera.position + camera.right() * 0.25 - vec3(0.0, 0.25, 0.0);
         // Once the bulb is out, the torch finds the thing's face.
-        let reveal = ((self.time - 4.8) / 1.2).clamp(0.0, 1.0);
+        let reveal = ((self.time - EYES_OPEN) / 1.2).clamp(0.0, 1.0);
         let ahead = camera.forward() + sway;
         let at_face = (THING_AT + vec3(0.0, 1.9, 0.0) - at).normalized();
         let direction = ahead * (1.0 - reveal) + at_face * reveal;
@@ -143,9 +158,95 @@ impl Cellar {
 
 impl Game for Cellar {
     fn update(&mut self, ctx: &mut Context) {
+        let before = self.time;
         self.time = ctx.frame() as f32 / FPS as f32;
         if self.time > SECONDS {
             ctx.quit(); // the end of the short
+        }
+        let now = self.time;
+        // `at` happened since the last update.
+        let passed = |at: f32| before < at && at <= now;
+        // The bulb hums quietly while it's on.
+        if self.hum.is_none() && now < BULB_OUT {
+            let hum = Sound {
+                name: "hum",
+                wave: Wave::Sine,
+                freq: 55.0,
+                ms: 1000.0,
+                volume: 0.5,
+                attack: 0.0,
+                decay: 0.0,
+                ..Sound::default()
+            };
+            self.hum = Some(ctx.play_loop(hum, 0.25));
+        }
+        // Footsteps, left and right, while walking in: quiet.
+        let step = Sound {
+            name: "step",
+            wave: Wave::Noise,
+            freq: 400.0,
+            slide_to: 60.0,
+            ms: 120.0,
+            volume: 0.6,
+            attack: 1.0,
+            decay: 110.0,
+        };
+        for n in 0..10 {
+            let at = 0.3 + n as f32 * 0.55;
+            if at < 5.6 && passed(at) {
+                let pan = if n % 2 == 0 { -0.3 } else { 0.3 };
+                ctx.play_with(step, 0.35, pan);
+            }
+        }
+        // A buzz each time the bulb flickers, from up ahead.
+        let buzz = Sound {
+            name: "buzz",
+            wave: Wave::Square,
+            freq: 110.0,
+            slide_to: 90.0,
+            ms: 90.0,
+            volume: 0.4,
+            ..Sound::default()
+        };
+        for &(at, _) in &FLICKERS {
+            if passed(at) {
+                ctx.play_with(buzz, 0.3, 0.1);
+            }
+        }
+        // The bulb pops and the hum stops.
+        if passed(BULB_OUT) {
+            if let Some(hum) = self.hum.take() {
+                ctx.stop_loop(hum);
+            }
+            let pop = Sound {
+                name: "pop",
+                wave: Wave::Noise,
+                freq: 3000.0,
+                slide_to: 200.0,
+                ms: 250.0,
+                volume: 0.6,
+                attack: 1.0,
+                decay: 240.0,
+            };
+            ctx.play_with(pop, 0.7, 0.0);
+        }
+        // The sting when its eyes open: a low drone and a high, sour pair
+        // of notes, panned apart.
+        if passed(EYES_OPEN) {
+            for (freq, volume, pan) in [(41.0, 0.45, 0.0), (466.0, 0.18, -0.6), (494.0, 0.18, 0.6)]
+            {
+                let note = Sound {
+                    name: "sting",
+                    wave: Wave::Triangle,
+                    freq,
+                    slide_to: freq * 0.97,
+                    ms: 2600.0,
+                    volume: 0.8,
+                    attack: 30.0,
+                    decay: 2400.0,
+                };
+                ctx.play_with(note, volume, pan);
+            }
         }
         ctx.report("seconds", self.time);
         ctx.report("bulb", self.bulb_power());
@@ -199,8 +300,44 @@ impl Game for Cellar {
         canvas.draw_mesh(&self.thing, &thing, &camera);
         canvas.set_smooth_shading(false);
         // Its eyes open when the bulb goes out.
-        if self.time > 4.9 {
+        if self.time > EYES_OPEN {
             canvas.draw_mesh(&self.eyes, &thing, &camera);
+        }
+
+        // The caption, fading in and out, low on the screen.
+        for &(text, from, to) in &CAPTIONS {
+            let fade = ((self.time - from) / 0.3)
+                .min((to - self.time) / 0.3)
+                .clamp(0.0, 1.0);
+            if fade <= 0.0 {
+                continue;
+            }
+            let alpha = (fade * 255.0) as u8;
+            let style = TextStyle {
+                size: 64.0,
+                color: Color::rgba(240, 232, 220, alpha),
+                outline: 4.0,
+                outline_color: Color::rgba(0, 0, 0, alpha),
+                shadow: Some(vec2(4.0, 6.0)),
+                shadow_color: Color::rgba(0, 0, 0, (fade * 200.0) as u8),
+                shadow_blur: 6.0,
+                align: Align::Center,
+                wrap: Some(900.0),
+                ..TextStyle::default()
+            };
+            // Placed by share of the screen, so it fits any size.
+            let scale = canvas.height() as f32 / 1920.0;
+            let style = TextStyle {
+                size: style.size * scale,
+                outline: style.outline * scale,
+                shadow: style.shadow.map(|s| s * scale),
+                shadow_blur: style.shadow_blur * scale,
+                wrap: style.wrap.map(|w| w * scale),
+                ..style
+            };
+            let x = canvas.width() as f32 / 2.0;
+            let y = canvas.height() as f32 * 0.78;
+            canvas.draw_font_text(&self.font, text, vec2(x, y), &style);
         }
     }
 }
@@ -276,7 +413,7 @@ fn config() -> Config {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    duckforge::run(config(), Cellar::new())
+    duckforge::run(config(), Cellar::new()?)
 }
 
 #[cfg(test)]
@@ -285,7 +422,7 @@ mod tests {
 
     #[test]
     fn the_bulb_flickers_then_goes_out_and_the_short_is_eight_seconds() {
-        let mut cellar = Cellar::new();
+        let mut cellar = Cellar::new().unwrap();
         cellar.time = 1.0;
         assert_eq!(cellar.bulb_power(), 1.4);
         cellar.time = 1.32;
@@ -298,8 +435,8 @@ mod tests {
     #[test]
     fn a_small_frame_draws_with_lamps_shadows_and_glow() {
         // The same scene on a small canvas (the real one is 1080 x 1920).
-        let mut cellar = Cellar::new();
-        cellar.time = 5.5;
+        let mut cellar = Cellar::new().unwrap();
+        cellar.time = 5.8;
         let mut canvas = Canvas::new(90, 160);
         canvas.set_supersample(2);
         cellar.draw(&mut canvas);
@@ -317,5 +454,33 @@ mod tests {
             .filter(|&&p| (p >> 16) & 0xff > 120 && (p >> 8) & 0xff < 90)
             .count();
         assert!(red > 0, "glowing eyes");
+    }
+
+    #[test]
+    fn it_plays_its_sounds_at_their_own_volumes_and_shows_its_captions() {
+        let small = Config {
+            width: 54,
+            height: 96,
+            supersample: 1,
+            ..config()
+        };
+        let mut sim = Simulation::new(small, Cellar::new().unwrap());
+        sim.run(225); // 7.5 seconds
+        let names: Vec<&str> = sim.sounds().iter().map(|s| s.name.as_str()).collect();
+        assert!(
+            names.contains(&"step") && names.contains(&"pop"),
+            "{names:?}"
+        );
+        assert_eq!(names.iter().filter(|n| **n == "sting").count(), 3);
+        assert_eq!(
+            names.iter().filter(|n| **n == "buzz").count(),
+            FLICKERS.len()
+        );
+        let hum = &sim.loops()[0];
+        assert_eq!(hum.name, "hum");
+        assert!(hum.stop.is_some(), "the hum stops with the bulb");
+        // The last caption is on screen, and tools can read it.
+        let texts: Vec<&str> = sim.scene().texts.iter().map(|t| t.text.as_str()).collect();
+        assert_eq!(texts, ["Something does."]);
     }
 }

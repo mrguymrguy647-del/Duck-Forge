@@ -40,6 +40,7 @@ mod diff;
 pub mod engine;
 pub mod error;
 mod files;
+pub mod font_file;
 mod frame3d;
 mod fuzz;
 pub mod glb;
@@ -102,6 +103,7 @@ pub mod prelude {
     pub use crate::canvas::{Canvas, Placed};
     pub use crate::color::Color;
     pub use crate::engine::{Config, Context, Corner, FailedCheck, Game, Timestep};
+    pub use crate::font_file::{Align, Font, TextStyle};
     pub use crate::input::{Input, Key, MouseButton};
     pub use crate::lights::{Bloom, Lamp, Shadows, Spot};
     pub use crate::math::{
