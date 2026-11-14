@@ -620,6 +620,29 @@ impl Context {
         self.sounds.push(SoundRequest::synth(sound).panned(pan));
     }
 
+    /// Plays a sound once at its own volume and place: `sound` is a
+    /// synthesizer [`Sound`] or a `.wav` file (`&thud`), `volume` 0.0
+    /// (silent) to 1.0 (as it is), more to make it louder, and `pan` -1.0
+    /// (left) through 0.0 (both) to 1.0 (right). Like a loop's volume, but
+    /// for a sound played once: footsteps quieter than a scream.
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// # fn example(ctx: &mut Context, thud: &Wav) {
+    /// ctx.play_with(thud, 0.4, -0.5);           // quiet, to the left
+    /// ctx.play_with(Sound::explosion(), 1.5, 0.0); // loud, in the middle
+    /// # }
+    /// ```
+    ///
+    /// However many sounds play at once, the recorded mix (`audio.wav`)
+    /// can't clip: a limiter turns it down where it would, and `log.json`
+    /// warns that it did. (In a window, a softer limiter rounds off peaks.)
+    pub fn play_with(&mut self, sound: impl Into<LoopSound>, volume: f32, pan: f32) {
+        let LoopSound(request) = sound.into();
+        self.sounds
+            .push(request.panned(pan).louder(clean_volume(volume)));
+    }
+
     /// Plays a plain square-wave beep: `freq` in Hz (440 is the note A),
     /// lasting `ms` milliseconds. Its name in logs is `"beep"`.
     pub fn beep(&mut self, freq: f32, ms: f32) {

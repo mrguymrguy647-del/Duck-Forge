@@ -367,6 +367,7 @@ impl<G: Game> Simulation<G> {
                 source: request.source,
                 samples: request.samples,
                 pan: request.pan,
+                volume: request.volume,
                 start,
             });
         }

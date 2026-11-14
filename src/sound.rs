@@ -89,6 +89,14 @@ impl Samples {
         }
     }
 
+    /// The same sound, `volume` times as loud.
+    pub(crate) fn scaled(&self, volume: f32) -> Samples {
+        Samples {
+            data: self.data.iter().map(|s| s * volume).collect(),
+            stereo: self.stereo,
+        }
+    }
+
     /// Moment `i` as (left, right). A mono sample is the same on both sides.
     #[inline]
     pub(crate) fn frame(&self, i: usize) -> (f32, f32) {
@@ -608,6 +616,9 @@ pub struct PlayedSound {
     pub(crate) samples: Samples,
     /// Where it was played, from -1 (left) to 1 (right); 0 is both sides.
     pub(crate) pan: f32,
+    /// How loud it was played: 1.0 as it is (its samples are already
+    /// this loud).
+    pub(crate) volume: f32,
     /// The sample it starts at in `audio.wav`.
     pub(crate) start: u64,
 }
@@ -627,6 +638,8 @@ pub(crate) struct SoundRequest {
     pub(crate) samples: Samples,
     /// -1 (left) to 1 (right); 0 is both sides, as without a pan.
     pub(crate) pan: f32,
+    /// 1.0 as it is (the samples are already this loud).
+    pub(crate) volume: f32,
 }
 
 impl SoundRequest {
@@ -636,6 +649,7 @@ impl SoundRequest {
             samples: Samples::mono(sound.render()),
             source: SoundSource::Synth(sound),
             pan: 0.0,
+            volume: 1.0,
         }
     }
 
@@ -645,12 +659,25 @@ impl SoundRequest {
             source: SoundSource::File(wav.path.clone()),
             samples: wav.samples.clone(),
             pan: 0.0,
+            volume: 1.0,
         }
     }
 
     /// The same sound, played at `pan`.
     pub(crate) fn panned(self, pan: f32) -> SoundRequest {
         SoundRequest { pan, ..self }
+    }
+
+    /// The same sound, `volume` times as loud (1.0 changes nothing).
+    pub(crate) fn louder(self, volume: f32) -> SoundRequest {
+        if volume == 1.0 {
+            return self;
+        }
+        SoundRequest {
+            samples: self.samples.scaled(volume),
+            volume,
+            ..self
+        }
     }
 }
 
@@ -659,11 +686,14 @@ impl PlayedSound {
     /// settings or its file, like
     /// `{"frame": 10, "sound": "coin", "wave": "square", "freq": 1050, ...}`.
     pub(crate) fn to_json(&self) -> String {
-        let pan = if self.pan == 0.0 {
+        let mut pan = if self.pan == 0.0 {
             String::new() // not panned: the line stays as it always was
         } else {
             format!(", \"pan\": {}", number_json(self.pan))
         };
+        if self.volume != 1.0 {
+            pan += &format!(", \"volume\": {}", number_json(self.volume));
+        }
         format!(
             "{{\"frame\": {}, \"sound\": {}{}{pan}}}",
             self.frame,
@@ -833,11 +863,31 @@ impl PlayedLoop {
     }
 }
 
+/// A track mixed by [`mix_to_wav`], and whether it was too loud.
+pub(crate) struct Mixed {
+    /// The `.wav` file's bytes.
+    pub(crate) bytes: Vec<u8>,
+    /// How loud the mix was at its loudest, before the limiter (1.0 is full
+    /// volume; more would have clipped).
+    pub(crate) peak: f32,
+    /// Samples that were over full volume, and the first and last of them.
+    pub(crate) over: usize,
+    pub(crate) first_over: u64,
+    pub(crate) last_over: u64,
+}
+
+/// The loudest the limiter lets a mix be: a little under full volume.
+pub(crate) const CEILING: f32 = 0.98;
+
 /// Mixes every sound and loop into a track, each starting at its own
 /// sample, and turns it into the bytes of a 16-bit `.wav` file: mono, or
 /// stereo if any sound is stereo or panned. The track is at least `length`
 /// samples long, and longer if a sound rings on past it.
-pub(crate) fn mix_to_wav(sounds: &[PlayedSound], loops: &[PlayedLoop], length: u64) -> Vec<u8> {
+///
+/// A mix that would go over full volume is turned down where it's too
+/// loud by a *limiter* (see [`limit`]), instead of being cut off flat
+/// (clipping, which crackles); [`Mixed`] says by how much.
+pub(crate) fn mix_to_wav(sounds: &[PlayedSound], loops: &[PlayedLoop], length: u64) -> Mixed {
     let end = sounds
         .iter()
         .map(|s| s.start + s.samples.frames() as u64)
@@ -859,11 +909,13 @@ pub(crate) fn mix_to_wav(sounds: &[PlayedSound], loops: &[PlayedLoop], length: u
     for looped in loops {
         looped.mix_into(&mut left[..run], &mut right[..run]);
     }
-    // Too loud is cut off at the top (clipping), rather than wrapping round.
+    let (peak, over, first_over, last_over) = limit(&mut left, &mut right);
+    // Anything still over (never, after the limiter) is cut off at the top,
+    // rather than wrapping round.
     let pcm = |s: f32| (s.clamp(-1.0, 1.0) * 32767.0).round() as i16;
     let stereo = sounds.iter().any(|s| s.samples.is_stereo() || s.pan != 0.0)
         || loops.iter().any(|l| l.samples.is_stereo());
-    if stereo {
+    let bytes = if stereo {
         let both = left
             .iter()
             .zip(&right)
@@ -872,7 +924,95 @@ pub(crate) fn mix_to_wav(sounds: &[PlayedSound], loops: &[PlayedLoop], length: u
     } else {
         // Every sound is the same on both sides: a mono file, as always.
         wav_bytes(left.iter().map(|&s| pcm(s)), left.len())
+    };
+    Mixed {
+        bytes,
+        peak,
+        over,
+        first_over,
+        last_over,
     }
+}
+
+/// The master limiter: if the mix goes over full volume anywhere, it's
+/// turned down just there, smoothly, to [`CEILING`]. It looks 5 ms ahead,
+/// so the volume is already down when a loud moment arrives (nothing gets
+/// through), and comes back up over about a tenth of a second after (no
+/// pumping). A mix that's never too loud isn't touched at all.
+///
+/// Returns the mix's peak before limiting, and how many samples were over
+/// full volume, the first and the last.
+fn limit(left: &mut [f32], right: &mut [f32]) -> (f32, usize, u64, u64) {
+    let n = left.len();
+    let level = |i: usize| left[i].abs().max(right[i].abs());
+    let mut peak = 0.0f32;
+    let (mut over, mut first, mut last) = (0, 0, 0);
+    for i in 0..n {
+        let l = level(i);
+        if l > peak || l.is_nan() {
+            peak = if l.is_nan() { f32::INFINITY } else { l };
+        }
+        if l > 1.0 {
+            if over == 0 {
+                first = i as u64;
+            }
+            last = i as u64;
+            over += 1;
+        }
+    }
+    if over == 0 {
+        return (peak, 0, 0, 0);
+    }
+    // The volume each sample needs to stay under the ceiling.
+    let need: Vec<f32> = (0..n)
+        .map(|i| {
+            let l = level(i);
+            if l > CEILING && l.is_finite() {
+                CEILING / l
+            } else if l.is_finite() {
+                1.0
+            } else {
+                0.0
+            }
+        })
+        .collect();
+    let ahead = SAMPLE_RATE as usize / 200; // 5 ms
+    // The quietest need from here to 5 ms ahead (a sliding minimum)...
+    let mut lowest = vec![1.0f32; n];
+    let mut window: std::collections::VecDeque<usize> = std::collections::VecDeque::new();
+    for i in (0..n).rev() {
+        while window.back().is_some_and(|&j| need[j] >= need[i]) {
+            window.pop_back();
+        }
+        window.push_back(i);
+        while window.front().is_some_and(|&j| j > i + ahead) {
+            window.pop_front();
+        }
+        lowest[i] = need[window[0]];
+    }
+    // ...averaged over the 5 ms before, so the volume glides down: each
+    // of those minimums covers this sample, so their average is never
+    // louder than it may be.
+    // (Before the start, the first minimum stands in: it covers them too.)
+    let mut gain = vec![1.0f32; n];
+    let mut sum = 0.0f64;
+    for i in 0..n {
+        sum += lowest[i] as f64;
+        if i > ahead {
+            sum -= lowest[i - ahead - 1] as f64;
+        }
+        let before_start = ahead.saturating_sub(i) as f64 * lowest[0] as f64;
+        gain[i] = ((sum + before_start) / (ahead + 1) as f64) as f32;
+    }
+    // Coming back up slowly, never faster than the average allows.
+    let release = 1.0 - (-1.0 / (0.1 * SAMPLE_RATE as f32)).exp();
+    let mut now = 1.0f32;
+    for i in 0..n {
+        now = (now + (1.0 - now) * release).min(gain[i]).min(need[i]);
+        left[i] *= now;
+        right[i] *= now;
+    }
+    (peak, over, first, last)
 }
 
 /// A 16-bit mono WAV file at [`SAMPLE_RATE`] holding `samples`.
@@ -1139,20 +1279,21 @@ mod tests {
             source: SoundSource::Synth(Sound::default()),
             samples,
             pan,
+            volume: 1.0,
             start: 0,
         };
         // Mono and not panned: a mono file, as always.
-        let mono = mix_to_wav(&[played(Samples::mono(vec![0.5; 4]), 0.0)], &[], 4);
+        let mono = mix_to_wav(&[played(Samples::mono(vec![0.5; 4]), 0.0)], &[], 4).bytes;
         assert_eq!(u16::from_le_bytes([mono[22], mono[23]]), 1);
         // A stereo sound: a stereo file with each side kept.
         let stereo = Samples::stereo(vec![0.5, -0.5, 0.25, 0.0]);
-        let wav = mix_to_wav(&[played(stereo, 0.0)], &[], 2);
+        let wav = mix_to_wav(&[played(stereo, 0.0)], &[], 2).bytes;
         let decoded = decode_wav(&wav).unwrap();
         assert!(decoded.is_stereo());
         assert!((decoded.frame(0).0 - 0.5).abs() < 0.001);
         assert!((decoded.frame(0).1 + 0.5).abs() < 0.001);
         // A mono sound panned all the way right: nothing on the left.
-        let wav = mix_to_wav(&[played(Samples::mono(vec![0.5; 2]), 1.0)], &[], 2);
+        let wav = mix_to_wav(&[played(Samples::mono(vec![0.5; 2]), 1.0)], &[], 2).bytes;
         let decoded = decode_wav(&wav).unwrap();
         assert_eq!(decoded.frame(1).0, 0.0);
         assert!((decoded.frame(1).1 - 0.5).abs() < 0.001);
@@ -1197,31 +1338,88 @@ mod tests {
         );
     }
 
-    #[test]
-    fn mixing_adds_sounds_at_their_start_and_clips() {
-        let sound = |start: u64, samples: Vec<f32>| PlayedSound {
+    fn sound_at(start: u64, samples: Vec<f32>) -> PlayedSound {
+        PlayedSound {
             frame: 1,
             name: String::from("t"),
             source: SoundSource::Synth(Sound::default()),
             samples: Samples::mono(samples),
             pan: 0.0,
+            volume: 1.0,
             start,
-        };
+        }
+    }
+
+    #[test]
+    fn mixing_adds_sounds_at_their_start_and_limits_what_would_clip() {
+        let wav = mix_to_wav(&[sound_at(2, vec![0.5, 0.25])], &[], 3);
+        let decoded = decode_wav(&wav.bytes).unwrap();
+        assert_eq!(decoded.frames(), 4, "the sound rings on past the length");
+        for (i, want) in [0.0, 0.0, 0.5, 0.25].into_iter().enumerate() {
+            assert!((decoded.frame(i).0 - want).abs() < 0.001, "{decoded:?}");
+        }
+        assert_eq!((wav.peak, wav.over), (0.5, 0), "quiet enough: untouched");
+
+        // 0.5 + 0.75 would be 1.25: the limiter turns the mix down to the
+        // ceiling there, and (looking ahead) just before, smoothly.
         let wav = mix_to_wav(
-            &[sound(2, vec![0.5, 0.5]), sound(3, vec![0.75, 0.25])],
+            &[sound_at(2, vec![0.5, 0.5]), sound_at(3, vec![0.75, 0.25])],
             &[],
             3,
         );
-        let decoded = decode_wav(&wav).unwrap();
-        let expected = [0.0, 0.0, 0.5, 1.0, 0.25]; // 0.5 + 0.75 is cut off at 1.0
-        assert_eq!(
-            decoded.frames(),
-            5,
-            "the last sound rings on past the length"
-        );
-        for (i, want) in expected.into_iter().enumerate() {
-            assert!((decoded.frame(i).0 - want).abs() < 0.001, "{decoded:?}");
+        let decoded = decode_wav(&wav.bytes).unwrap();
+        let k = CEILING / 1.25;
+        for (i, want) in [0.0, 0.0, 0.5 * k, CEILING, 0.25 * k]
+            .into_iter()
+            .enumerate()
+        {
+            assert!(
+                (decoded.frame(i).0 - want).abs() < 0.001,
+                "{i}: {decoded:?}"
+            );
         }
+        assert_eq!(
+            (wav.peak, wav.over, wav.first_over, wav.last_over),
+            (1.25, 1, 3, 3)
+        );
+    }
+
+    #[test]
+    fn the_limiter_leaves_quiet_parts_alone_and_never_lets_the_mix_clip() {
+        // A steady tone at 0.5 for a second, and a burst three times as
+        // loud from 0.4 to 0.5 seconds: 2.0 at its loudest.
+        let rate = SAMPLE_RATE as usize;
+        let tone: Vec<f32> = (0..rate).map(|i| 0.5 * (i as f32 * 0.05).sin()).collect();
+        let burst: Vec<f32> = (0..rate / 10)
+            .map(|i| 1.5 * (i as f32 * 0.31).sin())
+            .collect();
+        let start = (rate * 4 / 10) as u64;
+        let wav = mix_to_wav(
+            &[sound_at(0, tone.clone()), sound_at(start, burst)],
+            &[],
+            rate as u64,
+        );
+        assert!(
+            wav.peak > 1.9 && wav.over > 1000,
+            "{} {}",
+            wav.peak,
+            wav.over
+        );
+        let decoded = decode_wav(&wav.bytes).unwrap();
+        let (loudest, at) = (0..decoded.frames())
+            .map(|i| (decoded.frame(i).0.abs(), i))
+            .fold((0.0f32, 0), |a, b| if b.0 > a.0 { b } else { a });
+        assert!(loudest <= CEILING + 0.0001, "never over: {loudest} at {at}");
+        // Long before the burst, and long after it, the tone is as it was.
+        for i in [1000, rate / 4, rate - 100] {
+            assert!((decoded.frame(i).0 - tone[i]).abs() < 0.002, "{i}");
+        }
+        // During it, it's turned down rather than cut flat: no run of
+        // samples stuck at the ceiling.
+        let stuck = (start as usize..start as usize + rate / 10)
+            .filter(|&i| decoded.frame(i).0.abs() >= CEILING - 0.0005)
+            .count();
+        assert!(stuck < 200, "{stuck} samples at the ceiling");
     }
 
     #[test]
@@ -1240,7 +1438,7 @@ mod tests {
         };
         // Starts at sample 1, goes round every 3 samples, half as loud
         // from sample 5, stopped at sample 7.
-        let wav = mix_to_wav(&[], &[looped(Some(7))], 9);
+        let wav = mix_to_wav(&[], &[looped(Some(7))], 9).bytes;
         let decoded = decode_wav(&wav).unwrap();
         let expected = [0.0, 0.1, 0.2, 0.3, 0.1, 0.1, 0.15, 0.0, 0.0];
         assert_eq!(decoded.frames(), 9);
@@ -1248,7 +1446,7 @@ mod tests {
             assert!((decoded.frame(i).0 - want).abs() < 0.001, "{decoded:?}");
         }
         // Never stopped: it plays to the end of the run, and no further.
-        let wav = mix_to_wav(&[], &[looped(None)], 9);
+        let wav = mix_to_wav(&[], &[looped(None)], 9).bytes;
         let decoded = decode_wav(&wav).unwrap();
         assert!((decoded.frame(8).0 - 0.1).abs() < 0.001, "{decoded:?}");
         let json = looped(Some(7)).to_json();

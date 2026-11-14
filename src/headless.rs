@@ -104,8 +104,9 @@ pub struct HeadlessOptions {
     /// area around this label and enlarged three times (`--sheet-follow NAME`).
     pub sheet_follow: Option<String>,
     /// Save the whole run as a video (`--video FILE.mp4`): every frame, at
-    /// the game's frame rate, enlarged with sharp pixels into 1920 x 1080,
-    /// with the sound. Needs `ffmpeg`; without it, the frames are saved as
+    /// the game's frame rate, enlarged with sharp pixels by the biggest
+    /// whole number that fits in 1920 x 1080 (1080 x 1920 for a tall game),
+    /// the game's own shape with no black bars, with the sound. Needs `ffmpeg`; without it, the frames are saved as
     /// PNG files and the command to join them is printed.
     pub video: Option<PathBuf>,
     /// Save the end of the run as a clip (`--clip FILE.mp4`): a video with
@@ -492,15 +493,20 @@ fn run_and_save<G: Game>(
         }
     }
     let has_sound = !sim.sounds().is_empty() || !sim.loops().is_empty();
+    let mut sound_warning = None;
     if has_sound {
         // Every sound, mixed at the sample where its frame starts, and every
         // loop. The track lasts as long as the run (or longer, if a sound
         // rings on).
         let length = sim.sample_at(last + 1);
         let path = folder.join("audio.wav");
-        fs::write(&path, sound::mix_to_wav(sim.sounds(), sim.loops(), length))
+        let mixed = sound::mix_to_wav(sim.sounds(), sim.loops(), length);
+        fs::write(&path, &mixed.bytes)
             .map_err(|err| format!("could not save {}: {err}", path.display()))?;
         saved.push(String::from("audio.wav"));
+        if mixed.over > 0 {
+            sound_warning = Some(clipping_warning(&mixed, updates_per_second));
+        }
     }
     let video_note = match video {
         Some(video) => {
@@ -517,6 +523,7 @@ fn run_and_save<G: Game>(
         }
         None => None,
     };
+    warnings.extend(sound_warning);
     warnings.extend(unused_set_warnings(&sim));
     // Did the playthrough end the way it's expected to? (Only when it ran
     // its own length: a different --frames ends somewhere else.)
@@ -650,6 +657,27 @@ fn write_tune_if_asked<G: Game>(
 
 /// A warning for each `--set NAME=N` the game never asked for, and one
 /// for names in the tune file it never asked for.
+/// The warning for a mix that went over full volume: when, and by how
+/// much, so the loudest sounds can be turned down (`ctx.play_with`).
+fn clipping_warning(mixed: &sound::Mixed, updates_per_second: f64) -> String {
+    let frame = |sample: u64| {
+        (sample as f64 / sound::SAMPLE_RATE as f64 * updates_per_second).floor() as u64 + 1
+    };
+    let (first, last) = (frame(mixed.first_over), frame(mixed.last_over));
+    let when = if first == last {
+        format!("on frame {first}")
+    } else {
+        format!("from frame {first} to frame {last}")
+    };
+    let decibels = 20.0 * mixed.peak.log10();
+    format!(
+        "sound: the mix was too loud {when} ({} samples over full volume, peak {:.2}, \
+         {decibels:.1} dB over); the limiter turned it down there, so audio.wav doesn't clip. \
+         To keep it as you mixed it, play the loudest sounds quieter (ctx.play_with(sound, volume, pan))",
+        mixed.over, mixed.peak
+    )
+}
+
 fn unused_set_warnings<G: Game>(sim: &Simulation<G>) -> Vec<String> {
     let tunes = sim.tunes();
     let asked: Vec<String> = tunes.used().into_iter().map(|(name, ..)| name).collect();
@@ -1042,6 +1070,7 @@ mod tests {
     use crate::engine::Context;
     use crate::input::Key;
     use crate::math::{Rect, vec2};
+    use crate::sound::Sound;
     use std::process::Command;
 
     /// A square that moves right one pixel per update, and quits at frame `quit_at`.
@@ -1351,6 +1380,71 @@ mod tests {
         assert_eq!(samples[start], 16384, "the file's samples, at its frame");
         assert_eq!(samples[start + 99], 16384);
         assert_eq!(samples[start + 100], 0, "and only for as long as the file");
+    }
+
+    #[test]
+    fn a_one_off_sound_has_its_own_volume_and_a_mix_too_loud_is_limited_and_warned_about() {
+        let folder = test_folder("sound-volume");
+        fs::create_dir_all(&folder).unwrap();
+        let path = folder.join("thud.wav");
+        fs::write(
+            &path,
+            sound::wav_bytes(std::iter::repeat_n(16384, 100), 100),
+        )
+        .unwrap();
+        let thud = crate::sound::Wav::load(&path).unwrap();
+
+        // Frame 3: the thud at a quarter of its volume, to the right.
+        // Frame 5: four of them at full volume at once, twice too loud.
+        struct Mixer(crate::sound::Wav);
+        impl Game for Mixer {
+            fn update(&mut self, ctx: &mut Context) {
+                if ctx.frame() == 3 {
+                    ctx.play_with(&self.0, 0.25, 1.0);
+                }
+                if ctx.frame() == 5 {
+                    for _ in 0..4 {
+                        ctx.play_with(&self.0, 1.0, 0.0);
+                    }
+                }
+            }
+            fn draw(&self, _: &mut Canvas) {}
+        }
+        let out = folder.join("run");
+        let options = HeadlessOptions {
+            frames: 6,
+            out: Some(out.clone()),
+            ..HeadlessOptions::default()
+        };
+        let (_, summary) = run_and_save(config(), Mixer(thud), &options).unwrap();
+        let log = fs::read_to_string(out.join("log.json")).unwrap();
+        assert!(
+            log.contains(r#""pan": 1, "volume": 0.25}"#),
+            "the volume is logged: {log}"
+        );
+        let wav = fs::read(out.join("audio.wav")).unwrap();
+        let samples: Vec<i16> = wav[44..]
+            .chunks_exact(2)
+            .map(|b| i16::from_le_bytes([b[0], b[1]]))
+            .collect();
+        // Stereo now (it's panned): left, right, left, right...
+        let at = |frame: usize, i: usize, side: usize| samples[((frame - 1) * 735 + i) * 2 + side];
+        assert_eq!(at(3, 10, 0), 0, "panned right: nothing on the left");
+        assert_eq!(at(3, 10, 1), 4096, "a quarter of 16384 on the right");
+        // Four at once would be 2.0: turned down to the ceiling, not clipped.
+        let loudest = (0..100).map(|i| at(5, i, 0)).max().unwrap();
+        assert!(loudest < 32767 && loudest >= 32000, "{loudest}");
+        let warning = summary
+            .warnings
+            .iter()
+            .find(|w| w.starts_with("sound:"))
+            .expect("a clipping warning");
+        assert!(warning.contains("too loud on frame 5"), "{warning}");
+        assert!(warning.contains("peak 2.00"), "{warning}");
+        assert!(
+            log.contains("the limiter turned it down"),
+            "in log.json: {log}"
+        );
     }
 
     /// A ball whose speed, size and randomness come from `ctx.tune`.
@@ -2231,7 +2325,8 @@ mod tests {
             if let Ok(probe) = probe {
                 assert_eq!(
                     String::from_utf8_lossy(&probe.stdout).trim(),
-                    "1920,1080,30"
+                    "1920,240,30",
+                    "64 x 8 enlarged 30 times, with no black bars"
                 );
             }
             // And a clip is a video too: the last 30 of 90 frames.
@@ -2246,6 +2341,88 @@ mod tests {
             assert!(note.contains("30 frames, 0.5 s at 60 fps"), "{note}");
             assert!(folder.join("real-clip.mp4").exists());
         }
+    }
+
+    /// A tall game that beeps: its video is 1080 x 1920 with no bars, and
+    /// has the sound in it, from one run.
+    #[test]
+    fn a_vertical_video_fills_its_frame_and_has_its_sound() {
+        if Command::new("ffprobe").arg("-version").output().is_err()
+            || !crate::video::ffmpeg_works()
+        {
+            return; // needs ffmpeg and ffprobe
+        }
+        struct Beeper;
+        impl Game for Beeper {
+            fn update(&mut self, ctx: &mut Context) {
+                if ctx.frame() % 10 == 1 {
+                    ctx.play(Sound::coin());
+                }
+            }
+            fn draw(&self, canvas: &mut Canvas) {
+                canvas.clear(Color::BLUE);
+            }
+        }
+        let folder = test_folder("vertical-video");
+        let tall = Config {
+            width: 27,
+            height: 48,
+            ..Config::default()
+        };
+        let options = HeadlessOptions {
+            frames: 30,
+            out: Some(folder.to_path_buf()),
+            video: Some(folder.join("tall.mp4")),
+            ..HeadlessOptions::default()
+        };
+        let (_, summary) = run_and_save(tall, Beeper, &options).unwrap();
+        let note = summary
+            .notes
+            .iter()
+            .find(|n| n.starts_with("video:"))
+            .unwrap();
+        assert!(
+            note.contains("27 x 48 enlarged 40 times, 1080 x 1920"),
+            "{note}"
+        );
+        assert!(note.contains("with sound"), "{note}");
+        let probe = Command::new("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-show_entries",
+                "stream=codec_type,width,height",
+            ])
+            .args(["-of", "csv=p=0"])
+            .arg(folder.join("tall.mp4"))
+            .output()
+            .unwrap();
+        let streams = String::from_utf8_lossy(&probe.stdout);
+        let lines: Vec<&str> = streams.lines().map(str::trim).collect();
+        assert!(lines.contains(&"video,1080,1920"), "{streams}");
+        assert!(lines.iter().any(|l| l.starts_with("audio")), "{streams}");
+        // The frame is all game: the corner is the game's blue, not a bar.
+        let corner = Command::new("ffmpeg")
+            .args(["-v", "error", "-i"])
+            .arg(folder.join("tall.mp4"))
+            .args([
+                "-vframes",
+                "1",
+                "-vf",
+                "crop=4:4:0:0",
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+            ])
+            .args(["rgb24", "-"])
+            .output()
+            .unwrap();
+        let blue = Color::BLUE;
+        let px = &corner.stdout[..3];
+        assert!(
+            px[2] as i32 > 100 && (px[2] as i32 - blue.b as i32).abs() < 30,
+            "the corner is blue: {px:?}"
+        );
     }
 
     #[test]
