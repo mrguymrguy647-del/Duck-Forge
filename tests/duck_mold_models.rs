@@ -639,3 +639,193 @@ fn a_damaged_file_that_claims_too_many_numbers_is_refused_not_a_crash() {
         "{error}"
     );
 }
+
+// ---- files laid out as a tree (Duck Mold's Phase 5), and files from before ---------
+
+/// The models kept as Duck Mold wrote them before its Phase 5: one
+/// object with one list of triangles.
+const BEFORE_THE_TREE: [&str; 3] = ["crate", "house", "robot"];
+
+#[test]
+fn a_file_from_before_the_tree_loads_as_the_same_model_and_draws_the_same_picture()
+-> Result<(), LoadError> {
+    let folder = TestFolder::new("duck-mold-before-the-tree");
+    let (old_files, new_files) = (
+        folder.fixture("duck_mold_before_tree"),
+        folder.fixture("duck_mold"),
+    );
+    for name in BEFORE_THE_TREE {
+        let old = GlbModel::load(old_files.join(format!("{name}.glb")))?;
+        let new = GlbModel::load(new_files.join(format!("{name}.glb")))?;
+        // The same triangles in the same order with the same colours. A
+        // corner of a new file is its part's pivot plus its place in the
+        // part, added up on loading, so it can differ in its last digits.
+        assert_eq!(old.triangles.len(), new.triangles.len(), "{name}");
+        for (before, now) in old.triangles.iter().zip(&new.triangles) {
+            assert_eq!(before.color, now.color, "{name}");
+            for corner in 0..3 {
+                let (a, b) = (
+                    old.vertices[before.corners[corner]],
+                    new.vertices[now.corners[corner]],
+                );
+                assert!(
+                    (0..3).all(|axis| (a[axis] - b[axis]).abs() < 1e-6),
+                    "{name}: {a:?} {b:?}"
+                );
+            }
+        }
+        assert_eq!(old.name, new.name);
+        assert_eq!(old.palette, new.palette);
+        assert_eq!(old.parts, new.parts, "{name}");
+        assert_eq!(old.assemblies, new.assemblies, "{name}");
+        let names = |model: &GlbModel| -> Vec<String> {
+            model.sockets.iter().map(|s| s.name.clone()).collect()
+        };
+        assert_eq!(names(&old), names(&new), "{name}");
+        // It still stands on the ground, exactly.
+        for model in [&old, &new] {
+            let lowest = model
+                .vertices
+                .iter()
+                .map(|v| v[1])
+                .fold(f32::INFINITY, f32::min);
+            assert_eq!(lowest, 0.0, "{name}");
+        }
+        // An old file has no tree: it can be drawn, not posed.
+        assert!(old.joins.is_empty() && !new.joins.is_empty(), "{name}");
+        assert!(old.sockets.iter().all(|socket| socket.join.is_none()));
+
+        // And the picture is the same, pixel for pixel, from the front
+        // and from behind.
+        let (old, new) = (old.to_mesh(), new.to_mesh());
+        let (low, high) = new.bounds();
+        let middle = (low + high) * 0.5;
+        let away = (high - low).length() * 1.4;
+        for side in [1.0, -1.0] {
+            let eye = middle + vec3(away * 0.3, away * 0.2, away * side);
+            let (before, now) = (
+                picture(&old, 0.4, eye, middle),
+                picture(&new, 0.4, eye, middle),
+            );
+            assert!(before.pixels() == now.pixels(), "{name} looks different");
+            assert!(
+                before
+                    .pixels()
+                    .iter()
+                    .any(|pixel| *pixel != before.pixels()[0]),
+                "{name} is in the picture"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn a_new_file_says_what_every_part_turns_about_and_hangs_from() -> Result<(), LoadError> {
+    let (_folder, models) = fixtures("duck-mold-joins");
+    for name in MODELS {
+        let model = GlbModel::load(models.join(format!("{name}.glb")))?;
+        // One join for every part and every assembly, each after the one
+        // it hangs from.
+        assert_eq!(
+            model.joins.len(),
+            model.parts.len() + model.assemblies.len(),
+            "{name}"
+        );
+        for (at, join) in model.joins.iter().enumerate() {
+            assert!(model.part(&join.name).is_some(), "{name}: {}", join.name);
+            assert!(join.parent.is_none_or(|parent| parent < at), "{name}");
+        }
+        // A part's corners are its own, next to each other, and the parts
+        // have them all between them.
+        let mut owner = vec![None; model.vertices.len()];
+        for (at, join) in model.joins.iter().enumerate() {
+            for owned in &mut owner[join.first_vertex..join.first_vertex + join.vertices] {
+                assert!(owned.replace(at).is_none(), "{name}: a shared corner");
+            }
+        }
+        assert!(owner.iter().all(Option::is_some), "{name}");
+        // And its triangles use only its own corners.
+        for part in &model.parts {
+            let join = model
+                .joins
+                .iter()
+                .position(|join| join.name == part.name)
+                .unwrap();
+            for triangle in &model.triangles[part.range()] {
+                assert!(
+                    triangle
+                        .corners
+                        .iter()
+                        .all(|&corner| owner[corner] == Some(join))
+                );
+            }
+        }
+    }
+
+    // The robot: its body hangs from the model; its head from its body,
+    // turning about the neck; a hand from the forearm of its arm.
+    let robot = GlbModel::load(models.join("robot.glb"))?;
+    let join = |name: &str| {
+        let at = robot
+            .joins
+            .iter()
+            .position(|join| join.name == name)
+            .unwrap();
+        (at, &robot.joins[at])
+    };
+    let (body, _) = join("body");
+    assert_eq!(robot.joins[body].parent, None);
+    let (_, head) = join("head");
+    assert_eq!(head.parent, Some(body));
+    assert_eq!(head.pivot, robot.socket("body.neck").unwrap().at);
+    let (arm, shoulder) = join("left_arm");
+    assert_eq!(shoulder.parent, Some(body));
+    assert_eq!(shoulder.pivot, robot.socket("body.left_arm").unwrap().at);
+    assert_eq!(shoulder.vertices, 0, "an arm's corners are its parts'");
+    let (upper, _) = join("left_arm/upper");
+    assert_eq!(robot.joins[upper].parent, Some(arm));
+    let (elbow, _) = join("left_arm/elbow");
+    assert_eq!(robot.joins[elbow].parent, Some(upper));
+    let (forearm, _) = join("left_arm/forearm");
+    let (_, hand) = join("left_arm/hand");
+    assert_eq!(hand.parent, Some(forearm));
+    assert_eq!(
+        hand.pivot,
+        robot.socket("left_arm/forearm.bottom").unwrap().at
+    );
+
+    // A socket says which part carries it: a hat on `head.top` goes with
+    // the head; the arm's `grip` was passed on from its hand, so it goes
+    // with the hand; the model's own `top` with nothing.
+    let carrier = |socket: &str| {
+        robot
+            .socket(socket)
+            .unwrap()
+            .join
+            .map(|join| robot.joins[join].name.as_str())
+    };
+    assert_eq!(carrier("head.top"), Some("head"));
+    assert_eq!(carrier("left_arm.grip"), Some("left_arm/hand"));
+    assert_eq!(carrier("left_arm.top"), Some("left_arm"));
+    assert_eq!(carrier("top"), None);
+    Ok(())
+}
+
+#[test]
+fn a_file_from_a_newer_duck_mold_says_to_update_duck_forge() {
+    let folder = TestFolder::new("duck-mold-newer");
+    let newer = with_json(&crate_bytes(), |json| {
+        let changed = json.replacen("\"version\":1,\"name\"", "\"version\":2,\"name\"", 1);
+        assert_ne!(changed, json, "the version was found");
+        changed
+    });
+    std::fs::write(folder.join("newer.glb"), &newer).unwrap();
+    let error = Mesh::load_glb(folder.join("newer.glb")).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("newer Duck Mold than this reader knows: update Duck Forge"),
+        "{error}"
+    );
+}

@@ -4834,3 +4834,64 @@ so a hat there must cover it: the crown is taller than the antenna.
 |---|---|
 | The robot's file | 35.7 KB before sockets, 50 KB with its 187 |
 | Engine tests on Linux | 620 pass with everything on, 577 headless (`--no-default-features`); none fail |
+
+# A tree of parts from Duck Mold
+
+Duck Mold's Phase 5 makes models that move. Its first step changes how a
+`.glb` is laid out, before anything moves: every part becomes an object
+of its own, at the join it turns about, hanging from the part it is
+joined to. This is Duck Forge's side of that step. Nothing is animated
+yet; the next step from Duck Mold brings animations and something here
+to play them.
+
+## What was built
+
+- The reader went to Duck Mold's version 4, copied between the markers
+  byte for byte as before. It reads both layouts: a file from before
+  (one object, one list of triangles) exactly as it always did, and a
+  tree, which it puts together at rest.
+- `GlbModel.joins`: for every part and every assembly, its name, the
+  `pivot` it turns about, and the `parent` it hangs from, in an order
+  where a join always comes after the one it hangs from. Each part's
+  corners are next to each other in `vertices` (`first_vertex`,
+  `vertices`), and no two parts share a corner, so a part can be moved
+  by itself.
+- `GlbSocket.join`: the part that carries a socket. For a socket an arm
+  passes on from its hand (`left_arm.grip`), that is the hand.
+- `tests/fixtures/duck_mold/` holds Duck Mold's six models in the new
+  layout; `tests/fixtures/duck_mold_before_tree/` holds three of them
+  (`crate`, `house`, `robot`) as Duck Mold wrote them at the end of its
+  Phase 4.
+
+## Decisions made on the way
+
+**Old files keep loading.** Models already exported sit in games. The
+reader tells the two layouts apart by the number Duck Mold writes in the
+file, and a test loads the same three models both ways: the same
+triangles in the same order with the same colours, the same parts,
+assemblies and sockets, and the same picture, pixel for pixel.
+
+**A newer file is refused, not half-read.** A Duck Forge from before
+this change would have drawn one part of a new file. It now can't
+happen the other way round: a file from a Duck Mold newer than the
+reader knows is a `LoadError` that says to update Duck Forge.
+
+**A corner is a sum now.** In a tree, a corner is stored as its place
+in its part, measured from the part's pivot, and the pivot from the
+pivot of the part it hangs from. The reader adds them up. Duck Mold
+chooses what it stores so that the sums come out as the old numbers
+wherever a 32-bit number allows: about nineteen in twenty are the same
+to the last bit, the ground is at exactly 0 as before, and the rest
+differ by at most about a ten-thousandth of a millimetre.
+
+**Parts no longer share corners.** Before, two parts whose corners
+touched shared a point. Now each part has its own, so it can turn
+without tearing its neighbour. A few models have a handful more points
+for it (the house 76 where it had 72); the triangles are the same.
+
+## The numbers
+
+| | |
+|---|---|
+| The robot's file | 50 KB before, 64 KB as a tree (20 objects, each with its own lists) |
+| Engine tests on Linux | 654 pass with everything on, 619 headless (`--no-default-features`); none fail |

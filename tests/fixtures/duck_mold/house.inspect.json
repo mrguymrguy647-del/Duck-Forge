@@ -1,6 +1,6 @@
 {
   "ok": true,
-  "summary": "house: 3.40 x 3.40 x 2.80 m, 88 triangles, 8 parts, 5 colours, rests on the ground, nothing floating, nothing overlapping",
+  "summary": "house: 3.40 x 3.40 x 2.80 m, 120 triangles, 8 parts, 6 colours, rests on the ground, nothing floating, nothing overlapping",
   "source": "examples/house.toml",
   "name": "house",
   "size": [
@@ -20,8 +20,8 @@
       1.4
     ]
   },
-  "triangles": 88,
-  "vertices": 180,
+  "triangles": 120,
+  "vertices": 244,
   "ground": {
     "rests_on_ground": true,
     "lowest_y": 0.0
@@ -45,12 +45,17 @@
     {
       "name": "glass",
       "hex": "#9CC8E0",
-      "triangles": 36
+      "triangles": 16
     },
     {
       "name": "brick",
       "hex": "#8A4B3A",
       "triangles": 12
+    },
+    {
+      "name": "frame",
+      "hex": "#F2EEE6",
+      "triangles": 52
     }
   ],
   "parts": [
@@ -197,7 +202,9 @@
     {
       "name": "window_left",
       "kind": "box",
-      "triangles": 12,
+      "uses": "window",
+      "changes": 2,
+      "triangles": 28,
       "size": [
         0.5,
         0.5,
@@ -216,7 +223,8 @@
         ]
       },
       "colors": [
-        "glass"
+        "glass",
+        "frame"
       ],
       "attached_to": "walls.window_left",
       "parts": []
@@ -224,7 +232,9 @@
     {
       "name": "window_right",
       "kind": "box",
-      "triangles": 12,
+      "uses": "window",
+      "changes": 2,
+      "triangles": 28,
       "size": [
         0.5,
         0.5,
@@ -243,7 +253,8 @@
         ]
       },
       "colors": [
-        "glass"
+        "glass",
+        "frame"
       ],
       "attached_to": "walls.window_right",
       "parts": []

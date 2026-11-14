@@ -1,18 +1,25 @@
 # Duck Mold test models
 
-Real models made by Duck Mold (`duck-mold`, its `claude/duck-mold-phase-1`
-branch, commit 031e381), used by the tests of `Mesh::load_glb` and
-`GlbModel` (`tests/duck_mold_models.rs` and the cheat sheet's test). They
-are Duck Mold's own golden files: its tests check that its six example
-recipes build to exactly these bytes. Since that commit they hold the
-models' sockets too (reader version 3).
+Real models made by Duck Mold (`duck-mold`, its `claude/duck-mold-phase-5`
+branch), used by the tests of `Mesh::load_glb` and `GlbModel`
+(`tests/duck_mold_models.rs` and the cheat sheet's test). They are Duck
+Mold's own golden files: its tests check that its example recipes build
+to exactly these bytes. They are laid out as a tree of parts (reader
+version 4): every part is an object at the join it turns about.
+
+`../duck_mold_before_tree/` holds three of the same models (`crate`,
+`house`, `robot`) as Duck Mold wrote them before that, at the end of its
+Phase 4: one object with one list of triangles. The tests load both and
+check that they are the same model and draw the same picture, so models
+already exported keep working. Duck Mold keeps the same three files in
+its `tests/before-phase5/`.
 
 | Model | Triangles | What it has |
 |---|---|---|
 | `crate.glb` | 12 | One box: 8 corners, two colours. |
 | `table.glb` | 60 | A top and four legs. |
 | `tree.glb` | 70 | A trunk and three cones pushed into each other. |
-| `house.glb` | 88 | A door on its front (+z), a chimney on its left (-x) and a skylight on its roof; one assembly, its roof. |
+| `house.glb` | 120 | A door and two framed windows on its front (+z), a chimney on its left (-x) and a skylight on its roof; one assembly, its roof. |
 | `robot.glb` | 384 | 19 parts and four assemblies (its arms and legs); yellow eyes on its front (+z); 187 sockets. |
 | `snowman.glb` | 600 | Balls, cones and coal: parts joined on curved surfaces. |
 
