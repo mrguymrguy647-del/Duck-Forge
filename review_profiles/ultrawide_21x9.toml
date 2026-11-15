@@ -1,5 +1,6 @@
-# A game drawn at 21:9 on an ultrawide monitor (render the game at this
-# shape, --size 2560x1080, to check its menus and score there).
+# A game drawn at 21:9 on an ultrawide monitor. It applies when the game
+# itself is that shape (Config width 2560, height 1080, say): review a run
+# at that size to check its menus and score there.
 name = "ultrawide 21:9"
 aspect = "64:27"
 canvas = [2560, 1080]
