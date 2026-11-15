@@ -5741,3 +5741,122 @@ passed five times in a row there, both ways (726 and 691), and so did the
 Studio's tests (with the two new ones that turn the duck into code), the
 beginner's proof from the zip and from the installed Studio, and the
 installer.
+
+
+# What "Pick a Door: Blocks" taught: ten fixes
+
+"Pick a Door: Blocks" is a 58.6-second vertical horror film (1080 x 1920,
+30 fps) made headless in Duck Forge: lit block worlds, shadowed lamps,
+bloom, 2 x 2 supersampling, animated GLB models and about 30 sounds.
+Making it showed ten things the engine was missing or slow at. Each is
+now in, with a test and an example in `docs/AI_GUIDE.md`; every existing
+API still works, and every existing picture and sound comes out the same.
+
+## What was built
+
+1. **Glow only where the texture says.** `BlockKind::glowing_where(["#ff3030"])`,
+   `.glowing_from("glow_tile")`, `.glow_strength(s)`; for any textured
+   mesh, `Mesh::glowing_where` and `GlowMap`. The glow is per texture
+   pixel, 0 to 127 levels: the plain renderer and the lit renderer read
+   the map, and the GPU reads the same levels from the texture's alpha
+   (128 plus the level; the shader only asks alpha "is it see-through?").
+   A triangle uses the map only if its kind asked (`Mesh::texel_glow`), so
+   two kinds sharing a tile don't both glow. Bloom feeds from the glowing
+   pixels only.
+2. **3D particles and weather.** `Particles::snow` / `::rain` / `::new`:
+   one mesh of camera-facing squares (or streaks along the motion), depth
+   tested like any mesh, drawn in one go; wind, sway, a box that follows
+   the camera, `set_cover(&world)` to keep snow out from under blocks.
+   Far flakes never shrink below about a pixel. To make 1,000 flakes
+   cheap in the lit renderer too, it now lights each triangle only inside
+   its own box rather than every pixel of the band (the same pictures):
+   1,000 flakes add about 2 ms a frame at 1080 x 1920 instead of 4.5.
+3. **Sky panorama.** `canvas.set_sky(&panorama)`: an equirectangular
+   picture painted behind the 3D after each `clear`, by the first mesh's
+   camera; exact directions every 8 pixels, blended between (checked
+   against working every pixel out: under 1% of pixels differ, at colour
+   edges). Its painter is behind a function pointer, as the lit renderer
+   is, so games without a sky don't carry it.
+4. **Camera helpers and held things.** `Camera3D::up()`,
+   `Transform::held(&camera, offset, tilt)`, `Transform::in_view_of`,
+   `canvas.draw_held` (the in-view pass: never behind a wall; held too
+   close, it's pushed out and scaled up by the same amount, which looks
+   the same and isn't cut by the near plane), and
+   `Camera3D::set_horizontal_fov(fov, aspect)` for 9:16.
+5. **Pixel art to blocks.** `Mesh::from_sprite(&sprite, depth)` (depth in
+   pixels), only outside faces, runs of one colour merged;
+   `from_sprite_glowing` with a glow map, and `glowing_where` now also
+   works on untextured meshes, by triangle colour.
+6. **Pixel fonts.** `BitmapFont::from_tileset`, `::load`, `::from_grid`,
+   `::built_in`, `.proportional()`; `canvas.draw_bitmap_text` with a
+   `BitmapStyle`: scale, drop shadow, box, wrap, alignment, spacing and
+   colour codes (`^r`, `^#rrggbb`, `^0`, `^^`). The built-in font through
+   it draws exactly what `draw_text` does (a test compares them).
+7. **Render progress and playable partial files.** `--video` writes
+   `NAME.partial.mp4` beside the video as a fragmented MP4
+   (`-movflags +frag_keyframe+empty_moov`, a keyframe every 2 s, and
+   `-flush_packets 1`: without it ffmpeg holds 32 KB back and a small
+   video shows nothing until the end), and prints frame, seconds each
+   and time left about every 5% (to stderr; `--quiet`/`--json` don't).
+8. **Stills and sections.** `--stills "4.5 11 28.3"` draws only those
+   moments (`still-000135.png` and `stills.png`); `--from S --to S`
+   draws one section, its video's sound cut to match. Three stills of
+   Night Cellar take 1.4 s; drawing every frame of its 8 s takes 50.
+9. **Speed.** See the numbers below.
+10. **Sound mixing.** `SoundGroup::{Music, Ambience, Effects}` with
+    `ctx.play_in`, `ctx.play_loop_in`, `ctx.set_group_volume`,
+    `ctx.set_master_volume`, `ctx.duck(group, level, trigger)` and
+    `ctx.stop_ducking`, the same in `audio.wav` and in a window. The
+    limiter's warning now names what was sounding at the two loudest
+    moments (at least a second apart), how loud each was, and the volume
+    to play the loudest at instead, or everything by one share if one
+    alone won't do.
+
+## Decisions made on the way
+
+- **Same pictures, to the bit.** Every speed change keeps each sum in
+  the same order on the same numbers: the per-row edge terms are worked
+  out once a row, but each sample's edge values are the same operations
+  as before; bloom's blurs add each output's terms in the same order
+  however the rows are split; cached shadow maps are the maps that would
+  be drawn. Night Cellar's 21 snapshots and a block cave's 7 compare
+  unchanged with `--diff` after every step, so "no visible change" is
+  "no change".
+- **What a shadow map depends on**, hashed into one number: the lamp
+  (place, spot direction and cone, reach), the map's size, the face, and
+  every caster in reach (corners, texture points, which picture). Equal
+  numbers: the kept map. Faces not used this frame are dropped.
+- **Which faces are needed** comes from the triangles actually on
+  screen: each one's box, seen from the lamp, says which faces any of
+  its points could be looked up in (the face is chosen by the point's
+  direction before the shadow offset, and soft-shadow taps stay in their
+  face). So the maps are built after projection now, not before.
+- **Tried and dropped:** keeping the glow buffer between frames (bloom
+  got slower: fresh zeroed memory is cheaper here than reused), and
+  min/max tiles to settle soft shadows early (the tiles cost as much as
+  the 9 taps they saved at the default softness).
+- **The stage timings** are measured on the calling thread around each
+  whole stage (its own threads inside), so they add up; `overlay` is what
+  is left of `draw` after the 3D stages: the game's code and 2D on top.
+  They go on their own line at the end of `summary.txt` so the summary
+  itself stays within 15 lines.
+- **Mixing changes ride with loop commands** (`LoopCommand::Mix`), so the
+  window's speaker and the recorded mix get them in the same order at the
+  same frame. A run that never changes the mix multiplies nothing.
+
+## The numbers
+
+Measured on this 4-core machine, before (the commit before this work) and
+after, run back to back to cancel out the machine's load (which moved
+both by up to 15% over the day):
+
+| Scene, 1080 x 1920, 2 x 2 supersampling | Before | After | |
+| --- | --- | --- | --- |
+| Night Cellar (2 shadowed lamps, one moving; bloom; captions) | 234 ms a frame | 124 ms | 1.89x |
+| A block cave (three fixed shadowed lamps, lava glowing, bloom) | 377 ms a frame | 187 ms | 2.02x |
+
+The goal was 2x with no visible change: the block world gets there, and
+Night Cellar, with a torch whose shadow map has to be drawn every frame,
+gets 1.8x to 1.9x depending on the run. Where Night Cellar's time goes
+now (`--time`): world 85 ms, bloom 15 ms, shadows 9 ms, captions 3 ms a
+frame. What's left in the world stage is the lighting at each pixel.

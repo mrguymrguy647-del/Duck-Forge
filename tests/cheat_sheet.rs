@@ -1337,3 +1337,92 @@ fn actions_are_names_for_keys() {
     sim.step();
     assert_eq!(sim.game().x, 11.0);
 }
+
+#[test]
+fn pixel_fonts() {
+    // Two letters in a Duck Quill-style tileset, and the same as a grid.
+    let w = Color::WHITE;
+    let clear = Color::rgba(0, 0, 0, 0);
+    let sheet = Sprite::from_pixels(6, 3, [w, w, clear, clear, w, clear].repeat(3));
+    let tiles = Tileset::grid(&sheet, 3, 3, &["a", "i"]);
+    let font = BitmapFont::from_tileset(&tiles, &[('A', "a"), ('I', "i")]).proportional();
+    let grid = BitmapFont::from_grid(&sheet, 3, 3, "AI");
+    let style = BitmapStyle {
+        scale: 3,
+        shadow: Some((1, 1)),
+        background: Some(Color::rgba(0, 0, 0, 160)),
+        align: Align::Center,
+        wrap: Some(300.0),
+        ..BitmapStyle::default()
+    };
+    let mut canvas = Canvas::new(200, 60);
+    canvas.clear(Color::rgb(20, 20, 30));
+    let area = canvas.draw_bitmap_text(&font, "^rAI^w AI", vec2(100.0, 10.0), &style);
+    assert!(area.w > 0.0 && area.h > 0.0);
+    assert!(
+        canvas.pixels().contains(&Color::RED.to_u32()),
+        "^r makes red"
+    );
+    assert!(
+        font.measure("AI", &style).x < grid.measure("AI", &style).x,
+        "proportional is narrower"
+    );
+    // The engine's own letters, with no file at all.
+    canvas.draw_bitmap_text(
+        &BitmapFont::built_in(),
+        "SCORE 10",
+        vec2(4.0, 40.0),
+        &BitmapStyle::default(),
+    );
+}
+
+#[test]
+fn sound_groups_volumes_and_ducking() {
+    struct Mixer;
+    impl Game for Mixer {
+        fn update(&mut self, ctx: &mut Context) {
+            let hum = Sound {
+                name: "rain",
+                wave: Wave::Noise,
+                ms: 200.0,
+                volume: 0.2,
+                ..Default::default()
+            };
+            match ctx.frame() {
+                1 => {
+                    ctx.play_loop(
+                        Sound {
+                            name: "theme",
+                            ms: 300.0,
+                            ..Default::default()
+                        },
+                        0.6,
+                    );
+                    ctx.play_loop_in(SoundGroup::Ambience, hum, 0.5);
+                    ctx.set_group_volume(SoundGroup::Music, 0.5);
+                    ctx.set_master_volume(0.8);
+                    ctx.duck(SoundGroup::Music, 0.25, "scream");
+                }
+                10 => ctx.play_in(
+                    SoundGroup::Effects,
+                    Sound {
+                        name: "scream",
+                        ..Sound::hit()
+                    },
+                    1.0,
+                    0.0,
+                ),
+                20 => ctx.stop_ducking(SoundGroup::Music),
+                _ => {}
+            }
+        }
+        fn draw(&self, _: &mut Canvas) {}
+    }
+    let played = PlayTest::new(config(), Mixer).frames(30).run();
+    let loops = played.loops();
+    assert_eq!(
+        (loops[0].group, loops[1].group),
+        (SoundGroup::Music, SoundGroup::Ambience)
+    );
+    assert_eq!(played.sounds()[0].group, SoundGroup::Effects);
+}

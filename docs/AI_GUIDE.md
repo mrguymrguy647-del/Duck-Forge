@@ -857,7 +857,27 @@ height in pixels; `pos` is the top of the first line, at its left end,
 middle or right end by `align`; `'\n'` breaks lines and `wrap` breaks
 long ones between words. Soft edges, any size; returns the text's `Rect`.
 `font.measure(text, &style)` is its size before drawing. Its lines are
-listed in scene files and `--describe` like the pixel font's.
+listed in scene files and `--describe` like the pixel font's. A caption
+drawn frame after frame is made once and only painted again (its colours
+may change: fading costs nothing more).
+
+**Pixel fonts** (letters drawn as pictures, kept sharp):
+`let font = BitmapFont::from_tileset(&tiles, &[('A', "a"), ('B', "b"), ('!', "bang")]);`
+(a Duck Quill sheet's tiles; `BitmapFont::load("assets/font.json", &[...])?`
+loads it too), `BitmapFont::from_grid(&sheet, 8, 8, "ABCDEFGHIJKLMNOPQRSTUVWXYZ")`
+(letters in a grid, in order), or `BitmapFont::built_in()` (the engine's
+own 3 x 5). Then `canvas.draw_bitmap_text(&font, "PICK ^rRED^w OR ^bBLUE", pos,
+&BitmapStyle { scale: 3, shadow: Some((1, 1)), background: Some(Color::rgba(0, 0, 0, 160)),
+align: Align::Center, wrap: Some(300.0), ..BitmapStyle::default() })`:
+a whole-number `scale`, a drop shadow (in font pixels), a box behind
+(`padding` round it), lines broken to `wrap` pixels, `letter_spacing`
+and `line_spacing`. Colours inside the text: `^r ^g ^b ^y ^o ^p ^c ^w ^k ^e`,
+`^#rrggbb`, `^0` back to the style's colour, `^^` a `^` (`colour_codes:
+false` turns them off). `.proportional()` makes each letter only as wide
+as its pixels. A letter the font hasn't got is drawn as its other case,
+else `?`. `font.measure(text, &style)` gives the size; it returns the
+`Rect` drawn, box and all, and its lines (without the codes) are in
+scene files and `--describe`.
 
 **Sprites**: `Sprite::from_ascii(&["..yy", "yyyo"], &[('y', Color::YELLOW), ('o', Color::ORANGE)])`
 (one character per pixel, `'.'` see-through; draw small art straight in
@@ -1062,6 +1082,22 @@ sounds: `let music: LoopId = ctx.play_loop(&w, 0.6);` (a `Wav`, or a
 `sim.loops()` (each has `name`, `start`, `stop`, `volumes`,
 `.volume_at(frame)` and `.is_playing()`). Headless runs mix loops into
 `audio.wav` and list them in `log.json` under `"loops"`.
+
+**Mixing**: every sound is in a `SoundGroup`: `Music`, `Ambience` or
+`Effects`. A sound played once is an effect and a loop is music, unless
+you say: `ctx.play_in(SoundGroup::Ambience, &thunder, 0.8, 0.0)`,
+`ctx.play_loop_in(SoundGroup::Ambience, &rain, 0.5)`. Then
+`ctx.set_group_volume(SoundGroup::Music, 0.5)` (every sound in the group,
+playing or not yet), `ctx.set_master_volume(0.8)` (everything), and
+ducking: `ctx.duck(SoundGroup::Music, 0.25, "scream")` dips the music to
+25% while any sound called `scream` plays (`ctx.duck(SoundGroup::Ambience,
+0.5, SoundGroup::Effects)`: while any effect plays), down over 0.1 s and
+back over 0.5 s; `ctx.stop_ducking(group)`. Volumes glide over 10 ms. The
+same in a window and in `audio.wav`; `log.json` gives each sound's
+`"group"` when it isn't the usual one. When the mix is too loud, the
+warning says what was sounding at the two loudest moments and what to
+play quieter: `Loudest: at 12.40 s (frame 372) it reached 1.73: scream
+1.00 + thud 0.71 + rain (loop) 0.03; play scream at 0.24 (now 1)`.
 
 **Physics** (`use duckforge::physics::{Body, BodyId, PhysicsWorld, Shape};`):
 `PhysicsWorld::new(vec2(0.0, 400.0))` (gravity, y down),
@@ -1500,7 +1536,7 @@ printed.
 glow, smooth shading, supersampled edges, captions in a TrueType font,
 sounds at their own volumes. One command makes the video:
 `cargo run --release --example night_cellar -- --headless --frames 240
---video night_cellar.mp4` (about 70 seconds on 4 cores).
+--video night_cellar.mp4` (about 40 seconds on 4 cores).
 
 **Long renders.** A film takes minutes, so:
 
@@ -1744,6 +1780,78 @@ atlas instead, `tiles.uv_rect(name)` says where a tile is, and
 (Measured: 4,096 textured blocks in 16 chunks take about 5 ms a frame on
 the CPU at 320 x 240.)
 
+**Glow only where the tile says.** `glowing()` lights a whole block. For
+ore veins, a jack-o'-lantern's face or a lit window, glow on chosen
+colours of the tile, or where a second "glow" tile is bright:
+
+```rust
+BlockKind::new("ore", ["ore"; 3]).glowing_where(["#ff3030"]),        // the red veins
+BlockKind::new("lantern", ["pumpkin"; 3]).glowing_from("pumpkin_glow") // a glow tile
+    .glow_strength(0.8),
+```
+
+Only those pixels come out bright (and only they bloom); a kind sharing
+the tile without a mask doesn't glow. Any textured mesh can do the same:
+`mesh.glowing_where(&[Color::from_hex(0xff3030)], 1.0)` or
+`mesh.with_glow_map(GlowMap::from_picture(&glow_picture, 1.0))`. The
+plain, lit and GPU renderers draw the same glowing pixels.
+
+**Snow, rain and dust: `Particles`.** Thousands of flakes as one mesh,
+drawn in one go and hidden behind walls like any mesh:
+
+```rust
+// In new: 2,000 flakes in a box round the middle of the scene.
+let mut snow = Particles::snow(2000, [vec3(-15.0, 0.0, -15.0), vec3(15.0, 12.0, 15.0)])
+    .with_wind(vec3(0.8, 0.0, 0.2));
+snow.set_cover(&world);            // no snow under the blocks (call again after building)
+// In update:
+snow.update(ctx.dt());
+snow.move_to(camera.position);     // the box follows the camera
+// In draw, after the world:
+snow.draw(canvas, &camera);
+```
+
+`Particles::rain(count, area)` falls fast as streaks; `Particles::new`
+with `with_fall`, `with_size`, `with_sway`, `with_streak`, `with_color`
+and `lit()` (shaded by the lamps, for snow at night) makes dust, embers
+(negative fall) or anything else. Far away a flake is never smaller than
+a pixel. 1,000 flakes cost about 0.3 ms a frame on the plain renderer and
+2 ms on the lit one at 1080 x 1920.
+
+**A sky all round.** `canvas.set_sky(&panorama)` once: a 360° picture
+(equirectangular, twice as wide as tall; the middle is straight ahead at
+yaw 0, the top row straight up) behind all the 3D, turning with the
+camera's yaw and pitch. After each `clear`, the first mesh drawn paints
+it, so draw 2D backgrounds after the 3D. `canvas.draw_sky(&panorama,
+&camera)` paints it yourself; `canvas.remove_sky()` stops it. About 12 ms
+a frame at 1080 x 1920 on 4 cores.
+
+**Held things and portrait views.** A torch, a tool or a block in the
+hand:
+
+```rust
+let torch = Transform::held(&camera, vec3(0.35, -0.3, 0.6), vec3(0.3, 0.0, -0.2)).sized(0.1);
+canvas.draw_held(&torch_mesh, &torch, &camera); // after the world
+```
+
+`offset` is right, up and ahead of the eye; `tilt` turns it on top of the
+camera's turn. `draw_held` draws it in front of all the world (it never
+sinks into a wall), and one held closer than the renderer can draw is
+pushed out and made bigger by the same amount, so it looks the same and
+isn't cut open. `Transform::held` is an ordinary world transform, so
+`draw_mesh` with it puts the thing in the world (to cast a shadow).
+`camera.up()` is the screen's up, with `forward()` and `right()`. For a
+9:16 video, set the view by its width:
+`camera.set_horizontal_fov(90f32.to_radians(), 9.0 / 16.0)`.
+
+**Pixel art as blocks.** `Mesh::from_sprite(&sprite, 1.0)` turns each
+solid pixel into a little cube, one pixel thick (the depth is in
+pixels), 1 unit across its longer side, facing -z, with only its outside
+faces. Its colours stay glowing where you say:
+`Mesh::from_sprite(&torch, 1.0).glowing_where(&[flame], 1.0)`, or
+`Mesh::from_sprite_glowing(&torch, 1.0, &glow_map)` with the same glow
+map as the block's tile.
+
 **Light.** `canvas.set_lighting(Lighting { sun_direction: vec3(-0.5, 1.0,
 -0.3), sun_color: Color::from_hex(0xfff0d8), sun_strength: 1.0, ambient:
 0.55 })` in `draw`, before the meshes: `sun_direction` is where the light
@@ -1798,11 +1906,18 @@ canvas.set_supersample(2);                    // smooth edges
   is the same to the pixel with any number of threads, on every run. With
   none of these settings, 3D is drawn exactly as before (a test checks the
   two renderers agree). It's CPU only: in a window with a graphics card,
-  these settings draw on the CPU too. Measured on 4 cores: the
-  `night_cellar` short, 1080 x 1920 with 2 x 2 supersampling (8.3 million
-  points a frame), two shadowed lamps and bloom, draws in 0.25 s a frame
-  (0.84 s on one core); the same scene the old way, flat-lit at 2160 x
-  3840 to smooth its edges, took 0.47 s.
+  these settings draw on the CPU too. A lamp's shadow map is kept from
+  frame to frame while the lamp and everything in its reach stay put
+  (blocks unchanged), and a point lamp draws only the faces something on
+  screen needs. Measured on 4 cores: the `night_cellar` short, 1080 x
+  1920 with 2 x 2 supersampling, two shadowed lamps and bloom, draws in
+  about 0.12 s a frame (0.23 s before these were kept); a block cave
+  with three fixed shadowed lamps, 0.19 s (0.38 s before).
+- **Where the time goes**: `summary.txt` ends with a line like `time:
+  updates 0.01 s, models 0.03 s, shadows 2.1 s, world 21.3 s, bloom 3.7
+  s, overlay 0.7 s, encode 4.0 s` (`--time` prints it too, and `--json`
+  has it as `"stages"`): `overlay` is the game's own drawing and the 2D
+  on top, `encode` the video and PNG files.
 - Meshes are collected and drawn when 2D is drawn over them or the frame
   ends, so `canvas.get_pixel` sees 3D only after `canvas.flush_3d()`.
 
@@ -1871,6 +1986,10 @@ Plan around these. Don't spend time looking for them:
   playing, and no crossfades beyond changing volumes yourself.
 - No moving pans: a one-off sound's pan is set when it starts, and loops
   play in the middle (or as their stereo file is).
+- Ducking follows a sound's name or a group, with fixed fades (0.1 s
+  down, 0.5 s up); no side-chain on how loud the trigger is.
+- The 360° sky shows its pixels as squares (no smoothing), and isn't
+  fogged; particles are squares or streaks of one colour per system.
 - Physics boxes don't rotate (balls and axis-aligned boxes only).
 - No running in a web browser.
 - Fonts: the built-in pixel font is ASCII only; `Font::load` draws any
