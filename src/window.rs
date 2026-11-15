@@ -267,7 +267,7 @@ pub(crate) fn run<G: Game>(
         #[cfg(feature = "audio")]
         if let Some(speaker) = &speaker {
             for sound in sounds {
-                speaker.play(sound.samples, sound.pan);
+                speaker.play(sound.samples, sound.pan, sound.group, &sound.name);
             }
         }
         let loops = sim.take_new_loop_commands();

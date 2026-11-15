@@ -22,7 +22,10 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::sound::{LoopCommand, LoopId, SAMPLE_RATE, Samples, pan_gains};
+use crate::sound::{
+    DUCK_DOWN, DUCK_UP, DuckTrigger, LoopCommand, LoopId, MixCommand, SAMPLE_RATE, Samples,
+    SoundGroup, pan_gains,
+};
 
 /// At most this many sounds play at once; a new one replaces the oldest.
 const MAX_VOICES: usize = 32;
@@ -188,6 +191,9 @@ struct Voice {
     samples: Samples,
     gains: (f32, f32),
     at: usize,
+    /// Its part of the mix, and its name (for ducking).
+    group: SoundGroup,
+    name: String,
 }
 
 /// One looping sound playing.
@@ -204,6 +210,8 @@ struct Loop {
     target: f32,
     /// Stopped: it fades to silence over the next block, then goes.
     stopping: bool,
+    group: SoundGroup,
+    name: String,
 }
 
 impl Loop {
@@ -225,6 +233,31 @@ struct Voices {
     paused: bool,
     /// How far the sound is faded out: 0 is as loud as ever, 1 is silent.
     hush: f32,
+    /// Group and master volumes, and ducking.
+    live: LiveMix,
+}
+
+/// The mix's settings as they are now, in a window.
+struct LiveMix {
+    volume: [f32; 3],
+    master: f32,
+    rules: [Vec<(f32, DuckTrigger)>; 3],
+    /// How far each group is ducked now (1: not at all)...
+    duck: [f32; 3],
+    /// ...and each group's whole gain at the end of the last block.
+    gain: [f32; 3],
+}
+
+impl Default for LiveMix {
+    fn default() -> LiveMix {
+        LiveMix {
+            volume: [1.0; 3],
+            master: 1.0,
+            rules: Default::default(),
+            duck: [1.0; 3],
+            gain: [1.0; 3],
+        }
+    }
 }
 
 impl Voices {
@@ -255,13 +288,25 @@ impl Voices {
     fn mix(&mut self, out: &mut [f32]) {
         out.fill(0.0);
         let frames = out.len() / 2;
+        // Each group's gain across this block: from where it was to where
+        // its volume, the master and its ducking put it now.
+        let (from, to) = self.group_gains(frames);
+        let gain_at = |group: SoundGroup, n: usize| {
+            let (a, b) = (from[group.index()], to[group.index()]);
+            if a == b {
+                a
+            } else {
+                a + (b - a) * (n + 1) as f32 / frames.max(1) as f32
+            }
+        };
         for voice in &mut self.playing {
             let (to_left, to_right) = voice.gains;
             let end = (voice.at + frames).min(voice.samples.frames());
-            for (pair, i) in out.chunks_exact_mut(2).zip(voice.at..end) {
+            for (n, (pair, i)) in out.chunks_exact_mut(2).zip(voice.at..end).enumerate() {
                 let (l, r) = voice.samples.frame(i);
-                pair[0] += l * to_left;
-                pair[1] += r * to_right;
+                let g = gain_at(voice.group, n);
+                pair[0] += l * to_left * g;
+                pair[1] += r * to_right * g;
             }
             voice.at += frames;
         }
@@ -277,7 +322,8 @@ impl Voices {
             for (n, pair) in out.chunks_exact_mut(2).enumerate() {
                 // A straight line from the old volume to the new one,
                 // reaching it at the block's last moment.
-                let volume = from + (to - from) * (n + 1) as f32 / frames as f32;
+                let volume = (from + (to - from) * (n + 1) as f32 / frames as f32)
+                    * gain_at(looped.group, n);
                 let (l, r) = looped.samples.frame(looped.at);
                 pair[0] += l * volume;
                 pair[1] += r * volume;
@@ -291,10 +337,50 @@ impl Voices {
         }
     }
 
+    /// Each group's gain at the start and end of the next `frames`
+    /// moments, moving its ducking on (down quickly, back up slowly).
+    fn group_gains(&mut self, frames: usize) -> ([f32; 3], [f32; 3]) {
+        let from = self.live.gain;
+        let seconds = frames as f32 / SAMPLE_RATE as f32;
+        for group in SoundGroup::ALL {
+            let g = group.index();
+            let sounding = |trigger: &DuckTrigger| {
+                self.playing
+                    .iter()
+                    .any(|v| trigger.matches(&v.name, v.group))
+                    || self
+                        .loops
+                        .iter()
+                        .any(|l| !l.stopping && trigger.matches(&l.name, l.group))
+            };
+            let want = self.live.rules[g]
+                .iter()
+                .filter(|(_, trigger)| sounding(trigger))
+                .map(|(level, _)| *level)
+                .fold(1.0f32, f32::min);
+            let now = self.live.duck[g];
+            self.live.duck[g] = if want < now {
+                (now - seconds / DUCK_DOWN).max(want)
+            } else {
+                (now + seconds / DUCK_UP).min(want)
+            };
+            self.live.gain[g] = self.live.volume[g] * self.live.master * self.live.duck[g];
+        }
+        (from, self.live.gain)
+    }
+
     /// Starts, changes or stops a looping sound. A new volume, or a stop,
     /// takes effect over the next block.
     fn change_loop(&mut self, command: LoopCommand) {
         match command {
+            LoopCommand::Mix(change) => match change {
+                MixCommand::GroupVolume(group, volume) => self.live.volume[group.index()] = volume,
+                MixCommand::Master(volume) => self.live.master = volume,
+                MixCommand::Duck(group, level, trigger) => {
+                    self.live.rules[group.index()].push((level, trigger));
+                }
+                MixCommand::StopDucking(group) => self.live.rules[group.index()].clear(),
+            },
             LoopCommand::Start(id, request, volume) => {
                 // A loop starts at its volume straight away.
                 self.loops.push(Loop {
@@ -304,6 +390,8 @@ impl Voices {
                     volume,
                     target: volume,
                     stopping: false,
+                    group: request.group,
+                    name: request.name,
                 });
             }
             LoopCommand::Volume(id, volume) => {
@@ -357,8 +445,9 @@ impl Speaker {
     }
 
     /// Starts playing `samples` (at [`SAMPLE_RATE`], mono or stereo) at
-    /// `pan` (-1 left, 0 both sides, 1 right).
-    pub(crate) fn play(&self, samples: Samples, pan: f32) {
+    /// `pan` (-1 left, 0 both sides, 1 right), in `group` of the mix,
+    /// called `name`.
+    pub(crate) fn play(&self, samples: Samples, pan: f32, group: SoundGroup, name: &str) {
         // A panic on the sound thread can't happen while it holds the
         // lock (filling can't panic), but recover anyway rather than crash.
         let mut voices = self.voices.lock().unwrap_or_else(|e| e.into_inner());
@@ -369,6 +458,8 @@ impl Speaker {
             samples,
             gains: pan_gains(pan),
             at: 0,
+            group,
+            name: name.to_string(),
         });
     }
 
@@ -632,6 +723,8 @@ mod backend {
                 samples: beep,
                 gains: (1.0, 1.0),
                 at: 0,
+                group: SoundGroup::Effects,
+                name: String::from("beep"),
             });
             // Wait until the sound thread has played the whole beep.
             for _ in 0..200 {
@@ -662,6 +755,8 @@ mod tests {
             samples,
             gains: pan_gains(pan),
             at: 0,
+            group: SoundGroup::Effects,
+            name: String::from("sound"),
         }
     }
 
@@ -673,11 +768,51 @@ mod tests {
             volume,
             target: volume,
             stopping: false,
+            group: SoundGroup::Music,
+            name: String::from("loop"),
         }
     }
 
     fn close(a: f32, b: f32) -> bool {
         (a - b).abs() < 1e-6
+    }
+
+    #[test]
+    fn group_volumes_and_ducking_work_in_a_window_too() {
+        let mut voices = Voices::default();
+        voices.change_loop(LoopCommand::Start(
+            LoopId(1),
+            crate::sound::SoundRequest::synth(crate::sound::Sound::default())
+                .in_group(SoundGroup::Music),
+            1.0,
+        ));
+        voices.loops[0].samples = Samples::mono(vec![0.4; 64]);
+        voices.change_loop(LoopCommand::Mix(MixCommand::GroupVolume(
+            SoundGroup::Music,
+            0.5,
+        )));
+        let mut out = vec![0.0f32; 2048];
+        voices.fill(&mut out); // glides there across this block
+        voices.fill(&mut out);
+        assert!(close(out[100], soft_limit(0.2)), "{}", out[100]);
+        // Ducked while a "scream" plays (a silent one, so only music is heard).
+        voices.change_loop(LoopCommand::Mix(MixCommand::Duck(
+            SoundGroup::Music,
+            0.25,
+            DuckTrigger::from("scream"),
+        )));
+        let mut scream = voice(Samples::mono(vec![0.0; 44_100]), 0.0);
+        scream.name = String::from("scream");
+        voices.playing.push(scream);
+        for _ in 0..10 {
+            voices.fill(&mut out); // 10 blocks: more than the 0.1 s it takes
+        }
+        assert!(close(out[100], soft_limit(0.05)), "{}", out[100]);
+        // The master on top.
+        voices.change_loop(LoopCommand::Mix(MixCommand::Master(0.5)));
+        voices.fill(&mut out);
+        voices.fill(&mut out);
+        assert!(close(out[100], soft_limit(0.025)), "{}", out[100]);
     }
 
     /// Only the left samples of a filled buffer (left, right, left, right...).

@@ -133,7 +133,7 @@ pub mod prelude {
     pub use crate::scene::{Anchor, Id, Object, Scene, SceneGame, Script, Scripts, Settings};
     pub use crate::script::InputScript;
     pub use crate::simulation::Simulation;
-    pub use crate::sound::{LoopId, Sound, Wav, Wave};
+    pub use crate::sound::{DuckTrigger, LoopId, Sound, SoundGroup, Wav, Wave};
     pub use crate::sprite::{Animation, Blit, Sprite};
     pub use crate::spritesheet::SpriteSheet;
     pub use crate::tilemap::{

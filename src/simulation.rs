@@ -113,6 +113,8 @@ pub struct Simulation<G> {
     /// Every looping sound the game started (in a window, only those
     /// still playing).
     loops: Vec<PlayedLoop>,
+    /// Every change to the mix (group and master volumes, ducking).
+    mix: crate::sound::MixLog,
     /// Loop changes not yet handed to the speakers (only in a window).
     loops_for_speaker: Vec<LoopCommand>,
     /// Whether the game's `init` has run.
@@ -227,6 +229,7 @@ impl<G: Game> Simulation<G> {
             keep_sounds: true,
             sounds_sent: 0,
             loops: Vec::new(),
+            mix: crate::sound::MixLog::default(),
             loops_for_speaker: Vec::new(),
             initialized: false,
             renderer,
@@ -368,6 +371,7 @@ impl<G: Game> Simulation<G> {
                 pan: request.pan,
                 volume: request.volume,
                 start,
+                group: request.group,
             });
         }
         for command in self.ctx.take_loop_commands() {
@@ -391,7 +395,9 @@ impl<G: Game> Simulation<G> {
                 start_sample: sample,
                 stop_sample: None,
                 volume_samples: vec![sample],
+                group: request.group,
             }),
+            LoopCommand::Mix(change) => self.mix.changes.push((sample, change.clone())),
             LoopCommand::Volume(id, volume) => {
                 let Some(looped) = self.playing_loop(*id) else {
                     return; // already stopped: nothing to change
@@ -1085,6 +1091,12 @@ impl<G: Game> Simulation<G> {
     /// ```
     pub fn loops(&self) -> &[PlayedLoop] {
         &self.loops
+    }
+
+    /// Every change the game made to the mix: group and master volumes,
+    /// ducking.
+    pub(crate) fn mix(&self) -> &crate::sound::MixLog {
+        &self.mix
     }
 
     /// The frames on which a sound called `name` was played, like

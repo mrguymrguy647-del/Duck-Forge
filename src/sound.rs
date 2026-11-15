@@ -621,6 +621,8 @@ pub struct PlayedSound {
     pub(crate) volume: f32,
     /// The sample it starts at in `audio.wav`.
     pub(crate) start: u64,
+    /// The part of the mix it's in (effects, unless the game said).
+    pub group: SoundGroup,
 }
 
 /// Where a sound came from.
@@ -640,6 +642,8 @@ pub(crate) struct SoundRequest {
     pub(crate) pan: f32,
     /// 1.0 as it is (the samples are already this loud).
     pub(crate) volume: f32,
+    /// The part of the mix it's in.
+    pub(crate) group: SoundGroup,
 }
 
 impl SoundRequest {
@@ -650,6 +654,7 @@ impl SoundRequest {
             source: SoundSource::Synth(sound),
             pan: 0.0,
             volume: 1.0,
+            group: SoundGroup::Effects,
         }
     }
 
@@ -660,7 +665,13 @@ impl SoundRequest {
             samples: wav.samples.clone(),
             pan: 0.0,
             volume: 1.0,
+            group: SoundGroup::Effects,
         }
+    }
+
+    /// The same sound, in `group` of the mix.
+    pub(crate) fn in_group(self, group: SoundGroup) -> SoundRequest {
+        SoundRequest { group, ..self }
     }
 
     /// The same sound, played at `pan`.
@@ -693,6 +704,9 @@ impl PlayedSound {
         };
         if self.volume != 1.0 {
             pan += &format!(", \"volume\": {}", number_json(self.volume));
+        }
+        if self.group != SoundGroup::Effects {
+            pan += &format!(", \"group\": \"{}\"", self.group.name());
         }
         format!(
             "{{\"frame\": {}, \"sound\": {}{}{pan}}}",
@@ -768,6 +782,8 @@ pub(crate) enum LoopCommand {
     Start(LoopId, SoundRequest, f32),
     Volume(LoopId, f32),
     Stop(LoopId),
+    /// A change to the mix: a group's volume, the master volume, ducking.
+    Mix(MixCommand),
 }
 
 /// One looping sound the game played: when it started and stopped, and
@@ -794,6 +810,8 @@ pub struct PlayedLoop {
     pub(crate) start_sample: u64,
     pub(crate) stop_sample: Option<u64>,
     pub(crate) volume_samples: Vec<u64>,
+    /// The part of the mix it's in (music, unless the game said).
+    pub group: SoundGroup,
 }
 
 impl PlayedLoop {
@@ -824,8 +842,13 @@ impl PlayedLoop {
             .iter()
             .map(|&(frame, volume)| format!("[{frame}, {}]", number_json(volume)))
             .collect();
+        let group = if self.group == SoundGroup::Music {
+            String::new()
+        } else {
+            format!(", \"group\": \"{}\"", self.group.name())
+        };
         format!(
-            "{{\"loop\": {}{}, \"start\": {}, \"stop\": {stop}, \"volume\": [{}]}}",
+            "{{\"loop\": {}{}, \"start\": {}, \"stop\": {stop}, \"volume\": [{}]{group}}}",
             Value::from(self.name.as_str()),
             source_json(&self.source),
             self.start,
@@ -836,7 +859,7 @@ impl PlayedLoop {
     /// Adds the loop into the `left` and `right` tracks, repeating it with
     /// no gap, from its start to its stop (or the end of the tracks), at
     /// each volume in turn.
-    fn mix_into(&self, left: &mut [f32], right: &mut [f32]) {
+    fn mix_into(&self, left: &mut [f32], right: &mut [f32], gain: Option<&[f32]>) {
         let length = self.samples.frames() as u64;
         if length == 0 {
             return;
@@ -856,8 +879,340 @@ impl PlayedLoop {
             for at in from..to {
                 let i = ((at - self.start_sample) % length) as usize;
                 let (l, r) = self.samples.frame(i);
-                left[at as usize] += l * volume;
-                right[at as usize] += r * volume;
+                let v = match gain {
+                    Some(gain) => volume * gain[at as usize],
+                    None => volume,
+                };
+                left[at as usize] += l * v;
+                right[at as usize] += r * v;
+            }
+        }
+    }
+}
+
+/// The parts of the mix, each with its own volume: music, ambience (rain,
+/// wind, a hum) and effects (footsteps, doors, screams). A sound played
+/// once is an effect and a loop is music, unless the game says
+/// otherwise ([`Context::play_in`](crate::engine::Context::play_in),
+/// [`Context::play_loop_in`](crate::engine::Context::play_loop_in)).
+///
+/// ```
+/// # use duckforge::prelude::*;
+/// # fn example(ctx: &mut Context, music: &Wav, rain: &Wav, scream: &Wav) {
+/// ctx.play_loop(music, 0.8);                           // music
+/// ctx.play_loop_in(SoundGroup::Ambience, rain, 0.5);   // ambience
+/// ctx.set_group_volume(SoundGroup::Ambience, 0.6);     // all of it quieter
+/// ctx.set_master_volume(0.9);                          // everything
+/// ctx.duck(SoundGroup::Music, 0.25, "scream");         // music dips while a scream plays
+/// ctx.play_with(scream, 1.0, 0.0);                     // the scream
+/// # }
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum SoundGroup {
+    Music,
+    Ambience,
+    #[default]
+    Effects,
+}
+
+impl SoundGroup {
+    /// Every group, in order.
+    pub const ALL: [SoundGroup; 3] = [SoundGroup::Music, SoundGroup::Ambience, SoundGroup::Effects];
+
+    /// Its name in `log.json`: `"music"`, `"ambience"`, `"effects"`.
+    pub fn name(self) -> &'static str {
+        match self {
+            SoundGroup::Music => "music",
+            SoundGroup::Ambience => "ambience",
+            SoundGroup::Effects => "effects",
+        }
+    }
+
+    pub(crate) fn index(self) -> usize {
+        self as usize
+    }
+}
+
+/// What makes a group duck ([`Context::duck`](crate::engine::Context::duck)):
+/// sounds with this name (`"scream"`, a `.wav` file's name without `.wav`)
+/// or any sound in this group.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DuckTrigger {
+    Named(String),
+    Group(SoundGroup),
+}
+
+impl From<&str> for DuckTrigger {
+    fn from(name: &str) -> DuckTrigger {
+        DuckTrigger::Named(name.to_string())
+    }
+}
+
+impl From<SoundGroup> for DuckTrigger {
+    fn from(group: SoundGroup) -> DuckTrigger {
+        DuckTrigger::Group(group)
+    }
+}
+
+impl DuckTrigger {
+    /// Is a sound called `name` in `group` what this ducks for?
+    pub(crate) fn matches(&self, name: &str, group: SoundGroup) -> bool {
+        match self {
+            DuckTrigger::Named(n) => n == name,
+            DuckTrigger::Group(g) => *g == group,
+        }
+    }
+}
+
+/// A change to the mix, asked for during an update.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum MixCommand {
+    GroupVolume(SoundGroup, f32),
+    Master(f32),
+    /// While `trigger` plays, `group` goes down to `level` of its volume.
+    Duck(SoundGroup, f32, DuckTrigger),
+    StopDucking(SoundGroup),
+}
+
+/// A volume change glides over this many seconds (a jump would click).
+pub(crate) const VOLUME_GLIDE: f32 = 0.01;
+/// A ducked group goes down over this long when its trigger starts...
+pub(crate) const DUCK_DOWN: f32 = 0.1;
+/// ...and comes back up over this long after it ends.
+pub(crate) const DUCK_UP: f32 = 0.5;
+
+/// Every change to the mix in a run, each at the sample it starts at.
+#[derive(Debug, Clone, Default)]
+pub struct MixLog {
+    pub(crate) changes: Vec<(u64, MixCommand)>,
+}
+
+impl MixLog {
+    /// Nothing changed: every group and the master at 1, no ducking.
+    pub(crate) fn is_plain(&self) -> bool {
+        self.changes.is_empty()
+    }
+
+    /// Each group's volume (times the master and its ducking) at every
+    /// sample up to `length`, or `None` for a run that never changed the
+    /// mix (then nothing is multiplied, and the mix is what it always was).
+    pub(crate) fn gains(
+        &self,
+        sounds: &[PlayedSound],
+        loops: &[PlayedLoop],
+        length: usize,
+    ) -> Option<[Vec<f32>; 3]> {
+        if self.is_plain() {
+            return None;
+        }
+        let glide = (VOLUME_GLIDE * SAMPLE_RATE as f32).max(1.0);
+        let (down, up) = (DUCK_DOWN * SAMPLE_RATE as f32, DUCK_UP * SAMPLE_RATE as f32);
+        // Where each sound or loop plays, with its name and group.
+        let mut spans: Vec<(usize, usize, &str, SoundGroup)> = sounds
+            .iter()
+            .map(|s| {
+                (
+                    s.start as usize,
+                    s.start as usize + s.samples.frames(),
+                    s.name.as_str(),
+                    s.group,
+                )
+            })
+            .collect();
+        spans.extend(loops.iter().map(|l| {
+            let stop = l.stop_sample.map_or(length, |s| s as usize);
+            (l.start_sample as usize, stop, l.name.as_str(), l.group)
+        }));
+        Some(SoundGroup::ALL.map(|group| {
+            let mut gain = vec![1.0f32; length];
+            let (mut volume, mut master) = (1.0f32, 1.0f32);
+            // The volume as set, gliding to each new setting.
+            let (mut base, mut step) = (1.0f32, 0.0f32);
+            let mut rules: Vec<(f32, &DuckTrigger)> = Vec::new();
+            // The level the rules duck each sample to (1: not ducked),
+            // worked out again whenever the rules change...
+            let mut ducked_to = vec![1.0f32; length];
+            // ...and the ducking now: down quickly, back up slowly.
+            let mut duck = 1.0f32;
+            let mut changes = self.changes.iter().peekable();
+            for i in 0..length {
+                let (mut volume_changed, mut rules_changed) = (false, false);
+                while let Some((at, command)) = changes.peek() {
+                    if *at as usize > i {
+                        break;
+                    }
+                    match command {
+                        MixCommand::GroupVolume(g, v) if *g == group => {
+                            volume = *v;
+                            volume_changed = true;
+                        }
+                        MixCommand::Master(v) => {
+                            master = *v;
+                            volume_changed = true;
+                        }
+                        MixCommand::Duck(g, level, trigger) if *g == group => {
+                            rules.push((level.clamp(0.0, 1.0), trigger));
+                            rules_changed = true;
+                        }
+                        MixCommand::StopDucking(g) if *g == group => {
+                            rules.clear();
+                            rules_changed = true;
+                        }
+                        _ => {}
+                    }
+                    changes.next();
+                }
+                if volume_changed {
+                    step = (volume * master - base) / glide;
+                }
+                if rules_changed {
+                    ducked_to[i..].fill(1.0);
+                    for &(level, trigger) in &rules {
+                        for &(from, to, name, g) in &spans {
+                            if trigger.matches(name, g) {
+                                for d in &mut ducked_to[from.clamp(i, length)..to.clamp(i, length)]
+                                {
+                                    *d = d.min(level);
+                                }
+                            }
+                        }
+                    }
+                }
+                if step != 0.0 {
+                    base += step;
+                    let target = volume * master;
+                    if (step > 0.0 && base >= target) || (step < 0.0 && base <= target) {
+                        base = target;
+                        step = 0.0;
+                    }
+                }
+                let want = ducked_to[i];
+                duck = if want < duck {
+                    (duck - 1.0 / down).max(want)
+                } else {
+                    (duck + 1.0 / up).min(want)
+                };
+                gain[i] = base * duck;
+            }
+            gain
+        }))
+    }
+}
+
+/// A moment the mix was loudest before the limiter, and what was playing.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct LoudMoment {
+    pub(crate) sample: u64,
+    /// How loud the mix was there (1.0 is full volume).
+    pub(crate) level: f32,
+    /// What was sounding there, loudest first: its name, whether it's a
+    /// loop, the volume it was played at, and how loud it was there.
+    pub(crate) sounds: Vec<(String, bool, f32, f32)>,
+}
+
+/// The loudest moments over full volume (at most `count`, at least a
+/// second apart), and what was sounding at each.
+fn loud_moments(
+    left: &[f32],
+    right: &[f32],
+    sounds: &[PlayedSound],
+    loops: &[PlayedLoop],
+    gains: Option<&[Vec<f32>; 3]>,
+    count: usize,
+) -> Vec<LoudMoment> {
+    let level = |i: usize| left[i].abs().max(right[i].abs());
+    // The loudest sample of each second that went over.
+    let second = SAMPLE_RATE as usize;
+    let mut peaks: Vec<(usize, f32)> = (0..left.len().div_ceil(second))
+        .filter_map(|s| {
+            let range = s * second..((s + 1) * second).min(left.len());
+            range
+                .map(|i| (i, level(i)))
+                .filter(|&(_, l)| l > 1.0 && l.is_finite())
+                .max_by(|a, b| a.1.total_cmp(&b.1))
+        })
+        .collect();
+    peaks.sort_by(|a, b| b.1.total_cmp(&a.1));
+    let mut chosen: Vec<(usize, f32)> = Vec::new();
+    for peak in peaks {
+        if chosen.iter().all(|c| c.0.abs_diff(peak.0) >= second) {
+            chosen.push(peak);
+        }
+        if chosen.len() == count {
+            break;
+        }
+    }
+    let gain = |group: SoundGroup, i: usize| {
+        gains.map_or(1.0, |g| g[group.index()].get(i).copied().unwrap_or(1.0))
+    };
+    chosen
+        .into_iter()
+        .map(|(i, level)| {
+            let mut playing: Vec<(String, bool, f32, f32)> = Vec::new();
+            for s in sounds {
+                let at = i as u64;
+                if at >= s.start && ((at - s.start) as usize) < s.samples.frames() {
+                    let (l, r) = s.samples.frame((at - s.start) as usize);
+                    let (gl, gr) = pan_gains(s.pan);
+                    let loud = (l * gl).abs().max((r * gr).abs()) * gain(s.group, i);
+                    playing.push((s.name.clone(), false, s.volume, loud));
+                }
+            }
+            for l in loops {
+                let at = i as u64;
+                let stopped = l.stop_sample.is_some_and(|stop| at >= stop);
+                if at < l.start_sample || stopped || l.samples.frames() == 0 {
+                    continue;
+                }
+                let k = l
+                    .volume_samples
+                    .iter()
+                    .rposition(|&from| from <= at)
+                    .unwrap_or(0);
+                let volume = l.volumes[k].1;
+                let (a, b) = l
+                    .samples
+                    .frame(((at - l.start_sample) % l.samples.frames() as u64) as usize);
+                let loud = a.abs().max(b.abs()) * volume * gain(l.group, i);
+                playing.push((l.name.clone(), true, volume, loud));
+            }
+            playing.sort_by(|a, b| b.3.total_cmp(&a.3));
+            LoudMoment {
+                sample: i as u64,
+                level,
+                sounds: playing,
+            }
+        })
+        .collect()
+}
+
+impl LoudMoment {
+    /// What to play quieter so this moment fits under full volume: the
+    /// loudest sound alone if turning it down is enough, or else
+    /// everything playing then, by the same share. Each with the volume to
+    /// use instead.
+    /// Each: its name, whether it's a loop, its volume now and the
+    /// volume to play it at.
+    pub(crate) fn suggestion(&self) -> Vec<(String, bool, f32, f32)> {
+        let excess = self.level - CEILING;
+        let round_down = |v: f32| (v * 100.0).floor() / 100.0;
+        match self.sounds.first() {
+            Some((name, looped, volume, loud)) if *loud > excess => {
+                vec![(
+                    name.clone(),
+                    *looped,
+                    *volume,
+                    round_down(volume * (loud - excess) / loud),
+                )]
+            }
+            _ => {
+                let share = CEILING / self.level;
+                self.sounds
+                    .iter()
+                    .map(|(name, looped, volume, _)| {
+                        (name.clone(), *looped, *volume, round_down(volume * share))
+                    })
+                    .collect()
             }
         }
     }
@@ -874,6 +1229,8 @@ pub(crate) struct Mixed {
     pub(crate) over: usize,
     pub(crate) first_over: u64,
     pub(crate) last_over: u64,
+    /// The loudest moments over full volume, and what was sounding.
+    pub(crate) moments: Vec<LoudMoment>,
 }
 
 /// The loudest the limiter lets a mix be: a little under full volume.
@@ -887,28 +1244,49 @@ pub(crate) const CEILING: f32 = 0.98;
 /// A mix that would go over full volume is turned down where it's too
 /// loud by a *limiter* (see [`limit`]), instead of being cut off flat
 /// (clipping, which crackles); [`Mixed`] says by how much.
-pub(crate) fn mix_to_wav(sounds: &[PlayedSound], loops: &[PlayedLoop], length: u64) -> Mixed {
+pub(crate) fn mix_to_wav(
+    sounds: &[PlayedSound],
+    loops: &[PlayedLoop],
+    length: u64,
+    mix: &MixLog,
+) -> Mixed {
     let end = sounds
         .iter()
         .map(|s| s.start + s.samples.frames() as u64)
         .fold(length, u64::max);
     let mut left = vec![0.0f32; end as usize];
     let mut right = vec![0.0f32; end as usize];
+    // Each group's volume over time, if the game ever changed the mix.
+    let gains = mix.gains(sounds, loops, end as usize);
     for sound in sounds {
         let start = sound.start as usize;
         let (to_left, to_right) = pan_gains(sound.pan);
-        for i in 0..sound.samples.frames() {
-            let (l, r) = sound.samples.frame(i);
-            left[start + i] += l * to_left;
-            right[start + i] += r * to_right;
+        match &gains {
+            None => {
+                for i in 0..sound.samples.frames() {
+                    let (l, r) = sound.samples.frame(i);
+                    left[start + i] += l * to_left;
+                    right[start + i] += r * to_right;
+                }
+            }
+            Some(gains) => {
+                let gain = &gains[sound.group.index()];
+                for i in 0..sound.samples.frames() {
+                    let (l, r) = sound.samples.frame(i);
+                    left[start + i] += l * to_left * gain[start + i];
+                    right[start + i] += r * to_right * gain[start + i];
+                }
+            }
         }
     }
     // Loops still playing at the end stop with the run, not with the last
     // one-off sound ringing on.
     let run = (length as usize).min(left.len());
     for looped in loops {
-        looped.mix_into(&mut left[..run], &mut right[..run]);
+        let gain = gains.as_ref().map(|g| &g[looped.group.index()][..run]);
+        looped.mix_into(&mut left[..run], &mut right[..run], gain);
     }
+    let moments = loud_moments(&left, &right, sounds, loops, gains.as_ref(), 2);
     let (peak, over, first_over, last_over) = limit(&mut left, &mut right);
     // Anything still over (never, after the limiter) is cut off at the top,
     // rather than wrapping round.
@@ -931,6 +1309,7 @@ pub(crate) fn mix_to_wav(sounds: &[PlayedSound], loops: &[PlayedLoop], length: u
         over,
         first_over,
         last_over,
+        moments,
     }
 }
 
@@ -1315,19 +1694,32 @@ mod tests {
             pan,
             volume: 1.0,
             start: 0,
+            group: SoundGroup::Effects,
         };
         // Mono and not panned: a mono file, as always.
-        let mono = mix_to_wav(&[played(Samples::mono(vec![0.5; 4]), 0.0)], &[], 4).bytes;
+        let mono = mix_to_wav(
+            &[played(Samples::mono(vec![0.5; 4]), 0.0)],
+            &[],
+            4,
+            &MixLog::default(),
+        )
+        .bytes;
         assert_eq!(u16::from_le_bytes([mono[22], mono[23]]), 1);
         // A stereo sound: a stereo file with each side kept.
         let stereo = Samples::stereo(vec![0.5, -0.5, 0.25, 0.0]);
-        let wav = mix_to_wav(&[played(stereo, 0.0)], &[], 2).bytes;
+        let wav = mix_to_wav(&[played(stereo, 0.0)], &[], 2, &MixLog::default()).bytes;
         let decoded = decode_wav(&wav).unwrap();
         assert!(decoded.is_stereo());
         assert!((decoded.frame(0).0 - 0.5).abs() < 0.001);
         assert!((decoded.frame(0).1 + 0.5).abs() < 0.001);
         // A mono sound panned all the way right: nothing on the left.
-        let wav = mix_to_wav(&[played(Samples::mono(vec![0.5; 2]), 1.0)], &[], 2).bytes;
+        let wav = mix_to_wav(
+            &[played(Samples::mono(vec![0.5; 2]), 1.0)],
+            &[],
+            2,
+            &MixLog::default(),
+        )
+        .bytes;
         let decoded = decode_wav(&wav).unwrap();
         assert_eq!(decoded.frame(1).0, 0.0);
         assert!((decoded.frame(1).1 - 0.5).abs() < 0.001);
@@ -1372,6 +1764,151 @@ mod tests {
         );
     }
 
+    /// A sound called `name` in `group`: `level` from sample `start` for
+    /// `length` samples.
+    fn named(name: &str, group: SoundGroup, start: u64, length: usize, level: f32) -> PlayedSound {
+        PlayedSound {
+            name: name.to_string(),
+            group,
+            ..sound_at(start, vec![level; length])
+        }
+    }
+
+    /// A loop of a steady `level`, from sample 0 to the end.
+    fn steady_loop(name: &str, group: SoundGroup, level: f32) -> PlayedLoop {
+        PlayedLoop {
+            id: LoopId(1),
+            name: name.to_string(),
+            start: 1,
+            stop: None,
+            volumes: vec![(1, 1.0)],
+            source: SoundSource::Synth(Sound::default()),
+            samples: Samples::mono(vec![level; 100]),
+            start_sample: 0,
+            stop_sample: None,
+            volume_samples: vec![0],
+            group,
+        }
+    }
+
+    fn mixed_at(
+        sounds: &[PlayedSound],
+        loops: &[PlayedLoop],
+        length: u64,
+        mix: &MixLog,
+    ) -> Samples {
+        decode_wav(&mix_to_wav(sounds, loops, length, mix).bytes).unwrap()
+    }
+
+    fn near(a: f32, b: f32) -> bool {
+        (a - b).abs() < 0.002
+    }
+
+    #[test]
+    fn group_volumes_and_the_master_turn_their_sounds_down() {
+        let effect = named("door", SoundGroup::Effects, 0, 20_000, 0.5);
+        let music = steady_loop("theme", SoundGroup::Music, 0.4);
+        let mix = MixLog {
+            changes: vec![
+                (0, MixCommand::GroupVolume(SoundGroup::Music, 0.5)),
+                (10_000, MixCommand::Master(0.5)),
+            ],
+        };
+        let out = mixed_at(
+            std::slice::from_ref(&effect),
+            std::slice::from_ref(&music),
+            20_000,
+            &mix,
+        );
+        assert!(
+            near(out.frame(5_000).0, 0.5 + 0.4 * 0.5),
+            "{}",
+            out.frame(5_000).0
+        );
+        assert!(
+            near(out.frame(15_000).0, (0.5 + 0.2) * 0.5),
+            "{}",
+            out.frame(15_000).0
+        );
+        // It glides there (10 ms), not jumps.
+        let halfway = out.frame(10_000 + 220).0;
+        assert!(halfway < 0.69 && halfway > 0.36, "{halfway}");
+        // With no changes, nothing is touched: the old mix to the bit.
+        assert!(MixLog::default().gains(&[effect], &[music], 10).is_none());
+    }
+
+    #[test]
+    fn music_dips_while_a_scream_plays_and_comes_back_after() {
+        let music = steady_loop("theme", SoundGroup::Music, 0.4);
+        // A silent "scream" from 1 s to 2 s (so only the music is heard).
+        let rate = SAMPLE_RATE as u64;
+        let scream = named("scream", SoundGroup::Effects, rate, rate as usize, 0.0);
+        let steps = named("steps", SoundGroup::Effects, 0, 3 * rate as usize, 0.0);
+        let mix = MixLog {
+            changes: vec![(
+                0,
+                MixCommand::Duck(SoundGroup::Music, 0.25, DuckTrigger::from("scream")),
+            )],
+        };
+        let out = mixed_at(&[scream, steps], &[music], 3 * rate, &mix);
+        let at = |seconds: f32| out.frame((seconds * rate as f32) as usize).0;
+        assert!(near(at(0.5), 0.4), "before: {}", at(0.5));
+        assert!(near(at(1.15), 0.1), "ducked within 0.1 s: {}", at(1.15));
+        assert!(near(at(1.9), 0.1));
+        assert!(
+            at(2.2) > 0.1 && at(2.2) < 0.4,
+            "coming back up: {}",
+            at(2.2)
+        );
+        assert!(near(at(2.6), 0.4), "back after 0.5 s: {}", at(2.6));
+        // Footsteps don't duck it; ducking for a whole group does.
+        let music = steady_loop("rain", SoundGroup::Ambience, 0.4);
+        let mix = MixLog {
+            changes: vec![(
+                0,
+                MixCommand::Duck(
+                    SoundGroup::Ambience,
+                    0.5,
+                    DuckTrigger::from(SoundGroup::Effects),
+                ),
+            )],
+        };
+        let steps = named("steps", SoundGroup::Effects, rate, rate as usize, 0.0);
+        let out = mixed_at(&[steps], &[music], 3 * rate, &mix);
+        assert!(near(out.frame((rate * 3 / 2) as usize).0, 0.2));
+    }
+
+    #[test]
+    fn a_mix_too_loud_says_what_was_playing_and_what_to_turn_down() {
+        let rate = SAMPLE_RATE as u64;
+        // A scream (0.9) over thunder (0.6) at 1 s; later a crash (0.7)
+        // over the thunder again, quieter.
+        let sounds = [
+            named("scream", SoundGroup::Effects, rate, 2000, 0.9),
+            named("thunder", SoundGroup::Ambience, rate - 1000, 6000, 0.6),
+            named("thunder", SoundGroup::Ambience, 3 * rate, 6000, 0.6),
+            named("crash", SoundGroup::Effects, 3 * rate + 100, 2000, 0.7),
+        ];
+        let mixed = mix_to_wav(&sounds, &[], 4 * rate, &MixLog::default());
+        assert_eq!(
+            mixed.moments.len(),
+            2,
+            "two moments, a second or more apart"
+        );
+        let first = &mixed.moments[0];
+        assert!(near(first.level, 1.5));
+        assert_eq!(first.sounds[0].0, "scream");
+        assert!(near(first.sounds[0].3, 0.9) && near(first.sounds[1].3, 0.6));
+        // The scream alone, turned down to 0.42, brings it under 0.98.
+        assert_eq!(
+            first.suggestion(),
+            [(String::from("scream"), false, 1.0, 0.42)]
+        );
+        let second = &mixed.moments[1];
+        assert!(near(second.level, 1.3));
+        assert_eq!(second.sounds[0].0, "crash");
+    }
+
     fn sound_at(start: u64, samples: Vec<f32>) -> PlayedSound {
         PlayedSound {
             frame: 1,
@@ -1381,12 +1918,13 @@ mod tests {
             pan: 0.0,
             volume: 1.0,
             start,
+            group: SoundGroup::Effects,
         }
     }
 
     #[test]
     fn mixing_adds_sounds_at_their_start_and_limits_what_would_clip() {
-        let wav = mix_to_wav(&[sound_at(2, vec![0.5, 0.25])], &[], 3);
+        let wav = mix_to_wav(&[sound_at(2, vec![0.5, 0.25])], &[], 3, &MixLog::default());
         let decoded = decode_wav(&wav.bytes).unwrap();
         assert_eq!(decoded.frames(), 4, "the sound rings on past the length");
         for (i, want) in [0.0, 0.0, 0.5, 0.25].into_iter().enumerate() {
@@ -1400,6 +1938,7 @@ mod tests {
             &[sound_at(2, vec![0.5, 0.5]), sound_at(3, vec![0.75, 0.25])],
             &[],
             3,
+            &MixLog::default(),
         );
         let decoded = decode_wav(&wav.bytes).unwrap();
         let k = CEILING / 1.25;
@@ -1432,6 +1971,7 @@ mod tests {
             &[sound_at(0, tone.clone()), sound_at(start, burst)],
             &[],
             rate as u64,
+            &MixLog::default(),
         );
         assert!(
             wav.peak > 1.9 && wav.over > 1000,
@@ -1469,10 +2009,11 @@ mod tests {
             start_sample: 1,
             stop_sample: stop,
             volume_samples: vec![1, 5],
+            group: SoundGroup::Music,
         };
         // Starts at sample 1, goes round every 3 samples, half as loud
         // from sample 5, stopped at sample 7.
-        let wav = mix_to_wav(&[], &[looped(Some(7))], 9).bytes;
+        let wav = mix_to_wav(&[], &[looped(Some(7))], 9, &MixLog::default()).bytes;
         let decoded = decode_wav(&wav).unwrap();
         let expected = [0.0, 0.1, 0.2, 0.3, 0.1, 0.1, 0.15, 0.0, 0.0];
         assert_eq!(decoded.frames(), 9);
@@ -1480,7 +2021,7 @@ mod tests {
             assert!((decoded.frame(i).0 - want).abs() < 0.001, "{decoded:?}");
         }
         // Never stopped: it plays to the end of the run, and no further.
-        let wav = mix_to_wav(&[], &[looped(None)], 9).bytes;
+        let wav = mix_to_wav(&[], &[looped(None)], 9, &MixLog::default()).bytes;
         let decoded = decode_wav(&wav).unwrap();
         assert!((decoded.frame(8).0 - 0.1).abs() < 0.001, "{decoded:?}");
         let json = looped(Some(7)).to_json();

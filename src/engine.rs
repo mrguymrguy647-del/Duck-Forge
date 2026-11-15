@@ -15,7 +15,9 @@ use crate::math::{Rect, Vec2};
 use crate::render3d::Renderer;
 use crate::report::ReportValue;
 use crate::rng::Rng;
-use crate::sound::{LoopCommand, LoopId, LoopSound, Sound, SoundRequest, Wav};
+use crate::sound::{
+    DuckTrigger, LoopCommand, LoopId, LoopSound, MixCommand, Sound, SoundGroup, SoundRequest, Wav,
+};
 use crate::tune::Tunes;
 
 /// What every game must provide. The engine calls `update` and `draw` once
@@ -678,12 +680,102 @@ impl Context {
     /// `"loops"` with when it started and stopped and its volumes. Play
     /// tests read it with [`loops`](crate::Simulation::loops).
     pub fn play_loop(&mut self, sound: impl Into<LoopSound>, volume: f32) -> LoopId {
+        self.play_loop_in(SoundGroup::Music, sound, volume)
+    }
+
+    /// [`play_loop`](Context::play_loop) in a part of the mix of your
+    /// choosing: rain or a hum in [`SoundGroup::Ambience`], say.
+    pub fn play_loop_in(
+        &mut self,
+        group: SoundGroup,
+        sound: impl Into<LoopSound>,
+        volume: f32,
+    ) -> LoopId {
         let id = LoopId(self.next_loop);
         self.next_loop += 1;
         let LoopSound(request) = sound.into();
-        self.loop_commands
-            .push(LoopCommand::Start(id, request, clean_volume(volume)));
+        self.loop_commands.push(LoopCommand::Start(
+            id,
+            request.in_group(group),
+            clean_volume(volume),
+        ));
         id
+    }
+
+    /// [`play_with`](Context::play_with) in a part of the mix of your
+    /// choosing (a sound played once is an effect otherwise): a
+    /// thunderclap in [`SoundGroup::Ambience`], a sting in
+    /// [`SoundGroup::Music`].
+    pub fn play_in(
+        &mut self,
+        group: SoundGroup,
+        sound: impl Into<LoopSound>,
+        volume: f32,
+        pan: f32,
+    ) {
+        let LoopSound(request) = sound.into();
+        self.sounds.push(
+            request
+                .in_group(group)
+                .panned(pan)
+                .louder(clean_volume(volume)),
+        );
+    }
+
+    /// How loud a whole part of the mix is from this frame on: 1.0 as
+    /// played, 0.5 half, 0.0 silent (it glides there over 10 ms). Every
+    /// sound and loop in the group, playing or yet to play.
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// # fn example(ctx: &mut Context) {
+    /// ctx.set_group_volume(SoundGroup::Music, 0.5);
+    /// # }
+    /// ```
+    pub fn set_group_volume(&mut self, group: SoundGroup, volume: f32) {
+        self.loop_commands
+            .push(LoopCommand::Mix(MixCommand::GroupVolume(
+                group,
+                clean_volume(volume),
+            )));
+    }
+
+    /// How loud everything is from this frame on (1.0 as played), on top
+    /// of each group's volume.
+    pub fn set_master_volume(&mut self, volume: f32) {
+        self.loop_commands
+            .push(LoopCommand::Mix(MixCommand::Master(clean_volume(volume))));
+    }
+
+    /// From this frame on, `group` dips to `level` of its volume (0.3:
+    /// to 30%) while `trigger` plays: sounds with that name (`"scream"`)
+    /// or any sound in that group (`SoundGroup::Effects`). It goes down
+    /// over 0.1 s as the trigger starts and comes back over 0.5 s after it
+    /// ends. Several rules for one group: the lowest wins.
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// # fn example(ctx: &mut Context) {
+    /// ctx.duck(SoundGroup::Music, 0.25, "scream"); // the music makes room for a scream
+    /// # }
+    /// ```
+    pub fn duck(&mut self, group: SoundGroup, level: f32, trigger: impl Into<DuckTrigger>) {
+        let level = if level.is_finite() {
+            level.clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        self.loop_commands.push(LoopCommand::Mix(MixCommand::Duck(
+            group,
+            level,
+            trigger.into(),
+        )));
+    }
+
+    /// Stops every ducking rule for `group` (it comes back up).
+    pub fn stop_ducking(&mut self, group: SoundGroup) {
+        self.loop_commands
+            .push(LoopCommand::Mix(MixCommand::StopDucking(group)));
     }
 
     /// Changes a looping sound's volume from this frame on (0.0 is silent).

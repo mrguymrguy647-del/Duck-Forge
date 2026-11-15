@@ -683,7 +683,7 @@ fn run_and_save<G: Game>(
         // rings on).
         let length = sim.sample_at(last + 1);
         let path = folder.join("audio.wav");
-        let mixed = sound::mix_to_wav(sim.sounds(), sim.loops(), length);
+        let mixed = sound::mix_to_wav(sim.sounds(), sim.loops(), length, sim.mix());
         fs::write(&path, &mixed.bytes)
             .map_err(|err| format!("could not save {}: {err}", path.display()))?;
         saved.push(String::from("audio.wav"));
@@ -856,10 +856,46 @@ fn clipping_warning(mixed: &sound::Mixed, updates_per_second: f64) -> String {
         format!("from frame {first} to frame {last}")
     };
     let decibels = 20.0 * mixed.peak.log10();
+    // What was playing at the loudest moments, and what to turn down.
+    let loop_word = |looped: bool| if looped { " (loop)" } else { "" };
+    let moments: Vec<String> = mixed
+        .moments
+        .iter()
+        .map(|m| {
+            let playing: Vec<String> = m
+                .sounds
+                .iter()
+                .take(4)
+                .map(|(name, looped, _, loud)| format!("{name}{} {loud:.2}", loop_word(*looped)))
+                .collect();
+            let advice: Vec<String> = m
+                .suggestion()
+                .iter()
+                .take(4)
+                .map(|(name, looped, now, new)| {
+                    format!("{name}{} at {new} (now {now})", loop_word(*looped))
+                })
+                .collect();
+            format!(
+                "at {:.2} s (frame {}) it reached {:.2}: {}; play {}",
+                m.sample as f64 / sound::SAMPLE_RATE as f64,
+                frame(m.sample),
+                m.level,
+                playing.join(" + "),
+                advice.join(", ")
+            )
+        })
+        .collect();
+    let moments = if moments.is_empty() {
+        String::new()
+    } else {
+        format!(" Loudest: {}.", moments.join(". Next, "))
+    };
     format!(
         "sound: the mix was too loud {when} ({} samples over full volume, peak {:.2}, \
-         {decibels:.1} dB over); the limiter turned it down there, so audio.wav doesn't clip. \
-         To keep it as you mixed it, play the loudest sounds quieter (ctx.play_with(sound, volume, pan))",
+         {decibels:.1} dB over); the limiter turned it down there, so audio.wav doesn't clip.{moments} \
+         To keep it as you mixed it, play the loudest sounds quieter (ctx.play_with(sound, volume, \
+         pan); a loop: ctx.set_loop_volume; a whole group: ctx.set_group_volume)",
         mixed.over, mixed.peak
     )
 }
@@ -2535,6 +2571,72 @@ mod tests {
             assert!(note.contains("30 frames, 0.5 s at 60 fps"), "{note}");
             assert!(folder.join("real-clip.mp4").exists());
         }
+    }
+
+    #[test]
+    fn a_too_loud_mix_names_its_loudest_sounds_and_groups_are_logged() {
+        use crate::sound::{SoundGroup, Wave};
+        struct Loud;
+        impl Game for Loud {
+            fn update(&mut self, ctx: &mut Context) {
+                if ctx.frame() == 1 {
+                    let rain = Sound {
+                        name: "rain",
+                        wave: Wave::Noise,
+                        ms: 200.0,
+                        volume: 0.2,
+                        ..Sound::default()
+                    };
+                    ctx.play_loop_in(SoundGroup::Ambience, rain, 0.5);
+                    ctx.set_group_volume(SoundGroup::Ambience, 0.8);
+                    ctx.duck(SoundGroup::Ambience, 0.3, "scream");
+                }
+                if ctx.frame() == 30 {
+                    let scream = Sound {
+                        name: "scream",
+                        wave: Wave::Square,
+                        freq: 300.0,
+                        ms: 300.0,
+                        volume: 1.0,
+                        ..Sound::default()
+                    };
+                    let thud = Sound {
+                        name: "thud",
+                        wave: Wave::Square,
+                        freq: 300.0,
+                        ms: 300.0,
+                        volume: 1.0,
+                        ..Sound::default()
+                    };
+                    ctx.play_with(scream, 1.0, 0.0);
+                    ctx.play_in(SoundGroup::Ambience, thud, 0.9, 0.0);
+                }
+            }
+            fn draw(&self, canvas: &mut Canvas) {
+                canvas.clear(Color::BLACK);
+            }
+        }
+        let folder = test_folder("loud-mix");
+        let options = HeadlessOptions {
+            frames: 90,
+            out: Some(folder.to_path_buf()),
+            ..HeadlessOptions::default()
+        };
+        let (_, summary) = run_and_save(config(), Loud, &options).unwrap();
+        let warning = summary
+            .warnings
+            .iter()
+            .find(|w| w.starts_with("sound: the mix was too loud"))
+            .unwrap();
+        assert!(warning.contains("Loudest: at 0.4"), "{warning}");
+        assert!(warning.contains("scream "), "{warning}");
+        assert!(
+            warning.contains("play scream at 0.") || warning.contains("play thud at 0."),
+            "{warning}"
+        );
+        assert!(warning.contains("ctx.set_group_volume"), "{warning}");
+        let log = fs::read_to_string(folder.join("log.json")).unwrap();
+        assert!(log.contains(r#""group": "ambience""#), "{log}");
     }
 
     /// Counts how often it's drawn.
