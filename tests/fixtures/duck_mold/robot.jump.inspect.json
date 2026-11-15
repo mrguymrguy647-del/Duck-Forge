@@ -1,0 +1,92 @@
+{
+  "ok": true,
+  "summary": "robot, \"jump\": 1.3 s, 5 keys, plays once, sinks 0.004 into the ground at 0.1 s, and is 0.389 above the ground at 0.633 s, nothing floating, 4 overlaps, no limits broken",
+  "source": "examples/robot.toml",
+  "name": "robot",
+  "animation": "jump",
+  "length": 1.3,
+  "loops": false,
+  "smooth": true,
+  "keys": [
+    {
+      "key": 1,
+      "at": 0.0,
+      "pose": "rest"
+    },
+    {
+      "key": 2,
+      "at": 0.3,
+      "pose": "jump_crouch"
+    },
+    {
+      "key": 3,
+      "at": 0.65,
+      "pose": "jump_up"
+    },
+    {
+      "key": 4,
+      "at": 1.0,
+      "pose": "jump_crouch"
+    },
+    {
+      "key": 5,
+      "at": 1.3,
+      "pose": "rest"
+    }
+  ],
+  "frames": 40,
+  "moves": [
+    "body",
+    "left_arm",
+    "right_arm",
+    "left_leg",
+    "left_leg/foot",
+    "right_leg",
+    "right_leg/foot"
+  ],
+  "ground": {
+    "stays_on_ground": false,
+    "lowest_y": -0.003605,
+    "lowest_at": 0.1,
+    "highest_y": 0.389399,
+    "highest_at": 0.6333333333333333
+  },
+  "floating": [],
+  "overlapping": [
+    {
+      "a": "left_leg/thigh",
+      "b": "body",
+      "depth": 0.038036,
+      "hidden": false,
+      "at": 0.3,
+      "new": true
+    },
+    {
+      "a": "right_leg/thigh",
+      "b": "body",
+      "depth": 0.038036,
+      "hidden": false,
+      "at": 0.3,
+      "new": true
+    },
+    {
+      "a": "left_leg/thigh",
+      "b": "left_leg/foot",
+      "depth": 0.038035,
+      "hidden": false,
+      "at": 0.3,
+      "new": true
+    },
+    {
+      "a": "right_leg/thigh",
+      "b": "right_leg/foot",
+      "depth": 0.038035,
+      "hidden": false,
+      "at": 0.3,
+      "new": true
+    }
+  ],
+  "limits_broken": [],
+  "warnings": [],
+  "errors": []
+}

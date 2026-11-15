@@ -1,0 +1,109 @@
+{
+  "ok": true,
+  "summary": "gnome, \"wave\": 1.8 s, 8 keys, plays once, stays on the ground, nothing floating, 5 overlaps, no limits broken",
+  "source": "examples/gnome.toml",
+  "name": "gnome",
+  "animation": "wave",
+  "length": 1.8,
+  "loops": false,
+  "smooth": true,
+  "keys": [
+    {
+      "key": 1,
+      "at": 0.0,
+      "pose": "rest"
+    },
+    {
+      "key": 2,
+      "at": 0.4,
+      "pose": "wave_up"
+    },
+    {
+      "key": 3,
+      "at": 0.6,
+      "pose": "wave_a"
+    },
+    {
+      "key": 4,
+      "at": 0.8,
+      "pose": "wave_b"
+    },
+    {
+      "key": 5,
+      "at": 1.0,
+      "pose": "wave_a"
+    },
+    {
+      "key": 6,
+      "at": 1.2,
+      "pose": "wave_b"
+    },
+    {
+      "key": 7,
+      "at": 1.4,
+      "pose": "wave_up"
+    },
+    {
+      "key": 8,
+      "at": 1.8,
+      "pose": "rest"
+    }
+  ],
+  "frames": 55,
+  "moves": [
+    "right_arm"
+  ],
+  "ground": {
+    "stays_on_ground": true,
+    "lowest_y": 0.0,
+    "lowest_at": 0.0,
+    "highest_y": 0.0,
+    "highest_at": 0.0
+  },
+  "floating": [],
+  "overlapping": [
+    {
+      "a": "body",
+      "b": "beard",
+      "depth": 0.034751,
+      "hidden": false,
+      "at": 0.0,
+      "new": false
+    },
+    {
+      "a": "beard",
+      "b": "head",
+      "depth": 0.07268,
+      "hidden": false,
+      "at": 0.0,
+      "new": false
+    },
+    {
+      "a": "body",
+      "b": "right_arm/sleeve",
+      "depth": 0.019495,
+      "hidden": false,
+      "at": 0.6,
+      "new": true
+    },
+    {
+      "a": "right_arm/sleeve",
+      "b": "head",
+      "depth": 0.019066,
+      "hidden": false,
+      "at": 0.6,
+      "new": true
+    },
+    {
+      "a": "right_arm/hand",
+      "b": "head",
+      "depth": 0.021535,
+      "hidden": false,
+      "at": 0.6,
+      "new": true
+    }
+  ],
+  "limits_broken": [],
+  "warnings": [],
+  "errors": []
+}

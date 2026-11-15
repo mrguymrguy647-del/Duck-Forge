@@ -18,7 +18,9 @@ use duckforge::LoadError;
 use duckforge::glb::{AnimatedModel, GlbModel};
 use duckforge::prelude::*;
 
-const MODELS: [&str; 6] = ["crate", "table", "tree", "house", "robot", "snowman"];
+const MODELS: [&str; 9] = [
+    "crate", "table", "tree", "house", "robot", "snowman", "door", "cart", "gnome",
+];
 
 /// A private copy of the Duck Mold fixtures, for one test.
 fn fixtures(test: &str) -> (TestFolder, PathBuf) {
@@ -324,8 +326,9 @@ fn every_assembly_duck_mold_reported_has_the_triangles_of_its_parts() -> Result<
         }
         found_any += model.assemblies.len();
     }
-    // The house's roof, and the robot's arms and legs.
-    assert_eq!(found_any, 5);
+    // The house's roof, the robot's arms and legs, the cart's four
+    // wheels and the gnome's arms and legs.
+    assert_eq!(found_any, 13);
     Ok(())
 }
 
@@ -834,10 +837,27 @@ fn a_file_from_a_newer_duck_mold_says_to_update_duck_forge() {
 
 /// The robot's animations, each with whether it loops and how long it
 /// lasts, as its recipe wrote them.
-const ANIMATIONS: [(&str, bool, f32); 3] = [
+const ANIMATIONS: [(&str, bool, f32); 4] = [
     ("idle", true, 2.0),
     ("walk", true, 0.8),
     ("wave", false, 1.5),
+    ("jump", false, 1.3),
+];
+
+/// Every animation of every model that moves: the model, the
+/// animation, whether it loops and how long it lasts. The door opens
+/// (its handle first), the cart's wheels roll, and the gnome walks with
+/// the robot's walk (copied into its recipe from a file Duck Mold's
+/// `save-animation` wrote) and waves with Duck Mold's starter `wave`.
+const PLAYED: [(&str, &str, bool, f32); 8] = [
+    ("robot", "idle", true, 2.0),
+    ("robot", "walk", true, 0.8),
+    ("robot", "wave", false, 1.5),
+    ("robot", "jump", false, 1.3),
+    ("door", "open", false, 1.0),
+    ("cart", "roll", true, 1.0),
+    ("gnome", "walk", true, 0.8),
+    ("gnome", "wave", false, 1.8),
 ];
 
 fn robot(test: &str) -> Result<(TestFolder, PathBuf, AnimatedModel), LoadError> {
@@ -855,7 +875,7 @@ fn low_and_high(mesh: &Mesh) -> (f32, f32) {
 #[test]
 fn an_animated_model_names_its_animations_and_poses() -> Result<(), LoadError> {
     let (_folder, models, robot) = robot("duck-mold-animations")?;
-    assert_eq!(robot.animations(), ["idle", "walk", "wave"]);
+    assert_eq!(robot.animations(), ["idle", "walk", "wave", "jump"]);
     assert_eq!(
         robot.poses(),
         [
@@ -864,7 +884,9 @@ fn an_animated_model_names_its_animations_and_poses() -> Result<(), LoadError> {
             "wave",
             "wave_out",
             "breathe_in",
-            "breathe_out"
+            "breathe_out",
+            "jump_crouch",
+            "jump_up"
         ]
     );
     // Duck Mold's report on the model names the same ones.
@@ -911,14 +933,15 @@ fn an_animated_model_names_its_animations_and_poses() -> Result<(), LoadError> {
 #[test]
 fn every_animation_plays_as_duck_mold_reported() -> Result<(), LoadError> {
     let (_folder, models, _) = robot("duck-mold-plays")?;
-    for (name, looping, length) in ANIMATIONS {
+    for (model, name, looping, length) in PLAYED {
+        let file = models.join(format!("{model}.glb"));
         let text =
-            std::fs::read_to_string(models.join(format!("robot.{name}.inspect.json"))).unwrap();
+            std::fs::read_to_string(models.join(format!("{model}.{name}.inspect.json"))).unwrap();
         let report: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(report["loops"].as_bool(), Some(looping), "{name}");
         assert_eq!(report["length"].as_f64().unwrap() as f32, length, "{name}");
 
-        let mut robot = AnimatedModel::load(models.join("robot.glb"))?;
+        let mut robot = AnimatedModel::load(&file)?;
         robot.set_blend(0.0); // straight into it, to compare frame by frame
         robot.play(name);
         assert_eq!(robot.playing(), Some(name));
@@ -940,13 +963,19 @@ fn every_animation_plays_as_duck_mold_reported() -> Result<(), LoadError> {
                 robot.update(1.0 / 30.0);
             }
         }
-        assert!(moved, "{name} moves the robot");
+        assert!(moved, "{model}: {name} moves it");
         let ground = &report["ground"];
         let close = |found: f32, wanted: &serde_json::Value| {
             (f64::from(found) - wanted.as_f64().unwrap()).abs() < 2e-4
         };
-        assert!(close(lowest, &ground["lowest_y"]), "{name}: {lowest}");
-        assert!(close(highest, &ground["highest_y"]), "{name}: {highest}");
+        assert!(
+            close(lowest, &ground["lowest_y"]),
+            "{model} {name}: {lowest}"
+        );
+        assert!(
+            close(highest, &ground["highest_y"]),
+            "{model} {name}: {highest}"
+        );
 
         // On to its end, and a little past it.
         robot.update(length);
@@ -955,7 +984,7 @@ fn every_animation_plays_as_duck_mold_reported() -> Result<(), LoadError> {
             // whole number of rounds later it stands as it did.
             assert!(robot.is_playing() && !robot.finished(), "{name}");
             assert!(robot.time() >= 0.0 && robot.time() < length, "{name}");
-            let mut again = AnimatedModel::load(models.join("robot.glb"))?;
+            let mut again = AnimatedModel::load(&file)?;
             again.set_blend(0.0);
             again.play(name);
             again.update(0.25);
@@ -1044,10 +1073,11 @@ fn every_animation_draws_its_stored_pictures() -> Result<(), LoadError> {
         );
         canvas
     };
-    for (name, _, length) in ANIMATIONS {
-        // The walk shows best from the side; the others from the front.
-        let side = name == "walk";
-        let mut robot = AnimatedModel::load(models.join("robot.glb"))?;
+    for (model, name, _, length) in PLAYED {
+        // A walk, a jump and the wheels show best from the side; the
+        // others from the front.
+        let side = matches!(name, "walk" | "jump" | "roll");
+        let mut robot = AnimatedModel::load(models.join(format!("{model}.glb")))?;
         robot.set_blend(0.0);
         robot.play(name);
         let mut pictures: Vec<Canvas> = Vec::new();
@@ -1060,7 +1090,7 @@ fn every_animation_draws_its_stored_pictures() -> Result<(), LoadError> {
             let canvas = draw(robot.mesh(), side);
             check_picture(
                 &folder,
-                &format!("robot.{name}.{}.png", moment + 1),
+                &format!("{model}.{name}.{}.png", moment + 1),
                 &canvas,
             );
             pictures.push(canvas);
@@ -1068,7 +1098,10 @@ fn every_animation_draws_its_stored_pictures() -> Result<(), LoadError> {
         // They are four different pictures: it moves.
         for (at, one) in pictures.iter().enumerate() {
             for other in &pictures[at + 1..] {
-                assert!(one.pixels() != other.pixels(), "{name}: two moments alike");
+                assert!(
+                    one.pixels() != other.pixels(),
+                    "{model} {name}: two moments alike"
+                );
             }
         }
     }
