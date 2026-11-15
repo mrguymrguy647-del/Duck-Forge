@@ -43,10 +43,14 @@ fn a_games_copy_has_its_own_names_and_the_same_code() {
         assert!(!copy.contains(ready.type_name));
         // Everything from the first line of code on is the same, but for
         // the type's name.
-        let original = source(ready.name).unwrap();
+        let original = source(ready.name).unwrap().replace("\r\n", "\n");
+        assert!(!copy.contains('\r'), "one kind of line ending");
         assert!(!original.contains("Bird"), "the test's name is free");
         let code = |text: &str| text[text.find("\nuse ").unwrap()..].to_string();
-        assert_eq!(code(&copy).replace("Bird", ready.type_name), code(original));
+        assert_eq!(
+            code(&copy).replace("Bird", ready.type_name),
+            code(&original)
+        );
         // And its first line says what the list says it does.
         assert!(original.starts_with(&format!("//! {}: {}.", ready.label, ready.about)));
     }

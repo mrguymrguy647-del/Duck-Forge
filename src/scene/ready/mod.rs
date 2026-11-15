@@ -61,7 +61,9 @@ pub fn source(name: &str) -> Option<&'static str> {
 /// writes it: its type is `type_name`, its first line names the script
 /// `name`, and the rest is the same, line for line.
 pub fn copy_for_a_game(ready: &ReadyMade, name: &str, type_name: &str) -> Option<String> {
-    let text = source(ready.name)?;
+    // One kind of line ending all through (a Windows checkout of Duck
+    // Forge has "\r\n" in the engine's own file).
+    let text = source(ready.name)?.replace("\r\n", "\n");
     // The file's opening words, up to the first line of code.
     let body = text
         .split_once("\nuse ")
