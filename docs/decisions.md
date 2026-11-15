@@ -5345,8 +5345,9 @@ reader byte for byte, shared with that project, so the general reader is
 its own module, `gltf.rs`. It mirrors x as Duck Mold's does, so models
 from both face the same way. What it can't read (JPEG textures, skins,
 morph targets) is said in `warnings` and the rest still loads, rather
-than refusing a whole model for one JPEG. `Mesh::load_glb` falls back to
-it for files Duck Mold didn't make.
+than refusing a whole model for one JPEG. (`Mesh::load_glb` first fell
+back to it for files Duck Mold didn't make; "Two model readers", below,
+says why it no longer does.)
 
 ## The numbers
 

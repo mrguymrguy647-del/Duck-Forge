@@ -1201,19 +1201,21 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn load_glb_reads_a_model_duck_mold_didnt_make() {
+    fn a_model_duck_mold_didnt_make_loads_with_gltf_model_and_load_glb_says_so() {
         let dir = crate::test_folder::TestFolder::new("gltf-load");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("slider.glb");
         std::fs::write(&path, test_model()).unwrap();
-        let mesh = Mesh::load_glb(&path).unwrap();
+        let refused = Mesh::load_glb(&path).unwrap_err().to_string();
+        assert!(refused.contains("GltfModel::load"), "{refused}");
+        let model = GltfModel::load(&path).unwrap();
+        let mesh = model.to_mesh().unwrap();
         assert_eq!(
             mesh.triangles.len(),
             3,
             "the square and the flag, as one mesh"
         );
         assert!(mesh.texture.is_some());
-        let model = GltfModel::load(&path).unwrap();
         assert_eq!(model.name, "slider");
         let missing = GltfModel::load(dir.join("nope.glb"))
             .unwrap_err()
@@ -1222,6 +1224,55 @@ pub(crate) mod tests {
             missing.contains("couldn't find the model file"),
             "{missing}"
         );
+    }
+
+    /// Duck Mold's models are glTF too: the general reader reads every one
+    /// to the same triangles, in the same colours and places, as Duck
+    /// Mold's own reader does.
+    #[test]
+    fn a_duck_mold_model_reads_the_same_with_either_reader() {
+        let fixtures = crate::test_folder::TestFolder::new("gltf-duck-mold");
+        let folder = fixtures.fixture("duck_mold");
+        let mut models = 0;
+        for entry in std::fs::read_dir(&folder).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_none_or(|e| e != "glb") {
+                continue;
+            }
+            models += 1;
+            let duck_mold = crate::glb::GlbModel::load(&path).unwrap().to_mesh();
+            let general = GltfModel::load(&path).unwrap();
+            assert!(
+                general.warnings.is_empty(),
+                "{path:?}: {:?}",
+                general.warnings
+            );
+            let general = general.to_mesh().unwrap();
+            // The same triangles, corner for corner (the general reader
+            // doesn't join corners in the same place, so compare points).
+            let corners = |mesh: &Mesh| -> Vec<([[i64; 3]; 3], Color)> {
+                let mut list: Vec<_> = mesh
+                    .triangles
+                    .iter()
+                    .map(|t| {
+                        let points = t.corners.map(|i| {
+                            let p = mesh.vertices[i];
+                            [p.x, p.y, p.z].map(|v| (v * 1000.0).round() as i64)
+                        });
+                        (points, t.color)
+                    })
+                    .collect();
+                list.sort_by_key(|(points, c)| (*points, c.r, c.g, c.b));
+                list
+            };
+            assert_eq!(
+                corners(&duck_mold),
+                corners(&general),
+                "{} reads differently",
+                path.display()
+            );
+        }
+        assert!(models >= 9, "{models} models");
     }
 
     #[test]

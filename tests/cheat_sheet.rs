@@ -981,13 +981,15 @@ fn models_from_duck_mold() -> Result<(), LoadError> {
         place.apply(top.position()),
         top.position() + vec3(2.0, 0.0, 0.0)
     );
-    // Only Duck Mold's .glb files load.
+    // Only Duck Mold's .glb files load this way; the message names the
+    // reader for any other glTF file.
     let error = Mesh::load_glb(models.join("robot.inspect.json")).unwrap_err();
     assert!(
         error
             .to_string()
             .contains("isn't a model Duck Forge can load")
     );
+    assert!(error.to_string().contains("GltfModel::load"));
     Ok(())
 }
 

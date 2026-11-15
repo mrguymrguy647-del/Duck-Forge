@@ -1094,8 +1094,9 @@ its parts and its node animations: `model.draw(canvas, &place, &camera)`,
 `model.draw_animated(canvas, &place, &camera, "walk", seconds)` (loops),
 `model.animations()` (`name`, `seconds`), `model.meshes_at("walk",
 seconds)`, `model.node_position("hand", Some("walk"), seconds)`,
-`model.warnings` (what it couldn't read); `Mesh::load_glb` loads one too,
-as one mesh, if it has at most one texture. Block worlds: `BlockPalette::new(&atlas,
+`model.warnings` (what it couldn't read), `model.to_mesh()` (one mesh,
+if it has at most one texture). `Mesh::load_glb` is for Duck Mold's
+files only, and says to use `GltfModel` for any other. Block worlds: `BlockPalette::new(&atlas,
 &[BlockKind::new("stone", ["stone"; 3]), BlockKind::new("glass",
 ["glass"; 3]).see_through(), BlockKind::new("leaves", ["leaves";
 3]).inner_faces(), BlockKind::new("lamp", ["lamp"; 3]).glowing()])`
@@ -1650,9 +1651,13 @@ posed meshes to draw or test. What it can't read is said in
 `model.warnings` and left out (the rest still loads): JPEG textures
 (it's drawn in its colours: save textures as PNG), skinned characters
 (bones bending one mesh; animate characters by their parts instead),
-morph targets. `Mesh::load_glb` loads such a file too, as one mesh in its
-resting pose, if it has at most one texture. OBJ and `.gltf` text files
-don't load: export a `.glb`.
+morph targets. `model.to_mesh()` is the whole model as one mesh in its
+resting pose, if it has at most one texture. `Mesh::load_glb` reads
+Duck Mold's files only (and says to use `GltfModel` for any other), so a
+game that only loads Duck Mold's models carries only Duck Mold's reader.
+A Duck Mold model loads with `GltfModel` too, to the same triangles, but
+use `AnimatedModel` for its animations, poses and sockets. OBJ and
+`.gltf` text files don't load: export a `.glb`.
 
 **Textures and atlases.** `mesh.with_texture(sprite)` paints a picture on
 it, where its texture coordinates say (every built-in shape has them: a

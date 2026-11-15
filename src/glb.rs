@@ -1236,7 +1236,8 @@ impl GlbModel {
                 io::ErrorKind::InvalidData,
                 format!(
                     "{} isn't a model Duck Forge can load ({reason}); only .glb files made by \
-                     Duck Mold can be loaded: make one with duck-mold export recipe.toml",
+                     Duck Mold load here: make one with duck-mold export recipe.toml, or load a \
+                     .glb from anywhere else with duckforge::gltf::GltfModel::load",
                     path.display()
                 ),
             )
@@ -1313,30 +1314,13 @@ impl Mesh {
     ///
     /// For its palette and parts, use [`GlbModel::load`] instead.
     ///
-    /// A `.glb` from anywhere else (Blender, say) is read as a
-    /// [`GltfModel`](crate::gltf::GltfModel) in its resting pose, with its
-    /// texture, if it has at most one (a mesh has one texture). For more
-    /// textures, its parts and its animations, load it as a `GltfModel`.
+    /// A `.glb` from anywhere else (Blender, say) is refused with a sentence
+    /// saying to load it with [`GltfModel`](crate::gltf::GltfModel), the
+    /// reader for any glTF file. (It isn't read here as well, so a game that
+    /// only loads Duck Mold's models carries only Duck Mold's reader: see
+    /// `docs/decisions.md`, "Two model readers".)
     pub fn load_glb(path: impl AsRef<Path>) -> Result<Mesh, LoadError> {
-        let path = path.as_ref();
-        match GlbModel::load(path) {
-            Ok(model) => Ok(model.to_mesh()),
-            Err(not_duck_mold) => {
-                let Ok(model) = crate::gltf::GltfModel::load(path) else {
-                    return Err(not_duck_mold);
-                };
-                model.to_mesh().ok_or_else(|| {
-                    LoadError::new(
-                        io::ErrorKind::InvalidData,
-                        format!(
-                            "{} has parts with different textures, and a mesh has one: load it \
-                             with GltfModel::load and draw it with model.draw",
-                            path.display()
-                        ),
-                    )
-                })
-            }
-        }
+        Ok(GlbModel::load(path)?.to_mesh())
     }
 }
 
