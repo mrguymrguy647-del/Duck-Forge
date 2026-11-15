@@ -197,6 +197,13 @@
   ],
   "floating": [],
   "overlapping": [],
+  "hit_shapes": {
+    "setting": null,
+    "count": 1,
+    "boxes": 1,
+    "spheres": 0,
+    "capsules": 0
+  },
   "poses": [
     "door_open",
     "unlatch"

@@ -5741,3 +5741,64 @@ passed five times in a row there, both ways (726 and 691), and so did the
 Studio's tests (with the two new ones that turn the duck into code), the
 beginner's proof from the zip and from the installed Studio, and the
 installer.
+
+# Duck Mold's Phase 6, step 2: what was hit
+
+Duck Mold's models can now carry **hit shapes**: a box, a ball or a
+capsule round each part, fitted by Duck Mold, written in the `.glb`
+beside the sockets and carried by the same joins. The reader (version 6,
+the same code in both repositories) reads them; `src/hits.rs` asks
+questions of them.
+
+## What was built
+
+- `AnimatedModel::hit_ray`, `hit_segment` and `hits_ball`: the first
+  part a ray or a segment reaches, and every part a ball reaches, as
+  `PartHit { part, point, normal, distance }`. `hit_shapes` lists each
+  shape as it is now, in the world.
+- `Camera3D::ray_through(pixel, canvas)` and `Context::mouse_ray(&camera)`:
+  the ray under a pixel, or under the mouse in `update`.
+- `Ray` and `PartHit` in the prelude.
+
+## Decisions made on the way
+
+- **`PartHit`, not `Hit`.** `math::Hit` (a moving box meeting another,
+  in 2D) is already in the prelude.
+- **The shapes are tested in the frame the model last worked out.** A
+  game calls `update`, draws, and tests: what is tested is what was
+  drawn. The shapes are moved by the same join stands as the mesh and
+  the sockets, so they can't disagree with what is on screen.
+- **Placed by the drawing `Transform`.** Position and rotation are used
+  exactly. A model scaled differently along each axis is tested as if
+  scaled by the largest, the way the lit renderer already treats such a
+  model's bounds: a box stretched one way is no longer a box with the
+  same directions, and games almost never do it.
+- **Not physics.** These are questions asked of a model, not bodies
+  that move. A character still stands and bumps with a physics body.
+- **A ray that starts inside a shape hits it at once (distance 0).** A
+  bullet fired from inside a part has hit it.
+- **Exactly at an edge.** A ray that only touches a box's edge or
+  corner, and goes on outside it, may be counted either way; the tests
+  allow both.
+
+## How it is tested
+
+`tests/duck_mold_hits.rs`, on the robot, the gnome, the door and the
+cart, at rest, in every pose and at five moments of every animation:
+
+- every shape is where `duck-mold inspect --colliders --json` said;
+- every corner of every part is inside its hit shape in every one of
+  those moments (a capsule's rounded ends let a cylinder's rim out by up
+  to 0.42 of its radius, as Duck Mold says);
+- 14 rays at the middle of every part, from the sides and the corners:
+  each hit is on the part it names, and a slow check written in the
+  test, stepping along the ray by exactly how far the nearest shape is,
+  meets nothing before it. Each part is named by at least one of its 14;
+- misses, a segment that stops short, balls, a model moved, turned and
+  scaled, models without hit shapes, and a click through a camera on
+  the walking robot.
+
+| | |
+|---|---|
+| Models with hit shapes | 4 |
+| Rays checked | over 10,000 |

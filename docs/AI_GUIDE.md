@@ -1641,6 +1641,39 @@ canvas.draw_mesh(self.robot.mesh(), &Transform::at(self.position), &self.camera)
 `examples/robot_walk/` is all of it in one small game: idle, walk with
 the arrow keys, wave with Space, a hat on `head.top`.
 
+**What was hit, on a Duck Mold model.** A recipe with `colliders =
+"parts"` gives each part a hit shape (a box, a ball or a capsule) that
+moves with it; `duck-mold inspect recipe.toml --colliders` lists them,
+and `duck-mold render recipe.toml --colliders` draws them. On an
+`AnimatedModel`, in the frame its last `update` worked out, and placed
+by the same `Transform` it is drawn with (`use duckforge::hits::Ray;`,
+or the prelude):
+
+- `robot.hit_ray(ray, &place)` is the first part a ray reaches, as
+  `Option<PartHit>`: `hit.part` (the recipe's path: `"head"`,
+  `"left_arm/hand"`), `hit.point` (in the world), `hit.normal` (the way
+  the surface faces there) and `hit.distance` (along the ray). A ray
+  that starts inside a shape hits it at distance 0.
+- `ctx.mouse_ray(&camera)` is the ray under the mouse (`None` while
+  the pointer is off the window), for a click in `update`:
+  `ctx.mouse_ray(&camera).and_then(|ray| robot.hit_ray(ray, &place))`.
+  `camera.ray_through(pixel, canvas)` is the ray under any point of the
+  canvas; both are the exact opposite of `camera.world_to_screen`.
+- `robot.hit_segment(from, to, &place)` is the first part between two
+  points (`None` if the way is clear); `robot.hits_ball(center, radius,
+  &place)` is every part a ball reaches, nearest first, each with the
+  point of its shape nearest the ball's middle.
+- `robot.hit_shapes(&place)` lists each shape now (`HitShape { part,
+  volume }`, the volume a `HitVolume::Box`, `Ball` or `Capsule`), to
+  draw them or test them yourself.
+- No hit shapes in the recipe: nothing is ever hit (also for files from
+  before Duck Mold 0.6). A part whose recipe says `collider = "none"`
+  (the robot's eyes) is never named: a ray goes on to what is behind.
+- A model scaled more one way than another is tested as if every size
+  were scaled by the largest of the three.
+- Not physics: use a physics `Body` for standing and bumping, the hit
+  shapes for which part a bullet or a click found.
+
 **Any other glTF model, textured and moving.** A `.glb` from Blender or
 elsewhere loads with `GltfModel` (`use duckforge::gltf::GltfModel;`):
 

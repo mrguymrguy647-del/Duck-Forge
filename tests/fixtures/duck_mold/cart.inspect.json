@@ -583,6 +583,13 @@
   ],
   "floating": [],
   "overlapping": [],
+  "hit_shapes": {
+    "setting": "parts",
+    "count": 15,
+    "boxes": 15,
+    "spheres": 0,
+    "capsules": 0
+  },
   "poses": [
     "roll_round"
   ],

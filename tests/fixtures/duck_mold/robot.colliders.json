@@ -1,0 +1,1278 @@
+{
+  "ok": true,
+  "summary": "robot: 0.90 x 1.83 x 0.39 m, 384 triangles, 19 parts, 4 colours, rests on the ground, nothing floating, nothing overlapping",
+  "source": "examples/robot.toml",
+  "name": "robot",
+  "size": [
+    0.9,
+    1.83,
+    0.39
+  ],
+  "bounds": {
+    "min": [
+      -0.45,
+      0.0,
+      -0.195
+    ],
+    "max": [
+      0.45,
+      1.83,
+      0.195
+    ]
+  },
+  "triangles": 384,
+  "vertices": 792,
+  "ground": {
+    "rests_on_ground": true,
+    "lowest_y": 0.0
+  },
+  "palette": [
+    {
+      "name": "steel",
+      "hex": "#8A939B",
+      "triangles": 96
+    },
+    {
+      "name": "dark",
+      "hex": "#3B4148",
+      "triangles": 180
+    },
+    {
+      "name": "red",
+      "hex": "#D0453A",
+      "triangles": 84
+    },
+    {
+      "name": "glow",
+      "hex": "#FFE08A",
+      "triangles": 24
+    }
+  ],
+  "parts": [
+    {
+      "name": "body",
+      "kind": "box",
+      "triangles": 12,
+      "size": [
+        0.6,
+        0.7,
+        0.36
+      ],
+      "bounds": {
+        "min": [
+          -0.3,
+          0.53,
+          -0.195
+        ],
+        "max": [
+          0.3,
+          1.23,
+          0.165
+        ]
+      },
+      "colors": [
+        "steel"
+      ],
+      "attached_to": null,
+      "parts": []
+    },
+    {
+      "name": "panel",
+      "kind": "box",
+      "triangles": 12,
+      "size": [
+        0.3,
+        0.2,
+        0.02
+      ],
+      "bounds": {
+        "min": [
+          -0.15,
+          0.885,
+          0.165
+        ],
+        "max": [
+          0.15,
+          1.085,
+          0.185
+        ]
+      },
+      "colors": [
+        "red"
+      ],
+      "attached_to": "body.chest",
+      "limits": "fixed",
+      "parts": []
+    },
+    {
+      "name": "head",
+      "kind": "box",
+      "triangles": 12,
+      "size": [
+        0.42,
+        0.32,
+        0.36
+      ],
+      "bounds": {
+        "min": [
+          -0.21,
+          1.23,
+          -0.195
+        ],
+        "max": [
+          0.21,
+          1.55,
+          0.165
+        ]
+      },
+      "colors": [
+        "steel"
+      ],
+      "attached_to": "body.neck",
+      "limits": {
+        "x": [
+          -30.0,
+          30.0
+        ],
+        "y": [
+          -80.0,
+          80.0
+        ]
+      },
+      "parts": []
+    },
+    {
+      "name": "left_eye",
+      "kind": "box",
+      "uses": "eye",
+      "triangles": 12,
+      "size": [
+        0.08,
+        0.08,
+        0.03
+      ],
+      "bounds": {
+        "min": [
+          -0.1345,
+          1.374,
+          0.165
+        ],
+        "max": [
+          -0.0545,
+          1.454,
+          0.195
+        ]
+      },
+      "colors": [
+        "glow"
+      ],
+      "attached_to": "head.left_eye",
+      "limits": "fixed",
+      "parts": []
+    },
+    {
+      "name": "right_eye",
+      "kind": "box",
+      "uses": "eye",
+      "triangles": 12,
+      "size": [
+        0.08,
+        0.08,
+        0.03
+      ],
+      "bounds": {
+        "min": [
+          0.0545,
+          1.374,
+          0.165
+        ],
+        "max": [
+          0.1345,
+          1.454,
+          0.195
+        ]
+      },
+      "colors": [
+        "glow"
+      ],
+      "attached_to": "head.right_eye",
+      "limits": "fixed",
+      "parts": []
+    },
+    {
+      "name": "antenna",
+      "kind": "cylinder",
+      "triangles": 28,
+      "size": [
+        0.03,
+        0.2,
+        0.03
+      ],
+      "bounds": {
+        "min": [
+          -0.015,
+          1.55,
+          -0.03
+        ],
+        "max": [
+          0.015,
+          1.75,
+          0.0
+        ]
+      },
+      "colors": [
+        "dark"
+      ],
+      "attached_to": "head.antenna",
+      "limits": {
+        "x": [
+          -15.0,
+          15.0
+        ],
+        "z": [
+          -15.0,
+          15.0
+        ]
+      },
+      "parts": []
+    },
+    {
+      "name": "antenna_tip",
+      "kind": "sphere",
+      "triangles": 48,
+      "size": [
+        0.08,
+        0.08,
+        0.08
+      ],
+      "bounds": {
+        "min": [
+          -0.04,
+          1.75,
+          -0.055
+        ],
+        "max": [
+          0.04,
+          1.83,
+          0.025
+        ]
+      },
+      "colors": [
+        "red"
+      ],
+      "attached_to": "antenna.top",
+      "limits": "fixed",
+      "parts": []
+    },
+    {
+      "name": "left_arm",
+      "kind": "assembly",
+      "uses": "arm",
+      "triangles": 84,
+      "size": [
+        0.16,
+        0.86,
+        0.16
+      ],
+      "bounds": {
+        "min": [
+          -0.45,
+          0.329,
+          -0.095
+        ],
+        "max": [
+          -0.29,
+          1.189,
+          0.065
+        ]
+      },
+      "colors": [
+        "steel",
+        "dark",
+        "red"
+      ],
+      "attached_to": "body.left_arm",
+      "limits": {
+        "x": [
+          -90.0,
+          180.0
+        ],
+        "z": [
+          -60.0,
+          60.0
+        ]
+      },
+      "parts": [
+        {
+          "name": "left_arm/upper",
+          "kind": "box",
+          "triangles": 12,
+          "size": [
+            0.14,
+            0.32,
+            0.14
+          ],
+          "bounds": {
+            "min": [
+              -0.44,
+              0.869,
+              -0.085
+            ],
+            "max": [
+              -0.3,
+              1.189,
+              0.055
+            ]
+          },
+          "colors": [
+            "steel"
+          ],
+          "attached_to": null,
+          "limits": "fixed",
+          "parts": []
+        },
+        {
+          "name": "left_arm/elbow",
+          "kind": "sphere",
+          "triangles": 48,
+          "size": [
+            0.14,
+            0.14,
+            0.14
+          ],
+          "bounds": {
+            "min": [
+              -0.44,
+              0.729,
+              -0.085
+            ],
+            "max": [
+              -0.3,
+              0.869,
+              0.055
+            ]
+          },
+          "colors": [
+            "dark"
+          ],
+          "attached_to": "upper.bottom",
+          "limits": {
+            "x": [
+              0.0,
+              140.0
+            ],
+            "z": [
+              -45.0,
+              45.0
+            ]
+          },
+          "parts": []
+        },
+        {
+          "name": "left_arm/forearm",
+          "kind": "box",
+          "triangles": 12,
+          "size": [
+            0.12,
+            0.3,
+            0.12
+          ],
+          "bounds": {
+            "min": [
+              -0.43,
+              0.429,
+              -0.075
+            ],
+            "max": [
+              -0.31,
+              0.729,
+              0.045
+            ]
+          },
+          "colors": [
+            "steel"
+          ],
+          "attached_to": "elbow.bottom",
+          "limits": "fixed",
+          "parts": []
+        },
+        {
+          "name": "left_arm/hand",
+          "kind": "box",
+          "triangles": 12,
+          "size": [
+            0.16,
+            0.1,
+            0.16
+          ],
+          "bounds": {
+            "min": [
+              -0.45,
+              0.329,
+              -0.095
+            ],
+            "max": [
+              -0.29,
+              0.429,
+              0.065
+            ]
+          },
+          "colors": [
+            "red"
+          ],
+          "attached_to": "forearm.bottom",
+          "limits": {
+            "x": [
+              -45.0,
+              45.0
+            ],
+            "z": [
+              -45.0,
+              45.0
+            ]
+          },
+          "parts": []
+        }
+      ]
+    },
+    {
+      "name": "right_arm",
+      "kind": "assembly",
+      "uses": "arm",
+      "triangles": 84,
+      "size": [
+        0.16,
+        0.86,
+        0.16
+      ],
+      "bounds": {
+        "min": [
+          0.29,
+          0.329,
+          -0.095
+        ],
+        "max": [
+          0.45,
+          1.189,
+          0.065
+        ]
+      },
+      "colors": [
+        "steel",
+        "dark",
+        "red"
+      ],
+      "attached_to": "body.right_arm",
+      "mirrored": true,
+      "limits": {
+        "x": [
+          -90.0,
+          180.0
+        ],
+        "z": [
+          -60.0,
+          60.0
+        ]
+      },
+      "parts": [
+        {
+          "name": "right_arm/upper",
+          "kind": "box",
+          "triangles": 12,
+          "size": [
+            0.14,
+            0.32,
+            0.14
+          ],
+          "bounds": {
+            "min": [
+              0.3,
+              0.869,
+              -0.085
+            ],
+            "max": [
+              0.44,
+              1.189,
+              0.055
+            ]
+          },
+          "colors": [
+            "steel"
+          ],
+          "attached_to": null,
+          "mirrored": true,
+          "limits": "fixed",
+          "parts": []
+        },
+        {
+          "name": "right_arm/elbow",
+          "kind": "sphere",
+          "triangles": 48,
+          "size": [
+            0.14,
+            0.14,
+            0.14
+          ],
+          "bounds": {
+            "min": [
+              0.3,
+              0.729,
+              -0.085
+            ],
+            "max": [
+              0.44,
+              0.869,
+              0.055
+            ]
+          },
+          "colors": [
+            "dark"
+          ],
+          "attached_to": "upper.bottom",
+          "mirrored": true,
+          "limits": {
+            "x": [
+              0.0,
+              140.0
+            ],
+            "z": [
+              -45.0,
+              45.0
+            ]
+          },
+          "parts": []
+        },
+        {
+          "name": "right_arm/forearm",
+          "kind": "box",
+          "triangles": 12,
+          "size": [
+            0.12,
+            0.3,
+            0.12
+          ],
+          "bounds": {
+            "min": [
+              0.31,
+              0.429,
+              -0.075
+            ],
+            "max": [
+              0.43,
+              0.729,
+              0.045
+            ]
+          },
+          "colors": [
+            "steel"
+          ],
+          "attached_to": "elbow.bottom",
+          "mirrored": true,
+          "limits": "fixed",
+          "parts": []
+        },
+        {
+          "name": "right_arm/hand",
+          "kind": "box",
+          "triangles": 12,
+          "size": [
+            0.16,
+            0.1,
+            0.16
+          ],
+          "bounds": {
+            "min": [
+              0.29,
+              0.329,
+              -0.095
+            ],
+            "max": [
+              0.45,
+              0.429,
+              0.065
+            ]
+          },
+          "colors": [
+            "red"
+          ],
+          "attached_to": "forearm.bottom",
+          "mirrored": true,
+          "limits": {
+            "x": [
+              -45.0,
+              45.0
+            ],
+            "z": [
+              -45.0,
+              45.0
+            ]
+          },
+          "parts": []
+        }
+      ]
+    },
+    {
+      "name": "left_leg",
+      "kind": "assembly",
+      "uses": "leg",
+      "triangles": 40,
+      "size": [
+        0.2,
+        0.53,
+        0.3
+      ],
+      "bounds": {
+        "min": [
+          -0.25,
+          0.0,
+          -0.105
+        ],
+        "max": [
+          -0.05,
+          0.53,
+          0.195
+        ]
+      },
+      "colors": [
+        "steel",
+        "dark"
+      ],
+      "attached_to": "body.left_leg",
+      "limits": {
+        "x": [
+          -60.0,
+          60.0
+        ]
+      },
+      "parts": [
+        {
+          "name": "left_leg/thigh",
+          "kind": "cylinder",
+          "triangles": 28,
+          "size": [
+            0.18,
+            0.45,
+            0.18
+          ],
+          "bounds": {
+            "min": [
+              -0.24,
+              0.08,
+              -0.105
+            ],
+            "max": [
+              -0.06,
+              0.53,
+              0.075
+            ]
+          },
+          "colors": [
+            "dark"
+          ],
+          "attached_to": null,
+          "limits": "fixed",
+          "parts": []
+        },
+        {
+          "name": "left_leg/foot",
+          "kind": "box",
+          "triangles": 12,
+          "size": [
+            0.2,
+            0.08,
+            0.3
+          ],
+          "bounds": {
+            "min": [
+              -0.25,
+              0.0,
+              -0.105
+            ],
+            "max": [
+              -0.05,
+              0.08,
+              0.195
+            ]
+          },
+          "colors": [
+            "steel"
+          ],
+          "attached_to": "thigh.bottom",
+          "limits": {
+            "x": [
+              -45.0,
+              45.0
+            ]
+          },
+          "parts": []
+        }
+      ]
+    },
+    {
+      "name": "right_leg",
+      "kind": "assembly",
+      "uses": "leg",
+      "triangles": 40,
+      "size": [
+        0.2,
+        0.53,
+        0.3
+      ],
+      "bounds": {
+        "min": [
+          0.05,
+          0.0,
+          -0.105
+        ],
+        "max": [
+          0.25,
+          0.53,
+          0.195
+        ]
+      },
+      "colors": [
+        "steel",
+        "dark"
+      ],
+      "attached_to": "body.right_leg",
+      "limits": {
+        "x": [
+          -60.0,
+          60.0
+        ]
+      },
+      "parts": [
+        {
+          "name": "right_leg/thigh",
+          "kind": "cylinder",
+          "triangles": 28,
+          "size": [
+            0.18,
+            0.45,
+            0.18
+          ],
+          "bounds": {
+            "min": [
+              0.06,
+              0.08,
+              -0.105
+            ],
+            "max": [
+              0.24,
+              0.53,
+              0.075
+            ]
+          },
+          "colors": [
+            "dark"
+          ],
+          "attached_to": null,
+          "limits": "fixed",
+          "parts": []
+        },
+        {
+          "name": "right_leg/foot",
+          "kind": "box",
+          "triangles": 12,
+          "size": [
+            0.2,
+            0.08,
+            0.3
+          ],
+          "bounds": {
+            "min": [
+              0.05,
+              0.0,
+              -0.105
+            ],
+            "max": [
+              0.25,
+              0.08,
+              0.195
+            ]
+          },
+          "colors": [
+            "steel"
+          ],
+          "attached_to": "thigh.bottom",
+          "limits": {
+            "x": [
+              -45.0,
+              45.0
+            ]
+          },
+          "parts": []
+        }
+      ]
+    }
+  ],
+  "floating": [],
+  "overlapping": [],
+  "hit_shapes": {
+    "setting": "parts",
+    "count": 15,
+    "boxes": 9,
+    "spheres": 3,
+    "capsules": 3,
+    "none_by_their_own": [
+      "panel",
+      "left_eye",
+      "right_eye",
+      "antenna_tip"
+    ]
+  },
+  "parts_without_colliders": [
+    "panel",
+    "left_eye",
+    "right_eye",
+    "antenna_tip"
+  ],
+  "colliders": [
+    {
+      "part": "body",
+      "shape": "box",
+      "center": [
+        0.0,
+        0.88,
+        -0.015
+      ],
+      "size": [
+        0.6,
+        0.7,
+        0.36
+      ],
+      "directions": [
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.6 x 0.7 x 0.36"
+    },
+    {
+      "part": "head",
+      "shape": "sphere",
+      "center": [
+        0.0,
+        1.39,
+        -0.015
+      ],
+      "radius": 0.319531,
+      "own": false,
+      "words": "sphere r 0.32"
+    },
+    {
+      "part": "antenna",
+      "shape": "capsule",
+      "center": [
+        0.0,
+        1.65,
+        -0.015
+      ],
+      "radius": 0.016236,
+      "length": 0.2,
+      "ends": [
+        [
+          0.0,
+          1.566236,
+          -0.015
+        ],
+        [
+          0.0,
+          1.733764,
+          -0.015
+        ]
+      ],
+      "own": false,
+      "words": "capsule r 0.016, 0.2 long"
+    },
+    {
+      "part": "left_arm/upper",
+      "shape": "box",
+      "center": [
+        -0.37,
+        1.029,
+        -0.015
+      ],
+      "size": [
+        0.14,
+        0.32,
+        0.14
+      ],
+      "directions": [
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.14 x 0.32 x 0.14"
+    },
+    {
+      "part": "left_arm/elbow",
+      "shape": "sphere",
+      "center": [
+        -0.37,
+        0.799,
+        -0.015
+      ],
+      "radius": 0.07,
+      "own": false,
+      "words": "sphere r 0.07"
+    },
+    {
+      "part": "left_arm/forearm",
+      "shape": "box",
+      "center": [
+        -0.37,
+        0.579,
+        -0.015
+      ],
+      "size": [
+        0.12,
+        0.3,
+        0.12
+      ],
+      "directions": [
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.12 x 0.3 x 0.12"
+    },
+    {
+      "part": "left_arm/hand",
+      "shape": "box",
+      "center": [
+        -0.37,
+        0.379,
+        -0.015
+      ],
+      "size": [
+        0.16,
+        0.1,
+        0.16
+      ],
+      "directions": [
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.16 x 0.1 x 0.16"
+    },
+    {
+      "part": "right_arm/upper",
+      "shape": "box",
+      "center": [
+        0.37,
+        1.029,
+        -0.015
+      ],
+      "size": [
+        0.14,
+        0.32,
+        0.14
+      ],
+      "directions": [
+        [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.14 x 0.32 x 0.14"
+    },
+    {
+      "part": "right_arm/elbow",
+      "shape": "sphere",
+      "center": [
+        0.37,
+        0.799,
+        -0.015
+      ],
+      "radius": 0.07,
+      "own": false,
+      "words": "sphere r 0.07"
+    },
+    {
+      "part": "right_arm/forearm",
+      "shape": "box",
+      "center": [
+        0.37,
+        0.579,
+        -0.015
+      ],
+      "size": [
+        0.12,
+        0.3,
+        0.12
+      ],
+      "directions": [
+        [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.12 x 0.3 x 0.12"
+    },
+    {
+      "part": "right_arm/hand",
+      "shape": "box",
+      "center": [
+        0.37,
+        0.379,
+        -0.015
+      ],
+      "size": [
+        0.16,
+        0.1,
+        0.16
+      ],
+      "directions": [
+        [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.16 x 0.1 x 0.16"
+    },
+    {
+      "part": "left_leg/thigh",
+      "shape": "capsule",
+      "center": [
+        -0.15,
+        0.305,
+        -0.015
+      ],
+      "radius": 0.097416,
+      "length": 0.450002,
+      "ends": [
+        [
+          -0.15,
+          0.177415,
+          -0.015
+        ],
+        [
+          -0.15,
+          0.432585,
+          -0.015
+        ]
+      ],
+      "own": false,
+      "words": "capsule r 0.097, 0.45 long"
+    },
+    {
+      "part": "left_leg/foot",
+      "shape": "box",
+      "center": [
+        -0.15,
+        0.04,
+        0.045
+      ],
+      "size": [
+        0.2,
+        0.08,
+        0.3
+      ],
+      "directions": [
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.2 x 0.08 x 0.3"
+    },
+    {
+      "part": "right_leg/thigh",
+      "shape": "capsule",
+      "center": [
+        0.15,
+        0.305,
+        -0.015
+      ],
+      "radius": 0.097416,
+      "length": 0.450002,
+      "ends": [
+        [
+          0.15,
+          0.177415,
+          -0.015
+        ],
+        [
+          0.15,
+          0.432585,
+          -0.015
+        ]
+      ],
+      "own": false,
+      "words": "capsule r 0.097, 0.45 long"
+    },
+    {
+      "part": "right_leg/foot",
+      "shape": "box",
+      "center": [
+        0.15,
+        0.04,
+        0.045
+      ],
+      "size": [
+        0.2,
+        0.08,
+        0.3
+      ],
+      "directions": [
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.2 x 0.08 x 0.3"
+    }
+  ],
+  "poses": [
+    "step_left",
+    "step_right",
+    "wave",
+    "wave_out",
+    "breathe_in",
+    "breathe_out",
+    "jump_crouch",
+    "jump_up"
+  ],
+  "animations": [
+    {
+      "name": "idle",
+      "length": 2.0,
+      "loops": true,
+      "keys": 3
+    },
+    {
+      "name": "walk",
+      "length": 0.8,
+      "loops": true,
+      "keys": 5
+    },
+    {
+      "name": "wave",
+      "length": 1.5,
+      "loops": false,
+      "keys": 6
+    },
+    {
+      "name": "jump",
+      "length": 1.3,
+      "loops": false,
+      "keys": 5
+    }
+  ],
+  "warnings": [],
+  "errors": []
+}

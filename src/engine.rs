@@ -388,6 +388,26 @@ impl Context {
         &self.renderer_name
     }
 
+    /// The ray from `camera` through the mouse pointer (`None` while the
+    /// pointer is off the window): what the player sees under the mouse
+    /// is on it. For clicking on a 3D model:
+    ///
+    /// ```no_run
+    /// # use duckforge::prelude::*;
+    /// # use duckforge::glb::AnimatedModel;
+    /// # fn demo(ctx: &mut Context, camera: &Camera3D, robot: &AnimatedModel, place: &Transform) {
+    /// if ctx.input.was_mouse_pressed(MouseButton::Left) {
+    ///     if let Some(hit) = ctx.mouse_ray(camera).and_then(|ray| robot.hit_ray(ray, place)) {
+    ///         println!("you clicked its {}", hit.part);
+    ///     }
+    /// }
+    /// # }
+    /// ```
+    pub fn mouse_ray(&self, camera: &crate::render3d::Camera3D) -> Option<crate::hits::Ray> {
+        let mouse = self.input.mouse_position()?;
+        Some(camera.ray_through_size(mouse, self.width(), self.height()))
+    }
+
     /// Width of the canvas in pixels.
     pub fn width(&self) -> f32 {
         self.width as f32
@@ -914,6 +934,23 @@ mod tests {
         assert_eq!(ctx.frame(), 2);
         assert_eq!((ctx.width(), ctx.height()), (100.0, 50.0));
         assert!(ctx.input.was_released(Key::Space));
+    }
+
+    #[test]
+    fn the_mouse_ray_goes_through_the_pointer() {
+        use crate::math::{vec2, vec3};
+        use crate::render3d::Camera3D;
+        let mut ctx = Context::new(320, 240, 1);
+        let camera = Camera3D::looking_at(vec3(1.0, 2.0, 4.0), vec3(0.0, 1.0, 0.0));
+        assert_eq!(ctx.mouse_ray(&camera), None, "no pointer yet");
+        ctx.input
+            .update_mouse(Some(vec2(40.0, 200.0)), Vec2::ZERO, [], 0.0);
+        let ray = ctx.mouse_ray(&camera).unwrap();
+        assert_eq!(ray.origin, camera.position);
+        let canvas = Canvas::new(320, 240);
+        assert_eq!(ray, camera.ray_through(vec2(40.0, 200.0), &canvas));
+        let back = camera.world_to_screen(ray.at(3.0), &canvas).unwrap();
+        assert!((back - vec2(40.0, 200.0)).length() < 1e-3, "{back:?}");
     }
 
     #[test]

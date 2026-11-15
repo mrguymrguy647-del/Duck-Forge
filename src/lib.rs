@@ -53,6 +53,7 @@ pub mod gltf;
 #[cfg(feature = "gpu")]
 mod gpu;
 pub mod headless;
+pub mod hits;
 pub mod input;
 pub mod lights;
 pub mod math;
@@ -110,6 +111,7 @@ pub mod prelude {
     pub use crate::color::Color;
     pub use crate::engine::{Config, Context, Corner, FailedCheck, Game, Timestep};
     pub use crate::font_file::{Align, Font, TextStyle};
+    pub use crate::hits::{PartHit, Ray};
     pub use crate::input::{Input, Key, MouseButton};
     pub use crate::lights::{Bloom, Lamp, Shadows, Spot};
     pub use crate::math::{

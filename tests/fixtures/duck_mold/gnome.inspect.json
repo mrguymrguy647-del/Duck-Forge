@@ -640,6 +640,21 @@
       "hidden": false
     }
   ],
+  "hit_shapes": {
+    "setting": "parts",
+    "count": 12,
+    "boxes": 6,
+    "spheres": 3,
+    "capsules": 3,
+    "none_by_their_own": [
+      "buckle",
+      "nose"
+    ]
+  },
+  "parts_without_colliders": [
+    "buckle",
+    "nose"
+  ],
   "poses": [
     "step_left",
     "step_right",

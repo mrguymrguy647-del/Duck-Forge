@@ -1,0 +1,992 @@
+{
+  "ok": true,
+  "summary": "gnome: 0.56 x 1.27 x 0.363 m, 432 triangles, 14 parts, 6 colours, rests on the ground, nothing floating, 2 overlaps",
+  "source": "examples/gnome.toml",
+  "name": "gnome",
+  "size": [
+    0.56,
+    1.27,
+    0.362864
+  ],
+  "bounds": {
+    "min": [
+      -0.28,
+      0.0,
+      -0.181432
+    ],
+    "max": [
+      0.28,
+      1.27,
+      0.181432
+    ]
+  },
+  "triangles": 432,
+  "vertices": 928,
+  "ground": {
+    "rests_on_ground": true,
+    "lowest_y": 0.0
+  },
+  "palette": [
+    {
+      "name": "coat",
+      "hex": "#3E6FB0",
+      "triangles": 92
+    },
+    {
+      "name": "hat",
+      "hex": "#C8443A",
+      "triangles": 22
+    },
+    {
+      "name": "skin",
+      "hex": "#F0C8A0",
+      "triangles": 264
+    },
+    {
+      "name": "beard",
+      "hex": "#F2F2EE",
+      "triangles": 18
+    },
+    {
+      "name": "boots",
+      "hex": "#5A3A22",
+      "triangles": 24
+    },
+    {
+      "name": "belt",
+      "hex": "#2E2E2E",
+      "triangles": 12
+    }
+  ],
+  "parts": [
+    {
+      "name": "body",
+      "kind": "box",
+      "triangles": 12,
+      "size": [
+        0.36,
+        0.38,
+        0.28
+      ],
+      "bounds": {
+        "min": [
+          -0.18,
+          0.27,
+          -0.171432
+        ],
+        "max": [
+          0.18,
+          0.65,
+          0.108568
+        ]
+      },
+      "colors": [
+        "coat"
+      ],
+      "attached_to": null,
+      "parts": []
+    },
+    {
+      "name": "buckle",
+      "kind": "box",
+      "triangles": 12,
+      "size": [
+        0.1,
+        0.07,
+        0.02
+      ],
+      "bounds": {
+        "min": [
+          -0.05,
+          0.368,
+          0.108568
+        ],
+        "max": [
+          0.05,
+          0.438,
+          0.128568
+        ]
+      },
+      "colors": [
+        "belt"
+      ],
+      "attached_to": "body.belt",
+      "limits": "fixed",
+      "parts": []
+    },
+    {
+      "name": "head",
+      "kind": "sphere",
+      "triangles": 120,
+      "size": [
+        0.28,
+        0.28,
+        0.28
+      ],
+      "bounds": {
+        "min": [
+          -0.14,
+          0.65,
+          -0.171432
+        ],
+        "max": [
+          0.14,
+          0.93,
+          0.108568
+        ]
+      },
+      "colors": [
+        "skin"
+      ],
+      "attached_to": "body.neck",
+      "limits": {
+        "x": [
+          -30.0,
+          30.0
+        ],
+        "y": [
+          -80.0,
+          80.0
+        ]
+      },
+      "parts": []
+    },
+    {
+      "name": "hat",
+      "kind": "cone",
+      "triangles": 22,
+      "size": [
+        0.3,
+        0.34,
+        0.3
+      ],
+      "bounds": {
+        "min": [
+          -0.15,
+          0.93,
+          -0.181432
+        ],
+        "max": [
+          0.15,
+          1.27,
+          0.118568
+        ]
+      },
+      "colors": [
+        "hat"
+      ],
+      "attached_to": "head.top",
+      "limits": "fixed",
+      "parts": []
+    },
+    {
+      "name": "nose",
+      "kind": "sphere",
+      "triangles": 48,
+      "size": [
+        0.07,
+        0.07,
+        0.07
+      ],
+      "bounds": {
+        "min": [
+          -0.035,
+          0.755,
+          0.108568
+        ],
+        "max": [
+          0.035,
+          0.825,
+          0.178568
+        ]
+      },
+      "colors": [
+        "skin"
+      ],
+      "attached_to": "head.nose",
+      "limits": "fixed",
+      "parts": []
+    },
+    {
+      "name": "beard",
+      "kind": "cone",
+      "triangles": 18,
+      "size": [
+        0.16,
+        0.24,
+        0.168234
+      ],
+      "bounds": {
+        "min": [
+          -0.08,
+          0.508,
+          0.013198
+        ],
+        "max": [
+          0.08,
+          0.748,
+          0.181432
+        ]
+      },
+      "colors": [
+        "beard"
+      ],
+      "attached_to": "head.chin",
+      "limits": "fixed",
+      "parts": []
+    },
+    {
+      "name": "left_arm",
+      "kind": "assembly",
+      "uses": "arm",
+      "triangles": 60,
+      "size": [
+        0.1,
+        0.34,
+        0.1
+      ],
+      "bounds": {
+        "min": [
+          -0.28,
+          0.301,
+          -0.081432
+        ],
+        "max": [
+          -0.18,
+          0.641,
+          0.018568
+        ]
+      },
+      "colors": [
+        "coat",
+        "skin"
+      ],
+      "attached_to": "body.left_arm",
+      "limits": {
+        "x": [
+          -90.0,
+          180.0
+        ],
+        "z": [
+          -60.0,
+          60.0
+        ]
+      },
+      "parts": [
+        {
+          "name": "left_arm/sleeve",
+          "kind": "box",
+          "triangles": 12,
+          "size": [
+            0.1,
+            0.24,
+            0.1
+          ],
+          "bounds": {
+            "min": [
+              -0.28,
+              0.401,
+              -0.081432
+            ],
+            "max": [
+              -0.18,
+              0.641,
+              0.018568
+            ]
+          },
+          "colors": [
+            "coat"
+          ],
+          "attached_to": null,
+          "limits": "fixed",
+          "parts": []
+        },
+        {
+          "name": "left_arm/hand",
+          "kind": "sphere",
+          "triangles": 48,
+          "size": [
+            0.1,
+            0.1,
+            0.1
+          ],
+          "bounds": {
+            "min": [
+              -0.28,
+              0.301,
+              -0.081432
+            ],
+            "max": [
+              -0.18,
+              0.401,
+              0.018568
+            ]
+          },
+          "colors": [
+            "skin"
+          ],
+          "attached_to": "sleeve.bottom",
+          "limits": "fixed",
+          "parts": []
+        }
+      ]
+    },
+    {
+      "name": "right_arm",
+      "kind": "assembly",
+      "uses": "arm",
+      "triangles": 60,
+      "size": [
+        0.1,
+        0.34,
+        0.1
+      ],
+      "bounds": {
+        "min": [
+          0.18,
+          0.301,
+          -0.081432
+        ],
+        "max": [
+          0.28,
+          0.641,
+          0.018568
+        ]
+      },
+      "colors": [
+        "coat",
+        "skin"
+      ],
+      "attached_to": "body.right_arm",
+      "mirrored": true,
+      "limits": {
+        "x": [
+          -90.0,
+          180.0
+        ],
+        "z": [
+          -60.0,
+          60.0
+        ]
+      },
+      "parts": [
+        {
+          "name": "right_arm/sleeve",
+          "kind": "box",
+          "triangles": 12,
+          "size": [
+            0.1,
+            0.24,
+            0.1
+          ],
+          "bounds": {
+            "min": [
+              0.18,
+              0.401,
+              -0.081432
+            ],
+            "max": [
+              0.28,
+              0.641,
+              0.018568
+            ]
+          },
+          "colors": [
+            "coat"
+          ],
+          "attached_to": null,
+          "mirrored": true,
+          "limits": "fixed",
+          "parts": []
+        },
+        {
+          "name": "right_arm/hand",
+          "kind": "sphere",
+          "triangles": 48,
+          "size": [
+            0.1,
+            0.1,
+            0.1
+          ],
+          "bounds": {
+            "min": [
+              0.18,
+              0.301,
+              -0.081432
+            ],
+            "max": [
+              0.28,
+              0.401,
+              0.018568
+            ]
+          },
+          "colors": [
+            "skin"
+          ],
+          "attached_to": "sleeve.bottom",
+          "mirrored": true,
+          "limits": "fixed",
+          "parts": []
+        }
+      ]
+    },
+    {
+      "name": "left_leg",
+      "kind": "assembly",
+      "uses": "leg",
+      "triangles": 40,
+      "size": [
+        0.13,
+        0.27,
+        0.22
+      ],
+      "bounds": {
+        "min": [
+          -0.155,
+          0.0,
+          -0.097432
+        ],
+        "max": [
+          -0.025,
+          0.27,
+          0.122568
+        ]
+      },
+      "colors": [
+        "coat",
+        "boots"
+      ],
+      "attached_to": "body.left_leg",
+      "limits": {
+        "x": [
+          -60.0,
+          60.0
+        ]
+      },
+      "parts": [
+        {
+          "name": "left_leg/thigh",
+          "kind": "cylinder",
+          "triangles": 28,
+          "size": [
+            0.12,
+            0.2,
+            0.12
+          ],
+          "bounds": {
+            "min": [
+              -0.15,
+              0.07,
+              -0.091432
+            ],
+            "max": [
+              -0.03,
+              0.27,
+              0.028568
+            ]
+          },
+          "colors": [
+            "coat"
+          ],
+          "attached_to": null,
+          "limits": "fixed",
+          "parts": []
+        },
+        {
+          "name": "left_leg/foot",
+          "kind": "box",
+          "triangles": 12,
+          "size": [
+            0.13,
+            0.07,
+            0.22
+          ],
+          "bounds": {
+            "min": [
+              -0.155,
+              0.0,
+              -0.097432
+            ],
+            "max": [
+              -0.025,
+              0.07,
+              0.122568
+            ]
+          },
+          "colors": [
+            "boots"
+          ],
+          "attached_to": "thigh.bottom",
+          "limits": {
+            "x": [
+              -45.0,
+              45.0
+            ]
+          },
+          "parts": []
+        }
+      ]
+    },
+    {
+      "name": "right_leg",
+      "kind": "assembly",
+      "uses": "leg",
+      "triangles": 40,
+      "size": [
+        0.13,
+        0.27,
+        0.22
+      ],
+      "bounds": {
+        "min": [
+          0.025,
+          0.0,
+          -0.097432
+        ],
+        "max": [
+          0.155,
+          0.27,
+          0.122568
+        ]
+      },
+      "colors": [
+        "coat",
+        "boots"
+      ],
+      "attached_to": "body.right_leg",
+      "limits": {
+        "x": [
+          -60.0,
+          60.0
+        ]
+      },
+      "parts": [
+        {
+          "name": "right_leg/thigh",
+          "kind": "cylinder",
+          "triangles": 28,
+          "size": [
+            0.12,
+            0.2,
+            0.12
+          ],
+          "bounds": {
+            "min": [
+              0.03,
+              0.07,
+              -0.091432
+            ],
+            "max": [
+              0.15,
+              0.27,
+              0.028568
+            ]
+          },
+          "colors": [
+            "coat"
+          ],
+          "attached_to": null,
+          "limits": "fixed",
+          "parts": []
+        },
+        {
+          "name": "right_leg/foot",
+          "kind": "box",
+          "triangles": 12,
+          "size": [
+            0.13,
+            0.07,
+            0.22
+          ],
+          "bounds": {
+            "min": [
+              0.025,
+              0.0,
+              -0.097432
+            ],
+            "max": [
+              0.155,
+              0.07,
+              0.122568
+            ]
+          },
+          "colors": [
+            "boots"
+          ],
+          "attached_to": "thigh.bottom",
+          "limits": {
+            "x": [
+              -45.0,
+              45.0
+            ]
+          },
+          "parts": []
+        }
+      ]
+    }
+  ],
+  "floating": [],
+  "overlapping": [
+    {
+      "a": "body",
+      "b": "beard",
+      "depth": 0.034751,
+      "hidden": false
+    },
+    {
+      "a": "beard",
+      "b": "head",
+      "depth": 0.07268,
+      "hidden": false
+    }
+  ],
+  "hit_shapes": {
+    "setting": "parts",
+    "count": 12,
+    "boxes": 6,
+    "spheres": 3,
+    "capsules": 3,
+    "none_by_their_own": [
+      "buckle",
+      "nose"
+    ]
+  },
+  "parts_without_colliders": [
+    "buckle",
+    "nose"
+  ],
+  "colliders": [
+    {
+      "part": "body",
+      "shape": "box",
+      "center": [
+        0.0,
+        0.46,
+        -0.031432
+      ],
+      "size": [
+        0.36,
+        0.38,
+        0.28
+      ],
+      "directions": [
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.36 x 0.38 x 0.28"
+    },
+    {
+      "part": "head",
+      "shape": "sphere",
+      "center": [
+        0.0,
+        0.79,
+        -0.031432
+      ],
+      "radius": 0.140001,
+      "own": false,
+      "words": "sphere r 0.14"
+    },
+    {
+      "part": "hat",
+      "shape": "box",
+      "center": [
+        0.0,
+        1.1,
+        -0.031432
+      ],
+      "size": [
+        0.3,
+        0.34,
+        0.3
+      ],
+      "directions": [
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.3 x 0.34 x 0.3"
+    },
+    {
+      "part": "beard",
+      "shape": "capsule",
+      "center": [
+        0.0,
+        0.628,
+        0.097315
+      ],
+      "radius": 0.084118,
+      "length": 0.240002,
+      "ends": [
+        [
+          0.0,
+          0.663883,
+          0.097315
+        ],
+        [
+          0.0,
+          0.592117,
+          0.097315
+        ]
+      ],
+      "own": false,
+      "words": "capsule r 0.084, 0.24 long"
+    },
+    {
+      "part": "left_arm/sleeve",
+      "shape": "box",
+      "center": [
+        -0.23,
+        0.521,
+        -0.031432
+      ],
+      "size": [
+        0.1,
+        0.24,
+        0.1
+      ],
+      "directions": [
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.1 x 0.24 x 0.1"
+    },
+    {
+      "part": "left_arm/hand",
+      "shape": "sphere",
+      "center": [
+        -0.23,
+        0.351,
+        -0.031432
+      ],
+      "radius": 0.050001,
+      "own": false,
+      "words": "sphere r 0.05"
+    },
+    {
+      "part": "right_arm/sleeve",
+      "shape": "box",
+      "center": [
+        0.23,
+        0.521,
+        -0.031432
+      ],
+      "size": [
+        0.1,
+        0.24,
+        0.1
+      ],
+      "directions": [
+        [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.1 x 0.24 x 0.1"
+    },
+    {
+      "part": "right_arm/hand",
+      "shape": "sphere",
+      "center": [
+        0.23,
+        0.351,
+        -0.031432
+      ],
+      "radius": 0.050001,
+      "own": false,
+      "words": "sphere r 0.05"
+    },
+    {
+      "part": "left_leg/thigh",
+      "shape": "capsule",
+      "center": [
+        -0.09,
+        0.17,
+        -0.031432
+      ],
+      "radius": 0.064944,
+      "length": 0.2,
+      "ends": [
+        [
+          -0.09,
+          0.134944,
+          -0.031432
+        ],
+        [
+          -0.09,
+          0.205056,
+          -0.031432
+        ]
+      ],
+      "own": false,
+      "words": "capsule r 0.065, 0.2 long"
+    },
+    {
+      "part": "left_leg/foot",
+      "shape": "box",
+      "center": [
+        -0.09,
+        0.035,
+        0.012568
+      ],
+      "size": [
+        0.13,
+        0.07,
+        0.22
+      ],
+      "directions": [
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.13 x 0.07 x 0.22"
+    },
+    {
+      "part": "right_leg/thigh",
+      "shape": "capsule",
+      "center": [
+        0.09,
+        0.17,
+        -0.031432
+      ],
+      "radius": 0.064944,
+      "length": 0.2,
+      "ends": [
+        [
+          0.09,
+          0.134944,
+          -0.031432
+        ],
+        [
+          0.09,
+          0.205056,
+          -0.031432
+        ]
+      ],
+      "own": false,
+      "words": "capsule r 0.065, 0.2 long"
+    },
+    {
+      "part": "right_leg/foot",
+      "shape": "box",
+      "center": [
+        0.09,
+        0.035,
+        0.012568
+      ],
+      "size": [
+        0.13,
+        0.07,
+        0.22
+      ],
+      "directions": [
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.13 x 0.07 x 0.22"
+    }
+  ],
+  "poses": [
+    "step_left",
+    "step_right",
+    "wave_up",
+    "wave_a",
+    "wave_b"
+  ],
+  "animations": [
+    {
+      "name": "walk",
+      "length": 0.8,
+      "loops": true,
+      "keys": 5
+    },
+    {
+      "name": "wave",
+      "length": 1.8,
+      "loops": false,
+      "keys": 8
+    }
+  ],
+  "warnings": [],
+  "errors": []
+}

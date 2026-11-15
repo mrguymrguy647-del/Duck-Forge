@@ -75,6 +75,12 @@ impl Game for Everything {
             ctx.idle_ok(); // waiting on purpose (a pause screen, say)
         }
         ctx.report("frame", ctx.frame());
+        // The ray under the mouse (None while the pointer is off the
+        // window), to click on a 3D model with `hit_ray`.
+        let eye = Camera3D::looking_at(vec3(0.0, 1.0, 3.0), Vec3::ZERO);
+        if let Some(ray) = ctx.mouse_ray(&eye) {
+            assert_eq!(ray.origin, eye.position);
+        }
         if ctx.frame() == 1 {
             ctx.lock_pointer(true);
         }
@@ -980,6 +986,24 @@ fn models_from_duck_mold() -> Result<(), LoadError> {
         place.apply(top.position()),
         top.position() + vec3(2.0, 0.0, 0.0)
     );
+    // Which part a click or a shot found, on a model with hit shapes, in
+    // the pose it stands in now.
+    let walker = duckforge::glb::AnimatedModel::load(models.join("robot.glb"))?;
+    // (`place` stands it at x = 2.)
+    let camera = Camera3D::looking_at(vec3(2.0, 1.39, 3.0), vec3(2.0, 1.39, 0.0));
+    let ray = camera.ray_through(vec2(32.0, 32.0), &canvas); // the middle of the canvas
+    // (`ctx.mouse_ray(&camera)` is an `Option`, so in a game it is
+    // `ctx.mouse_ray(&camera).and_then(|ray| walker.hit_ray(ray, &place))`.)
+    let hit = Some(ray)
+        .and_then(|ray| walker.hit_ray(ray, &place))
+        .expect("the head is there");
+    assert_eq!(hit.part, "head");
+    let shot = walker.hit_segment(vec3(2.0, 1.39, 3.0), vec3(2.0, 1.39, -3.0), &place);
+    assert_eq!(shot.map(|hit| hit.part), Some("head".to_string()));
+    let blast = walker.hits_ball(vec3(2.0, 0.9, 0.0), 0.1, &place);
+    assert_eq!(blast[0].part, "body");
+    assert_eq!(walker.hit_shapes(&place).len(), 15);
+    let _ = Ray::new(Vec3::ZERO, vec3(0.0, 0.0, -1.0));
     // Only Duck Mold's .glb files load this way; the message names the
     // reader for any other glTF file.
     let error = Mesh::load_glb(models.join("robot.inspect.json")).unwrap_err();

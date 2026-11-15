@@ -1,0 +1,1103 @@
+{
+  "ok": true,
+  "summary": "cart: 0.78 x 0.32 x 1.64 m, 436 triangles, 15 parts, 4 colours, rests on the ground, nothing floating, nothing overlapping",
+  "source": "examples/cart.toml",
+  "name": "cart",
+  "size": [
+    0.78,
+    0.32,
+    1.64
+  ],
+  "bounds": {
+    "min": [
+      -0.39,
+      0.0,
+      -0.82
+    ],
+    "max": [
+      0.39,
+      0.32,
+      0.82
+    ]
+  },
+  "triangles": 436,
+  "vertices": 744,
+  "ground": {
+    "rests_on_ground": true,
+    "lowest_y": 0.0
+  },
+  "palette": [
+    {
+      "name": "wood",
+      "hex": "#A0703C",
+      "triangles": 24
+    },
+    {
+      "name": "dark",
+      "hex": "#3B3B3B",
+      "triangles": 240
+    },
+    {
+      "name": "iron",
+      "hex": "#8A939B",
+      "triangles": 60
+    },
+    {
+      "name": "red",
+      "hex": "#C8443A",
+      "triangles": 112
+    }
+  ],
+  "parts": [
+    {
+      "name": "bed",
+      "kind": "box",
+      "triangles": 12,
+      "size": [
+        0.6,
+        0.2,
+        1.0
+      ],
+      "bounds": {
+        "min": [
+          -0.3,
+          0.11,
+          -0.82
+        ],
+        "max": [
+          0.3,
+          0.31,
+          0.18
+        ]
+      },
+      "colors": [
+        "wood"
+      ],
+      "attached_to": null,
+      "parts": []
+    },
+    {
+      "name": "wheel_front_left",
+      "kind": "assembly",
+      "uses": "wheel",
+      "triangles": 100,
+      "size": [
+        0.09,
+        0.32,
+        0.32
+      ],
+      "bounds": {
+        "min": [
+          -0.39,
+          0.0,
+          -0.18
+        ],
+        "max": [
+          -0.3,
+          0.32,
+          0.14
+        ]
+      },
+      "colors": [
+        "dark",
+        "iron",
+        "red"
+      ],
+      "attached_to": "bed.front_left",
+      "parts": [
+        {
+          "name": "wheel_front_left/tyre",
+          "kind": "cylinder",
+          "triangles": 60,
+          "size": [
+            0.06,
+            0.32,
+            0.32
+          ],
+          "bounds": {
+            "min": [
+              -0.36,
+              0.0,
+              -0.18
+            ],
+            "max": [
+              -0.3,
+              0.32,
+              0.14
+            ]
+          },
+          "colors": [
+            "dark"
+          ],
+          "attached_to": null,
+          "parts": []
+        },
+        {
+          "name": "wheel_front_left/hub",
+          "kind": "cylinder",
+          "triangles": 28,
+          "size": [
+            0.02,
+            0.1,
+            0.1
+          ],
+          "bounds": {
+            "min": [
+              -0.38,
+              0.11,
+              -0.07
+            ],
+            "max": [
+              -0.36,
+              0.21,
+              0.03
+            ]
+          },
+          "colors": [
+            "red"
+          ],
+          "attached_to": "tyre.bottom",
+          "parts": []
+        },
+        {
+          "name": "wheel_front_left/spoke",
+          "kind": "box",
+          "triangles": 12,
+          "size": [
+            0.01,
+            0.13,
+            0.04
+          ],
+          "bounds": {
+            "min": [
+              -0.39,
+              0.045,
+              -0.04
+            ],
+            "max": [
+              -0.38,
+              0.175,
+              0.0
+            ]
+          },
+          "colors": [
+            "iron"
+          ],
+          "attached_to": "hub.spoke",
+          "parts": []
+        }
+      ]
+    },
+    {
+      "name": "wheel_front_right",
+      "kind": "assembly",
+      "uses": "wheel",
+      "triangles": 100,
+      "size": [
+        0.09,
+        0.32,
+        0.32
+      ],
+      "bounds": {
+        "min": [
+          0.3,
+          0.0,
+          -0.18
+        ],
+        "max": [
+          0.39,
+          0.32,
+          0.14
+        ]
+      },
+      "colors": [
+        "dark",
+        "iron",
+        "red"
+      ],
+      "attached_to": "bed.front_right",
+      "parts": [
+        {
+          "name": "wheel_front_right/tyre",
+          "kind": "cylinder",
+          "triangles": 60,
+          "size": [
+            0.06,
+            0.32,
+            0.32
+          ],
+          "bounds": {
+            "min": [
+              0.3,
+              0.0,
+              -0.18
+            ],
+            "max": [
+              0.36,
+              0.32,
+              0.14
+            ]
+          },
+          "colors": [
+            "dark"
+          ],
+          "attached_to": null,
+          "parts": []
+        },
+        {
+          "name": "wheel_front_right/hub",
+          "kind": "cylinder",
+          "triangles": 28,
+          "size": [
+            0.02,
+            0.1,
+            0.1
+          ],
+          "bounds": {
+            "min": [
+              0.36,
+              0.11,
+              -0.07
+            ],
+            "max": [
+              0.38,
+              0.21,
+              0.03
+            ]
+          },
+          "colors": [
+            "red"
+          ],
+          "attached_to": "tyre.bottom",
+          "parts": []
+        },
+        {
+          "name": "wheel_front_right/spoke",
+          "kind": "box",
+          "triangles": 12,
+          "size": [
+            0.01,
+            0.13,
+            0.04
+          ],
+          "bounds": {
+            "min": [
+              0.38,
+              0.145,
+              -0.04
+            ],
+            "max": [
+              0.39,
+              0.275,
+              0.0
+            ]
+          },
+          "colors": [
+            "iron"
+          ],
+          "attached_to": "hub.spoke",
+          "parts": []
+        }
+      ]
+    },
+    {
+      "name": "wheel_back_left",
+      "kind": "assembly",
+      "uses": "wheel",
+      "triangles": 100,
+      "size": [
+        0.09,
+        0.32,
+        0.32
+      ],
+      "bounds": {
+        "min": [
+          -0.39,
+          0.0,
+          -0.78
+        ],
+        "max": [
+          -0.3,
+          0.32,
+          -0.46
+        ]
+      },
+      "colors": [
+        "dark",
+        "iron",
+        "red"
+      ],
+      "attached_to": "bed.back_left",
+      "parts": [
+        {
+          "name": "wheel_back_left/tyre",
+          "kind": "cylinder",
+          "triangles": 60,
+          "size": [
+            0.06,
+            0.32,
+            0.32
+          ],
+          "bounds": {
+            "min": [
+              -0.36,
+              0.0,
+              -0.78
+            ],
+            "max": [
+              -0.3,
+              0.32,
+              -0.46
+            ]
+          },
+          "colors": [
+            "dark"
+          ],
+          "attached_to": null,
+          "parts": []
+        },
+        {
+          "name": "wheel_back_left/hub",
+          "kind": "cylinder",
+          "triangles": 28,
+          "size": [
+            0.02,
+            0.1,
+            0.1
+          ],
+          "bounds": {
+            "min": [
+              -0.38,
+              0.11,
+              -0.67
+            ],
+            "max": [
+              -0.36,
+              0.21,
+              -0.57
+            ]
+          },
+          "colors": [
+            "red"
+          ],
+          "attached_to": "tyre.bottom",
+          "parts": []
+        },
+        {
+          "name": "wheel_back_left/spoke",
+          "kind": "box",
+          "triangles": 12,
+          "size": [
+            0.01,
+            0.13,
+            0.04
+          ],
+          "bounds": {
+            "min": [
+              -0.39,
+              0.045,
+              -0.64
+            ],
+            "max": [
+              -0.38,
+              0.175,
+              -0.6
+            ]
+          },
+          "colors": [
+            "iron"
+          ],
+          "attached_to": "hub.spoke",
+          "parts": []
+        }
+      ]
+    },
+    {
+      "name": "wheel_back_right",
+      "kind": "assembly",
+      "uses": "wheel",
+      "triangles": 100,
+      "size": [
+        0.09,
+        0.32,
+        0.32
+      ],
+      "bounds": {
+        "min": [
+          0.3,
+          0.0,
+          -0.78
+        ],
+        "max": [
+          0.39,
+          0.32,
+          -0.46
+        ]
+      },
+      "colors": [
+        "dark",
+        "iron",
+        "red"
+      ],
+      "attached_to": "bed.back_right",
+      "parts": [
+        {
+          "name": "wheel_back_right/tyre",
+          "kind": "cylinder",
+          "triangles": 60,
+          "size": [
+            0.06,
+            0.32,
+            0.32
+          ],
+          "bounds": {
+            "min": [
+              0.3,
+              0.0,
+              -0.78
+            ],
+            "max": [
+              0.36,
+              0.32,
+              -0.46
+            ]
+          },
+          "colors": [
+            "dark"
+          ],
+          "attached_to": null,
+          "parts": []
+        },
+        {
+          "name": "wheel_back_right/hub",
+          "kind": "cylinder",
+          "triangles": 28,
+          "size": [
+            0.02,
+            0.1,
+            0.1
+          ],
+          "bounds": {
+            "min": [
+              0.36,
+              0.11,
+              -0.67
+            ],
+            "max": [
+              0.38,
+              0.21,
+              -0.57
+            ]
+          },
+          "colors": [
+            "red"
+          ],
+          "attached_to": "tyre.bottom",
+          "parts": []
+        },
+        {
+          "name": "wheel_back_right/spoke",
+          "kind": "box",
+          "triangles": 12,
+          "size": [
+            0.01,
+            0.13,
+            0.04
+          ],
+          "bounds": {
+            "min": [
+              0.38,
+              0.145,
+              -0.64
+            ],
+            "max": [
+              0.39,
+              0.275,
+              -0.6
+            ]
+          },
+          "colors": [
+            "iron"
+          ],
+          "attached_to": "hub.spoke",
+          "parts": []
+        }
+      ]
+    },
+    {
+      "name": "pole",
+      "kind": "box",
+      "triangles": 12,
+      "size": [
+        0.05,
+        0.05,
+        0.6
+      ],
+      "bounds": {
+        "min": [
+          -0.025,
+          0.185,
+          0.18
+        ],
+        "max": [
+          0.025,
+          0.235,
+          0.78
+        ]
+      },
+      "colors": [
+        "wood"
+      ],
+      "attached_to": "bed.pole",
+      "limits": "fixed",
+      "parts": []
+    },
+    {
+      "name": "grip",
+      "kind": "box",
+      "triangles": 12,
+      "size": [
+        0.4,
+        0.04,
+        0.04
+      ],
+      "bounds": {
+        "min": [
+          -0.2,
+          0.19,
+          0.78
+        ],
+        "max": [
+          0.2,
+          0.23,
+          0.82
+        ]
+      },
+      "colors": [
+        "iron"
+      ],
+      "attached_to": "pole.front",
+      "limits": "fixed",
+      "parts": []
+    }
+  ],
+  "floating": [],
+  "overlapping": [],
+  "hit_shapes": {
+    "setting": "parts",
+    "count": 15,
+    "boxes": 15,
+    "spheres": 0,
+    "capsules": 0
+  },
+  "colliders": [
+    {
+      "part": "bed",
+      "shape": "box",
+      "center": [
+        0.0,
+        0.21,
+        -0.32
+      ],
+      "size": [
+        0.6,
+        0.2,
+        1.0
+      ],
+      "directions": [
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.6 x 0.2 x 1"
+    },
+    {
+      "part": "wheel_front_left/tyre",
+      "shape": "box",
+      "center": [
+        -0.33,
+        0.16,
+        -0.02
+      ],
+      "size": [
+        0.32,
+        0.06,
+        0.32
+      ],
+      "directions": [
+        [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.32 x 0.06 x 0.32"
+    },
+    {
+      "part": "wheel_front_left/hub",
+      "shape": "box",
+      "center": [
+        -0.37,
+        0.16,
+        -0.02
+      ],
+      "size": [
+        0.1,
+        0.02,
+        0.1
+      ],
+      "directions": [
+        [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.1 x 0.02 x 0.1"
+    },
+    {
+      "part": "wheel_front_left/spoke",
+      "shape": "box",
+      "center": [
+        -0.385,
+        0.11,
+        -0.02
+      ],
+      "size": [
+        0.13,
+        0.01,
+        0.04
+      ],
+      "directions": [
+        [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.13 x 0.01 x 0.04"
+    },
+    {
+      "part": "wheel_front_right/tyre",
+      "shape": "box",
+      "center": [
+        0.33,
+        0.16,
+        -0.02
+      ],
+      "size": [
+        0.32,
+        0.06,
+        0.32
+      ],
+      "directions": [
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.32 x 0.06 x 0.32"
+    },
+    {
+      "part": "wheel_front_right/hub",
+      "shape": "box",
+      "center": [
+        0.37,
+        0.16,
+        -0.02
+      ],
+      "size": [
+        0.1,
+        0.02,
+        0.1
+      ],
+      "directions": [
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.1 x 0.02 x 0.1"
+    },
+    {
+      "part": "wheel_front_right/spoke",
+      "shape": "box",
+      "center": [
+        0.385,
+        0.21,
+        -0.02
+      ],
+      "size": [
+        0.13,
+        0.01,
+        0.04
+      ],
+      "directions": [
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.13 x 0.01 x 0.04"
+    },
+    {
+      "part": "wheel_back_left/tyre",
+      "shape": "box",
+      "center": [
+        -0.33,
+        0.16,
+        -0.62
+      ],
+      "size": [
+        0.32,
+        0.06,
+        0.32
+      ],
+      "directions": [
+        [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.32 x 0.06 x 0.32"
+    },
+    {
+      "part": "wheel_back_left/hub",
+      "shape": "box",
+      "center": [
+        -0.37,
+        0.16,
+        -0.62
+      ],
+      "size": [
+        0.1,
+        0.02,
+        0.1
+      ],
+      "directions": [
+        [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.1 x 0.02 x 0.1"
+    },
+    {
+      "part": "wheel_back_left/spoke",
+      "shape": "box",
+      "center": [
+        -0.385,
+        0.11,
+        -0.62
+      ],
+      "size": [
+        0.13,
+        0.01,
+        0.04
+      ],
+      "directions": [
+        [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.13 x 0.01 x 0.04"
+    },
+    {
+      "part": "wheel_back_right/tyre",
+      "shape": "box",
+      "center": [
+        0.33,
+        0.16,
+        -0.62
+      ],
+      "size": [
+        0.32,
+        0.06,
+        0.32
+      ],
+      "directions": [
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.32 x 0.06 x 0.32"
+    },
+    {
+      "part": "wheel_back_right/hub",
+      "shape": "box",
+      "center": [
+        0.37,
+        0.16,
+        -0.62
+      ],
+      "size": [
+        0.1,
+        0.02,
+        0.1
+      ],
+      "directions": [
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.1 x 0.02 x 0.1"
+    },
+    {
+      "part": "wheel_back_right/spoke",
+      "shape": "box",
+      "center": [
+        0.385,
+        0.21,
+        -0.62
+      ],
+      "size": [
+        0.13,
+        0.01,
+        0.04
+      ],
+      "directions": [
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.13 x 0.01 x 0.04"
+    },
+    {
+      "part": "pole",
+      "shape": "box",
+      "center": [
+        0.0,
+        0.21,
+        0.48
+      ],
+      "size": [
+        0.05,
+        0.05,
+        0.6
+      ],
+      "directions": [
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.05 x 0.05 x 0.6"
+    },
+    {
+      "part": "grip",
+      "shape": "box",
+      "center": [
+        0.0,
+        0.21,
+        0.8
+      ],
+      "size": [
+        0.4,
+        0.04,
+        0.04
+      ],
+      "directions": [
+        [
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "own": false,
+      "words": "box 0.4 x 0.04 x 0.04"
+    }
+  ],
+  "poses": [
+    "roll_round"
+  ],
+  "animations": [
+    {
+      "name": "roll",
+      "length": 1.0,
+      "loops": true,
+      "keys": 2
+    }
+  ],
+  "warnings": [],
+  "errors": []
+}
