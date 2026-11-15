@@ -476,6 +476,36 @@ in place, and the game moves the `Transform` it draws the model with.
 standing idle, walking where the arrow keys send it, and waving, with
 its hat on.
 
+### What was hit
+
+A Duck Mold model can carry **hit shapes**: a box, a ball or a capsule
+round each part (`colliders = "parts"` in its recipe; `duck-mold
+inspect robot.toml --colliders` lists them). They move with the parts,
+so these ask the model as it stands in the frame it is in:
+
+```rust
+use duckforge::glb::AnimatedModel;
+
+// in update(): `place` is the Transform the robot is drawn with
+if ctx.input.was_mouse_pressed(MouseButton::Left) {
+    // the ray from the eye through the mouse, and the first part on it
+    if let Some(hit) = ctx.mouse_ray(&self.camera).and_then(|ray| self.robot.hit_ray(ray, &place)) {
+        println!("you clicked its {}", hit.part); // "head", "left_arm/hand"
+    }
+}
+```
+
+| | |
+|---|---|
+| `robot.hit_ray(ray, &place)` | The first part a ray reaches: `PartHit { part, point, normal, distance }`, or `None`. `Ray::new(from, direction)` makes one; `ctx.mouse_ray(&camera)` is the one under the mouse, and `camera.ray_through(pixel, canvas)` the one under any pixel. |
+| `robot.hit_segment(from, to, &place)` | The first part on the straight way between two points: a bullet between two frames, a sword's blade. |
+| `robot.hits_ball(center, radius, &place)` | Every part a ball reaches, nearest first: an explosion, a hand reaching out. |
+| `robot.hit_shapes(&place)` | Every hit shape as it is now, in the world: to draw them while making a game. |
+
+A model whose recipe has no hit shapes is never hit. This isn't
+physics: a physics body is still what a character stands and bumps
+with; the hit shapes say which part was found.
+
 ### With physics
 
 ```rust

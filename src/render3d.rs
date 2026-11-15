@@ -258,6 +258,37 @@ impl Camera3D {
         Some(self.projection(canvas).project(p))
     }
 
+    /// The ray from the camera through a point of the canvas (in canvas
+    /// pixels, like the mouse's position): what is drawn under that
+    /// point is on it. The exact opposite of [`Camera3D::world_to_screen`],
+    /// so a click lands on what the player sees under the mouse. Use it
+    /// with [`AnimatedModel::hit_ray`](crate::glb::AnimatedModel::hit_ray).
+    pub fn ray_through(&self, point: Vec2, canvas: &Canvas) -> crate::hits::Ray {
+        self.ray_through_size(point, canvas.width() as f32, canvas.height() as f32)
+    }
+
+    /// [`ray_through`](Camera3D::ray_through) for a canvas `width` x
+    /// `height` (what [`Context::mouse_ray`](crate::engine::Context::mouse_ray)
+    /// uses, in `update`, where there is no canvas).
+    pub(crate) fn ray_through_size(
+        &self,
+        point: Vec2,
+        width: f32,
+        height: f32,
+    ) -> crate::hits::Ray {
+        let projection = self.projection_for(width, height);
+        // In camera space: one unit ahead, and across and up as far as
+        // the pixel is from the middle.
+        let ahead = vec3(
+            (point.x - projection.center.x) / projection.focal_length,
+            -(point.y - projection.center.y) / projection.focal_length,
+            1.0,
+        );
+        // Undo the camera's pitch, then its yaw.
+        let direction = ahead.rotate_x(self.pitch).rotate_y(self.yaw);
+        crate::hits::Ray::new(self.position, direction)
+    }
+
     /// Where a point in the world appears on the canvas, and how far it is
     /// from the camera along the view (its depth), or `None` if it's behind
     /// the camera. For a health bar above a 3D character, or to sort

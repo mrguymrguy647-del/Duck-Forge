@@ -808,6 +808,25 @@
   ],
   "floating": [],
   "overlapping": [],
+  "hit_shapes": {
+    "setting": "parts",
+    "count": 15,
+    "boxes": 9,
+    "spheres": 3,
+    "capsules": 3,
+    "none_by_their_own": [
+      "panel",
+      "left_eye",
+      "right_eye",
+      "antenna_tip"
+    ]
+  },
+  "parts_without_colliders": [
+    "panel",
+    "left_eye",
+    "right_eye",
+    "antenna_tip"
+  ],
   "poses": [
     "step_left",
     "step_right",
