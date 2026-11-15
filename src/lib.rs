@@ -35,6 +35,7 @@
 extern crate self as duckforge;
 
 pub mod background;
+pub mod bitmap_font;
 pub mod blocks;
 pub mod camera;
 pub mod canvas;
@@ -106,6 +107,7 @@ pub use simulation::Simulation;
 /// `use duckforge::prelude::*;`
 pub mod prelude {
     pub use crate::background::Background;
+    pub use crate::bitmap_font::{BitmapFont, BitmapStyle};
     pub use crate::blocks::{
         AIR, BlockId, BlockKind, BlockPalette, BlockWorld, FaceLight, GlowMask,
     };
