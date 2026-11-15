@@ -96,9 +96,9 @@ pub struct Canvas {
     see_through_marks: Vec<u32>,
     see_through_mark: u32,
     /// Lamps, shadows, glow and smooth edges (see `lights.rs`).
-    pub(crate) effects: crate::lights::Effects,
+    pub(crate) effects: Box<crate::lights::Effects>,
     /// The lit renderer's 3D, waiting to be drawn (see `frame3d.rs`).
-    pub(crate) queue: crate::frame3d::Queue,
+    pub(crate) queue: Box<crate::frame3d::Queue>,
     /// A billboard is being drawn (the lit renderer doesn't light it).
     pub(crate) drawing_billboard: bool,
     /// Billboard quads made so far, kept so the GPU sees the same mesh
@@ -152,8 +152,8 @@ impl Canvas {
             drawing_in_view: false,
             see_through_marks: Vec::new(),
             see_through_mark: 0,
-            effects: crate::lights::Effects::default(),
-            queue: crate::frame3d::Queue::default(),
+            effects: Box::default(),
+            queue: Box::default(),
             drawing_billboard: false,
             billboards: Vec::new(),
         }
