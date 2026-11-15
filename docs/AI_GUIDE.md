@@ -822,6 +822,14 @@ the window or a script moved it; `if let Some(mouse) = ...`),
 and down positive; the one for mouse look), `is_mouse_down(button)`,
 `was_mouse_pressed(button)`, `was_mouse_released(button)`, `scroll()`.
 `MouseButton::Left`, `Right` or `Middle`.
+**Actions**: `action_down("jump")`, `action_pressed("jump")`,
+`action_released("jump")`, `action_axis("left", "right")`. An action is a
+name for some keys: `left` (Left, A), `right` (Right, D), `up` (Up, W),
+`down` (Down, S) and `jump` (Space, Up, W). `ctx.input.bind("jump",
+&[Key::J])` gives one other keys, or makes a new one. Scripts read
+actions, not keys, so when gamepads come ("jump" is also the A button) no
+script or scene file changes. Pressing Space while Up is held isn't a
+second jump: an action starts when none of its keys was held.
 
 **`ctx.rng`**: `range(min, max)` (an `f32`, max excluded),
 `range_i32(min, max)`, `chance(0.25)`, `next_f32()`.
@@ -1980,6 +1988,8 @@ agent might meet:
   `{"do": "files.use", "path": "scripts/bee.rs", "ids": [4]}` gives
   object 4 the script (without `ids`, with `at`: a new object with it);
   `{"do": "script.remove", "ids": [4]}` takes it off with its settings.
+  `{"do": "script.turn_into_code", "ids": [5]}` gives the game its own
+  copy of a ready-made behaviour (section 15), as one step for Undo.
   Its settings are set like any key: `{"do": "object.set", "ids": [4],
   "set": {"speed": 60}}`.
 
@@ -2151,3 +2161,60 @@ with no problems, every object has its id, the bot still wins), and test
 how the game plays on small scenes written in the test
 (`SceneDemo::with_scene(copy.scene())`), so editing the real scene never
 breaks a test by accident.
+
+## 15. Ready-made behaviours
+
+Duck Forge brings kinds that act by themselves. Give an object one in its
+line, and it works with no code at all, in any scene, even a
+`SceneGame` with no `scripts.rs`. Each is a script that comes with Duck
+Forge, written exactly as a game's own (`src/scene/ready/`, using only
+`duckforge::prelude`), so "Turn into code" in the Studio
+(`{"do": "script.turn_into_code", "ids": [5]}`) can give the game its own
+copy to change: `scripts/duck.rs`, its line in `scripts.rs`, `main.rs`
+connected, and the object's kind becomes `duck`. Its settings stay, and
+the game plays the same. `examples/ready_made/` is a game made only of
+them: read its `scenes/level1.json`.
+
+| Kind | Does | Built |
+|---|---|---|
+| `platformer_player` | Runs, jumps, falls, lands on one-way planks | yes |
+| Top-down player, coin, enemy patrol, moving platform, door, spawner, camera follow | | later in step 6 |
+
+### Platformer player (`"kind": "platformer_player"`)
+
+```json
+{"id": 5, "name": "duck", "kind": "platformer_player", "at": [32, 208], "picture": "assets/hero.json", "box": [3, 2, 10, 14], "jump_height": 80}
+```
+
+It runs with the `left` and `right` actions, jumps with `jump`, falls,
+stops at the scene's tile map and its `"solid"` objects, and lands on
+one-way tiles (`"kind": "one_way"` in the legend) from above while
+jumping up through them. It faces the way it runs (`flip`) and shows its
+sheet's `idle`, `run`, `jump` and `fall` animations if it has them. Give
+it a `"box"`: its feet are the bottom of the box.
+
+| Setting | Meaning | Usual |
+|---|---|---|
+| `run_speed` | Pixels a second | 110 |
+| `jump_height` | Pixels its feet rise, holding jump all the way up (exact to a pixel) | 60 |
+| `gravity` | Pixels a second, every second | 900 |
+| `stays_inside` | The scene's left and right ends are walls (needs the scene's `"size"`) | true |
+| `falls_back` | Falling 64 pixels below the scene puts it back where the file starts it | true |
+| `jump_sound` | A `.wav` of the game's; empty is Duck Forge's own jump sound | `""` |
+| `idle_animation`, `run_animation`, `jump_animation`, `fall_animation` | Its sheet's animations | `idle`, `run`, `jump`, `fall` |
+| `fall_limit` (expert) | The fastest it falls, pixels a second | 400 |
+| `speed_up` (expert) | Seconds to reach full speed from standing | 0.12 |
+| `short_hops` (expert) | Letting go of jump on the way up halves its speed | true |
+| `coyote` (expert) | Seconds after leaving an edge that jump still works | 0.08 |
+| `jump_early` (expert) | Seconds before landing that a jump pressed still counts | 0.1 |
+| `left`, `right`, `jump` (expert) | The actions it reads | `left`, `right`, `jump` |
+
+From the game's code: `scene.script::<PlatformerPlayer>(id)` (the type is
+`duckforge::scene::ready::platformer_player::PlatformerPlayer`) has
+`velocity()` and `on_ground()`. Two players in one scene: give the second
+`"left": "p2_left"` and so on, and `ctx.input.bind("p2_left", &[Key::J])`.
+
+**Testing it.** It's a script like any other: play the scene in a
+`Simulation` and press keys (`src/scene/ready/tests/platformer_player.rs`
+and `examples/ready_made/tests.rs` show how). Its updates are part of
+`scene.update(ctx)`, in the order of ids, so replays are exact.

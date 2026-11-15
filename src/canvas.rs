@@ -457,13 +457,22 @@ impl Canvas {
         }
     }
 
+    /// Takes another canvas's smooth edges (and so the lit renderer, if it
+    /// had it): a canvas made again at a new size keeps them.
+    pub(crate) fn keep_supersample_of(&mut self, other: &Canvas) {
+        self.effects.supersample = other.effects.supersample;
+        self.effects.lit = other.effects.lit;
+    }
+
     pub fn flush_3d(&mut self) {
         #[cfg(feature = "gpu")]
         if let GpuSlot::Running(gpu) = &mut self.gpu {
             gpu.flush(&mut self.pixels);
         }
-        if !self.queue.is_empty() {
-            crate::frame3d::render(
+        if !self.queue.is_empty()
+            && let Some(lit) = self.effects.lit
+        {
+            (lit.render)(
                 &mut self.queue,
                 &self.effects,
                 self.width,

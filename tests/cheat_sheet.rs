@@ -932,7 +932,6 @@ fn lamps_shadows_glow_fonts_walls_sound_and_moving_models() -> Result<(), LoadEr
     }
     let mut sim = Simulation::new(
         Config {
-            supersample: 1,
             ..Config::default()
         },
         Loud,

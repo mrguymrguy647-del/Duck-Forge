@@ -1827,6 +1827,7 @@ mod tests {
     fn lit(width: usize, height: usize, threads: usize) -> Canvas {
         let mut canvas = Canvas::new(width, height);
         canvas.effects.always = true;
+        canvas.effects.lit = Some(crate::lights::LIT);
         canvas.set_threads(threads);
         canvas
     }
@@ -2058,6 +2059,7 @@ mod tests {
             canvas.set_smooth_shading(smooth);
             if !smooth {
                 canvas.effects.always = true;
+                canvas.effects.lit = Some(crate::lights::LIT);
             }
             let camera = Camera3D::new(vec3(0.0, 0.0, -2.5));
             canvas.draw_mesh(mesh, &Transform::default(), &camera);
@@ -2117,6 +2119,7 @@ mod tests {
         let shade = |shadows: bool| {
             let mut canvas = Canvas::new(160, 120).threads(2);
             canvas.effects.always = true;
+            canvas.effects.lit = Some(crate::lights::LIT);
             cube_over_floor(&mut canvas, &camera, shadows);
             canvas.flush_3d();
             (
@@ -2167,6 +2170,7 @@ mod tests {
         let draw = |bloom: bool| {
             let mut canvas = Canvas::new(200, 200).threads(2);
             canvas.effects.always = true;
+            canvas.effects.lit = Some(crate::lights::LIT);
             canvas.clear(Color::BLACK);
             canvas.set_bloom(bloom.then(Bloom::default));
             let camera = Camera3D::new(vec3(0.0, 0.0, -4.0));

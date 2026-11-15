@@ -740,7 +740,11 @@ impl StudioApp {
         egui::CentralPanel::no_frame().show(ui, |ui| self.game_area(ui));
         if frozen {
             let commands = match &self.studio.open {
-                Some(open) => self.scene.add_window(ui.ctx(), open),
+                Some(open) => {
+                    let mut commands = self.scene.add_window(ui.ctx(), open);
+                    commands.extend(self.scene.turn_window(ui.ctx(), open));
+                    commands
+                }
                 None => Vec::new(),
             };
             for command in commands {

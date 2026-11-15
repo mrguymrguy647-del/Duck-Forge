@@ -1432,7 +1432,9 @@ impl Canvas {
             unlit: self.drawing_billboard,
             in_view,
         };
-        self.queue.add(adding);
+        if let Some(lit) = self.effects.lit {
+            (lit.add)(&mut self.queue, adding);
+        }
     }
 }
 

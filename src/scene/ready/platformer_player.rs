@@ -60,6 +60,7 @@ impl Script for PlatformerPlayer {
             .help("Pixels, holding jump all the way up");
         s.number("gravity", &mut self.gravity, 900.0)
             .range(100.0, 3000.0)
+            .label("Gravity")
             .help("How fast it falls faster: pixels a second, every second");
         s.number("fall_limit", &mut self.fall_limit, 400.0)
             .range(50.0, 1500.0)
@@ -85,11 +86,13 @@ impl Script for PlatformerPlayer {
             .help("Seconds before landing that a jump pressed still counts")
             .expert();
         s.flag("stays_inside", &mut self.stays_inside, true)
+            .label("Stays inside the scene")
             .help("The scene's left and right ends are walls");
         s.flag("falls_back", &mut self.falls_back, true)
             .label("Comes back when it falls out")
             .help("Falling out of the bottom of the scene puts it back where it started");
         s.sound("jump_sound", &mut self.jump_sound, "")
+            .label("Jump sound")
             .help("Empty: Duck Forge's own jump sound");
         s.words("left", &mut self.left, "left")
             .group("Keys")

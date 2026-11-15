@@ -817,7 +817,11 @@ impl Studio {
                 "Picture, Sound, Area, Background and Tile map can be added now.",
             ));
         }
-        let chosen_key = match plain.map(|plain| plain.needs) {
+        // A ready-made kind (a Platformer player) needs a picture to be seen.
+        let needs = plain
+            .map(|plain| plain.needs)
+            .or_else(|| duckforge::scene::ready::get(&kind).map(|_| Needs::Picture));
+        let chosen_key = match needs {
             Some(Needs::Picture) => Some("picture"),
             Some(Needs::Sound) => Some("sound"),
             Some(Needs::Level) => Some("level"),
@@ -835,7 +839,10 @@ impl Studio {
             return Err(Problem::new(
                 format!(
                     "A {} needs a {key} to show.",
-                    plain.map_or(kind.as_str(), |p| p.title)
+                    plain
+                        .map(|p| p.title)
+                        .or_else(|| duckforge::scene::ready::get(&kind).map(|r| r.label))
+                        .unwrap_or(kind.as_str())
                 ),
                 format!("Choose one, like \"set\": {{\"{key}\": \"{example}\"}}."),
             ));

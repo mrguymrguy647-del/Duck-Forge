@@ -407,7 +407,6 @@ fn config() -> Config {
             updates_per_second: FPS,
         },
         seed: Some(7),
-        supersample: 2,
         ..Default::default()
     }
 }
@@ -461,7 +460,6 @@ mod tests {
         let small = Config {
             width: 54,
             height: 96,
-            supersample: 1,
             ..config()
         };
         let mut sim = Simulation::new(small, Cellar::new().unwrap());

@@ -1969,3 +1969,162 @@ fn scripts_are_made_in_files_and_dragged_onto_objects() {
     assert!(!bee.exists(), "Undo took bee.rs to the Recycle Bin");
     shots.run(Command::GameStop);
 }
+
+/// Step 6, part 1, with the mouse: the ready-made game's duck in the
+/// Inspector (Platformer player, its settings, the ones for experts folded
+/// away), Add's ready-made row, and Turn into code: the window shows the
+/// code, Write the code makes it the game's own, the game builds it in,
+/// and Undo puts every file back.
+#[test]
+fn a_ready_made_behaviour_is_shown_and_turned_into_code() {
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let pictures = std::env::var_os("STUDIO_SCREENSHOTS").map(PathBuf::from);
+    if let Some(folder) = &pictures {
+        std::fs::create_dir_all(folder).unwrap();
+    }
+    let game = duck_forge().join("examples/ready_made");
+    let scene_file = game.join("scenes/level1.json");
+    let back = |path: PathBuf| FileBack {
+        text: std::fs::read_to_string(&path).unwrap(),
+        path,
+    };
+    let _scene = back(scene_file.clone());
+    let _main = back(game.join("main.rs"));
+    let duck_rs = game.join("scripts/duck.rs");
+    let _duck = TakeAway(duck_rs.clone());
+    let _list = TakeAway(game.join("scripts.rs"));
+    let plain = |text: &str| text.replace("\r\n", "\n");
+    let original = plain(&_scene.text);
+    let on_disk = || plain(&std::fs::read_to_string(&scene_file).unwrap());
+    let bin = studio_core::test_folder::TestFolder::new("screens-bin-step6");
+    let mut studio = studio();
+    studio.opens_files = false;
+    studio.recycle_bin = studio_core::recycle::RecycleBin::Folder(bin.to_path_buf());
+    let mut shots = Shots {
+        folder: pictures.clone().unwrap_or_default(),
+        harness: harness(StudioApp::new(studio), pictures.is_some()),
+    };
+    let shoot = |shots: &mut Shots, name: &str| {
+        if pictures.is_some() {
+            shots.shoot(name);
+        }
+    };
+    let frozen = |shots: &mut Shots| {
+        shots.until(
+            "the frozen picture's objects",
+            Duration::from_secs(60),
+            |app| {
+                let open = app.studio.open.as_ref().unwrap();
+                app.studio
+                    .play()
+                    .is_some_and(|play| play.state == PlayState::Frozen)
+                    && open.drawn_scene().is_some()
+                    && app.game_placement().is_some()
+            },
+        );
+        shots.harness.run_steps(4);
+    };
+
+    shots.harness.step();
+    shots.run(Command::GameOpen {
+        name: String::from("ready_made"),
+    });
+    shots.playing();
+    shots.play_for(Duration::from_millis(300));
+    shots.run(Command::GameFreeze);
+    frozen(&mut shots);
+    shots.until(
+        "the game to say its kinds",
+        Duration::from_secs(60),
+        |app| {
+            app.studio
+                .open
+                .as_ref()
+                .unwrap()
+                .game_scripts()
+                .is_some_and(|scripts| scripts.get("platformer_player").is_some())
+        },
+    );
+
+    // The duck, selected: what it is, and its settings.
+    shots.run(Command::SelectSet { ids: vec![5] });
+    shots.harness.run_steps(2);
+    shots.harness.get_by_label("Inspector").click();
+    shots.harness.run_steps(4);
+    shots.harness.get_by_label_contains("runs, jumps, falls");
+    shots.harness.get_by_label("Jumps this high");
+    shots.harness.get_by_label("Runs at");
+    shots.harness.get_by_label("8 more settings");
+    shoot(&mut shots, "52-a-ready-made-player-in-the-inspector");
+
+    // + Add has the ready-made kinds.
+    shots.harness.get_by_label("+ Add").click();
+    shots.harness.run_steps(3);
+    shots
+        .harness
+        .get_by_label("Ready-made: they act by themselves, with settings to change.");
+    // (The Scene list and the Inspector say "Platformer player" too: Add's
+    // is the last drawn.)
+    shots
+        .harness
+        .query_all_by_label("Platformer player")
+        .last()
+        .unwrap()
+        .click();
+    shots.harness.run_steps(2);
+    shots.harness.get_by_label("Which picture");
+    shoot(&mut shots, "53-add-has-ready-made-kinds");
+    shots.harness.get_by_label("Cancel").click();
+    shots.harness.run_steps(2);
+
+    // Turn into code: the window says what it will write, with the code.
+    shots.harness.get_by_label("Turn into code...").click();
+    shots.harness.run_steps(4);
+    shots
+        .harness
+        .get_by_label("Turn duck's behaviour into code");
+    shots.harness.get_by_label_contains("  pub struct Duck {");
+    shoot(&mut shots, "54-turn-into-code");
+    shots.harness.get_by_label("Write the code").click();
+    shots.play_for(Duration::from_millis(300));
+    assert!(
+        duck_rs.is_file(),
+        "duck.rs is written: {:?}",
+        shots.harness.state().studio.problem
+    );
+    assert!(on_disk().contains(r#""name": "duck", "kind": "duck""#));
+
+    // Built in: the Inspector shows the game's own script now.
+    shots.until("duck to be built in", Duration::from_secs(900), |app| {
+        app.studio.play().is_some_and(|play| {
+            play.state == PlayState::Frozen
+                && play
+                    .scripts
+                    .as_ref()
+                    .is_some_and(|scripts| scripts.get("duck").is_some())
+        })
+    });
+    frozen(&mut shots);
+    shots.harness.run_steps(4);
+    shots.harness.get_by_label("Duck (script)");
+    shots.harness.get_by_label("Open duck.rs");
+    shots.harness.get_by_label("Jumps this high");
+    shoot(&mut shots, "55-the-duck-is-the-games-own-code");
+
+    // One Undo: every file as it was.
+    shots
+        .harness
+        .key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    shots.play_for(Duration::from_millis(300));
+    assert_eq!(on_disk(), original);
+    assert!(!duck_rs.exists(), "Undo took duck.rs to the Recycle Bin");
+    assert!(!game.join("scripts.rs").exists());
+    assert_eq!(
+        plain(&std::fs::read_to_string(game.join("main.rs")).unwrap()),
+        plain(&_main.text)
+    );
+    shots.run(Command::GameStop);
+    let _ = std::fs::remove_dir(game.join("scripts"));
+}

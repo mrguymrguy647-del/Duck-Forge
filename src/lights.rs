@@ -190,9 +190,34 @@ impl Default for Bloom {
     }
 }
 
+/// The lit renderer, reached only through these two: the setters below
+/// put them in a canvas's [`Effects`], so a game that never asks for
+/// lamps, shadows, glow, smooth shading or supersampling doesn't carry the
+/// lit renderer at all (it's most of 60,000 bytes).
+#[derive(Clone, Copy)]
+pub(crate) struct LitRenderer {
+    pub(crate) add: fn(&mut crate::frame3d::Queue, crate::frame3d::Adding<'_>),
+    pub(crate) render:
+        fn(&mut crate::frame3d::Queue, &Effects, usize, usize, &mut [u32], &mut [f32]),
+}
+
+impl std::fmt::Debug for LitRenderer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("LitRenderer")
+    }
+}
+
+/// The lit renderer's two ways in.
+pub(crate) const LIT: LitRenderer = LitRenderer {
+    add: crate::frame3d::Queue::add,
+    render: crate::frame3d::render,
+};
+
 /// The lit renderer's settings, kept by the canvas.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Effects {
+    /// The lit renderer, once something has asked for it.
+    pub(crate) lit: Option<LitRenderer>,
     pub(crate) lamps: Vec<Lamp>,
     pub(crate) shadows: Option<Shadows>,
     pub(crate) bloom: Option<Bloom>,
@@ -210,6 +235,9 @@ pub(crate) struct Effects {
 impl Effects {
     /// Is anything asking for the lit renderer?
     pub(crate) fn on(&self) -> bool {
+        if self.lit.is_none() {
+            return false;
+        }
         #[cfg(test)]
         if self.always {
             return true;
@@ -252,6 +280,7 @@ impl Canvas {
     /// floor under it, not whole triangles.
     pub fn set_lamps(&mut self, lamps: &[Lamp]) {
         self.effects.lamps = lamps.to_vec();
+        self.effects.lit = Some(LIT);
     }
 
     /// The lamps 3D is lit with now.
@@ -263,12 +292,14 @@ impl Canvas {
     /// [`Shadows`]. It stays until changed.
     pub fn set_shadows(&mut self, shadows: Option<Shadows>) {
         self.effects.shadows = shadows;
+        self.effects.lit = Some(LIT);
     }
 
     /// Turns glow round glowing triangles on (`Some`) or off (`None`, the
     /// start). See [`Bloom`]. It stays until changed.
     pub fn set_bloom(&mut self, bloom: Option<Bloom>) {
         self.effects.bloom = bloom;
+        self.effects.lit = Some(LIT);
     }
 
     /// With `true`, meshes drawn from now on are shaded smoothly: the light
@@ -279,6 +310,7 @@ impl Canvas {
     /// smooth a statue, keep the walls flat.
     pub fn set_smooth_shading(&mut self, on: bool) {
         self.effects.smooth = on;
+        self.effects.lit = Some(LIT);
     }
 
     /// Smooth edges for 3D: each pixel is worked out from `factor` x
@@ -289,6 +321,7 @@ impl Canvas {
     /// sets it for a game's canvas.
     pub fn set_supersample(&mut self, factor: u32) {
         self.effects.supersample = factor.clamp(1, 4);
+        self.effects.lit = Some(LIT);
     }
 
     /// The supersample factor (1: off).

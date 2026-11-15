@@ -24,6 +24,7 @@ use studio_core::studio::{Command, OpenGame};
 use crate::files_panel::{self, DraggedFile};
 use crate::keys::Placement;
 use crate::theme;
+use duckforge::scene::ready;
 use studio_core::game_files::FileKind;
 use studio_core::scripts::{ScriptsFile, SettingInfo};
 
@@ -126,6 +127,14 @@ struct Adding {
     choice: Option<String>,
 }
 
+/// The Turn into code window: the object it was opened for, and whether
+/// every object with that ready-made kind is turned too.
+#[derive(Debug, Clone, Copy)]
+struct TurnAsked {
+    id: u64,
+    all: bool,
+}
+
 /// How long after one nudge with the arrow keys the next is the same
 /// step for Undo.
 const NUDGES_JOIN: Duration = Duration::from_millis(1500);
@@ -157,6 +166,8 @@ pub struct ScenePanel {
     adding: Option<Adding>,
     /// Add's New script was pressed: the app asks for the name in Files.
     new_script: bool,
+    /// The Turn into code window, while it's open.
+    turning: Option<TurnAsked>,
     /// The Scene list's search.
     find: String,
     /// Objects being dragged up or down the Scene list.
@@ -178,6 +189,7 @@ impl Default for ScenePanel {
             nudge: None,
             adding: None,
             new_script: false,
+            turning: None,
             find: String::new(),
             list_drag: None,
         }
@@ -344,6 +356,14 @@ fn handle_under(placement: Placement, shape: PictureShape, point: Pos2) -> Optio
 }
 
 /// A size or a turn in a few characters: 2, 1.5, 0.75.
+/// "runs, jumps" as "Runs, jumps".
+fn capitalised(words: &str) -> String {
+    let mut letters = words.chars();
+    letters.next().map_or_else(String::new, |first| {
+        first.to_uppercase().collect::<String>() + letters.as_str()
+    })
+}
+
 fn short(n: f32) -> String {
     let text = format!("{n:.2}");
     text.trim_end_matches('0').trim_end_matches('.').to_string()
@@ -374,7 +394,7 @@ impl ScenePanel {
 
     /// Whether the Add window is open.
     pub fn is_adding(&self) -> bool {
-        self.adding.is_some()
+        self.adding.is_some() || self.turning.is_some()
     }
 
     /// The Scene list: every object of the scene, in drawing order, with
@@ -460,7 +480,10 @@ impl ScenePanel {
                 .horizontal(|ui| {
                     let response = ui.selectable_label(row.selected, text);
                     if row.label != row.kind && row.kind != "picture" {
-                        ui.label(RichText::new(&row.kind).weak().small());
+                        // A ready-made kind by the Studio's name for it.
+                        let kind =
+                            ready::get(&row.kind).map_or(row.kind.as_str(), |made| made.label);
+                        ui.label(RichText::new(kind).weak().small());
                     }
                     if row.moved {
                         ui.label(RichText::new("moved").weak().small())
@@ -1579,6 +1602,34 @@ impl ScenePanel {
                     }
                 });
             }
+            // Duck Forge's ready-made kinds: they act by themselves.
+            ui.add_space(6.0);
+            ui.label(
+                RichText::new("Ready-made: they act by themselves, with settings to change.")
+                    .weak(),
+            );
+            for pair in ready::ALL.chunks(2) {
+                ui.horizontal(|ui| {
+                    for made in pair {
+                        let chosen = adding.kind == Some(made.name);
+                        let size = egui::vec2(290.0, 46.0);
+                        let layout = egui::Layout::top_down(egui::Align::Min);
+                        let pick = ui
+                            .allocate_ui_with_layout(size, layout, |ui| {
+                                ui.set_min_size(size);
+                                let pick =
+                                    ui.selectable_label(chosen, RichText::new(made.label).strong());
+                                ui.label(RichText::new(capitalised(made.about)).weak().small());
+                                pick
+                            })
+                            .inner;
+                        if pick.clicked() && !chosen {
+                            adding.kind = Some(made.name);
+                            adding.choice = pictures.first().cloned();
+                        }
+                    }
+                });
+            }
             // The game's own scripts: an object with one, in the middle.
             if let Some(folder) = &folder
                 && open.scene.is_some()
@@ -1618,17 +1669,19 @@ impl ScenePanel {
             ui.add_space(6.0);
             ui.label(
                 RichText::new(
-                    "Text and Button come with several scenes (step 7), and ready-made scripts, \
-                     like a player or a moving platform, in step 6. You can also drag a picture, \
-                     a sound or a script from Files straight into the scene.",
+                    "Text and Button come with several scenes (step 7), and more ready-made \
+                     kinds, like a coin or a moving platform, later in step 6. You can also drag \
+                     a picture, a sound or a script from Files straight into the scene.",
                 )
                 .weak()
                 .small(),
             );
-            let needs = adding
-                .kind
-                .and_then(scene_edit::plain_kind)
-                .map(|plain| plain.needs);
+            // A ready-made kind needs a picture to be seen.
+            let needs = adding.kind.and_then(|kind| {
+                scene_edit::plain_kind(kind)
+                    .map(|plain| plain.needs)
+                    .or_else(|| ready::get(kind).map(|_| Needs::Picture))
+            });
             let (words, choices, none) = match needs {
                 Some(Needs::Picture) => (
                     "Which picture",
@@ -1908,6 +1961,11 @@ impl ScenePanel {
         }
         let list = self.scripts_of(folder);
         let has = list.get(&start.kind).cloned();
+        if has.is_none()
+            && let Some(made) = ready::get(&start.kind)
+        {
+            return self.ready_made_boxes(ui, open, start, made);
+        }
         // A tile map, a sound, a background has a job already; a kind the
         // game's code looks for keeps it.
         if has.is_none() && !matches!(start.kind.as_str(), "picture" | "area") {
@@ -1932,6 +1990,19 @@ impl ScenePanel {
                                 at: None,
                                 ids: vec![id],
                                 key: None,
+                            });
+                        }
+                    }
+                    // Or one of Duck Forge's ready-made kinds.
+                    for made in ready::ALL
+                        .iter()
+                        .filter(|made| list.get(made.name).is_none())
+                    {
+                        if ui.selectable_label(false, made.label).clicked() {
+                            commands.push(Command::ObjectSet {
+                                ids: vec![id],
+                                set: set_of("kind", json!(made.name)),
+                                stroke: None,
                             });
                         }
                     }
@@ -2018,6 +2089,206 @@ impl ScenePanel {
             });
         }
         ui.add_space(6.0);
+        commands
+    }
+
+    /// An object with a ready-made kind: what it is, its settings (the
+    /// ones for experts folded away), Remove, and Turn into code.
+    fn ready_made_boxes(
+        &mut self,
+        ui: &mut egui::Ui,
+        open: &OpenGame,
+        start: &Object,
+        made: &ready::ReadyMade,
+    ) -> Vec<Command> {
+        let mut commands = Vec::new();
+        let id = start.id().number();
+        ui.add_space(4.0);
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new(made.label).strong());
+            ui.label(RichText::new(made.about).weak());
+        });
+        match open
+            .game_scripts()
+            .and_then(|scripts| scripts.get(made.name))
+        {
+            Some(info) => {
+                let (expert, usual): (Vec<&SettingInfo>, Vec<&SettingInfo>) =
+                    info.settings.iter().partition(|setting| setting.expert);
+                let mut group: Option<&str> = None;
+                for setting in usual {
+                    if setting.group.as_deref() != group {
+                        group = setting.group.as_deref();
+                        if let Some(heading) = group {
+                            ui.label(RichText::new(heading).small().strong());
+                        }
+                    }
+                    commands.extend(self.setting_box(ui, open, start, setting));
+                }
+                if !expert.is_empty() {
+                    egui::CollapsingHeader::new(format!("{} more settings", expert.len()))
+                        .id_salt(("more settings", made.name))
+                        .show(ui, |ui| {
+                            for setting in expert {
+                                commands.extend(self.setting_box(ui, open, start, setting));
+                            }
+                        });
+                }
+            }
+            None => {
+                ui.label(
+                    RichText::new("Its settings appear here when the game is running.")
+                        .weak()
+                        .small(),
+                );
+            }
+        }
+        ui.horizontal(|ui| {
+            if ui
+                .button("Turn into code...")
+                .on_hover_text("Gives this game its own copy of the code, to change")
+                .clicked()
+            {
+                self.turning = Some(TurnAsked { id, all: false });
+            }
+            if ui
+                .button("Remove")
+                .on_hover_text("It stops acting by itself, and its settings go")
+                .clicked()
+            {
+                commands.push(Command::ScriptRemove { ids: vec![id] });
+            }
+        });
+        ui.add_space(6.0);
+        commands
+    }
+
+    /// The Turn into code window: what it will write, the code itself,
+    /// and Write the code.
+    pub fn turn_window(&mut self, ctx: &egui::Context, open: &OpenGame) -> Vec<Command> {
+        let mut commands = Vec::new();
+        let Some(mut asked) = self.turning.take() else {
+            return commands;
+        };
+        let one = open.turn_into_code_plan(&[asked.id], None);
+        let plan = match (&one, asked.all) {
+            (Ok(plan), true) if plan.all_with_it.len() > 1 => {
+                open.turn_into_code_plan(&plan.all_with_it, None)
+            }
+            _ => one.clone(),
+        };
+        let called = |id: u64| {
+            open.scene
+                .as_ref()
+                .and_then(|doc| doc.object(id))
+                .map_or_else(|| format!("object {id}"), |object| object.name.clone())
+        };
+        let game = open.game.name.clone();
+        let mut keep = true;
+        let modal = egui::Modal::new(egui::Id::unique("turn into code")).show(ctx, |ui| {
+            ui.set_width(760.0);
+            let plan = match &plan {
+                Ok(plan) => plan,
+                Err(problem) => {
+                    ui.heading("Turn into code");
+                    ui.label(RichText::new(&problem.what).color(theme::LOOK));
+                    ui.label(&problem.details);
+                    if ui.button("Close").clicked() {
+                        keep = false;
+                    }
+                    return;
+                }
+            };
+            let who = called(asked.id);
+            ui.heading(format!("Turn {who}'s behaviour into code"));
+            ui.label(format!(
+                "{who} uses Duck Forge's ready-made {}. Turning it into code gives this game \
+                 its own copy to change. Duck Forge will:",
+                plan.ready.label
+            ));
+            ui.add_space(4.0);
+            let mut steps = vec![format!(
+                "Write {game}/{}: the {}'s own code, named {}.",
+                plan.path, plan.ready.label, plan.type_name
+            )];
+            steps.push(if plan.connects_main {
+                String::from("Add it to scripts.rs, and two lines to main.rs, so the game knows the new kind.")
+            } else {
+                String::from("Add a line to scripts.rs, so the game knows the new kind.")
+            });
+            let whose = if plan.ids.len() > 1 {
+                format!("these {} objects'", plan.ids.len())
+            } else {
+                String::from("this object's")
+            };
+            steps.push(format!(
+                "Change {whose} kind from {} to {}. Settings and pictures stay as they are.",
+                plan.ready.label, plan.name
+            ));
+            for (number, step) in steps.iter().enumerate() {
+                ui.label(format!("  {}. {step}", number + 1));
+            }
+            if let Ok(first) = &one
+                && first.all_with_it.len() > 1
+            {
+                ui.horizontal(|ui| {
+                    ui.radio_value(&mut asked.all, false, format!("Only this {who}"));
+                    ui.radio_value(
+                        &mut asked.all,
+                        true,
+                        format!(
+                            "All {} objects that use {}",
+                            first.all_with_it.len(),
+                            first.ready.label
+                        ),
+                    );
+                });
+            }
+            ui.add_space(4.0);
+            egui::Frame::new()
+                .fill(Color32::from_rgb(0x14, 0x10, 0x30))
+                .inner_margin(8.0)
+                .show(ui, |ui| {
+                    egui::ScrollArea::vertical()
+                        .max_height(300.0)
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| {
+                            for (number, line) in plan.code.lines().enumerate() {
+                                ui.label(
+                                    RichText::new(format!("{:>4}  {line}", number + 1))
+                                        .monospace(),
+                                );
+                            }
+                        });
+                });
+            ui.label(
+                RichText::new(
+                    "The game plays exactly as before: it builds the new code in and comes \
+                     back to this moment. Undo puts everything back.",
+                )
+                .weak()
+                .small(),
+            );
+            ui.separator();
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.add(theme::primary_button("Write the code")).clicked() {
+                    commands.push(Command::ScriptTurnIntoCode {
+                        ids: plan.ids.clone(),
+                        name: Some(plan.name.clone()),
+                    });
+                    keep = false;
+                }
+                if ui.button("Cancel").clicked() {
+                    keep = false;
+                }
+            });
+        });
+        if modal.should_close() {
+            keep = false;
+        }
+        if keep {
+            self.turning = Some(asked);
+        }
         commands
     }
 
@@ -2511,7 +2782,9 @@ impl ScenePanel {
                 commands.push(Command::ObjectRename { id, name });
             }
         });
-        ui.label(RichText::new(format!("Kind: {}", start.kind)).weak());
+        if ready::get(&start.kind).is_none() {
+            ui.label(RichText::new(format!("Kind: {}", start.kind)).weak());
+        }
         commands.extend(self.script_boxes(ui, open, start));
         if gone {
             ui.label(

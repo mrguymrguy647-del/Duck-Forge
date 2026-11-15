@@ -5,7 +5,7 @@ use std::path::Path;
 
 use serde_json::{Map, Value, json};
 
-use super::Studio;
+use super::{OpenGame, Studio};
 use crate::game_files;
 use crate::history::{FileEdit, Step};
 use crate::problem::Problem;
@@ -161,125 +161,17 @@ impl Studio {
         Ok(said)
     }
 
-    /// What turning objects' ready-made behaviour into code would do:
-    /// the script it writes, named `name` (or after the first object).
+    /// What turning objects' ready-made behaviour into code would do
+    /// ([`OpenGame::turn_into_code_plan`]).
     pub fn turn_into_code_plan(
         &self,
         ids: &[u64],
         name: Option<&str>,
     ) -> Result<TurnPlan, Problem> {
-        let open = self
-            .open
+        self.open
             .as_ref()
-            .ok_or_else(|| Problem::new("No game is open.", "Open a game made of scenes first."))?;
-        let game_folder = open.game.folder.clone().ok_or_else(|| {
-            Problem::new(
-                "This game has no folder of its own to write code in.",
-                "Open a game from your games folder.",
-            )
-        })?;
-        let doc = open.scene.as_ref().ok_or_else(super::objects::no_scene)?;
-        let mut kind: Option<&ReadyMade> = None;
-        let mut first_name = String::new();
-        for id in ids {
-            let object = doc.object(*id).ok_or_else(|| {
-                Problem::new(
-                    format!("The scene's file has no object with the id {id}."),
-                    "Pick an object of the scene.",
-                )
-            })?;
-            let Some(this) = ready::get(&object.kind) else {
-                return Err(Problem::new(
-                    format!(
-                        "{} doesn't use one of Duck Forge's ready-made behaviours, so there's nothing to turn into code.",
-                        object.name
-                    ),
-                    "Pick an object whose Kind is a ready-made one, like Platformer player.",
-                ));
-            };
-            if kind.is_some_and(|kind| kind.name != this.name) {
-                return Err(Problem::new(
-                    "Those objects use different ready-made behaviours.",
-                    "Turn one behaviour into code at a time: pick objects of one kind.",
-                ));
-            }
-            if kind.is_none() {
-                first_name = object.name.clone();
-            }
-            kind = Some(this);
-        }
-        let ready = *kind.ok_or_else(|| {
-            Problem::new(
-                "No object is picked.",
-                "Pick the object whose behaviour you want as code.",
-            )
-        })?;
-        let all_with_it: Vec<u64> = doc
-            .file
-            .iter()
-            .flat_map(|file| &file.objects)
-            .filter(|object| object.kind == ready.name)
-            .map(|object| object.id().number())
-            .collect();
-
-        // Its name: the one asked for, or the object's ("duck"), made
-        // unique ("duck 2") if the game has a script or file of that name.
-        let list = ScriptsFile::read(&game_folder).unwrap_or_default();
-        let taken = |name: &str| {
-            list.get(name).is_some()
-                || game_folder
-                    .join("scripts")
-                    .join(format!("{name}.rs"))
-                    .exists()
-        };
-        let (name, type_name) = match name {
-            Some(typed) => {
-                let (name, type_name) = new_name(typed)?;
-                if taken(&name) {
-                    return Err(Problem::new(
-                        format!("This game has a script called \"{name}\" already."),
-                        "Give the new one another name.",
-                    ));
-                }
-                (name, type_name)
-            }
-            None => {
-                let base = new_name(&first_name)
-                    .or_else(|_| new_name(&format!("my {}", ready.name)))?
-                    .0;
-                let mut number = 1;
-                loop {
-                    let typed = if number == 1 {
-                        base.clone()
-                    } else {
-                        format!("{base} {number}")
-                    };
-                    let (name, type_name) = new_name(&typed)?;
-                    if !taken(&name) {
-                        break (name, type_name);
-                    }
-                    number += 1;
-                }
-            }
-        };
-        let code = ready::copy_for_a_game(&ready, &name, &type_name).ok_or_else(|| {
-            Problem::new(
-                format!("Duck Forge has no file for {}.", ready.label),
-                "This is a mistake in Duck Forge: please say so.",
-            )
-        })?;
-        let connects_main = std::fs::read_to_string(game_folder.join("main.rs"))
-            .is_ok_and(|main| connect_main(&main).0 != main);
-        Ok(TurnPlan {
-            ready,
-            ids: ids.to_vec(),
-            all_with_it,
-            path: format!("scripts/{name}.rs"),
-            name,
-            type_name,
-            code,
-            connects_main,
-        })
+            .ok_or_else(|| Problem::new("No game is open.", "Open a game made of scenes first."))?
+            .turn_into_code_plan(ids, name)
     }
 
     /// `script.turn_into_code`: gives the game its own copy of the
@@ -521,4 +413,124 @@ pub(super) fn is_code(path: &str) -> bool {
     Path::new(path)
         .extension()
         .is_some_and(|end| end.eq_ignore_ascii_case("rs"))
+}
+
+impl OpenGame {
+    /// What turning objects' ready-made behaviour into code would do:
+    /// the script it writes, named `name` (or after the first object).
+    pub fn turn_into_code_plan(
+        &self,
+        ids: &[u64],
+        name: Option<&str>,
+    ) -> Result<TurnPlan, Problem> {
+        let open = self;
+        let game_folder = open.game.folder.clone().ok_or_else(|| {
+            Problem::new(
+                "This game has no folder of its own to write code in.",
+                "Open a game from your games folder.",
+            )
+        })?;
+        let doc = open.scene.as_ref().ok_or_else(super::objects::no_scene)?;
+        let mut kind: Option<&ReadyMade> = None;
+        let mut first_name = String::new();
+        for id in ids {
+            let object = doc.object(*id).ok_or_else(|| {
+                Problem::new(
+                    format!("The scene's file has no object with the id {id}."),
+                    "Pick an object of the scene.",
+                )
+            })?;
+            let Some(this) = ready::get(&object.kind) else {
+                return Err(Problem::new(
+                    format!(
+                        "{} doesn't use one of Duck Forge's ready-made behaviours, so there's nothing to turn into code.",
+                        object.name
+                    ),
+                    "Pick an object whose Kind is a ready-made one, like Platformer player.",
+                ));
+            };
+            if kind.is_some_and(|kind| kind.name != this.name) {
+                return Err(Problem::new(
+                    "Those objects use different ready-made behaviours.",
+                    "Turn one behaviour into code at a time: pick objects of one kind.",
+                ));
+            }
+            if kind.is_none() {
+                first_name = object.name.clone();
+            }
+            kind = Some(this);
+        }
+        let ready = *kind.ok_or_else(|| {
+            Problem::new(
+                "No object is picked.",
+                "Pick the object whose behaviour you want as code.",
+            )
+        })?;
+        let all_with_it: Vec<u64> = doc
+            .file
+            .iter()
+            .flat_map(|file| &file.objects)
+            .filter(|object| object.kind == ready.name)
+            .map(|object| object.id().number())
+            .collect();
+
+        // Its name: the one asked for, or the object's ("duck"), made
+        // unique ("duck 2") if the game has a script or file of that name.
+        let list = ScriptsFile::read(&game_folder).unwrap_or_default();
+        let taken = |name: &str| {
+            list.get(name).is_some()
+                || game_folder
+                    .join("scripts")
+                    .join(format!("{name}.rs"))
+                    .exists()
+        };
+        let (name, type_name) = match name {
+            Some(typed) => {
+                let (name, type_name) = new_name(typed)?;
+                if taken(&name) {
+                    return Err(Problem::new(
+                        format!("This game has a script called \"{name}\" already."),
+                        "Give the new one another name.",
+                    ));
+                }
+                (name, type_name)
+            }
+            None => {
+                let base = new_name(&first_name)
+                    .or_else(|_| new_name(&format!("my {}", ready.name)))?
+                    .0;
+                let mut number = 1;
+                loop {
+                    let typed = if number == 1 {
+                        base.clone()
+                    } else {
+                        format!("{base} {number}")
+                    };
+                    let (name, type_name) = new_name(&typed)?;
+                    if !taken(&name) {
+                        break (name, type_name);
+                    }
+                    number += 1;
+                }
+            }
+        };
+        let code = ready::copy_for_a_game(&ready, &name, &type_name).ok_or_else(|| {
+            Problem::new(
+                format!("Duck Forge has no file for {}.", ready.label),
+                "This is a mistake in Duck Forge: please say so.",
+            )
+        })?;
+        let connects_main = std::fs::read_to_string(game_folder.join("main.rs"))
+            .is_ok_and(|main| connect_main(&main).0 != main);
+        Ok(TurnPlan {
+            ready,
+            ids: ids.to_vec(),
+            all_with_it,
+            path: format!("scripts/{name}.rs"),
+            name,
+            type_name,
+            code,
+            connects_main,
+        })
+    }
 }

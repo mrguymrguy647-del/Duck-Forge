@@ -539,6 +539,15 @@ pub struct ScriptInfo {
     pub type_name: String,
     #[serde(default)]
     pub settings: Vec<SettingInfo>,
+    /// One of Duck Forge's ready-made kinds, not the game's own.
+    #[serde(default)]
+    pub ready_made: bool,
+    /// What the Studio calls a ready-made kind: "Platformer player".
+    #[serde(default)]
+    pub label: Option<String>,
+    /// What a ready-made kind does, in a few words.
+    #[serde(default)]
+    pub about: Option<String>,
 }
 
 /// The game's answer to "scripts".

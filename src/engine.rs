@@ -167,11 +167,6 @@ pub struct Config {
     /// bot or play test with another program name) reads the same values.
     /// It's fine for it not to exist yet.
     pub tune_file: Option<std::path::PathBuf>,
-    /// Smooth edges for 3D: each pixel is worked out from `supersample` x
-    /// `supersample` points inside it, averaged (see
-    /// [`Canvas::set_supersample`]). 1 (the default) is off; 2 is good, at
-    /// four times the work; up to 4. Drawn on the CPU, on every core.
-    pub supersample: u32,
 }
 
 /// A corner of the screen, for [`Config::debug_corner`].
@@ -219,12 +214,6 @@ impl Config {
         if !window_fits {
             return Err(String::from("width or height times scale is too big"));
         }
-        if !(1..=4).contains(&self.supersample) {
-            return Err(format!(
-                "supersample must be 1 (off) to 4, not {}",
-                self.supersample
-            ));
-        }
         if self.timestep
             == (Timestep::Fixed {
                 updates_per_second: 0,
@@ -262,7 +251,6 @@ impl Default for Config {
             resizable: false,
             debug_corner: Corner::default(),
             tune_file: None,
-            supersample: 1,
         }
     }
 }
