@@ -1,0 +1,19 @@
+# A game on a phone held sideways (19.5:9), with the camera notch on one
+# side (either, depending on how it's turned) and the home bar at the
+# bottom. Keep menus and the score clear of them.
+name = "phone sideways with a notch"
+aspect = "19.5:9"
+canvas = [2340, 1080]
+screen = "phone"
+margin_bottom = 40
+
+source = "iPhone and Android phones of 2023-2026 (19.5:9 screens, notch or camera hole)"
+checked = "2026-11-15"
+
+[[covered]]
+name = "notch (turned left)"
+rect = [0, 330, 100, 420]
+
+[[covered]]
+name = "notch (turned right)"
+rect = [2240, 330, 100, 420]

@@ -1,0 +1,12 @@
+# The middle 900 x 1400 of a 1080 x 1920 video: clear on every vertical
+# app the guides agree on. Text outside it may be covered somewhere.
+name = "common vertical (900x1400 centred)"
+aspect = "9:16"
+canvas = [1080, 1920]
+screen = "phone"
+margin_top = 260
+margin_bottom = 260
+margin_left = 90
+margin_right = 90
+source = "the area clear on TikTok, Reels and Shorts together, from the guides those name"
+checked = "2026-11-15"

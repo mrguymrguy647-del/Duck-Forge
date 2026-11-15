@@ -414,10 +414,20 @@ impl Canvas {
                 continue;
             }
             let top = origin.y + i as f32 * spacing;
-            self.note_text(
-                line.text.clone(),
-                Rect::new(left_of(line.width), top, line.width, size),
-            );
+            let rect = Rect::new(left_of(line.width), top, line.width, size);
+            if self.noting_looks() {
+                self.note_look(crate::review::truth::TextLook {
+                    text: line.text.clone(),
+                    rect,
+                    color: style.color,
+                    outline: (style.outline > 0.0)
+                        .then_some((style.outline_color, style.outline * scale)),
+                    shadow: style.shadow.map(|_| style.shadow_color),
+                    box_color: None,
+                    behind: [0.0; 3],
+                });
+            }
+            self.note_text(line.text.clone(), rect);
         }
         if lines.is_empty() || style.color.a == 0 && style.outline <= 0.0 && style.shadow.is_none()
         {

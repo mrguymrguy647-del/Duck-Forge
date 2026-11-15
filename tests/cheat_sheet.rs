@@ -1377,6 +1377,64 @@ fn pixel_fonts() {
 }
 
 #[test]
+fn review_marks_expectations_and_named_models() {
+    struct Show {
+        camera: Camera3D,
+    }
+    impl Game for Show {
+        fn init(&mut self, ctx: &mut Context) {
+            ctx.expect(Expect::at(51.6).thing("host").fills_height(0.4));
+            ctx.expect(Expect::on("impact").sound("thump"));
+        }
+        fn update(&mut self, ctx: &mut Context) {
+            match ctx.frame() {
+                2 => ctx.place("cellar"),
+                3 => ctx.cut(),
+                4 => {
+                    ctx.event("impact");
+                    ctx.play_for("impact", Sound::hit(), 1.0, 0.0);
+                    ctx.intend("impact shake", 0.5);
+                }
+                _ => {}
+            }
+        }
+        fn draw(&self, canvas: &mut Canvas) {
+            canvas.clear(Color::BLACK);
+            let (mesh, transform) = (
+                Mesh::cube(Color::YELLOW),
+                Transform::at(vec3(0.0, 0.0, 4.0)),
+            );
+            canvas.draw_mesh(&mesh, &transform, &self.camera);
+            canvas.label_model("host", &mesh, &transform, &self.camera);
+        }
+    }
+    let mut sim = Simulation::new(
+        Config::default(),
+        Show {
+            camera: Camera3D::new(Vec3::ZERO),
+        },
+    );
+    sim.run(4);
+    assert_eq!(
+        sim.marks(),
+        [
+            (2, Mark::Place(String::from("cellar"))),
+            (3, Mark::Cut),
+            (4, Mark::Event(String::from("impact"))),
+            (4, Mark::Intend(String::from("impact shake"), 0.5)),
+        ]
+    );
+    assert_eq!(sim.expectations().len(), 2);
+    assert_eq!(
+        sim.expectations()[1].words(),
+        "when \"impact\", \"thump\" starts within 2 frames"
+    );
+    assert_eq!(sim.sound_frames("hit"), [4]);
+    let host = sim.scene().labels_named("host").next().unwrap().clone();
+    assert!(host.on_screen && host.screen.h > 20.0, "{host:?}");
+}
+
+#[test]
 fn sound_groups_volumes_and_ducking() {
     struct Mixer;
     impl Game for Mixer {

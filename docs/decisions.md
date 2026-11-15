@@ -5860,3 +5860,54 @@ Night Cellar, with a torch whose shadow map has to be drawn every frame,
 gets 1.8x to 1.9x depending on the run. Where Night Cellar's time goes
 now (`--time`): world 85 ms, bloom 15 ms, shadows 9 ms, captions 3 ms a
 frame. What's left in the world stage is the lighting at each pixel.
+
+# Review mode: checking a render as a viewer sees it
+
+Claude can't watch a video or hear it, so `--review` turns a run into
+numbers, words and still pictures, checked against what a viewer would
+see on their screen.
+
+## Decisions
+
+- **Truth first, pixels second.** The engine records what it knows as it
+  draws: the 3D camera of each frame, every named thing's box on screen
+  (`canvas.label_model` for models), each line of text with its colours,
+  outline, box and the pixels behind it (sampled just before it's
+  painted), the sounds with the events they're for, and the game's own
+  marks (`ctx.event`, `ctx.place`, `ctx.cut`, `ctx.intend`). The checks
+  use that truth; only a video made elsewhere (`duckforge review any.mp4`)
+  is judged from pixels alone. Text looks are only recorded with
+  `--review`; the rest is cheap and always on.
+- **Outlines drawn as copies.** Games draw outlines and drop shadows as
+  dark copies of the words a pixel or two off (the door show draws 13).
+  Judged one by one, every copy was "dark text on a dark background, 1:1".
+  The recorder folds copies of the same words close together into one
+  line: another colour round it is its outline (3 or more) or shadow, the
+  same colour is bold, and what's behind is what was there before the
+  first copy was painted.
+- **Problems that last.** Text that flies in passes through every edge of
+  the screen; a problem counts when it lasts a third of the text's time
+  on screen or a second, and its size is the median. The same finding
+  again later (a caption every round) is one line with all its times.
+- **Profiles are files.** Sources disagree (TikTok's bottom margin: 480 to
+  660 px) and apps change, so each profile is a small TOML file with its
+  source and the date it was checked, read by a small parser of its own (no new
+  dependency). Only profiles of the video's shape (within 3%) apply,
+  scaled to its size; a game of another shape is judged in its own window.
+- **Response from settled screens only.** Timing a key press from pixels
+  works only when the screen was still before it: in Dodge, falling
+  blocks change the screen every frame, and the first version called a
+  press "17 frames late". Busy moments are skipped, not guessed.
+- **Measured small.** Frames are measured at 480 px on their long side
+  and kept as thumbnails (160 px; smaller for runs over 40 s at 60 fps),
+  so filmstrips need no second render. The door show's 60 s took 1.2 s to
+  review, after a 25 s render.
+
+## The numbers
+
+| | |
+|---|---|
+| Door show, 60 s at 540 x 960: render + review | 26 s (the review itself 1.2 s) |
+| Dodge, 10 s at 320 x 240 | 0.1 s to review |
+| A 3 s video made by ffmpeg, reviewed from pixels | 0.1 s |
+| Tests | 17 in tests/review.rs, one small broken film per check, plus unit tests |

@@ -1,0 +1,24 @@
+# A 16:9 video on YouTube or a TV: the classic 90% title-safe area (a TV
+# may cut off the edges), and the player's controls over the bottom and
+# title over the top while it's paused (only warned about).
+name = "YouTube / TV 16:9"
+aspect = "16:9"
+canvas = [1920, 1080]
+screen = "tv"
+margin_top = 54
+margin_bottom = 54
+margin_left = 96
+margin_right = 96
+
+source = "SMPTE ST 2046-1 title-safe (90%); the YouTube player as it draws its controls"
+checked = "2026-11-15"
+
+[[covered]]
+name = "player controls (when paused)"
+rect = [0, 950, 1920, 130]
+paused_only = true
+
+[[covered]]
+name = "video title (when paused)"
+rect = [0, 0, 1920, 100]
+paused_only = true

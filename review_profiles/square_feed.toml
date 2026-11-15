@@ -1,0 +1,9 @@
+# A square video in a feed (Instagram, Facebook, X): the app draws its
+# buttons under the video, not over it, so nothing is covered; text is
+# judged for a phone screen.
+name = "square feed (1:1)"
+aspect = "1:1"
+canvas = [1080, 1080]
+screen = "phone"
+source = "feeds show square posts whole, with the buttons below"
+checked = "2026-11-15"

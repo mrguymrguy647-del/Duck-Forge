@@ -130,6 +130,12 @@ pub struct HeadlessOptions {
     /// seconds each takes, and the time left (for a video, stills, or a
     /// section).
     pub progress: bool,
+    /// Check the run the way a viewer sees it (`--review`): every frame is
+    /// drawn and measured, and `review/` gets `review.txt`, `review.json`
+    /// and pictures. See [`review`](crate::review).
+    pub review: bool,
+    /// Also read platform profiles from this folder (`--profiles DIR`).
+    pub profiles: Option<PathBuf>,
 }
 
 impl Default for HeadlessOptions {
@@ -160,6 +166,8 @@ impl Default for HeadlessOptions {
             from: None,
             to: None,
             progress: false,
+            review: false,
+            profiles: None,
         }
     }
 }
@@ -515,6 +523,21 @@ fn run_and_save<G: Game>(
         }
     }
     let mut still_pictures: Vec<(u64, Canvas, String)> = Vec::new();
+    if options.review && !stills.is_empty() {
+        return Err(String::from(
+            "--review looks at every frame: use it without --stills",
+        ));
+    }
+    let mut recorder = if options.review {
+        sim.record_for_review();
+        Some(crate::review::frames::Recorder::new(
+            width,
+            height,
+            frames - first_drawn + 1,
+        ))
+    } else {
+        None
+    };
 
     for _ in 0..frames {
         if sim.quit_requested() {
@@ -589,6 +612,11 @@ fn run_and_save<G: Game>(
                 let picture = sim.picture();
                 crate::stages::time(Stage::Encode, || clip.add(picture))?;
             }
+        }
+        if let Some(recorder) = &mut recorder {
+            sim.picture();
+            let truth = sim.take_frame_truth();
+            recorder.add(frame, sim.picture().pixels(), truth);
         }
         if let Some(gif) = &mut gif {
             if (frame - first_drawn).is_multiple_of(gif_every) {
@@ -691,6 +719,16 @@ fn run_and_save<G: Game>(
             sound_warning = Some(clipping_warning(&mixed, updates_per_second));
         }
     }
+    let review_note = match &recorder {
+        Some(recorder) => {
+            let run = review_run(&sim, &title, updates_per_second, options, last);
+            let review =
+                crate::review::finish(recorder, &run, &folder.join("review"), (width, height))?;
+            saved.push(String::from("review/review.txt"));
+            Some(review.line())
+        }
+        None => None,
+    };
     let video_note = match video {
         Some(video) => {
             let wav = folder.join("audio.wav");
@@ -764,6 +802,7 @@ fn run_and_save<G: Game>(
     summary.notes.extend(note);
     summary.notes.extend(video_note);
     summary.notes.extend(clip_note);
+    summary.notes.extend(review_note);
     summary.folder = Some(folder.clone());
     summary.files = saved;
     let stages = crate::stages::take();
@@ -772,6 +811,85 @@ fn run_and_save<G: Game>(
     save_text(&summary.to_file_text(), &folder.join("summary.txt"))?;
     sim.quit(); // the run is over: the game's own goodbye, last of all
     Ok((sim, summary))
+}
+
+/// What the review needs to know about a finished run, besides its frames.
+fn review_run<G: Game>(
+    sim: &Simulation<G>,
+    title: &str,
+    updates_per_second: f64,
+    options: &HeadlessOptions,
+    last: u64,
+) -> crate::review::Run {
+    use crate::review::audio::{Audio, Peak, SoundStart, lead_silence};
+    let sounds = sim
+        .sounds()
+        .iter()
+        .map(|s| SoundStart {
+            frame: s.frame,
+            name: s.name.clone(),
+            event: s.event.clone(),
+            volume: s.volume,
+            lead: lead_silence(
+                s.samples.frames(),
+                |i| s.samples.frame(i),
+                sound::SAMPLE_RATE,
+            ),
+        })
+        .collect();
+    let audio = (!sim.sounds().is_empty() || !sim.loops().is_empty()).then(|| {
+        let length = sim.sample_at(last + 1);
+        let (mono, peak, moments) =
+            sound::mix_for_review(sim.sounds(), sim.loops(), length, sim.mix(), 12);
+        let peaks = moments
+            .iter()
+            .map(|m| Peak {
+                seconds: m.sample as f32 / sound::SAMPLE_RATE as f32,
+                level: m.level,
+                sounds: m.sounds.clone(),
+                suggestion: m.suggestion(),
+            })
+            .collect();
+        Audio {
+            rate: sound::SAMPLE_RATE,
+            mono,
+            peak,
+            peaks,
+        }
+    });
+    let recording = sim.recording();
+    let presses = recording
+        .events
+        .iter()
+        .filter_map(|e| match &e.action {
+            crate::script::InputAction::Press(key) => Some((e.frame, key.name())),
+            crate::script::InputAction::MousePress(button) => {
+                Some((e.frame, format!("the {} mouse button", button.name())))
+            }
+            _ => None,
+        })
+        .collect();
+    let (update_ms, held) = sim.review_timings();
+    let source = match &options.inputs_file {
+        Some(file) => format!("--inputs {}", file.display()),
+        None => format!("a headless run of {last} frames"),
+    };
+    crate::review::Run {
+        title: title.to_string(),
+        ups: updates_per_second,
+        game: true,
+        marks: sim.marks().to_vec(),
+        expectations: sim.expectations().to_vec(),
+        sounds,
+        audio,
+        presses,
+        update_ms: update_ms.to_vec(),
+        held: held.to_vec(),
+        seed: Some(sim.seed()),
+        recording: options.inputs.is_some().then_some(recording),
+        source,
+        profiles_folder: options.profiles.clone(),
+    }
 }
 
 /// A warning if the run stops before some of the script's events: they're
@@ -1235,6 +1353,8 @@ pub(crate) fn run_from_command_line<G: Game>(
         from: options.from,
         to: options.to,
         progress: !options.quiet && !options.json,
+        review: options.review,
+        profiles: options.profiles.clone(),
     };
     if let Some(corner) = options.debug_corner {
         config.debug_corner = corner;

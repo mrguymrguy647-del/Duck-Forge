@@ -35,7 +35,7 @@ const FRAME_WIDTH: usize = 1920;
 const FRAME_HEIGHT: usize = 1080;
 
 /// The ffmpeg program to use.
-fn ffmpeg() -> String {
+pub(crate) fn ffmpeg() -> String {
     std::env::var("DUCKFORGE_FFMPEG").unwrap_or_else(|_| String::from("ffmpeg"))
 }
 

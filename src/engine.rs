@@ -301,6 +301,10 @@ pub struct Context {
     run_mode: RunMode,
     /// Lines for Duck Forge Studio to show, not yet handed over.
     studio_notes: Vec<String>,
+    /// Events, places, cuts and intended motion marked this update.
+    marks: Vec<crate::review::Mark>,
+    /// What the game expects each moment to show (for `--review`).
+    expectations: Vec<crate::review::Expect>,
 }
 
 /// A rule from [`Context::check`] that didn't hold.
@@ -338,6 +342,8 @@ impl Context {
             idle_ok: false,
             run_mode: RunMode::Headless,
             studio_notes: Vec::new(),
+            marks: Vec::new(),
+            expectations: Vec::new(),
         }
     }
 
@@ -821,6 +827,66 @@ impl Context {
 
     pub(crate) fn debug_shapes(&self) -> &[DebugShape] {
         &self.debug_shapes
+    }
+
+    /// Marks that `name` happens now ("door opens", "impact", "enemy
+    /// attacks"): the review shows each event in a filmstrip, checks the
+    /// sounds played for it (`play_for`) start with it, and checks
+    /// expectations tied to it (`Expect::on`).
+    pub fn event(&mut self, name: &str) {
+        self.marks
+            .push(crate::review::Mark::Event(name.to_string()));
+    }
+
+    /// Marks that the story moves to a new place ("cellar", "stage"): the
+    /// review draws a line there on its timeline, and a camera jump there
+    /// is a cut, not a mistake.
+    pub fn place(&mut self, name: &str) {
+        self.marks
+            .push(crate::review::Mark::Place(name.to_string()));
+    }
+
+    /// Marks a cut: a camera jump here is meant.
+    pub fn cut(&mut self) {
+        self.marks.push(crate::review::Mark::Cut);
+    }
+
+    /// Marks that the camera's motion for the next `seconds` is meant
+    /// (`"impact shake"`), so the review doesn't call it jitter or a jump.
+    pub fn intend(&mut self, what: &str, seconds: f32) {
+        let seconds = if seconds.is_finite() {
+            seconds.max(0.0)
+        } else {
+            0.0
+        };
+        self.marks
+            .push(crate::review::Mark::Intend(what.to_string(), seconds));
+    }
+
+    /// Writes down what a moment must show, for `--review` to judge:
+    /// see [`Expect`](crate::review::Expect). Usually all in `init`.
+    pub fn expect(&mut self, expectation: crate::review::Expect) {
+        self.expectations.push(expectation);
+    }
+
+    /// [`play_with`](Context::play_with), for `event` (marked with
+    /// [`event`](Context::event)): the review checks the sound starts
+    /// within 2 frames of the event, and says by how much it's off.
+    pub fn play_for(&mut self, event: &str, sound: impl Into<LoopSound>, volume: f32, pan: f32) {
+        let LoopSound(mut request) = sound.into();
+        request.event = Some(event.to_string());
+        self.sounds
+            .push(request.panned(pan).louder(clean_volume(volume)));
+    }
+
+    /// Hands over this update's marks.
+    pub(crate) fn take_marks(&mut self) -> Vec<crate::review::Mark> {
+        std::mem::take(&mut self.marks)
+    }
+
+    /// Hands over the expectations written so far.
+    pub(crate) fn take_expectations(&mut self) -> Vec<crate::review::Expect> {
+        std::mem::take(&mut self.expectations)
     }
 
     /// Hands over this update's sounds and starts a fresh list.

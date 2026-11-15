@@ -444,6 +444,17 @@ impl Canvas {
                     widths[i] as f32,
                     (font.height * s) as f32,
                 );
+                if self.noting_looks() {
+                    self.note_look(crate::review::truth::TextLook {
+                        text: words.clone(),
+                        rect: at,
+                        color: style.color,
+                        outline: None,
+                        shadow: style.shadow.map(|_| style.shadow_color),
+                        box_color: style.background,
+                        behind: [0.0; 3],
+                    });
+                }
                 self.note_text(words, at);
             }
         }

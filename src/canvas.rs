@@ -104,6 +104,8 @@ pub struct Canvas {
     /// Billboard quads made so far, kept so the GPU sees the same mesh
     /// every frame (and uploads it once).
     billboards: Vec<BillboardQuad>,
+    /// What the review needs to know about this frame (see `review/truth.rs`).
+    pub(crate) truth: Box<crate::review::truth::Truth>,
 }
 
 /// One billboard's quad: which picture, mirrored or not, and the mesh.
@@ -156,6 +158,7 @@ impl Canvas {
             queue: Box::default(),
             drawing_billboard: false,
             billboards: Vec::new(),
+            truth: Box::default(),
         }
     }
 
@@ -332,6 +335,11 @@ impl Canvas {
             screen,
             on_screen: screen.overlaps(&canvas),
         });
+    }
+
+    /// Adds a label worked out elsewhere (`label_model`).
+    pub(crate) fn add_label(&mut self, label: Label) {
+        self.labels.push(label);
     }
 
     /// Notes a line of text drawn at `screen` (in pixels), for scene files.
@@ -1082,10 +1090,20 @@ impl Canvas {
                 Canvas::text_width(line, scale),
                 Canvas::text_height(scale),
             );
-            self.texts.push(OnScreenText {
-                text: line.trim_end_matches('\r').to_string(),
-                screen: self.view.apply_rect(area),
-            });
+            let screen = self.view.apply_rect(area);
+            let text = line.trim_end_matches('\r').to_string();
+            if self.noting_looks() {
+                self.note_look(crate::review::truth::TextLook {
+                    text: text.clone(),
+                    rect: screen,
+                    color,
+                    outline: None,
+                    shadow: None,
+                    box_color: None,
+                    behind: [0.0; 3],
+                });
+            }
+            self.texts.push(OnScreenText { text, screen });
         }
         let s = scale as f32;
         let mut cursor = pos;

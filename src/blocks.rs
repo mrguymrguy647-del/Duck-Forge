@@ -684,6 +684,15 @@ impl BlockWorld {
     /// Chunks behind the camera or below it aren't skipped by this (the
     /// camera can look straight down); the camera's view skips them anyway.
     pub fn draw_within(&self, canvas: &mut Canvas, camera: &Camera3D, far: f32) -> usize {
+        let eye = camera.position;
+        let (x, y, z) = (
+            eye.x.floor() as i32,
+            eye.y.floor() as i32,
+            eye.z.floor() as i32,
+        );
+        if self.get(x, y, z) != AIR {
+            canvas.note_inside(format!("a block at {x}, {y}, {z}"));
+        }
         let mut drawn = 0;
         for (mesh, &(low, high)) in self.meshes.iter().zip(&self.bounds) {
             if mesh.triangles.is_empty() || nearest_ahead(camera, low, high) > far {

@@ -1,0 +1,18 @@
+# Instagram Reels on a phone. Meta's own guide asks for 14% top and 35%
+# bottom clear (about 270 and 670 px) for ads; creator guides use 220-250
+# px top and 250-420 px bottom. These are middle values.
+name = "Instagram Reels"
+aspect = "9:16"
+canvas = [1080, 1920]
+screen = "phone"
+margin_top = 220
+margin_bottom = 420
+margin_left = 60
+margin_right = 0
+
+source = "Meta's ad safe-zone percentages and creator guides (hopperhq.com, socialync.io)"
+checked = "2026-11-15"
+
+[[covered]]
+name = "like, comment, share and audio buttons"
+rect = [960, 900, 120, 600]

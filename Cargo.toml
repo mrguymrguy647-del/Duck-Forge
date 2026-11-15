@@ -56,6 +56,13 @@ tinyaudio = { version = "2", optional = true }
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = { version = "0.2", optional = true }
 
+# `duckforge review any.mp4`: the engine's tools for files made anywhere.
+# (No docs of its own: they'd clash with the library's, of the same name.)
+[[bin]]
+name = "duckforge"
+path = "src/bin/duckforge.rs"
+doc = false
+
 # Also run the tests inside these examples with `cargo test`.
 [[example]]
 name = "breakout"

@@ -623,6 +623,8 @@ pub struct PlayedSound {
     pub(crate) start: u64,
     /// The part of the mix it's in (effects, unless the game said).
     pub group: SoundGroup,
+    /// The event it was played for (`ctx.play_for`), if any.
+    pub event: Option<String>,
 }
 
 /// Where a sound came from.
@@ -644,6 +646,8 @@ pub(crate) struct SoundRequest {
     pub(crate) volume: f32,
     /// The part of the mix it's in.
     pub(crate) group: SoundGroup,
+    /// The event it was played for (`ctx.play_for`), if any.
+    pub(crate) event: Option<String>,
 }
 
 impl SoundRequest {
@@ -655,6 +659,7 @@ impl SoundRequest {
             pan: 0.0,
             volume: 1.0,
             group: SoundGroup::Effects,
+            event: None,
         }
     }
 
@@ -666,6 +671,7 @@ impl SoundRequest {
             pan: 0.0,
             volume: 1.0,
             group: SoundGroup::Effects,
+            event: None,
         }
     }
 
@@ -1250,6 +1256,62 @@ pub(crate) fn mix_to_wav(
     length: u64,
     mix: &MixLog,
 ) -> Mixed {
+    let (mut left, mut right, moments) = mix_floats(sounds, loops, length, mix, 2);
+    let (peak, over, first_over, last_over) = limit(&mut left, &mut right);
+    // Anything still over (never, after the limiter) is cut off at the top,
+    // rather than wrapping round.
+    let pcm = |s: f32| (s.clamp(-1.0, 1.0) * 32767.0).round() as i16;
+    let stereo = sounds.iter().any(|s| s.samples.is_stereo() || s.pan != 0.0)
+        || loops.iter().any(|l| l.samples.is_stereo());
+    let bytes = if stereo {
+        let both = left
+            .iter()
+            .zip(&right)
+            .flat_map(|(&l, &r)| [pcm(l), pcm(r)]);
+        stereo_wav_bytes(both, left.len())
+    } else {
+        // Every sound is the same on both sides: a mono file, as always.
+        wav_bytes(left.iter().map(|&s| pcm(s)), left.len())
+    };
+    Mixed {
+        bytes,
+        peak,
+        over,
+        first_over,
+        last_over,
+        moments,
+    }
+}
+
+/// The mix as `--review` hears it: mono, after the limiter, with up to
+/// `moments` over-full moments (a second apart) named, and the peak
+/// before the limiter.
+pub(crate) fn mix_for_review(
+    sounds: &[PlayedSound],
+    loops: &[PlayedLoop],
+    length: u64,
+    mix: &MixLog,
+    moments: usize,
+) -> (Vec<f32>, f32, Vec<LoudMoment>) {
+    let (mut left, mut right, loud) = mix_floats(sounds, loops, length, mix, moments);
+    let (peak, ..) = limit(&mut left, &mut right);
+    let mono = left
+        .iter()
+        .zip(&right)
+        .map(|(l, r)| (l + r) * 0.5)
+        .collect();
+    (mono, peak, loud)
+}
+
+/// Every sound and loop mixed, before the limiter, and the loudest
+/// `moments` moments over full volume.
+fn mix_floats(
+    sounds: &[PlayedSound],
+    loops: &[PlayedLoop],
+    length: u64,
+    mix: &MixLog,
+    moments: usize,
+) -> (Vec<f32>, Vec<f32>, Vec<LoudMoment>) {
     let end = sounds
         .iter()
         .map(|s| s.start + s.samples.frames() as u64)
@@ -1286,31 +1348,8 @@ pub(crate) fn mix_to_wav(
         let gain = gains.as_ref().map(|g| &g[looped.group.index()][..run]);
         looped.mix_into(&mut left[..run], &mut right[..run], gain);
     }
-    let moments = loud_moments(&left, &right, sounds, loops, gains.as_ref(), 2);
-    let (peak, over, first_over, last_over) = limit(&mut left, &mut right);
-    // Anything still over (never, after the limiter) is cut off at the top,
-    // rather than wrapping round.
-    let pcm = |s: f32| (s.clamp(-1.0, 1.0) * 32767.0).round() as i16;
-    let stereo = sounds.iter().any(|s| s.samples.is_stereo() || s.pan != 0.0)
-        || loops.iter().any(|l| l.samples.is_stereo());
-    let bytes = if stereo {
-        let both = left
-            .iter()
-            .zip(&right)
-            .flat_map(|(&l, &r)| [pcm(l), pcm(r)]);
-        stereo_wav_bytes(both, left.len())
-    } else {
-        // Every sound is the same on both sides: a mono file, as always.
-        wav_bytes(left.iter().map(|&s| pcm(s)), left.len())
-    };
-    Mixed {
-        bytes,
-        peak,
-        over,
-        first_over,
-        last_over,
-        moments,
-    }
+    let moments = loud_moments(&left, &right, sounds, loops, gains.as_ref(), moments);
+    (left, right, moments)
 }
 
 /// The master limiter: if the mix goes over full volume anywhere, it's
@@ -1695,6 +1734,7 @@ mod tests {
             volume: 1.0,
             start: 0,
             group: SoundGroup::Effects,
+            event: None,
         };
         // Mono and not panned: a mono file, as always.
         let mono = mix_to_wav(
@@ -1919,6 +1959,7 @@ mod tests {
             volume: 1.0,
             start,
             group: SoundGroup::Effects,
+            event: None,
         }
     }
 

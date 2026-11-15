@@ -562,6 +562,8 @@ after `--` goes to the game, not to Cargo):
 | `--stills "4.5 11 28.3"` | Save only these moments, in seconds, as `still-000135.png` and so on, plus `stills.png` with them all; the run updates to each without drawing in between and ends at the last. Always headless |
 | `--from S` | Draw only from S seconds on: before it the game updates without drawing; the video, snapshots, sheet and GIF are of the rest (a video's sound starts there too). Always headless |
 | `--to S` | Stop at S seconds, instead of after `--frames`. Always headless |
+| `--review` | Check the run the way a viewer sees it, and write `review/`: `review.txt` (short, worst first, with times), `review.json`, `overview.png`, a filmstrip of every frame round each flagged moment and event, `viewer.png` (each caption as TikTok, Reels, Shorts, YouTube... show it) and `spectrogram.png`. Text contrast, size and what each app covers; things too small or dark; camera jitter, jumps, freezes, flicker and the camera inside things; dark or blown-out stretches; sounds too loud, late or missing, and silences; expectations (`ctx.expect`); and in a game, slow responses to keys, slow frames and a stuck player. With `--fuzz N`, every seed's run. See [docs/review.md](docs/review.md). Always headless |
+| `--profiles DIR` | With `--review`: also read platform profiles from DIR's `.toml` files (by default `review_profiles/`, if there is one); a file named like a built-in one replaces it |
 | `--crop X,Y,W,H` | Save `closeup.png`: that area of the last frame (and of each snapshot), enlarged |
 | `--zoom N` | How much close-ups are enlarged (default 4) |
 | `--accept` | With `--headless --inputs FILE`: write this run's final reported values into FILE's `"expect"` block, the ending the playthrough should show |
@@ -906,6 +908,32 @@ name, the failure message lists what it did report. Breakout and the
 physics sandbox have play tests at the bottom of their files: run them
 with `cargo test --example breakout` and `cargo test --example physics`.
 
+## Reviewing a render, or any video
+
+`--review` checks a run the way a viewer would see it, and writes what it
+finds in `review/`, worst first, with times:
+
+```text
+cargo run --release --example door_show_3d -- --headless --review --frames 1800 --out show
+```
+
+```text
+Review of Choose Your Door 3D - duckforge: 60.0 s, 540x960, 30 frames a second
+Judged as seen on: TikTok, Instagram Reels, YouTube Shorts, common vertical (900x1400 centred)
+  FLAG  3.07-15.97 s  text covered: "ROUND 1 OF 4" is under Instagram Reels', TikTok's, YouTube Shorts' ... top edge
+```
+
+It reviews videos made anywhere else too, from their pixels and sound
+alone (needs `ffmpeg`):
+
+```text
+cargo run --release --bin duckforge -- review any.mp4
+```
+
+What each app covers is in editable files, `review_profiles/*.toml`
+(the sources disagree, and the apps change). The whole story, with the
+door show's review: [docs/review.md](docs/review.md).
+
 ## Choosing a renderer, and benchmarking
 
 By default 3D uses the graphics card when there's a usable one, and the CPU
@@ -1007,6 +1035,9 @@ On a computer with one (in PowerShell or cmd, in the project folder):
 | `src/simulation.rs` | `Simulation`: runs a game one update at a time, with no window or clock |
 | `src/window.rs`   | The window and the real-time game loop (only built with the `window` feature) |
 | `src/headless.rs` | `run_headless`: runs a game without a window and saves PNG pictures |
+| `src/review/` | `--review` and `duckforge review`: frame measurements, platform profiles, the checks, expectations and the review's pictures |
+| `src/bin/duckforge.rs` | The `duckforge` command: `duckforge review any.mp4` |
+| `review_profiles/` | The platform profiles the review ships with (TikTok, Reels, Shorts, YouTube/TV, feeds, desktop, ultrawide, phone sideways) |
 | `src/cli.rs`      | The command-line options every game understands                    |
 | `src/script.rs`   | `InputScript`: recording and replaying inputs as JSON              |
 | `src/scene/`      | `Scene`, `Object`, `Id`: a game's objects in a scene file, played, and the file read and written (`SceneFile`) |

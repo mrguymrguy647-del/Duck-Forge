@@ -1721,6 +1721,7 @@ impl Canvas {
     ) {
         if !self.drawing_in_view {
             self.sky_before_3d(camera);
+            self.note_camera(camera);
         }
         if self.effects.on() {
             // Lamps, shadows, glow or smooth edges: the lit renderer (see

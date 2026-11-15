@@ -79,9 +79,25 @@ const SHRINK_RUNS: usize = 150;
 /// What went wrong in one run.
 #[derive(Debug, Clone, PartialEq)]
 enum Problem {
-    Panic { message: String, frame: Option<u64> },
-    Check { name: String, frame: u64 },
-    Freeze { frame: u64, seconds: f32 },
+    Panic {
+        message: String,
+        frame: Option<u64>,
+    },
+    Check {
+        name: String,
+        frame: u64,
+    },
+    Freeze {
+        frame: u64,
+        seconds: f32,
+    },
+    /// Something `--review` flagged.
+    Review {
+        check: String,
+        frame: u64,
+        seconds: f64,
+        text: String,
+    },
 }
 
 impl Problem {
@@ -92,13 +108,16 @@ impl Problem {
             Problem::Panic { message, .. } => format!("panic: {message}"),
             Problem::Check { name, .. } => format!("check: {name}"),
             Problem::Freeze { .. } => String::from("freeze"),
+            Problem::Review { check, .. } => format!("review: {check}"),
         }
     }
 
     fn frame(&self) -> Option<u64> {
         match self {
             Problem::Panic { frame, .. } => *frame,
-            Problem::Check { frame, .. } | Problem::Freeze { frame, .. } => Some(*frame),
+            Problem::Check { frame, .. }
+            | Problem::Freeze { frame, .. }
+            | Problem::Review { frame, .. } => Some(*frame),
         }
     }
 
@@ -112,6 +131,14 @@ impl Problem {
             Problem::Freeze { frame, seconds } => format!(
                 "FREEZE: by frame {frame}, no reported value had changed for {seconds} s while keys were pressed"
             ),
+            Problem::Review {
+                check,
+                frame,
+                seconds,
+                text,
+            } => {
+                format!("REVIEW {check} on frame {frame} ({seconds:.2} s): {text}")
+            }
         }
     }
 }
@@ -129,6 +156,8 @@ struct Fuzz {
     freeze_seconds: f32,
     out: PathBuf,
     work: PathBuf,
+    /// Review every seed's run (`--fuzz N --review`).
+    review: bool,
 }
 
 /// Runs `--fuzz`, prints one line per problem and a total, and saves the
@@ -162,7 +191,14 @@ pub(crate) fn run(config: &Config, options: &Options) -> Result<(), String> {
         freeze_seconds,
         work: out.join("work"),
         out,
+        review: options.review,
     };
+    if options.review {
+        if let Some(profiles) = &options.profiles {
+            fuzz.pass_on
+                .extend([String::from("--profiles"), profiles.display().to_string()]);
+        }
+    }
     fs::create_dir_all(&fuzz.work)
         .map_err(|err| format!("could not create {}: {err}", fuzz.work.display()))?;
     remove_old_scripts(&fuzz.out);
@@ -216,6 +252,12 @@ pub(crate) fn run(config: &Config, options: &Options) -> Result<(), String> {
         failing_runs += usize::from(!problems.is_empty());
         for problem in problems {
             let key = problem.key();
+            if groups
+                .get(&key)
+                .is_some_and(|runs| runs.iter().any(|(s, ..)| *s == seed))
+            {
+                continue; // the same problem again in this run
+            }
             if !groups.contains_key(&key) {
                 order.push(key.clone());
             }
@@ -231,7 +273,12 @@ pub(crate) fn run(config: &Config, options: &Options) -> Result<(), String> {
             save_script(script, &fuzz.out.join(format!("seed-{seed}.json")))?;
         }
         let (seed, script, problem) = &runs_with_it[0];
-        let shrunk = fuzz.shrink(script, problem);
+        // What a review flags is about what's on screen, which shrinking
+        // can't check quickly: those keep the run up to just past it.
+        let shrunk = match problem {
+            Problem::Review { frame, .. } => cut_after(script, (frame + 30).min(fuzz.frames)),
+            _ => fuzz.shrink(script, problem),
+        };
         let path = fuzz.out.join(format!("seed-{seed}.json"));
         save_script(&shrunk, &path)?;
         let presses = shrunk
@@ -246,6 +293,12 @@ pub(crate) fn run(config: &Config, options: &Options) -> Result<(), String> {
             if presses == 1 { "" } else { "es" },
             shrunk.frames.unwrap_or(0)
         );
+        if let Problem::Review { .. } = problem {
+            line += &format!(
+                "; pictures in {}",
+                fuzz.out.join(format!("seed-{seed}-review")).display()
+            );
+        }
         if runs_with_it.len() > 1 {
             let others: Vec<String> = runs_with_it[1..]
                 .iter()
@@ -294,6 +347,40 @@ pub(crate) fn run(config: &Config, options: &Options) -> Result<(), String> {
     let coverage = coverage.into_inner().unwrap();
     for line in coverage.lines(fuzz.frames, &playthrough_endings()) {
         println!("duckforge: coverage: {line}");
+    }
+    Ok(())
+}
+
+/// The problems a review flagged (from its `review.json`).
+fn review_problems(folder: &Path) -> Vec<Problem> {
+    let Ok(review) = read_json(&folder.join("review.json")) else {
+        return Vec::new();
+    };
+    review["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|f| f["severity"] == "flag")
+        .map(|f| Problem::Review {
+            check: f["check"].as_str().unwrap_or("?").to_string(),
+            frame: f["frame"].as_u64().unwrap_or(0),
+            seconds: f["seconds"].as_f64().unwrap_or(0.0),
+            text: f["text"].as_str().unwrap_or("").to_string(),
+        })
+        .collect()
+}
+
+/// Copies a folder (and the folders in it).
+fn copy_folder(from: &Path, to: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_folder(&entry.path(), &target)?;
+        } else {
+            fs::copy(entry.path(), target)?;
+        }
     }
     Ok(())
 }
@@ -510,11 +597,14 @@ impl Fuzz {
         let out = self.work.join(name);
         save_script(script, &script_path)?;
         let frames = script.frames.unwrap_or(self.frames);
+        // Only the seeds' own runs are reviewed (not the shrinking runs).
+        let review = self.review && name.starts_with("seed-");
         let output = Command::new(&self.exe)
             .args(["--headless", "--inputs"])
             .arg(&script_path)
             .args(["--frames", &frames.to_string(), "--out"])
             .arg(&out)
+            .args(review.then_some("--review"))
             .args(&self.pass_on)
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -523,7 +613,20 @@ impl Fuzz {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let (problems, coverage) = if output.status.success() {
             let log = read_json(&out.join("log.json"))?;
-            (self.problems_in(&log, script), Coverage::from_log(&log))
+            let mut problems = self.problems_in(&log, script);
+            if review {
+                let found = review_problems(&out.join("review"));
+                if !found.is_empty() {
+                    // Keep the review: its pictures show each problem.
+                    let keep = self.out.join(format!("{name}-review"));
+                    let _ = fs::remove_dir_all(&keep);
+                    if fs::rename(out.join("review"), &keep).is_err() {
+                        let _ = copy_folder(&out.join("review"), &keep);
+                    }
+                }
+                problems.extend(found);
+            }
+            (problems, Coverage::from_log(&log))
         } else if let Some(panic) = panic_from(&stderr) {
             // A crash leaves no log: all we know is how far it got.
             let coverage = Coverage {
@@ -789,6 +892,8 @@ fn remove_old_scripts(folder: &Path) {
         let name = entry.file_name().to_string_lossy().into_owned();
         if name.starts_with("seed-") && name.ends_with(".json") {
             let _ = fs::remove_file(entry.path());
+        } else if name.starts_with("seed-") && name.ends_with("-review") {
+            let _ = fs::remove_dir_all(entry.path()); // a review from an old run
         }
     }
 }
@@ -838,7 +943,33 @@ mod tests {
             freeze_seconds: 10.0,
             out: PathBuf::new(),
             work: PathBuf::new(),
+            review: false,
         }
+    }
+
+    #[test]
+    fn a_reviews_flags_become_problems() {
+        let folder =
+            std::env::temp_dir().join(format!("duckforge-fuzz-review-{}", std::process::id()));
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(
+            folder.join("review.json"),
+            r#"{"findings": [
+                {"severity": "flag", "check": "camera jitter", "frame": 312, "seconds": 5.2, "text": "the camera shakes"},
+                {"severity": "warn", "check": "silence", "frame": 10, "seconds": 0.2, "text": "silent"}
+            ]}"#,
+        )
+        .unwrap();
+        let problems = review_problems(&folder);
+        let _ = fs::remove_dir_all(&folder);
+        assert_eq!(problems.len(), 1, "only flags count");
+        assert_eq!(problems[0].key(), "review: camera jitter");
+        assert_eq!(problems[0].frame(), Some(312));
+        assert_eq!(
+            problems[0].describe(),
+            "REVIEW camera jitter on frame 312 (5.20 s): the camera shakes"
+        );
+        assert!(review_problems(Path::new("no such review")).is_empty());
     }
 
     #[test]

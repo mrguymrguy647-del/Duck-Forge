@@ -1103,6 +1103,18 @@ impl Show {
 }
 
 impl Game for Show {
+    fn init(&mut self, ctx: &mut Context) {
+        // What --review checks each moment shows.
+        ctx.expect(
+            Expect::on("winner")
+                .thing("winning prize")
+                .fills_height(0.06)
+                .lit_above(0.15),
+        );
+        ctx.expect(Expect::at(INTRO + 4.5).caption_readable());
+        ctx.expect(Expect::at(END_START + 2.0).caption_readable());
+    }
+
     fn update(&mut self, ctx: &mut Context) {
         let before = self.t;
         self.t += ctx.dt();
@@ -1112,16 +1124,31 @@ impl Game for Show {
             let b = INTRO + i as f32 * ROUND_LEN;
             if crossed(b) {
                 self.clear_coins();
+                ctx.place(&format!("round {}", i + 1)); // the camera cuts here
             }
             for (d, door) in round.doors.iter().enumerate() {
+                if crossed(b + OPEN_AT[d]) {
+                    ctx.event(&format!("door {} opens", d + 1));
+                }
+                if door.1 == Rating::Bad && crossed(b + OPEN_AT[d] + 0.25) {
+                    ctx.intend("jolt for a bad door", 0.5);
+                }
                 if door.1 == Rating::Win && crossed(b + OPEN_AT[d] + 0.3) {
                     let count = if i == 3 { 55 } else { 28 };
                     self.burst(d, count);
+                    ctx.event("coins");
                 }
+            }
+            if crossed(b + WINNER_AT + 0.8) {
+                ctx.event("winner");
+            }
+            if crossed(b + WHIP_AT) {
+                ctx.intend("whip pan to the next round", ROUND_LEN - WHIP_AT + 0.5);
             }
         }
         if crossed(END_START) {
             self.clear_coins();
+            ctx.place("finale");
         }
         self.world.step(ctx.dt());
         if self.t > TOTAL + 1.0 || ctx.input.was_pressed(Key::Escape) {
@@ -1203,7 +1230,7 @@ impl Show {
                     };
                     let s = ease_out_back((since - 0.15) / 0.45).max(0.0);
                     if s > 0.0 {
-                        self.draw_prize(canvas, cam, item, d, s, t);
+                        self.draw_prize(canvas, cam, item, d, s, t, rating == Rating::Win);
                     }
                 }
             }
@@ -1221,6 +1248,7 @@ impl Show {
                 0.0,
             ));
             canvas.draw_mesh(&self.doors[d], &tf, cam);
+            canvas.label_model(&format!("door {}", d + 1), &self.doors[d], &tf, cam);
         }
 
         // Flying coins, each with a soft shadow under it.
@@ -1239,6 +1267,7 @@ impl Show {
         }
     }
 
+    #[allow(clippy::too_many_arguments)] // the prize, where, how big, when, and whether it wins
     fn draw_prize(
         &self,
         canvas: &mut Canvas,
@@ -1247,6 +1276,7 @@ impl Show {
         d: usize,
         s: f32,
         t: f32,
+        winner: bool,
     ) {
         let base = vec3(DOOR_X[d], PEDESTAL_TOP + 0.03, PRIZE_Z);
         // Each prize turns gently on its pedestal, and some move on their own.
@@ -1269,6 +1299,9 @@ impl Show {
             .rotated(vec3(0.0, turn, 0.0))
             .scaled(vec3(s, s * squash, s));
         canvas.draw_mesh(self.prize(item), &tf, cam);
+        if winner {
+            canvas.label_model("winning prize", self.prize(item), &tf, cam);
+        }
 
         if item == Item::Rocket {
             let flicker = 0.85 + (t * 30.0).sin() * 0.2;

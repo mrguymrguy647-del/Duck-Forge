@@ -1,0 +1,19 @@
+# TikTok, as a phone shows a vertical video: what the app draws over it.
+# Sources disagree and the app changes: the bottom margin is given as
+# 480 px (organic posts) to 660 px (TikTok's ad template), the top as 130
+# to 240 px. These are middle values; edit them, or add your own file.
+name = "TikTok"
+aspect = "9:16"
+canvas = [1080, 1920]
+screen = "phone"
+margin_top = 160
+margin_bottom = 480
+margin_left = 60
+margin_right = 0
+
+source = "third-party safe-zone guides (manypixels.co, socialync.io, reap.video); TikTok publishes none"
+checked = "2026-11-15"
+
+[[covered]]
+name = "like, comment and share buttons"
+rect = [940, 820, 140, 620]

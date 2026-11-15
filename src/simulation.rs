@@ -134,6 +134,12 @@ pub struct Simulation<G> {
     /// The stretches of frames (first, last) on which the game called
     /// `ctx.idle_ok()`.
     idle: Vec<(u64, u64)>,
+    /// Events, places, cuts and intended motion the game marked, by frame.
+    marks: Vec<(u64, crate::review::Mark)>,
+    /// What the game expects each moment to show.
+    expectations: Vec<crate::review::Expect>,
+    /// With `--review`: each frame's truth and timings.
+    review: Option<Box<ReviewRecording>>,
     /// Whether the game's `quit` has run.
     finished: bool,
 }
@@ -142,6 +148,14 @@ pub struct Simulation<G> {
 /// or a replay's files) is forgotten when the run ends, so the next game
 /// started on this thread reads the disk again.
 struct ForgetGivenFiles;
+
+/// What `--review` records as the game runs.
+#[derive(Default)]
+struct ReviewRecording {
+    last: Option<crate::review::truth::FrameTruth>,
+    update_ms: Vec<f32>,
+    held: Vec<u8>,
+}
 
 impl Drop for ForgetGivenFiles {
     fn drop(&mut self) {
@@ -239,6 +253,9 @@ impl<G: Game> Simulation<G> {
             frame_camera: None,
             debug_box: None,
             idle: Vec::new(),
+            marks: Vec::new(),
+            expectations: Vec::new(),
+            review: None,
             finished: false,
         }
     }
@@ -345,7 +362,17 @@ impl<G: Game> Simulation<G> {
             .update_mouse(self.mouse_position, self.mouse_motion, buttons, self.scroll);
         self.scroll = 0.0;
         self.mouse_motion = Vec2::ZERO;
-        self.game.update(&mut self.ctx);
+        match &mut self.review {
+            Some(review) => {
+                let started = std::time::Instant::now();
+                self.game.update(&mut self.ctx);
+                review
+                    .update_ms
+                    .push(started.elapsed().as_secs_f32() * 1000.0);
+                review.held.push(self.keys_down.len().min(255) as u8);
+            }
+            None => self.game.update(&mut self.ctx),
+        }
         if self.ctx.was_idle_ok() {
             let frame = self.ctx.frame();
             match self.idle.last_mut() {
@@ -361,6 +388,10 @@ impl<G: Game> Simulation<G> {
     fn collect_what_the_game_did(&mut self) {
         let reported = self.ctx.take_reports();
         self.reports.record(self.ctx.frame(), reported);
+        let frame = self.ctx.frame();
+        self.marks
+            .extend(self.ctx.take_marks().into_iter().map(|mark| (frame, mark)));
+        self.expectations.extend(self.ctx.take_expectations());
         let start = self.sample_at(self.ctx.frame());
         for request in self.ctx.take_sounds() {
             self.sounds.push(PlayedSound {
@@ -372,6 +403,7 @@ impl<G: Game> Simulation<G> {
                 volume: request.volume,
                 start,
                 group: request.group,
+                event: request.event,
             });
         }
         for command in self.ctx.take_loop_commands() {
@@ -1186,6 +1218,40 @@ impl<G: Game> Simulation<G> {
         self.ctx.quit_requested()
     }
 
+    /// The events, places, cuts and intended motion the game marked
+    /// (`ctx.event`, `ctx.place`, `ctx.cut`, `ctx.intend`), each with its
+    /// frame.
+    pub fn marks(&self) -> &[(u64, crate::review::Mark)] {
+        &self.marks
+    }
+
+    /// What the game said each moment must show (`ctx.expect`).
+    pub fn expectations(&self) -> &[crate::review::Expect] {
+        &self.expectations
+    }
+
+    /// Starts recording what `--review` needs: every drawn frame's truth
+    /// (camera, named things, how text looks) and each update's and
+    /// draw's time.
+    pub(crate) fn record_for_review(&mut self) {
+        self.canvas.record_looks(true);
+        self.review = Some(Box::default());
+    }
+
+    /// The truth of the frame drawn last (once).
+    pub(crate) fn take_frame_truth(&mut self) -> Option<crate::review::truth::FrameTruth> {
+        self.review.as_mut()?.last.take()
+    }
+
+    /// Each update's time in milliseconds, and how many keys were held,
+    /// from the first update on (while reviewing).
+    pub(crate) fn review_timings(&self) -> (&[f32], &[u8]) {
+        match &self.review {
+            Some(review) => (&review.update_ms, &review.held),
+            None => (&[], &[]),
+        }
+    }
+
     /// The picture of the game as it is now.
     ///
     /// Drawing only happens when a picture is asked for, so steps are
@@ -1224,10 +1290,12 @@ impl<G: Game> Simulation<G> {
             self.canvas.take_scenes();
         }
         let (game, canvas) = (&self.game, &mut self.canvas);
+        let started = std::time::Instant::now();
         crate::stages::drawing(|| {
             game.draw(canvas);
             canvas.flush_3d(); // the 3D, timed as part of this frame's drawing
         });
+        let draw_ms = started.elapsed().as_secs_f32() * 1000.0;
         #[cfg(feature = "studio")]
         {
             self.drawn_scenes = self.canvas.take_scenes();
@@ -1261,6 +1329,12 @@ impl<G: Game> Simulation<G> {
         }
         self.frame_camera = camera;
         self.canvas.flush_3d(); // make sure any 3D from the graphics card is in the pixels
+        match &mut self.review {
+            Some(review) => {
+                review.last = Some(self.canvas.take_truth(&self.scene.labels, draw_ms));
+            }
+            None => self.canvas.forget_truth(),
+        }
         self.ctx.set_renderer_name(self.canvas.renderer_name());
     }
 }

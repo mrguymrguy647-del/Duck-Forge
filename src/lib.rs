@@ -64,6 +64,7 @@ pub mod pictures;
 pub mod playtest;
 pub mod render3d;
 pub mod report;
+pub mod review;
 pub mod rng;
 pub mod scene;
 pub mod script;
@@ -129,6 +130,7 @@ pub mod prelude {
         Billboard, Camera3D, Fog, GlowMap, Lighting, Mesh, Renderer, Transform,
     };
     pub use crate::report::ReportValue;
+    pub use crate::review::{Expect, Mark};
     pub use crate::rng::Rng;
     pub use crate::scene::{Anchor, Id, Object, Scene, SceneGame, Script, Scripts, Settings};
     pub use crate::script::InputScript;

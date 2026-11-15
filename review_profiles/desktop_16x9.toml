@@ -1,0 +1,7 @@
+# A game in a 16:9 window or full screen on a desktop monitor.
+name = "desktop 16:9"
+aspect = "16:9"
+canvas = [1920, 1080]
+screen = "desktop"
+source = "a desktop monitor: nothing covers a game's own window"
+checked = "2026-11-15"

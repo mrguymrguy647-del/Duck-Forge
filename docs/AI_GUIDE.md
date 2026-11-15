@@ -52,6 +52,8 @@ Contents:
 12. [What the engine can't do yet](#12-what-the-engine-cant-do-yet)
 13. [Duck Forge Studio](#13-duck-forge-studio)
 14. [Scenes: a game's objects in a file](#14-scenes-a-games-objects-in-a-file)
+15. [Ready-made behaviours](#15-ready-made-behaviours)
+16. [Review a render](#16-review-a-render)
 
 ---
 
@@ -1083,6 +1085,15 @@ sounds: `let music: LoopId = ctx.play_loop(&w, 0.6);` (a `Wav`, or a
 `.volume_at(frame)` and `.is_playing()`). Headless runs mix loops into
 `audio.wav` and list them in `log.json` under `"loops"`.
 
+**For `--review`** (section 16): `ctx.event("impact")`, `ctx.place("cellar")`,
+`ctx.cut()`, `ctx.intend("impact shake", 0.5)` (this motion is meant),
+`ctx.play_for("impact", &thump, 1.0, 0.0)` (a sound for an event: it
+must be heard within 2 frames of it), `ctx.expect(Expect::at(51.6).thing("host").fills_height(0.4))`
+and `ctx.expect(Expect::on("impact").sound("thump"))` (written in `init`),
+`canvas.label_model("host", &mesh, &transform, &camera)` (names a 3D
+model: its box on screen and in the world). Tests read them back with
+`sim.marks()` and `sim.expectations()`.
+
 **Mixing**: every sound is in a `SoundGroup`: `Music`, `Ambience` or
 `Effects`. A sound played once is an effect and a loop is music, unless
 you say: `ctx.play_in(SoundGroup::Ambience, &thunder, 0.8, 0.0)`,
@@ -1211,7 +1222,9 @@ game, no black bars; needs ffmpeg; `NAME.partial.mp4` plays while it's
 made), `--stills "4.5 11 28.3"` (only those moments, in seconds, as
 `still-000135.png` and `stills.png`; nothing else is drawn), `--from S`
 and `--to S` (draw only that section; the video is the section, with its
-sound),
+sound), `--review` (check it as a viewer sees it: `review/review.txt`
+and pictures; see section 16) and `--profiles DIR` (more platform
+profiles for `--review`),
 `--clip FILE` (the run's last 10 seconds, or `--clip-seconds S`: a video
 with sound if ffmpeg is there, or else a full-size GIF next to it),
 `--crop X,Y,W,H`, `--zoom N`, `--grid N` (a coordinate grid on saved
@@ -2362,3 +2375,107 @@ From the game's code: `scene.script::<PlatformerPlayer>(id)` (the type is
 `Simulation` and press keys (`src/scene/ready/tests/platformer_player.rs`
 and `examples/ready_made/tests.rs` show how). Its updates are part of
 `scene.update(ctx)`, in the order of ids, so replays are exact.
+
+## 16. Review a render
+
+You can't watch a video or hear it. `--review` turns a run into what you
+*can* read: numbers, words and still pictures, checked the way a viewer
+would see it, on the screen they'd see it on.
+
+```text
+cargo run --release --example mygame -- --headless --review --video out/run.mp4 --out out
+```
+
+Read `out/review/review.txt` first: short, worst first, every line with
+its time and the picture that shows it. Then look at the pictures it
+names. `review.json` has everything (every finding, each expectation,
+the marks, the sounds, and the brightness, change and loudness every
+tenth of a second).
+
+- `overview.png`: the whole run at once. The middle column and the
+  middle row of every frame, side by side (a still stretch is flat
+  bands, a cut is a sharp edge), and plots of brightness, change per
+  frame and loudness, with places (blue lines), events (yellow ticks),
+  sound starts (orange) and problems (red and orange bars along the top).
+- `film-NN-check-12.3s.png`: every frame (not every other) round each
+  problem, and `event-NN-name-12.3s.png` round each event the game
+  marked, captioned with the event and the sounds that start.
+- `viewer.png`: each caption moment as each app shows it, at the same
+  size: red is what the app covers (yellow: only when paused), each
+  text boxed green (fine) or red (not).
+- `spectrogram.png`: the sound's frequencies over time, each sound's
+  start marked and named.
+- `slowest.png`: a game's slowest frames, with their times.
+
+**What it checks.** Text: contrast against the real pixels behind it
+(a warning under 4.5:1, a flag under 3:1; outlines, drop shadows and
+boxes count, even when drawn as dark copies of the words), too small for
+the screen, and under what an app covers (it names the app and the
+edge). Named things (`canvas.label_model`, or anything an expectation
+names) too small or too dark. The camera (from the engine, not guessed):
+jitter, jumps that aren't cuts, inside a model or a block; and from the
+pixels: frozen stretches, flicker, almost black for a moment. Light: very
+dark or blown out for more than 2 seconds. Sound: every moment the mix
+went over full volume, with the sounds that made it and volumes that
+would fix it; each sound against the event it was played for (more than
+2 frames off is flagged, a silent start included); silences of 3 seconds
+or more. In a game (`--inputs`, `--fuzz`): frames from a key press to the
+screen reacting (more than 3 is flagged; only presses made while the
+screen was still can be timed), the update's time and the slowest
+frames, and a `player` that doesn't move for 5 seconds while keys are
+held. Each problem in a replayed game gets `review/replays/problem-NN.json`,
+which replays the run to just past it.
+
+**Say what you mean**, and the review judges by it:
+
+```rust
+fn init(&mut self, ctx: &mut Context) {
+    ctx.expect(Expect::at(51.6).thing("host").fills_height(0.4).lit_above(0.25));
+    ctx.expect(Expect::at(37.8).caption_readable());          // on every matching app
+    ctx.expect(Expect::on("impact").sound("thump").within_frames(2));
+    ctx.expect(Expect::on("enemy attacks").thing("enemy").on_screen().lit_above(0.2).at_least_px(80.0));
+}
+
+fn update(&mut self, ctx: &mut Context) {
+    ctx.place("cellar");                        // a new place: a camera jump here is a cut
+    ctx.cut();                                  // or just a cut
+    ctx.event("impact");                        // a filmstrip, and sounds timed against it
+    ctx.play_for("impact", &self.thump, 1.0, 0.0);
+    ctx.intend("impact shake", 0.5);            // this shaking is meant
+}
+
+fn draw(&self, canvas: &mut Canvas) {
+    canvas.draw_mesh(&self.host, &self.at, &self.camera);
+    canvas.label_model("host", &self.host, &self.at, &self.camera);
+}
+```
+
+`review.txt` lists each expectation as `pass` or `FAIL` with why ("at
+51.60 s: it's 31.0% of the height").
+
+**Profiles.** A video is judged as each platform of its shape shows it
+(within 3%), scaled to its size: TikTok, Instagram Reels, YouTube Shorts
+and the common 900 x 1400 middle for 9:16; YouTube/TV (90% title-safe,
+player controls when paused) for 16:9; square and 4:5 feeds; and for
+games desktop 16:9, ultrawide 21:9 and a phone held sideways with a notch.
+A game of any other shape is judged in its own window. They're TOML
+files in `review_profiles/` (copied into the engine): sources disagree
+(TikTok's bottom margin is given as 480 to 660 px) and apps change, so
+edit them or add your own, and pass `--profiles DIR` (or keep a
+`review_profiles/` folder where you run).
+
+**Videos made elsewhere.** `cargo run --release --bin duckforge --
+review any.mp4` (needs ffmpeg) does the same from pixels and sound
+alone: no text, camera, events or expectations, so text and camera checks
+are left out, and a sudden change is reported as "a cut or a jump".
+
+**Fuzzing.** `--fuzz 20 --review` reviews every seed's run, reports each
+flag as a problem (`REVIEW camera jitter on frame 312 (5.20 s): ...`)
+with its seed and frame, saves the script that replays it, and keeps
+that run's review in `fuzz/seed-N-review/`.
+
+**How fast.** The review measures each frame at 480 pixels on its long
+side, as it's drawn: reviewing the 60-second door show added about a
+second (the whole render and review took 26 s). See
+[review.md](review.md) for its review.
+

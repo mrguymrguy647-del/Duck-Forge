@@ -1,0 +1,7 @@
+# A 4:5 video in a feed (Instagram, Facebook): shown whole, buttons below.
+name = "feed 4:5"
+aspect = "4:5"
+canvas = [1080, 1350]
+screen = "phone"
+source = "feeds show 4:5 posts whole, with the buttons below"
+checked = "2026-11-15"

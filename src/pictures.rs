@@ -255,7 +255,15 @@ pub(crate) fn contact_sheet_with_captions(
         let top = SHEET_GAP + (index / columns) * (cell_height + label_height + SHEET_GAP);
         sheet.blit(&shrink(picture, factor), left, top);
         let seconds = *frame as f32 / updates_per_second;
-        let label = format!("FRAME {frame}  {seconds:.1}S");
+        // As much as fits under a narrow (tall) picture.
+        let label = [
+            format!("FRAME {frame}  {seconds:.1}S"),
+            format!("{frame} {seconds:.1}S"),
+            format!("{frame}"),
+        ]
+        .into_iter()
+        .find(|l| Canvas::text_width(l, LABEL_SCALE) <= cell_width as f32 + 1.0)
+        .unwrap_or_else(|| format!("{frame}"));
         let position = vec2(left as f32, (top + cell_height + 3) as f32);
         sheet.draw_text(&label, position, LABEL_SCALE, Color::WHITE);
         if !caption.is_empty() {

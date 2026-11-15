@@ -1,0 +1,17 @@
+# YouTube Shorts on a phone. Guides give the bottom as 270 to 672 px and
+# the right-hand buttons as 96 to 192 px wide; YouTube publishes no spec.
+name = "YouTube Shorts"
+aspect = "9:16"
+canvas = [1080, 1920]
+screen = "phone"
+margin_top = 150
+margin_bottom = 380
+margin_left = 48
+margin_right = 0
+
+source = "third-party guides (clipspeed.ai, socialync.io, reap.video); YouTube publishes none"
+checked = "2026-11-15"
+
+[[covered]]
+name = "like, dislike, comment, share and remix buttons"
+rect = [890, 840, 190, 700]

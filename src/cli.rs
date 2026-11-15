@@ -74,6 +74,16 @@ const OPTIONS: &[OptionInfo] = &[
         help: "headless: stop at S seconds (instead of --frames)",
     },
     OptionInfo {
+        name: "--review",
+        value: None,
+        help: "headless: check the run the way a viewer sees it, and write review/ (review.txt worst first, review.json, overview.png, filmstrips, viewer.png, spectrogram.png); with --fuzz, every seed",
+    },
+    OptionInfo {
+        name: "--profiles",
+        value: Some("DIR"),
+        help: "with --review: read platform profiles (TikTok, YouTube...) from DIR's .toml files too (default: review_profiles/ if there is one)",
+    },
+    OptionInfo {
         name: "--gif",
         value: None,
         help: "with --headless, save run.gif: the whole run as a small animated GIF",
@@ -231,6 +241,9 @@ pub(crate) struct Options {
     /// `--from` and `--to`: the section to draw, in seconds.
     pub from: Option<f32>,
     pub to: Option<f32>,
+    /// `--review`, and where to read extra profiles from.
+    pub review: bool,
+    pub profiles: Option<PathBuf>,
     /// Where Duck Forge Studio is listening, when it started this game.
     pub studio: Option<String>,
     pub crop: Option<Crop>,
@@ -320,6 +333,8 @@ impl Options {
                     }
                     options.headless = true;
                 }
+                "--review" => options.review = true,
+                "--profiles" => options.profiles = Some(PathBuf::from(value)),
                 "--clip" => options.clip = Some(PathBuf::from(value)),
                 "--clip-seconds" => {
                     let seconds = value
@@ -463,6 +478,17 @@ impl Options {
             return Err(String::from(
                 "--stills saves pictures only: use it without --from and --video",
             ));
+        }
+        if options.review && options.fuzz.is_none() {
+            options.headless = true; // a review is of a headless run
+        }
+        if options.review && !options.stills.is_empty() {
+            return Err(String::from(
+                "--review looks at every frame: use it without --stills (--from and --to pick a section)",
+            ));
+        }
+        if options.profiles.is_some() && !options.review {
+            return Err(String::from("--profiles only works with --review"));
         }
         if options.clip_seconds.is_some() && options.clip.is_none() {
             return Err(String::from("--clip-seconds only works with --clip FILE"));
@@ -842,6 +868,28 @@ mod tests {
         assert_eq!(
             Options::parse([String::from("--my-game-option")]),
             Ok(Options::default())
+        );
+    }
+
+    #[test]
+    fn review_is_headless_and_takes_profiles() {
+        let review = parse_args(&["--review", "--profiles", "mine"]).unwrap();
+        assert!(review.review && review.headless);
+        assert_eq!(review.profiles, Some(PathBuf::from("mine")));
+        let fuzzed = parse_args(&["--fuzz", "20", "--review"]).unwrap();
+        assert!(
+            fuzzed.review && !fuzzed.headless,
+            "--fuzz runs its own headless runs"
+        );
+        assert!(
+            parse_args(&["--profiles", "mine"])
+                .unwrap_err()
+                .contains("only works with --review")
+        );
+        assert!(
+            parse_args(&["--review", "--stills", "1 2"])
+                .unwrap_err()
+                .contains("every frame")
         );
     }
 
