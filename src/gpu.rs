@@ -1296,7 +1296,11 @@ mod tests {
         gpu.set_sky(&sky);
         gpu.clear(Color::BLACK);
         let camera = Camera3D::new(vec3(0.0, 0.0, -3.0));
-        gpu.draw_mesh(&Mesh::cube(Color::RED).glowing(), &Transform::default(), &camera);
+        gpu.draw_mesh(
+            &Mesh::cube(Color::RED).glowing(),
+            &Transform::default(),
+            &camera,
+        );
         gpu.flush_3d();
         assert_eq!(gpu.get_pixel(32, 24), Some(Color::RED));
         assert_eq!(gpu.get_pixel(1, 1), Some(Color::BLUE));

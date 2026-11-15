@@ -211,6 +211,26 @@ impl Camera3D {
         )
     }
 
+    /// Sets [`fov`](Camera3D::fov) so the view is `across` radians wide on
+    /// a picture `aspect` times as wide as it's tall: for a portrait video
+    /// (`9.0 / 16.0`) that should see as far to the sides as a landscape
+    /// game does, `camera.set_horizontal_fov(90f32.to_radians(), 9.0 / 16.0)`.
+    pub fn set_horizontal_fov(&mut self, across: f32, aspect: f32) {
+        let across = across.clamp(1f32.to_radians(), 179f32.to_radians());
+        let aspect = if aspect.is_finite() && aspect > 0.0 {
+            aspect
+        } else {
+            1.0
+        };
+        self.fov = 2.0 * ((across / 2.0).tan() / aspect).atan();
+    }
+
+    /// How wide the view is, in radians, on a picture `aspect` times as
+    /// wide as it's tall.
+    pub fn horizontal_fov(&self, aspect: f32) -> f32 {
+        2.0 * ((self.usable_fov() / 2.0).tan() * aspect.max(0.0)).atan()
+    }
+
     /// Ready-made controls for flying around a scene:
     ///
     /// - **W/A/S/D** move, **Q/E** move down/up, hold **Shift** to go faster
@@ -471,6 +491,57 @@ impl Transform {
             .max(self.scale.z.abs())
     }
 
+    /// Something held in front of `camera`: `offset` to the right, up
+    /// and ahead of the eye (`vec3(0.35, -0.3, 0.6)`: low on the right),
+    /// turning with the camera, and turned by `tilt` (radians around its
+    /// own x, y and z, as [`rotation`](Transform::rotation)) on top. A
+    /// world transform, for [`draw_held`](Canvas::draw_held) (in front of
+    /// everything) or `draw_mesh` (in the world, to cast a shadow).
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// let camera = Camera3D::new(vec3(0.0, 1.6, 0.0));
+    /// let torch = Transform::held(&camera, vec3(0.35, -0.3, 0.6), vec3(0.3, 0.0, -0.2)).sized(0.1);
+    /// // canvas.draw_held(&torch_mesh, &torch, &camera);
+    /// # let _ = torch;
+    /// ```
+    pub fn held(camera: &Camera3D, offset: Vec3, tilt: Vec3) -> Transform {
+        let position = camera.position
+            + camera.right() * offset.x
+            + camera.up() * offset.y
+            + camera.forward() * offset.z;
+        let (pitch, yaw) = (camera.pitch, camera.yaw);
+        let rotation = euler_of(|v| {
+            v.rotate_x(tilt.x)
+                .rotate_y(tilt.y)
+                .rotate_z(tilt.z)
+                .rotate_x(pitch)
+                .rotate_y(yaw)
+        });
+        Transform {
+            position,
+            rotation,
+            scale: Vec3::ONE,
+        }
+    }
+
+    /// This world transform as seen from `camera`: x to the right of the
+    /// view, y up it, z straight ahead (for `draw_mesh_in_view`).
+    pub fn in_view_of(&self, camera: &Camera3D) -> Transform {
+        let (pitch, yaw, r) = (camera.pitch, camera.yaw, self.rotation);
+        Transform {
+            position: camera.to_camera_space(self.position),
+            rotation: euler_of(|v| {
+                v.rotate_x(r.x)
+                    .rotate_y(r.y)
+                    .rotate_z(r.z)
+                    .rotate_y(-yaw)
+                    .rotate_x(-pitch)
+            }),
+            scale: self.scale,
+        }
+    }
+
     /// The same as [`Transform::apply`], packed into one matrix: scale, then
     /// rotate around x, y and z, then move. (Read right to left.)
     pub fn matrix(&self) -> Mat4 {
@@ -488,6 +559,29 @@ impl Transform {
         // Moving just means filling in the last column.
         m.columns[3] = [self.position.x, self.position.y, self.position.z, 1.0];
         m
+    }
+}
+
+/// The rotation, as a [`Transform::rotation`] (around x, then y, then z),
+/// that turns points as `turn` does (`turn` must only turn).
+fn euler_of(turn: impl Fn(Vec3) -> Vec3) -> Vec3 {
+    // The rotation's matrix, column by column: where the axes go.
+    let (x, y, z) = (
+        turn(vec3(1.0, 0.0, 0.0)),
+        turn(vec3(0.0, 1.0, 0.0)),
+        turn(vec3(0.0, 0.0, 1.0)),
+    );
+    // Around x by a, then y by b, then z by c makes a matrix whose bottom
+    // row is (-sin b, -cos b sin a, cos b cos a), and whose first column
+    // starts (cos c cos b, sin c cos b).
+    let b = (-x.z).clamp(-1.0, 1.0).asin();
+    if x.z.abs() < 0.999_999 {
+        vec3((-y.z).atan2(z.z), b, x.y.atan2(x.x))
+    } else {
+        // Straight up or down (b is a quarter turn): c can be 0, and a
+        // takes the rest.
+        let sin_b = -x.z.signum();
+        vec3((-y.x * sin_b).atan2(y.y), b, 0.0)
     }
 }
 
@@ -1455,6 +1549,29 @@ impl Canvas {
         self.set_lighting(world_light);
     }
 
+    /// Draws something held (a torch, a tool, a block in the hand),
+    /// placed in the world by `transform` (see [`Transform::held`]), in the
+    /// held pass of [`draw_mesh_in_view`](Canvas::draw_mesh_in_view): in
+    /// front of all the world, so it never sinks into a wall you stand
+    /// against. Draw it after the world.
+    ///
+    /// Held closer to the eye than the renderer can draw (a few
+    /// centimetres), it's pushed away and made bigger by the same amount,
+    /// which looks just the same on the screen, so the near plane doesn't
+    /// cut it open either.
+    pub fn draw_held(&mut self, mesh: &Mesh, transform: &Transform, camera: &Camera3D) {
+        let mut view = transform.in_view_of(camera);
+        let (center, radius) = mesh.bounding_ball();
+        let nearest = view.apply(center).z - radius * view.largest_scale();
+        let safe = NEAR * 2.0;
+        if nearest > 0.0 && nearest < safe {
+            let k = safe / nearest;
+            view.position = view.position * k;
+            view.scale = view.scale * k;
+        }
+        self.draw_mesh_in_view(mesh, &view, camera);
+    }
+
     /// Draws a mesh on whichever renderer this canvas uses.
     fn draw_mesh_from(
         &mut self,
@@ -1939,6 +2056,125 @@ pub(crate) fn draw_repeated_tile_floor(canvas: &mut crate::canvas::Canvas) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn cameras() -> Vec<Camera3D> {
+        [
+            (0.0, 0.0),
+            (0.7, 0.4),
+            (-2.0, -1.2),
+            (3.0, 1.5),
+            (1.0, -std::f32::consts::FRAC_PI_2),
+        ]
+        .into_iter()
+        .map(|(yaw, pitch)| Camera3D {
+            yaw,
+            pitch,
+            ..Camera3D::new(vec3(1.0, 2.0, 3.0))
+        })
+        .collect()
+    }
+
+    fn close(a: Vec3, b: Vec3) -> bool {
+        (a - b).length() < 1e-4
+    }
+
+    #[test]
+    fn a_held_thing_turns_with_the_camera() {
+        let points = [
+            vec3(0.0, 0.0, 0.0),
+            vec3(1.0, 0.0, 0.0),
+            vec3(0.2, -0.5, 0.9),
+        ];
+        for camera in cameras() {
+            for tilt in [
+                Vec3::ZERO,
+                vec3(0.3, 0.0, -0.2),
+                vec3(-1.0, 2.0, 0.5),
+                vec3(0.0, std::f32::consts::FRAC_PI_2, 0.0),
+            ] {
+                let offset = vec3(0.35, -0.3, 0.6);
+                let held = Transform::held(&camera, offset, tilt);
+                for v in points {
+                    // In the camera's own space: the offset plus the
+                    // tilted point; then out into the world.
+                    let in_camera = offset + v.rotate_x(tilt.x).rotate_y(tilt.y).rotate_z(tilt.z);
+                    let world =
+                        in_camera.rotate_x(camera.pitch).rotate_y(camera.yaw) + camera.position;
+                    assert!(close(held.apply(v), world), "{camera:?} {tilt:?} {v:?}");
+                    // And back into view space.
+                    let view = held.in_view_of(&camera);
+                    assert!(close(view.apply(v), in_camera), "{camera:?} {tilt:?} {v:?}");
+                }
+            }
+            // Straight ahead is the middle of the screen.
+            let canvas = crate::canvas::Canvas::new(90, 160);
+            let ahead = Transform::held(&camera, vec3(0.0, 0.0, 2.0), Vec3::ZERO);
+            let middle = camera.world_to_screen(ahead.position, &canvas).unwrap();
+            assert!((middle - vec2(45.0, 80.0)).length() < 1e-2);
+        }
+    }
+
+    #[test]
+    fn a_held_thing_is_never_hidden_by_a_wall_or_cut_by_the_near_plane() {
+        let camera = Camera3D::new(vec3(0.0, 1.0, 0.0));
+        let wall = Mesh::cube(Color::BLUE).glowing();
+        let block = Mesh::cube(Color::RED).glowing();
+        for lit in [false, true] {
+            let draw = |held: &Transform| {
+                let mut canvas = crate::canvas::Canvas::new(80, 80);
+                canvas.set_smooth_shading(lit);
+                canvas.clear(Color::BLACK);
+                // A wall right in front of the eye.
+                canvas.draw_mesh(
+                    &wall,
+                    &Transform::at(vec3(0.0, 1.0, 0.6)).sized(0.4),
+                    &camera,
+                );
+                canvas.draw_held(&block, held, &camera);
+                canvas.flush_3d();
+                canvas
+            };
+            // Held further away than the wall: still in front of it.
+            let far = Transform::held(&camera, vec3(0.0, 0.0, 2.0), vec3(0.4, 0.6, 0.0)).sized(0.6);
+            let canvas = draw(&far);
+            assert_eq!(canvas.get_pixel(40, 40), Some(Color::RED), "lit: {lit}");
+            // A tiny one a hair from the eye looks the same as one ten
+            // times as big, ten times as far: not cut open.
+            let tiny =
+                Transform::held(&camera, vec3(0.0, 0.0, 0.05), vec3(0.4, 0.6, 0.0)).sized(0.015);
+            let big =
+                Transform::held(&camera, vec3(0.0, 0.0, 0.5), vec3(0.4, 0.6, 0.0)).sized(0.15);
+            let (a, b) = (draw(&tiny), draw(&big));
+            let red = |c: &crate::canvas::Canvas| {
+                c.pixels()
+                    .iter()
+                    .filter(|&&p| p == Color::RED.to_u32())
+                    .count()
+            };
+            assert!(red(&b) > 400, "lit: {lit}");
+            assert!(
+                red(&a).abs_diff(red(&b)) <= red(&b) / 50,
+                "lit {lit}: {} and {}",
+                red(&a),
+                red(&b)
+            );
+        }
+    }
+
+    #[test]
+    fn the_view_can_be_set_by_how_wide_it_is() {
+        let mut camera = Camera3D::new(Vec3::ZERO);
+        camera.set_horizontal_fov(90f32.to_radians(), 9.0 / 16.0);
+        assert!((camera.horizontal_fov(9.0 / 16.0) - 90f32.to_radians()).abs() < 1e-5);
+        // 45 degrees to the right lands on the right edge of a 9:16 picture.
+        let canvas = crate::canvas::Canvas::new(90, 160);
+        let edge = camera
+            .world_to_screen(vec3(1.0, 0.0, 1.0), &canvas)
+            .unwrap();
+        assert!((edge.x - 90.0).abs() < 1e-3, "{edge:?}");
+        // Taller than wide: it sees further up and down than across.
+        assert!(camera.fov > 90f32.to_radians());
+    }
 
     #[test]
     fn the_camera_s_up_is_the_top_of_the_screen() {
