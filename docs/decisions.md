@@ -5704,3 +5704,22 @@ the engine's part of them (the ready-made kinds' text, for Turn into
 code) is reached only from the Studio, so it isn't in a game (the scene
 demo's program doesn't contain the player's file's words).
 
+On GitHub's Windows machine (release builds, `--headless --time`, three
+runs): main's run 43657201953, Part A as first merged (run 43674503882,
+before the fixes above), and this branch with everything (run
+43678763773). Windows keeps function names in a separate file, so its
+sizes are like Linux's stripped ones:
+
+| Game | Main | Part A, first merged | This branch | An update: main | this branch | Drawing a frame: main | this branch |
+|---|---|---|---|---|---|---|---|
+| Platformer starter | 3,885,568 | 4,005,888 (+3.1%) | 3,906,048 (+0.53%) | 1.71 to 2.10 µs | 1.70 to 1.75 µs | 102.1 to 124.2 µs | 108.6 to 109.4 µs |
+| Shooter starter | 3,777,024 | 3,895,296 (+3.1%) | 3,792,896 (+0.42%) | 2.43 to 2.46 µs | 2.41 to 2.47 µs | 20.6 to 20.7 µs | 20.8 to 21.1 µs |
+| 3D runner starter | 9,194,496 | 9,329,152 (+1.5%) | 9,211,904 (+0.19%) | 1.84 to 2.21 µs | 2.01 to 2.13 µs | 1,398 to 1,416 µs | 1,410 to 1,421 µs |
+| Scene demo | 4,160,512 | 4,314,624 (+3.7%) | 4,234,752 (+1.78%) | 4.13 to 4.19 µs | 4.19 to 4.26 µs | 104.6 to 106.9 µs | 110.7 to 112.5 µs |
+
+The scene demo's 1.78% there is Step 5's scripts, Part A and Part B
+together (Linux, stripped: 0.61%, 1.0% and 0.54%). The engine's tests
+passed five times in a row there, both ways (726 and 691), and so did the
+Studio's tests (with the two new ones that turn the duck into code), the
+beginner's proof from the zip and from the installed Studio, and the
+installer.
