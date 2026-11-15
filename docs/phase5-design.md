@@ -1727,7 +1727,9 @@ These need your PC, with no terminal:
      status bar says "duck now runs scripts/duck.rs... Building it in".
      Within a few seconds (longer the first time) the game is back on
      the same frozen frame. The Inspector now says **Duck (script)**,
-     with the same boxes and values as before, and **Open duck.rs**.
+     with the same settings and values as before (all of them showing:
+     the expert ones are only folded away for Duck Forge's own), and
+     **Open duck.rs**.
 158. Press Tab and play: it runs and jumps exactly as before.
 159. Press **Open duck.rs**: your code editor opens it. Find
      `run_speed` in `settings` and change its 110.0 to 200.0. Save. After
@@ -1736,8 +1738,8 @@ These need your PC, with no terminal:
      says what's wrong instead: fix it and save again.)
 160. Press Ctrl+Z until the status bar says it undid "Turn duck's
      Platformer player into code": `duck.rs` is in the Recycle Bin (with
-     your change), `scripts.rs` is gone, `main.rs` is as it was, and the
-     duck is a Platformer player again. After the build it plays as at
+     your change), `scripts.rs` is gone (an empty scripts folder stays),
+     `main.rs` is as it was, and the duck is a Platformer player again. After the build it plays as at
      the start.
 161. Open **Scene demo**: it plays exactly as before (its duck is the
      game's own code, not the ready-made one). Click its sign and open

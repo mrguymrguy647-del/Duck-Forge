@@ -199,6 +199,10 @@ the Studio: nothing is added to the engine or to games.
   the game. Drag it onto an object (or onto the Inspector's Script box) to
   give that object the script; its settings show in the Inspector as
   boxes. The game builds it in and comes back to the same frozen moment.
+  **Ready-made behaviours** act by themselves with no code: the first is
+  the **Platformer player** (try the Ready Made game). Its settings are in
+  the Inspector, and **Turn into code...** gives the game its own copy of
+  its code to change, as one step of Undo.
 - **Files** (a tab beside Feel in Build mode; under the Scene list in a
   game with scenes) shows the game's own folder
   as a tree: click a picture to see it, a sound to hear it, anything else
@@ -240,7 +244,8 @@ cargo run --release -p studio_app
 `docs/phase4-design.md` is the design, and `docs/studio-screens/` has a
 picture of every screen. `docs/phase5-design.md` is the plan for the next
 phase, a real editor (scenes, objects, an Inspector, a Code panel). Its
-first five steps are built: **scenes**, below, and selecting, moving,
+first five steps are built, and the first part of the sixth (ready-made
+behaviours): **scenes**, below, and selecting, moving,
 turning, sizing, adding, copying and deleting their objects in the
 Studio, dragging pictures and sounds in from Files or from Windows, and
 scripts: code for one object, made and given to objects from the Studio. A scene file saved from outside (Notepad,

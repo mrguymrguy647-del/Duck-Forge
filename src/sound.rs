@@ -942,26 +942,60 @@ pub(crate) fn mix_to_wav(sounds: &[PlayedSound], loops: &[PlayedLoop], length: u
 ///
 /// Returns the mix's peak before limiting, and how many samples were over
 /// full volume, the first and the last.
+/// The loudest sample, and whether any wasn't a number (or was infinite).
+#[derive(Clone, Copy)]
+struct Loudest(f32, bool);
+
+impl Loudest {
+    fn max_and(self, other: Loudest) -> (f32, bool) {
+        (self.0.max(other.0), self.1 || other.1)
+    }
+}
+
+/// [`Loudest`] of `samples`, eight at a time, so the computer can do the
+/// eight at once: a long mix is read in a few milliseconds.
+fn loudest_of(samples: &[f32]) -> Loudest {
+    let mut top = [0.0f32; 8];
+    // Anything times 0 is 0, but for a sample that isn't a number or is
+    // infinite: then the sum isn't a number either.
+    let mut poison = [0.0f32; 8];
+    let mut eights = samples.chunks_exact(8);
+    for eight in &mut eights {
+        for k in 0..8 {
+            let a = eight[k].abs();
+            top[k] = if a > top[k] { a } else { top[k] };
+            poison[k] += eight[k] * 0.0;
+        }
+    }
+    let mut loudest = top.iter().fold(0.0f32, |m, &t| m.max(t));
+    let mut bad = poison.iter().any(|p| p.is_nan());
+    for &s in eights.remainder() {
+        loudest = loudest.max(s.abs());
+        bad |= !s.is_finite();
+    }
+    Loudest(loudest, bad)
+}
+
 fn limit(left: &mut [f32], right: &mut [f32]) -> (f32, usize, u64, u64) {
     let n = left.len();
+    // The usual mix is never too loud: one quick look for the loudest
+    // sample (a sample that isn't a number makes the peak infinite) says
+    // so, and it stops there.
+    let (loudest, not_a_number) = loudest_of(left).max_and(loudest_of(right));
+    let peak = if not_a_number { f32::INFINITY } else { loudest };
+    if loudest <= 1.0 {
+        return (peak, 0, 0, 0);
+    }
     let level = |i: usize| left[i].abs().max(right[i].abs());
-    let mut peak = 0.0f32;
     let (mut over, mut first, mut last) = (0, 0, 0);
     for i in 0..n {
-        let l = level(i);
-        if l > peak || l.is_nan() {
-            peak = if l.is_nan() { f32::INFINITY } else { l };
-        }
-        if l > 1.0 {
+        if level(i) > 1.0 {
             if over == 0 {
                 first = i as u64;
             }
             last = i as u64;
             over += 1;
         }
-    }
-    if over == 0 {
-        return (peak, 0, 0, 0);
     }
     // The volume each sample needs to stay under the ceiling.
     let need: Vec<f32> = (0..n)

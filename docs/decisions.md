@@ -5421,7 +5421,7 @@ Checked one rule at a time, plainly:
 | Replays match frame for frame | Yes. The lit renderer draws in bands of 16 rows on several threads and joins them in order; the picture is the same with any number of threads (a test draws the same lit frame on 1 thread and on 4). Every older example's playthrough replays here to main's pictures (the row below), and `tools/verify` replays each playthrough exactly |
 | The old "Duck Forge look" unchanged when it's chosen | Yes. With no lamps, shadows, glow, smooth shading or supersampling, nothing goes to the lit renderer: meshes are drawn exactly as before (and a test shows the lit renderer, given nothing to do, draws what the plain one does, pixel for pixel). The plain triangle filler is main's again, line for line (see the next row but one) |
 | Every older example's picture unchanged | Yes: every example main has, drawn on main and on this branch for 600 frames with the same seed and its playthrough, a picture every 60 frames: all 264 pictures of all 24 examples are the same, byte for byte. Their sound (`audio.wav`) is the same, byte for byte, for the 12 that make sound, and none trips the new limiter |
-| Existing games no slower | **No, at first.** That branch rewrote the plain renderer's triangle filler to skip three divisions for pixels outside a triangle; it drew the same pixels but did 7.5% more work drawing meshes (the 3D runner: 220.8 million instructions drawing its meshes in 600 frames on main, 237.4 million after). Main's filler is back, and the lit renderer has its own. The new limiter also reads the whole sound once when a headless run writes `audio.wav` (14.5 million instructions for 10 seconds of sound, about 5 ms, once, at the end): not while the game plays |
+| Existing games no slower | **No, at first.** That branch rewrote the plain renderer's triangle filler to skip three divisions for pixels outside a triangle; it drew the same pixels but did 7.5% more work drawing meshes (the 3D runner: 220.8 million instructions drawing its meshes in 600 frames on main, 237.4 million after). Main's filler is back, and the lit renderer has its own. The new limiter also read the whole sound slowly once when a headless run writes `audio.wav` (14.5 million instructions for the runner's 10 seconds of sound, at the end of the run, not while it plays); it now reads it eight samples at a time and works out more only when something is too loud (1.9 million), with the same results |
 | Existing games no bigger (more than 1%) | **No, at first.** Merged as it was, every game carried the lit renderer whether it used it or not: on GitHub's Windows machine the Platformer starter was 120,320 bytes (3.1%) bigger than main, the shooter 3.1%, the 3D runner 1.5% and the scene demo 3.7%. Fixed: see "The lit renderer only in games that use it" |
 
 Where the new 3D doesn't do what you might expect, though no rule says
@@ -5622,4 +5622,85 @@ folder.
    numbers" below, before and after, and write how many bytes it added.
    A ready-made behaviour should be a few thousand bytes; more than
    10,000 means look again.
+
+### The numbers
+
+Release builds with the usual features on this Linux machine (4 cores).
+"Main" is main as this branch started from it (`d944886`): Steps 1 to 4
+and Duck Mold's work, without Step 5's scripts. "Part A" is everything
+merged with the fixes above, and "Part B" is this branch: Part A and
+Step 6, part 1. Stripped is how a game is sent (the function names taken
+out); "machine code" is the program built in one piece, which takes the
+compiler's arrangement out, as Steps 3 and 5 did.
+
+| Game | Main | Part A | Part B | Stripped: main | Part A | Part B |
+|---|---|---|---|---|---|---|
+| Platformer starter | 6,398,816 | 6,474,352 | 6,475,056 | 4,562,032 | 4,602,648 (+0.89%) | 4,603,544 (+896 bytes) |
+| Shooter starter | 6,269,184 | 6,344,080 | 6,344,832 | 4,459,632 | 4,500,664 (+0.92%) | 4,501,648 (+984 bytes) |
+| 3D runner starter | 11,605,752 | 11,687,352 | 11,687,392 | 8,653,800 | 8,699,960 (+0.53%) | 8,700,920 (+960 bytes) |
+| Scene demo | 6,680,984 | 6,806,904 | 6,842,432 | 4,798,368 | 4,877,528 (+1.65%) | 4,903,640 (+0.54%) |
+| Ready Made (new) | | | 6,619,504 | | | 4,765,384 |
+
+| Game | Machine code, main | Part A | Part B |
+|---|---|---|---|
+| Platformer starter | 2,917,159 | 2,920,055 (+2,896) | 2,920,231 (+176) |
+| Shooter starter | 2,844,759 | 2,849,943 (+5,184) | 2,850,071 (+128) |
+| 3D runner starter | 5,604,311 | 5,612,327 (+8,016) | 5,612,231 (-96) |
+| Scene demo | 3,108,903 | 3,133,943 (+25,040) | 3,151,575 (+17,632) |
+
+- **Part A** makes every game 0.5% to 0.9% bigger stripped: what every
+  game can do now that it couldn't on main (`--video` with sound in one
+  command at the game's own size, the limiter and its warning, sound
+  volume, the summary's new lines). Unstripped, the Platformer and the
+  shooter are 1.2% bigger (names and unwinding tables); stripped, as a
+  game is sent, every one is under 1%. The scene demo's 1.65% includes
+  Step 5's scripts (0.61% when Step 5 was measured), which main doesn't
+  have yet. Before the lit renderer was put behind its pointers, Part A
+  made every game about 60,000 bytes bigger again (1.5% to 3.7% on
+  Windows): that's the fix in "The lit renderer only in games that use
+  it".
+- **Part B** adds under 1,000 bytes to games without scenes (176 bytes
+  of machine code or less: `Input` keeps one more list), and 26,112
+  bytes (0.54%) to the scene demo: the Platformer player (about 9,000),
+  actions (about 4,000), `play_sound`, `has_animation`, and `Scripts`
+  looking among the ready-made kinds. Every game made with scenes
+  carries them (see "Decisions made on the way").
+
+Speed. Instructions each game runs for 600 frames with nobody playing
+(valgrind), which don't depend on how busy the machine is:
+
+| Game | Main | Part A | Part B |
+|---|---|---|---|
+| Platformer starter | 64,443,271 | 63,994,007 (-0.70%) | 63,990,858 (the same) |
+| Shooter starter | 49,484,005 | 49,445,220 (-0.08%) | 49,414,266 (-0.06%) |
+| 3D runner starter | 344,360,793 | 345,480,296 (+0.33%) | 345,496,407 (the same) |
+| Scene demo | 76,665,519 | 76,464,305 (-0.26%) | 76,585,814 (+0.16%) |
+
+Before the two fixes above (main's triangle filler back, and the
+limiter's quicker look), Part A ran the 3D runner in 375,515,583
+instructions: 9.0% more than main. The 3D runner's 0.33% left is the
+limiter's look at the finished sound, at the end of a run that writes
+`audio.wav`. The scene demo's update does 0.16% more in Part B: `Scene`
+looking among the ready-made kinds too, for the objects whose kind is a
+script.
+
+Timed with `--headless --time`, five runs of each, taking turns; the
+lowest to highest, and the middle run (µs). These were timed before the
+limiter's change, which only touches the end of a run:
+
+| Game | An update: main | Part A | Part B | Drawing a frame: main | Part A | Part B |
+|---|---|---|---|---|---|---|
+| Platformer starter | 1.29 to 1.68 (1.31) | 0.96 to 1.33 (1.20) | 1.18 to 1.53 (1.28) | 81.1 to 95.7 (87.8) | 72.3 to 92.8 (86.6) | 82.5 to 94.1 (84.6) |
+| Shooter starter | 0.95 to 1.37 (1.26) | 1.01 to 1.45 (1.20) | 1.05 to 1.73 (1.11) | 16.5 to 22.6 (21.1) | 17.6 to 23.1 (20.5) | 17.8 to 27.4 (18.3) |
+| 3D runner starter | 1.98 to 2.79 (2.43) | 2.43 to 3.00 (2.58) | 2.32 to 4.08 (2.94) | 1,479 to 1,758 (1,642) | 1,537 to 1,765 (1,668) | 1,534 to 1,734 (1,687) |
+| Scene demo | 2.54 to 2.72 (2.63) | 2.23 to 3.13 (2.61) | 2.08 to 3.29 (2.53) | 80.8 to 88.1 (81.4) | 80.9 to 96.4 (90.4) | 74.8 to 103.8 (83.2) |
+
+All within this machine's spread from run to run; the instruction
+counts above are the steadier measure.
+
+The exported game has none of the editor: Step 6's Studio parts (Turn
+into code, the Inspector's ready-made section) are all in the Studio, and
+the engine's part of them (the ready-made kinds' text, for Turn into
+code) is reached only from the Studio, so it isn't in a game (the scene
+demo's program doesn't contain the player's file's words).
 
