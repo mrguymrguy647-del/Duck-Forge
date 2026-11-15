@@ -12,6 +12,12 @@
 //! sizes, so an odd one loses its last row or column). After the run, the
 //! sound (`audio.wav`) is added, in the same command.
 //!
+//! While it's made, the video so far is `NAME.partial.mp4` next to it, a
+//! fragmented MP4 (`-movflags +frag_keyframe+empty_moov`, a keyframe
+//! every two seconds): it plays at any moment, and a render stopped part
+//! way leaves a video of what was done. At the end the sound is added to
+//! make `NAME.mp4`, and the partial file goes.
+//!
 //! Without `ffmpeg`, the frames are saved as PNG files instead, next to
 //! `audio.wav`, and the exact `ffmpeg` command to join them is printed.
 //! `DUCKFORGE_FFMPEG` names another `ffmpeg` program (a full path, say).
@@ -99,7 +105,15 @@ impl VideoWriter {
             fs::create_dir_all(parent)
                 .map_err(|e| format!("could not create the folder {}: {e}", parent.display()))?;
         }
-        let silent = folder.join("video-silent.mp4");
+        let silent = partial_path(path);
+        let fragments = matches!(
+            path.extension()
+                .and_then(|e| e.to_str())
+                .map(str::to_lowercase)
+                .as_deref(),
+            Some("mp4" | "mov" | "m4v")
+        );
+        let keyframes = ((fps * 2.0).round() as u32).max(1).to_string();
         let spawned = Command::new(ffmpeg())
             .args([
                 "-y",
@@ -120,7 +134,13 @@ impl VideoWriter {
             ])
             .args(["-vf", &filter(width, height)])
             .args(["-c:v", "libx264", "-preset", "veryfast", "-crf", "16"])
-            .args(["-pix_fmt", "yuv420p"])
+            .args(["-pix_fmt", "yuv420p", "-g", &keyframes])
+            .args(if fragments {
+                // Written out as each piece is ready (not held in a buffer).
+                &["-movflags", "+frag_keyframe+empty_moov", "-flush_packets", "1"][..]
+            } else {
+                &[][..]
+            })
             .arg(&silent)
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
@@ -151,6 +171,18 @@ impl VideoWriter {
             bytes: Vec::with_capacity(width * height * 3),
             sound_from: 0.0,
         })
+    }
+
+    /// The sound starts `seconds` in (a video of a section of the run).
+    pub(crate) fn starting_at(&mut self, seconds: f64) {
+        self.sound_from = seconds.max(0.0);
+    }
+
+    /// Where the video so far can be watched while it's made.
+    pub(crate) fn partial(&self) -> Option<&Path> {
+        self.encoder
+            .as_ref()
+            .map(|(_, _, partial)| partial.as_path())
     }
 
     /// Adds one frame.
@@ -214,9 +246,12 @@ impl VideoWriter {
                         let _ = fs::remove_file(&silent);
                     }
                     None => {
-                        fs::copy(&silent, &self.path)
-                            .map_err(|e| format!("could not save {}: {e}", self.path.display()))?;
-                        let _ = fs::remove_file(&silent);
+                        if fs::rename(&silent, &self.path).is_err() {
+                            fs::copy(&silent, &self.path).map_err(|e| {
+                                format!("could not save {}: {e}", self.path.display())
+                            })?;
+                            let _ = fs::remove_file(&silent);
+                        }
                     }
                 }
                 let sound = if audio.is_some() {
@@ -255,6 +290,17 @@ impl VideoWriter {
             (None, None) => Err(String::from("the video had nowhere to go")),
         }
     }
+}
+
+/// `NAME.partial.mp4` for `NAME.mp4`: the video so far, while it's made.
+pub(crate) fn partial_path(path: &Path) -> PathBuf {
+    let stem = path
+        .file_stem()
+        .map_or_else(|| "video".into(), |s| s.to_string_lossy().into_owned());
+    let ext = path
+        .extension()
+        .map_or_else(|| "mp4".into(), |e| e.to_string_lossy().into_owned());
+    path.with_file_name(format!("{stem}.partial.{ext}"))
 }
 
 /// Is there an `ffmpeg` to make videos with?

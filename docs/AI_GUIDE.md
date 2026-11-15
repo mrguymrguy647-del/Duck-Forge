@@ -1171,7 +1171,11 @@ reports or checks counts as the last frame's). Scripts: `InputScript::load(path)
 `--inputs FILE`, `--snapshot-every N`, `--sheet`, `--gif`,
 `--video FILE` (every frame, sharp, with sound, in the game's own shape:
 enlarged by a whole number to fit 1920 x 1080, or 1080 x 1920 for a tall
-game, no black bars; needs ffmpeg),
+game, no black bars; needs ffmpeg; `NAME.partial.mp4` plays while it's
+made), `--stills "4.5 11 28.3"` (only those moments, in seconds, as
+`still-000135.png` and `stills.png`; nothing else is drawn), `--from S`
+and `--to S` (draw only that section; the video is the section, with its
+sound),
 `--clip FILE` (the run's last 10 seconds, or `--clip-seconds S`: a video
 with sound if ffmpeg is there, or else a full-size GIF next to it),
 `--crop X,Y,W,H`, `--zoom N`, `--grid N` (a coordinate grid on saved
@@ -1497,6 +1501,27 @@ glow, smooth shading, supersampled edges, captions in a TrueType font,
 sounds at their own volumes. One command makes the video:
 `cargo run --release --example night_cellar -- --headless --frames 240
 --video night_cellar.mp4` (about 70 seconds on 4 cores).
+
+**Long renders.** A film takes minutes, so:
+
+- **Look before you render.** `--stills "4.5 11 28.3" --out look` runs
+  to those moments without drawing anything in between and saves them
+  (`still-000135.png`, and `stills.png` with them all): seconds, not
+  minutes.
+
+  ```text
+  cargo run --release --example night_cellar -- --stills "1 3.5 7" --out look
+  ```
+
+- **Render one section.** `--from 30 --to 40 --video part.mp4` updates
+  silently to 30 seconds, then draws 30 to 40: the video is those ten
+  seconds, with their sound.
+- **Watch it as it goes.** A `--video` run says how it's going about
+  every 5% (`frame 300 of 1758 (17%, frame 300): 0.21 s each, about 5 min
+  06 s left`; `--quiet` and `--json` leave this out), and the video so
+  far is `NAME.partial.mp4` beside it, a fragmented MP4 that plays at any
+  moment (and stays, playable, if the render is stopped). At the end the
+  sound goes in, `NAME.mp4` is made, and the partial file goes.
 
 If the game makes sounds, the run also saves `show/audio.wav` and, with
 `--gif`, prints an `ffmpeg` command that joins the GIF and the sound into

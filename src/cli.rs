@@ -59,6 +59,21 @@ const OPTIONS: &[OptionInfo] = &[
         help: "save the run as a video (like out/run.mp4): every frame, sharp, in 1080p, with sound; needs ffmpeg",
     },
     OptionInfo {
+        name: "--stills",
+        value: Some("TIMES"),
+        help: "headless: run to these moments, in seconds (--stills \"4.5 11 28.3\"), without drawing in between, and save each as still-000135.png, plus stills.png with them all",
+    },
+    OptionInfo {
+        name: "--from",
+        value: Some("S"),
+        help: "headless: draw only from S seconds on (the run before it updates without drawing): a section of a --video",
+    },
+    OptionInfo {
+        name: "--to",
+        value: Some("S"),
+        help: "headless: stop at S seconds (instead of --frames)",
+    },
+    OptionInfo {
         name: "--gif",
         value: None,
         help: "with --headless, save run.gif: the whole run as a small animated GIF",
@@ -211,6 +226,11 @@ pub(crate) struct Options {
     pub gif: bool,
     pub clip: Option<PathBuf>,
     pub clip_seconds: Option<f32>,
+    /// `--stills`: the moments to save, in seconds.
+    pub stills: Vec<f32>,
+    /// `--from` and `--to`: the section to draw, in seconds.
+    pub from: Option<f32>,
+    pub to: Option<f32>,
     /// Where Duck Forge Studio is listening, when it started this game.
     pub studio: Option<String>,
     pub crop: Option<Crop>,
@@ -264,6 +284,42 @@ impl Options {
                 "--sheet-follow" => options.sheet_follow = Some(value.to_string()),
                 "--video" => options.video = Some(PathBuf::from(value)),
                 "--gif" => options.gif = true,
+                "--stills" => {
+                    let times: Result<Vec<f32>, _> = value
+                        .split(|c: char| c.is_whitespace() || c == ',')
+                        .filter(|w| !w.is_empty())
+                        .map(|w| w.parse::<f32>().map_err(|_| w.to_string()))
+                        .collect();
+                    match times {
+                        Ok(times)
+                            if !times.is_empty()
+                                && times.iter().all(|t| t.is_finite() && *t >= 0.0) =>
+                        {
+                            options.stills = times;
+                        }
+                        _ => {
+                            return Err(format!(
+                                "--stills needs moments in seconds, like --stills \"4.5 11 28.3\", not {value:?}"
+                            ));
+                        }
+                    }
+                    options.headless = true;
+                }
+                "--from" | "--to" => {
+                    let seconds = value
+                        .parse()
+                        .ok()
+                        .filter(|s: &f32| s.is_finite() && *s >= 0.0)
+                        .ok_or_else(|| {
+                            format!("{name} needs a number of seconds, not {value:?}")
+                        })?;
+                    if name == "--from" {
+                        options.from = Some(seconds);
+                    } else {
+                        options.to = Some(seconds);
+                    }
+                    options.headless = true;
+                }
                 "--clip" => options.clip = Some(PathBuf::from(value)),
                 "--clip-seconds" => {
                     let seconds = value
@@ -394,6 +450,19 @@ impl Options {
             if options.fuzz.is_none() {
                 return Err(format!("{name} only works with --fuzz N"));
             }
+        }
+        if let (Some(from), Some(to)) = (options.from, options.to) {
+            if from >= to {
+                return Err(format!("--from {from} must be before --to {to}"));
+            }
+        }
+        if options.to == Some(0.0) {
+            return Err(String::from("--to must be after 0 seconds"));
+        }
+        if !options.stills.is_empty() && (options.from.is_some() || options.video.is_some()) {
+            return Err(String::from(
+                "--stills saves pictures only: use it without --from and --video",
+            ));
         }
         if options.clip_seconds.is_some() && options.clip.is_none() {
             return Err(String::from("--clip-seconds only works with --clip FILE"));
@@ -572,6 +641,11 @@ mod tests {
 
     fn parse(line: &str) -> Result<Options, String> {
         Options::parse(line.split_whitespace().map(String::from))
+    }
+
+    /// Words as a shell passes them (a quoted value is one word).
+    fn parse_args(words: &[&str]) -> Result<Options, String> {
+        Options::parse(words.iter().map(|w| w.to_string()))
     }
 
     #[test]
@@ -773,6 +847,29 @@ mod tests {
 
     #[test]
     fn diff_takes_two_folders() {
+        let stills = parse_args(&["--stills", "4.5 11, 28.3", "--out", "shots"]).unwrap();
+        assert_eq!(stills.stills, [4.5, 11.0, 28.3]);
+        assert!(stills.headless, "--stills is always headless");
+        let section = parse("--from 30 --to 40 --video film.mp4").unwrap();
+        assert_eq!(
+            (section.from, section.to, section.headless),
+            (Some(30.0), Some(40.0), true)
+        );
+        assert!(
+            parse("--from 40 --to 30")
+                .unwrap_err()
+                .contains("must be before")
+        );
+        assert!(
+            parse_args(&["--stills", "soon"])
+                .unwrap_err()
+                .contains("--stills needs moments")
+        );
+        assert!(
+            parse_args(&["--stills", "1 2", "--video", "a.mp4"])
+                .unwrap_err()
+                .contains("pictures only")
+        );
         let options = parse("--diff out/a out/b").unwrap();
         assert_eq!(
             options.diff,

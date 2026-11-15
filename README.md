@@ -546,9 +546,12 @@ after `--` goes to the game, not to Cargo):
 | `--sheet-events` | Make `sheet.png` from the frames where reported values changed (state, lives, score...), plus the first and last, each captioned with what changed |
 | `--sheet-follow NAME` | Also save `sheet-follow.png`: the sheet's frames, each zoomed in three times around the label NAME (like `player`), to see small sprites |
 | `--gif` | Save `run.gif`: the run, shrunk, at about 20 pictures per second |
-| `--video FILE` | Save the run as a video (like `out/run.mp4`): every frame at the game's frame rate, each pixel a sharp square, enlarged by the biggest whole number that fits 1920 x 1080 (1080 x 1920 for a tall game), in the game's own shape with no black bars, with the sound. Needs `ffmpeg` (or `DUCKFORGE_FFMPEG`); without it the frames are saved as PNGs and the command to join them is printed |
+| `--video FILE` | Save the run as a video (like `out/run.mp4`; while it's made, `out/run.partial.mp4` plays what's done, and how far it's got is printed about every 5%): every frame at the game's frame rate, each pixel a sharp square, enlarged by the biggest whole number that fits 1920 x 1080 (1080 x 1920 for a tall game), in the game's own shape with no black bars, with the sound. Needs `ffmpeg` (or `DUCKFORGE_FFMPEG`); without it the frames are saved as PNGs and the command to join them is printed |
 | `--clip FILE` | Save the end of the run as a clip (like `out/clip.mp4`), to watch or share: with `ffmpeg`, a video like `--video`'s, with the sound; without it, a GIF next to it (`out/clip.gif`), full size and sharp, at the game's own speed with up to 50 pictures a second, and a line saying where to get `ffmpeg` for sound |
 | `--clip-seconds S` | How many seconds of the run's end `--clip` keeps (default 10) |
+| `--stills "4.5 11 28.3"` | Save only these moments, in seconds, as `still-000135.png` and so on, plus `stills.png` with them all; the run updates to each without drawing in between and ends at the last. Always headless |
+| `--from S` | Draw only from S seconds on: before it the game updates without drawing; the video, snapshots, sheet and GIF are of the rest (a video's sound starts there too). Always headless |
+| `--to S` | Stop at S seconds, instead of after `--frames`. Always headless |
 | `--crop X,Y,W,H` | Save `closeup.png`: that area of the last frame (and of each snapshot), enlarged |
 | `--zoom N` | How much close-ups are enlarged (default 4) |
 | `--accept` | With `--headless --inputs FILE`: write this run's final reported values into FILE's `"expect"` block, the ending the playthrough should show |
