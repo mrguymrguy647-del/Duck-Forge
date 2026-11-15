@@ -46,6 +46,15 @@ and its size. `tests/duck_mold_hits.rs` checks the file against it,
 then tests rays, segments and balls on each model at rest, in each pose
 and through each animation.
 
+Animations also carry **events** (reader version 7): names on keys a
+game hears when the animation passes them. The robot's and the gnome's
+`walk` have a `footstep` on each step, the robot's `jump` `takeoff` and
+`land`, the door's `open` `opened`; each `<model>.<animation>.inspect.json`
+lists them under `events`. `tests/duck_mold_events.rs` plays every
+animation with updates of many sizes, forwards and backwards, looping
+and once, and checks each event is heard exactly once each time its key
+is passed.
+
 `<model>.<animation>.inspect.json` (the robot's `idle`, `walk`,
 `wave` and `jump`, the door's `open`, the cart's `roll`, the gnome's
 `walk` and `wave`) are what `duck-mold inspect examples/robot.toml

@@ -5802,3 +5802,49 @@ cart, at rest, in every pose and at five moments of every animation:
 |---|---|
 | Models with hit shapes | 4 |
 | Rays checked | over 10,000 |
+
+# Duck Mold's Phase 6, step 5: events
+
+A Duck Mold recipe can put **events** on an animation's keys: names a
+game hears when the animation passes them (`footstep`). The reader
+(version 7, the same code in both repositories) reads them as
+`GlbAnimation.events`; `AnimatedModel::events()` lists those passed in
+the last `update`.
+
+## Decisions made on the way
+
+- **Exactly once each time a key is passed, however the time is cut
+  into updates.** Time is followed as one long line across a loop's
+  rounds, and each update hears every event on the stretch it covers:
+  from where the last one stopped (not included) to where it stops
+  (included). So an event can't be heard twice by two updates, or
+  missed between them.
+- **The first update after `play` or `restart` includes where it
+  starts**, so the event on the key at 0 (or, backwards, at the end) is
+  heard. Speed 0 keeps it waiting: that event is heard once time
+  moves.
+- **A loop's end and its start are one moment.** Counted in rounds, an
+  event on the last key belongs to the round that ends there, one on
+  the first key to the round that starts there: both are heard, the
+  ending round's first. Duck Mold warns (`event_twice`) when a loop has
+  the same event at both ends.
+- **Backwards** is the same stretch the other way, heard in reverse
+  order; starting backwards from the end hears the last key's events,
+  not the first key's.
+- **Ten rounds at most** in one update: a game that was paused for a
+  minute hears the last ten rounds' footsteps, not seventy-five.
+- **The list is the last update's only**, emptied by the next one
+  (also when stopped), so a game reads it right after `update`.
+
+## How it is tested
+
+`tests/duck_mold_events.rs`: every example animation (the eight), and
+for those without events some put on their first, middle and last
+keys, played looping and once, forwards and backwards, with five
+patterns of update sizes (a thirtieth of a second, tiny ones, uneven
+ones, long ones): what is heard is compared with a list worked out from
+the events alone, in order. 160 plays. And: the walk says `footstep`
+twice a round; nothing while stopped, finished, still or posed;
+changing animation; the door closing hears `opened` first; the same
+event on both ends of a loop is heard twice where it joins; a minute's
+update hears ten rounds.

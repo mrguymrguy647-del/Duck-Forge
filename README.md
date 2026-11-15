@@ -466,6 +466,24 @@ canvas.draw_mesh(self.robot.mesh(), &Transform::at(self.position), &self.camera)
 | `robot.is_playing()`, `robot.finished()`, `robot.playing()` | Whether something is running, whether a one-time animation has reached its end, and its name. |
 | `robot.socket("head.top")` | Where a socket is **now**: a hat stays on a nodding head, a sword in a waving hand. |
 | `robot.animations()`, `robot.poses()` | The names the model has. `duck-mold inspect robot.toml` lists them too. |
+| `robot.events()` | The moments the animation passed in the last `update`: the names its recipe puts on keys (`footstep`), each heard once each time its key is passed. Play a step sound, make a puff of dust. |
+
+```rust
+robot.update(ctx.dt());
+for event in robot.events() {
+    if event.name == "footstep" {
+        ctx.play(Sound::hit()); // a step
+    }
+}
+```
+
+An event on the key an animation starts from is heard on the first
+update after `play`; looping, the last key and the first are one
+moment; played backwards, the last key's are heard first; a long
+update hears every key it passed, from at most the last ten rounds of
+a loop; stopped, finished, at speed 0 or holding a pose, none.
+`duck-mold inspect robot.toml --animation walk` says when each is
+heard.
 
 Changing from one animation to another isn't a snap: the model changes
 over in 0.15 seconds (`robot.set_blend(0.0)` turns that off). A name the

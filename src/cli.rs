@@ -627,10 +627,11 @@ mod tests {
         "--renderer",
         // Duck Quill's, in `quill export ... --sheet --scale 2`.
         "--scale",
-        // Duck Mold's, in `duck-mold inspect robot.toml --sockets` and
-        // `--colliders`.
+        // Duck Mold's, in `duck-mold inspect robot.toml --sockets`,
+        // `--colliders` and `--animation walk`.
         "--sockets",
         "--colliders",
+        "--animation",
         // Cargo's and the test runner's, in the README's checks.
         "--lib",
         "--test-threads",

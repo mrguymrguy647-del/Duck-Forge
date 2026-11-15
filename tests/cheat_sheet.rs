@@ -1003,6 +1003,17 @@ fn models_from_duck_mold() -> Result<(), LoadError> {
     let blast = walker.hits_ball(vec3(2.0, 0.9, 0.0), 0.1, &place);
     assert_eq!(blast[0].part, "body");
     assert_eq!(walker.hit_shapes(&place).len(), 15);
+    // The moments an animation passes: footsteps on the walk.
+    let mut walking = walker.clone();
+    walking.play("walk");
+    walking.update(0.01);
+    let mut steps = 0;
+    for event in walking.events() {
+        if event.name == "footstep" {
+            steps += 1;
+        }
+    }
+    assert_eq!(steps, 1);
     let _ = Ray::new(Vec3::ZERO, vec3(0.0, 0.0, -1.0));
     // Only Duck Mold's .glb files load this way; the message names the
     // reader for any other glTF file.

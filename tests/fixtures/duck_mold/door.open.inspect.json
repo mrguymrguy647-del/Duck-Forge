@@ -21,7 +21,17 @@
     {
       "key": 3,
       "at": 1.0,
-      "pose": "door_open"
+      "pose": "door_open",
+      "events": [
+        "opened"
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "opened",
+      "at": 1.0,
+      "key": 3
     }
   ],
   "frames": 31,

@@ -11,7 +11,10 @@
     {
       "key": 1,
       "at": 0.0,
-      "pose": "step_left"
+      "pose": "step_left",
+      "events": [
+        "footstep"
+      ]
     },
     {
       "key": 2,
@@ -21,7 +24,10 @@
     {
       "key": 3,
       "at": 0.4,
-      "pose": "step_right"
+      "pose": "step_right",
+      "events": [
+        "footstep"
+      ]
     },
     {
       "key": 4,
@@ -32,6 +38,18 @@
       "key": 5,
       "at": 0.8,
       "pose": "step_left"
+    }
+  ],
+  "events": [
+    {
+      "name": "footstep",
+      "at": 0.0,
+      "key": 1
+    },
+    {
+      "name": "footstep",
+      "at": 0.4,
+      "key": 3
     }
   ],
   "frames": 25,

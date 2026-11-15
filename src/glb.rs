@@ -110,7 +110,7 @@ use crate::error::LoadError;
 use crate::math::{Vec3, vec3};
 use crate::render3d::Mesh;
 
-// ==== Duck Mold's .glb reader, version 6 ====================================
+// ==== Duck Mold's .glb reader, version 7 ====================================
 //
 // Version 6: the model's hit shapes (colliders), in `colliders`: a box, a
 // ball or a capsule for each part that has one, at rest, each carried by
@@ -348,6 +348,18 @@ pub struct GlbAnimation {
     pub times: Vec<f32>,
     /// What it moves.
     pub tracks: Vec<GlbTrack>,
+    /// The moments its keys mark, for a game to hear, in the order they
+    /// are reached. Empty in files from before version 7.
+    pub events: Vec<GlbEvent>,
+}
+
+/// An event: a name a key of an animation marks, and its key's time.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GlbEvent {
+    /// Its name: `footstep`.
+    pub name: String,
+    /// Seconds from the animation's start.
+    pub at: f32,
 }
 
 /// One join's way through an animation.
@@ -1131,12 +1143,41 @@ pub fn read_duck_mold_glb(bytes: &[u8]) -> Result<GlbModel, String> {
                 }
             }
         }
+        let length = entry["length"].as_f64().unwrap_or(0.0) as f32;
+        let mut events: Vec<GlbEvent> = Vec::new();
+        for event in entry["events"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+        {
+            let event_name = event["name"]
+                .as_str()
+                .filter(|event_name| !event_name.is_empty())
+                .ok_or_else(|| format!("{what} has an event with no name"))?;
+            let at = event["at"]
+                .as_f64()
+                .ok_or_else(|| format!("{what} has an event, \"{event_name}\", with no time"))?
+                as f32;
+            if !(0.0..=length).contains(&at) {
+                return Err(format!(
+                    "{what} has an event, \"{event_name}\", at a time outside it"
+                ));
+            }
+            if events.last().is_some_and(|before| before.at > at) {
+                return Err(format!("{what} has events out of order"));
+            }
+            events.push(GlbEvent {
+                name: event_name.to_owned(),
+                at,
+            });
+        }
         animations.push(GlbAnimation {
             name: name.to_owned(),
             looping: entry["loop"].as_bool().unwrap_or(false),
-            length: entry["length"].as_f64().unwrap_or(0.0) as f32,
+            length,
             times,
             tracks,
+            events,
         });
     }
     let mut poses = Vec::new();
@@ -1381,7 +1422,7 @@ fn srgb(linear: f32) -> u8 {
     (curved * 255.0).round().clamp(0.0, 255.0) as u8
 }
 
-// ==== end of Duck Mold's .glb reader, version 6 =============================
+// ==== end of Duck Mold's .glb reader, version 7 =============================
 
 // ---- Duck Forge's side: files, meshes and parts ------------------------------
 
@@ -1538,6 +1579,8 @@ pub struct AnimatedModel {
     turned: Vec<Option<[f32; 4]>>,
     /// The names already complained about, so each is said once.
     complained: Vec<String>,
+    /// The events passed during the last update.
+    events: Vec<AnimationEvent>,
 }
 
 /// What an [`AnimatedModel`] is doing.
@@ -1556,8 +1599,27 @@ enum Doing {
         looping: bool,
         /// True once an animation that plays once has reached its end.
         finished: bool,
+        /// True until time first moves after `play` or `restart`: the
+        /// event on the key it starts from is heard then.
+        fresh: bool,
     },
 }
+
+/// A moment an animation passed: an event on one of its keys
+/// (`footstep`), as [`AnimatedModel::events`] lists them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnimationEvent {
+    /// The event's name, as the recipe gives it: `footstep`.
+    pub name: String,
+    /// The animation it is in: `walk`.
+    pub animation: String,
+    /// Its key's time, in seconds from the animation's start.
+    pub at: f32,
+}
+
+/// The most rounds of a loop whose events one update lists: a game
+/// that was paused for a minute hears the last ten rounds, not all.
+const MOST_ROUNDS: f32 = 10.0;
 
 impl AnimatedModel {
     /// Loads a `.glb` file made by Duck Mold (`duck-mold export`), to
@@ -1585,6 +1647,7 @@ impl AnimatedModel {
             changing: None,
             turned: vec![None; joins],
             complained: Vec::new(),
+            events: Vec::new(),
             model,
         }
     }
@@ -1678,6 +1741,7 @@ impl AnimatedModel {
             },
             looping,
             finished: false,
+            fresh: true,
         });
     }
 
@@ -1689,6 +1753,7 @@ impl AnimatedModel {
             animation,
             time,
             finished,
+            fresh,
             ..
         } = &mut self.doing
         {
@@ -1698,6 +1763,7 @@ impl AnimatedModel {
                 0.0
             };
             *finished = false;
+            *fresh = true;
             self.stopped = false;
             self.refresh();
         }
@@ -1800,6 +1866,7 @@ impl AnimatedModel {
     /// Moves time on by `dt` seconds. Call it once in your game's
     /// `update`, with `ctx.dt()`.
     pub fn update(&mut self, dt: f32) {
+        self.events.clear();
         if self.stopped {
             return;
         }
@@ -1814,10 +1881,24 @@ impl AnimatedModel {
             time,
             looping,
             finished,
+            fresh,
         } = &mut self.doing
         {
             let length = self.model.animations[*animation].length;
-            *time += dt * self.speed;
+            let step = dt * self.speed;
+            if step != 0.0 {
+                let played = &self.model.animations[*animation];
+                self.events = passed(played, *time, step, *looping, *fresh)
+                    .into_iter()
+                    .map(|at| AnimationEvent {
+                        name: played.events[at].name.clone(),
+                        animation: played.name.clone(),
+                        at: played.events[at].at,
+                    })
+                    .collect();
+                *fresh = false;
+            }
+            *time += step;
             if *looping {
                 *time = if length > 0.0 {
                     time.rem_euclid(length)
@@ -1834,6 +1915,41 @@ impl AnimatedModel {
             }
         }
         self.refresh();
+    }
+
+    /// The events the animation passed during the last
+    /// [`update`](AnimatedModel::update), in the order it passed them:
+    /// each a name a key of the recipe marks (`footstep`), with the
+    /// animation and the key's time. Each is listed once each time the
+    /// animation passes its key, so a game plays a sound for each:
+    ///
+    /// ```no_run
+    /// # use duckforge::glb::AnimatedModel;
+    /// # fn demo(robot: &mut AnimatedModel, dt: f32) {
+    /// robot.update(dt);
+    /// for event in robot.events() {
+    ///     if event.name == "footstep" {
+    ///         // play a step sound, make a puff of dust
+    ///     }
+    /// }
+    /// # }
+    /// ```
+    ///
+    /// - An event on the key an animation starts from is heard on the
+    ///   first update after [`play`](AnimatedModel::play) or
+    ///   [`restart`](AnimatedModel::restart).
+    /// - Looping, the end and the start are one moment: an event on the
+    ///   last key is heard as the loop comes round, one on the first key
+    ///   at the start of every round. (Put an event on one of the two:
+    ///   on both, it is heard twice there. `duck-mold inspect` warns.)
+    /// - Played backwards, events are heard as time goes down past their
+    ///   keys, the last key's first.
+    /// - A long update (a game that hitched) lists every key passed, in
+    ///   order, from at most the last ten rounds of a loop.
+    /// - Changing to another animation stops the old one's events at
+    ///   once; stopped, finished, at speed 0 or holding a pose, none.
+    pub fn events(&self) -> &[AnimationEvent] {
+        &self.events
     }
 
     /// The model as it stands now, to draw:
@@ -1984,4 +2100,64 @@ impl AnimatedModel {
     pub(crate) fn stands_now(&self) -> &[Option<GlbStand>] {
         &self.stands
     }
+}
+
+/// The events of an animation passed when its time goes from `from` by
+/// `step` (backwards if `step` is below 0), as places in its `events`,
+/// in the order they are passed. `fresh`: the time hasn't moved since
+/// it started, so an event right at `from` is heard too.
+fn passed(
+    animation: &GlbAnimation,
+    from: f32,
+    step: f32,
+    looping: bool,
+    fresh: bool,
+) -> Vec<usize> {
+    let length = animation.length;
+    let events = &animation.events;
+    if events.is_empty() {
+        return Vec::new();
+    }
+    let forward = step > 0.0;
+    // The span of time passed: from `low` to `high`, each end in it or
+    // not.
+    let (mut low, high, mut low_in, high_in) = if forward {
+        (from, from + step, fresh, true)
+    } else {
+        (from + step, from, true, fresh)
+    };
+    let inside = |at: f32, low: f32, low_in: bool| {
+        (at > low || (low_in && at == low)) && (at < high || (high_in && at == high))
+    };
+    let mut found: Vec<usize> = Vec::new();
+    if !looping || length <= 0.0 {
+        // Once through: the span stops at the ends.
+        let (low, high) = (low.max(0.0), high.min(length));
+        let inside =
+            |at: f32| (at > low || (low_in && at == low)) && (at < high || (high_in && at == high));
+        found.extend((0..events.len()).filter(|&at| inside(events[at].at)));
+    } else {
+        if high - low > MOST_ROUNDS * length {
+            (low, low_in) = (high - MOST_ROUNDS * length, true);
+        }
+        // Round `n` is from n x length to (n + 1) x length. Forwards, a
+        // time that is a whole number of rounds is the start of the
+        // later round; backwards, the end of the earlier one, so
+        // starting backwards from the end hears the last key first.
+        let first = (low / length).floor() as i64;
+        let last = if forward {
+            (high / length).floor() as i64
+        } else {
+            (high / length).ceil() as i64 - 1
+        };
+        for round in first..=last {
+            let start = round as f32 * length;
+            found
+                .extend((0..events.len()).filter(|&at| inside(start + events[at].at, low, low_in)));
+        }
+    }
+    if !forward {
+        found.reverse();
+    }
+    found
 }
