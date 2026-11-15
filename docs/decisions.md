@@ -5848,3 +5848,28 @@ twice a round; nothing while stopped, finished, still or posed;
 changing animation; the door closing hears `opened` first; the same
 event on both ends of a loop is heard twice where it joins; a minute's
 update hears ten rounds.
+
+# Duck Mold's Phase 6, step 7: the robot you can click
+
+`examples/robot_click/` puts hit shapes and events together in one small
+game: the robot walks round a square on its own; each `footstep` its
+walk passes plays a short noise and leaves a puff of dust; a click on it
+says which part it found ("YOU CLICKED ITS HEAD") and that part flashes.
+
+- **A new example, not a change to `robot_walk`**, so the walking
+  example stays the shortest way to see an animation play.
+- **The robot walks on its own**, so a click is aimed at something
+  moving: the hit test is on the model as it stands in this frame.
+- **The puff is at the foot that lands**: of the two `foot.bottom`
+  sockets, the one further forward in the robot's own space, placed
+  with the same `Transform` the robot is drawn with.
+- **A flash recolours the part's triangles** (`part.range()` on the
+  mesh) and puts the colours back after: the model's own colours are
+  kept from when it loaded.
+
+Its tests: eleven footsteps (sounds 24 frames apart, puffs on the
+ground by its feet) in a little over four seconds; it walks round the
+square; a click on the head names `head` and only the head's triangles
+flash, then go back; clicks aimed at five parts while it walks name
+what a ray through the same pixel finds; a click beside it misses; the
+same clicks give the same game.

@@ -1688,6 +1688,12 @@ or the prelude):
 - Not physics: use a physics `Body` for standing and bumping, the hit
   shapes for which part a bullet or a click found.
 
+`examples/robot_click/` is hit shapes and events in one small game: the
+robot walks round, each `footstep` event plays a sound and leaves a
+puff at the foot that lands (the further forward of its two
+`foot.bottom` sockets), and a click names the part and flashes its
+triangles (`robot.mesh_mut().triangles[part.range()]`).
+
 **Any other glTF model, textured and moving.** A `.glb` from Blender or
 elsewhere loads with `GltfModel` (`use duckforge::gltf::GltfModel;`):
 
