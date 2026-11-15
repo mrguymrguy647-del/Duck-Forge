@@ -295,6 +295,18 @@ pub fn new_name(typed: &str) -> Result<(String, String), Problem> {
             format!("Call the script something else, like \"my {name}\"."),
         ));
     }
+    if let Some(ready) = duckforge::scene::ready::get(&name) {
+        return Err(Problem::new(
+            format!(
+                "Duck Forge already has a ready-made kind called \"{name}\" ({}).",
+                ready.label
+            ),
+            format!(
+                "Call the script something else, like \"my {}\".",
+                name.replace('_', " ")
+            ),
+        ));
+    }
     if ENGINE_NAMES.contains(&type_name.as_str()) {
         return Err(Problem::new(
             format!(
@@ -571,6 +583,10 @@ mod tests {
             ("sound", "already has a kind called \"sound\""),
             ("scene", "already has something called Scene"),
             ("key", "already has something called Key"),
+            (
+                "platformer player",
+                "ready-made kind called \"platformer_player\"",
+            ),
         ] {
             let problem = new_name(typed).unwrap_err();
             assert!(problem.what.contains(says), "{typed}: {}", problem.what);

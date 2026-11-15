@@ -189,6 +189,18 @@ impl MouseButton {
     }
 }
 
+/// The actions every game has, and the keys that do each, until the game
+/// says otherwise with [`Input::bind`]. A script reads an action
+/// (`input.action_pressed("jump")`), never a key, so when gamepads come
+/// ("jump" is also the A button) no script or scene file has to change.
+pub const ACTIONS: [(&str, &[Key]); 5] = [
+    ("left", &[Key::Left, Key::A]),
+    ("right", &[Key::Right, Key::D]),
+    ("up", &[Key::Up, Key::W]),
+    ("down", &[Key::Down, Key::S]),
+    ("jump", &[Key::Space, Key::Up, Key::W]),
+];
+
 /// Remembers which buttons are held this frame and which were held last
 /// frame, so it can tell "held" apart from "just pressed".
 ///
@@ -244,6 +256,9 @@ pub struct Input {
     /// Every key the game has asked about (`is_down`, `was_pressed`...),
     /// so `--fuzz` knows which key presses the game could notice.
     keys_read: RefCell<HashSet<Key>>,
+    /// Actions the game gave keys of its own, or added ([`Input::bind`]).
+    /// The rest have their keys from [`ACTIONS`].
+    bound: Vec<(String, Vec<Key>)>,
 }
 
 impl Input {
@@ -322,6 +337,71 @@ impl Input {
             value -= 1.0;
         }
         if self.is_down(positive) {
+            value += 1.0;
+        }
+        value
+    }
+
+    // ---- Actions ----
+
+    /// The keys that do an action: the game's own ([`bind`](Input::bind)),
+    /// or the usual ones ([`ACTIONS`]). None for an action nobody named.
+    pub fn keys_of(&self, action: &str) -> &[Key] {
+        if let Some((_, keys)) = self.bound.iter().find(|(name, _)| name == action) {
+            return keys;
+        }
+        ACTIONS
+            .iter()
+            .find(|(name, _)| *name == action)
+            .map_or(&[], |(_, keys)| keys)
+    }
+
+    /// Gives an action its keys, in place of the usual ones (or a new
+    /// action): `ctx.input.bind("jump", &[Key::Space, Key::J])`.
+    pub fn bind(&mut self, action: &str, keys: &[Key]) {
+        self.bound.retain(|(name, _)| name != action);
+        self.bound.push((action.to_string(), keys.to_vec()));
+    }
+
+    /// Is a key of the action held down right now?
+    pub fn action_down(&self, action: &str) -> bool {
+        let keys = self.keys_of(action);
+        // Every key is asked (and noted for --fuzz), as `axis` asks both.
+        keys.iter()
+            .fold(false, |down, &key| self.is_down(key) | down)
+    }
+
+    /// Was the action started this frame: a key of it pressed while none
+    /// of its others was held? True for one frame per press.
+    pub fn action_pressed(&self, action: &str) -> bool {
+        let keys = self.keys_of(action);
+        let pressed = keys
+            .iter()
+            .fold(false, |any, &key| self.was_pressed(key) | any);
+        pressed
+            && !keys
+                .iter()
+                .any(|&key| self.keys.down_last_frame.contains(&key))
+    }
+
+    /// Was the action let go this frame: its last key held let go?
+    pub fn action_released(&self, action: &str) -> bool {
+        let keys = self.keys_of(action);
+        let released = keys
+            .iter()
+            .fold(false, |any, &key| self.was_released(key) | any);
+        released && !keys.iter().any(|&key| self.keys.is_down(key))
+    }
+
+    /// Two actions as a direction: -1.0 for `negative` alone, 1.0 for
+    /// `positive` alone, 0.0 for neither or both.
+    /// `input.action_axis("left", "right")`.
+    pub fn action_axis(&self, negative: &str, positive: &str) -> f32 {
+        let mut value = 0.0;
+        if self.action_down(negative) {
+            value -= 1.0;
+        }
+        if self.action_down(positive) {
             value += 1.0;
         }
         value
@@ -410,6 +490,38 @@ mod tests {
         assert_eq!(input.axis(Key::Left, Key::Right), 1.0);
         input.begin_frame([Key::Left, Key::Right]);
         assert_eq!(input.axis(Key::Left, Key::Right), 0.0);
+    }
+
+    #[test]
+    fn actions_are_their_keys() {
+        let mut input = Input::new();
+        // Up and Space both jump: pressing the second while the first is
+        // held is the same jump, not a new one.
+        input.begin_frame([Key::Up]);
+        assert!(input.action_pressed("jump") && input.action_down("jump"));
+        assert!(input.action_down("up"));
+        input.begin_frame([Key::Up, Key::Space]);
+        assert!(!input.action_pressed("jump"));
+        input.begin_frame([Key::Space]);
+        assert!(!input.action_released("jump"), "Space still holds it");
+        input.begin_frame([]);
+        assert!(input.action_released("jump"));
+        // The axis is the two actions, as `axis` is two keys.
+        input.begin_frame([Key::A]);
+        assert_eq!(input.action_axis("left", "right"), -1.0);
+        input.begin_frame([Key::A, Key::Right]);
+        assert_eq!(input.action_axis("left", "right"), 0.0);
+        // An action nobody named has no keys.
+        assert!(!input.action_down("dance") && input.keys_of("dance").is_empty());
+        // A game gives an action its own keys.
+        input.bind("jump", &[Key::J]);
+        input.begin_frame([Key::Space]);
+        assert!(!input.action_down("jump"));
+        input.begin_frame([Key::J]);
+        assert!(input.action_pressed("jump"));
+        assert_eq!(input.keys_of("left"), [Key::Left, Key::A]);
+        // Every key an action asked about is noted, for --fuzz.
+        assert!(input.keys_read().contains(&String::from("D")));
     }
 
     #[test]

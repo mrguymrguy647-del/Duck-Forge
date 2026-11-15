@@ -481,11 +481,14 @@ impl Scripts {
         self.known.iter().map(|known| known.name.as_str()).collect()
     }
 
-    /// Is there a script called this?
+    /// Is there a script called this: one of the game's, or a ready-made
+    /// kind?
     pub fn has(&self, name: &str) -> bool {
         self.get(name).is_some()
     }
 
+    /// Has the game no scripts of its own? (The ready-made kinds are
+    /// there all the same.)
     pub fn is_empty(&self) -> bool {
         self.known.is_empty()
     }
@@ -495,7 +498,12 @@ impl Scripts {
         self.get(name).map(|known| known.settings.as_slice())
     }
 
+    /// The game's own script called `name`, or else the ready-made kind.
     fn get(&self, name: &str) -> Option<&Known> {
+        self.own(name).or_else(|| ready_made().own(name))
+    }
+
+    fn own(&self, name: &str) -> Option<&Known> {
         self.known.iter().find(|known| known.name == name)
     }
 
@@ -504,20 +512,33 @@ impl Scripts {
     }
 
     /// Every script with its settings, as JSON: what the Studio's
-    /// Inspector draws its boxes from.
+    /// Inspector draws its boxes from. The game's own come first, then each
+    /// ready-made kind it hasn't one of its own for, marked
+    /// `"ready_made": true` with what the Studio calls it.
     pub fn to_json(&self) -> Value {
-        Value::Array(
-            self.known
-                .iter()
-                .map(|known| {
-                    json!({
-                        "name": known.name,
-                        "type": short_type_name(known.type_name),
-                        "settings": known.settings.iter().map(SettingInfo::to_json).collect::<Vec<_>>(),
-                    })
-                })
-                .collect(),
-        )
+        let own = self.known.iter().map(|known| {
+            json!({
+                "name": known.name,
+                "type": short_type_name(known.type_name),
+                "settings": known.settings.iter().map(SettingInfo::to_json).collect::<Vec<_>>(),
+            })
+        });
+        let ready = ready_made()
+            .known
+            .iter()
+            .filter(|known| self.own(&known.name).is_none())
+            .filter_map(|known| {
+                let about = super::ready::get(&known.name)?;
+                Some(json!({
+                    "name": known.name,
+                    "type": short_type_name(known.type_name),
+                    "settings": known.settings.iter().map(SettingInfo::to_json).collect::<Vec<_>>(),
+                    "ready_made": true,
+                    "label": about.label,
+                    "about": about.about,
+                }))
+            });
+        Value::Array(own.chain(ready).collect())
     }
 
     /// What's wrong with the scripts themselves (a setting with a name
@@ -571,6 +592,12 @@ impl Scripts {
             })
             .collect()
     }
+}
+
+/// The ready-made kinds ([`super::ready`]), made once.
+fn ready_made() -> &'static Scripts {
+    static READY: std::sync::OnceLock<Scripts> = std::sync::OnceLock::new();
+    READY.get_or_init(super::ready::scripts)
 }
 
 /// `scene_demo::scripts::bob::Bob` is `Bob`.
@@ -664,6 +691,10 @@ pub fn studio_answer() -> String {
     let noted = FOR_THE_STUDIO.lock().ok().and_then(|noted| noted.clone());
     match noted {
         Some(list) => format!("{{\"given\": true, \"scripts\": {list}}}"),
-        None => String::from("{\"given\": false, \"scripts\": []}"),
+        // A game with none of its own still has the ready-made kinds.
+        None => format!(
+            "{{\"given\": false, \"scripts\": {}}}",
+            Scripts::new().to_json()
+        ),
     }
 }

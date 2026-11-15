@@ -197,6 +197,19 @@ impl Studio {
         title: String,
         stroke: Option<u64>,
     ) -> Result<String, Problem> {
+        self.write_scene_with(after, now, Vec::new(), title, stroke)
+    }
+
+    /// [`write_scene`](Self::write_scene), with other files changed in
+    /// the same step for Undo (`files`, already written).
+    pub(super) fn write_scene_with(
+        &mut self,
+        after: String,
+        now: Vec<NowEdit>,
+        files: Vec<FileEdit>,
+        title: String,
+        stroke: Option<u64>,
+    ) -> Result<String, Problem> {
         let open = self.open_game()?;
         let doc = open.scene.as_ref().ok_or_else(no_scene)?;
         let (path, name, before) = (doc.path.clone(), doc.name.clone(), doc.text.clone());
@@ -209,13 +222,15 @@ impl Studio {
         if let Some(play) = &mut open.play {
             play.send_file(&name, &after);
         }
+        let mut files = files;
+        files.push(FileEdit {
+            path,
+            before,
+            after,
+        });
         open.undo.push(Step {
             title: title.clone(),
-            files: vec![FileEdit {
-                path,
-                before,
-                after,
-            }],
+            files,
             stroke,
             now,
         });

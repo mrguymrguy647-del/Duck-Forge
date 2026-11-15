@@ -1,0 +1,21 @@
+{
+  "duckforge_inputs": 1,
+  "seed": 1,
+  "updates_per_second": 60,
+  "frames": 262,
+  "files": {
+    "examples/ready_made/level.legend.json": "{\n  \"tile_size\": 16,\n  \"tiles\": \"assets/tiles.json\",\n  \"letters\": {\n    \"#\": {\"kind\": \"solid\", \"name\": \"grass\"},\n    \"d\": {\"kind\": \"solid\", \"name\": \"dirt\"},\n    \"B\": {\"kind\": \"solid\", \"name\": \"brick\"},\n    \"=\": {\"kind\": \"one_way\", \"name\": \"plank\"},\n    \"c\": {\"kind\": \"thing\", \"name\": \"coin\", \"label\": \"Coin\"},\n    \"g\": {\"kind\": \"thing\", \"name\": \"flag\", \"label\": \"Flag\", \"at_least\": 1, \"at_most\": 1}\n  }\n}\n",
+    "examples/ready_made/level.txt": "....................\n....................\n....................\n....................\n....................\n....................\n....................\n....................\n....................\n....................\n.......====.........\n...............B....\n..............BB....\n####################\ndddddddddddddddddddd\n",
+    "examples/ready_made/scenes/level1.json": "{\n  \"duckforge_scene\": 1,\n  \"size\": [320, 240],\n  \"background\": \"#5e9fe0\",\n  \"objects\": [\n    {\"id\": 1, \"name\": \"sky\", \"kind\": \"background\", \"picture\": \"assets/sky.png\", \"layer\": \"far\", \"parallax\": 0.1},\n    {\"id\": 2, \"name\": \"hills\", \"kind\": \"background\", \"at\": [0, 116], \"picture\": \"assets/hills.png\", \"layer\": \"back\", \"parallax\": 0.4},\n    {\"id\": 3, \"name\": \"ground\", \"kind\": \"tilemap\", \"level\": \"level.txt\"},\n    {\"id\": 4, \"name\": \"sign\", \"at\": [64, 208], \"picture\": \"assets/sign.png\"},\n    {\"id\": 5, \"name\": \"duck\", \"kind\": \"platformer_player\", \"at\": [32, 208], \"picture\": \"assets/hero.json\", \"box\": [3, 2, 10, 14]}\n  ]\n}\n"
+  },
+  "events": [
+    {"frame": 11, "press": "Right"},
+    {"frame": 71, "release": "Right"},
+    {"frame": 71, "press": "Space"},
+    {"frame": 131, "release": "Space"},
+    {"frame": 151, "press": "Right"},
+    {"frame": 198, "press": "Up"},
+    {"frame": 218, "release": "Up"},
+    {"frame": 233, "release": "Right"}
+  ]
+}

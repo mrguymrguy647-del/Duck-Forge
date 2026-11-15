@@ -1,0 +1,12 @@
+{
+  "duckforge_scene": 1,
+  "size": [320, 240],
+  "background": "#5e9fe0",
+  "objects": [
+    {"id": 1, "name": "sky", "kind": "background", "picture": "assets/sky.png", "layer": "far", "parallax": 0.1},
+    {"id": 2, "name": "hills", "kind": "background", "at": [0, 116], "picture": "assets/hills.png", "layer": "back", "parallax": 0.4},
+    {"id": 3, "name": "ground", "kind": "tilemap", "level": "level.txt"},
+    {"id": 4, "name": "sign", "at": [64, 208], "picture": "assets/sign.png"},
+    {"id": 5, "name": "duck", "kind": "platformer_player", "at": [32, 208], "picture": "assets/hero.json", "box": [3, 2, 10, 14]}
+  ]
+}

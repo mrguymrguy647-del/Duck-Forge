@@ -351,6 +351,19 @@ pub enum Command {
     /// object with `files.use`, its file's path and the object's id.)
     #[serde(rename = "script.remove")]
     ScriptRemove { ids: Vec<u64> },
+    /// Gives the game its own copy of objects' ready-made behaviour, as a
+    /// script it can change: `{"do": "script.turn_into_code", "ids": [5],
+    /// "name": "duck"}` writes `scripts/duck.rs` (Duck Forge's file, with
+    /// its own names), adds it to `scripts.rs` (connecting `main.rs` the
+    /// first time), and makes the objects' kind `duck`. Their settings
+    /// stay. `name` is optional: the first object's name. One step for
+    /// Undo, which puts every file back.
+    #[serde(rename = "script.turn_into_code")]
+    ScriptTurnIntoCode {
+        ids: Vec<u64>,
+        #[serde(default)]
+        name: Option<String>,
+    },
     /// Change objects of the scene, by their keys as the scene file has
     /// them: `{"do": "object.set", "ids": [7], "set": {"layer": "front"}}`.
     /// It changes the file (how the scene starts); the game takes it at
@@ -789,6 +802,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         name: "script.remove",
         title: "Take objects' scripts off them",
         needs: "ids: like [4]",
+    },
+    CommandInfo {
+        name: "script.turn_into_code",
+        title: "Turn objects' ready-made behaviour into the game's own code",
+        needs: "ids: like [5]; name: like duck (optional: the first object's name)",
     },
     CommandInfo {
         name: "object.set",
@@ -1957,6 +1975,7 @@ impl Studio {
             Command::FilesUse { path, at, ids, key } => self.files_use(path, at, ids, key),
             Command::ScriptNew { name, folder } => self.script_new(name, folder),
             Command::ScriptRemove { ids } => self.script_remove(ids),
+            Command::ScriptTurnIntoCode { ids, name } => self.script_turn_into_code(ids, name),
             Command::ObjectTurn {
                 ids,
                 by,
@@ -3127,6 +3146,7 @@ mod tests {
             r#"{"do": "files.use", "path": "assets/sign.png", "at": [128, 208]}"#,
             r#"{"do": "script.new", "name": "bee", "folder": "scripts"}"#,
             r#"{"do": "script.remove", "ids": [4]}"#,
+            r#"{"do": "script.turn_into_code", "ids": [5], "name": "duck"}"#,
             r#"{"do": "object.set", "ids": [7], "set": {"layer": "front", "speed": 60}}"#,
             r#"{"do": "object.move", "ids": [7, 9], "by": [8, 0]}"#,
             r#"{"do": "object.rename", "id": 7, "name": "snail"}"#,

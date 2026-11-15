@@ -14,6 +14,29 @@ use crate::scripts::{
     Connected, PLAIN_KINDS, SCRIPTS_FILE, ScriptEntry, ScriptsFile, connect_main, new_name,
     skeleton,
 };
+use duckforge::scene::ready::{self, ReadyMade};
+
+/// What "Turn into code" will write, worked out before anything is: the
+/// Studio shows it, and `script.turn_into_code` does exactly this.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TurnPlan {
+    /// The ready-made kind the objects have.
+    pub ready: ReadyMade,
+    /// The objects it turns: those asked for.
+    pub ids: Vec<u64>,
+    /// Every object of the scene with that ready-made kind.
+    pub all_with_it: Vec<u64>,
+    /// The script's name (the objects' new kind), and its type.
+    pub name: String,
+    pub type_name: String,
+    /// Its file, from the game's folder: `scripts/duck.rs`.
+    pub path: String,
+    /// The file's text.
+    pub code: String,
+    /// Whether `main.rs` gets its lines (`mod scripts;` and
+    /// `.with_scripts(scripts::all())`).
+    pub connects_main: bool,
+}
 
 impl Studio {
     /// The open game's `scripts.rs`, read from disk now. `None` if it
@@ -136,6 +159,225 @@ impl Studio {
             }
         }
         Ok(said)
+    }
+
+    /// What turning objects' ready-made behaviour into code would do:
+    /// the script it writes, named `name` (or after the first object).
+    pub fn turn_into_code_plan(
+        &self,
+        ids: &[u64],
+        name: Option<&str>,
+    ) -> Result<TurnPlan, Problem> {
+        let open = self
+            .open
+            .as_ref()
+            .ok_or_else(|| Problem::new("No game is open.", "Open a game made of scenes first."))?;
+        let game_folder = open.game.folder.clone().ok_or_else(|| {
+            Problem::new(
+                "This game has no folder of its own to write code in.",
+                "Open a game from your games folder.",
+            )
+        })?;
+        let doc = open.scene.as_ref().ok_or_else(super::objects::no_scene)?;
+        let mut kind: Option<&ReadyMade> = None;
+        let mut first_name = String::new();
+        for id in ids {
+            let object = doc.object(*id).ok_or_else(|| {
+                Problem::new(
+                    format!("The scene's file has no object with the id {id}."),
+                    "Pick an object of the scene.",
+                )
+            })?;
+            let Some(this) = ready::get(&object.kind) else {
+                return Err(Problem::new(
+                    format!(
+                        "{} doesn't use one of Duck Forge's ready-made behaviours, so there's nothing to turn into code.",
+                        object.name
+                    ),
+                    "Pick an object whose Kind is a ready-made one, like Platformer player.",
+                ));
+            };
+            if kind.is_some_and(|kind| kind.name != this.name) {
+                return Err(Problem::new(
+                    "Those objects use different ready-made behaviours.",
+                    "Turn one behaviour into code at a time: pick objects of one kind.",
+                ));
+            }
+            if kind.is_none() {
+                first_name = object.name.clone();
+            }
+            kind = Some(this);
+        }
+        let ready = *kind.ok_or_else(|| {
+            Problem::new(
+                "No object is picked.",
+                "Pick the object whose behaviour you want as code.",
+            )
+        })?;
+        let all_with_it: Vec<u64> = doc
+            .file
+            .iter()
+            .flat_map(|file| &file.objects)
+            .filter(|object| object.kind == ready.name)
+            .map(|object| object.id().number())
+            .collect();
+
+        // Its name: the one asked for, or the object's ("duck"), made
+        // unique ("duck 2") if the game has a script or file of that name.
+        let list = ScriptsFile::read(&game_folder).unwrap_or_default();
+        let taken = |name: &str| {
+            list.get(name).is_some()
+                || game_folder
+                    .join("scripts")
+                    .join(format!("{name}.rs"))
+                    .exists()
+        };
+        let (name, type_name) = match name {
+            Some(typed) => {
+                let (name, type_name) = new_name(typed)?;
+                if taken(&name) {
+                    return Err(Problem::new(
+                        format!("This game has a script called \"{name}\" already."),
+                        "Give the new one another name.",
+                    ));
+                }
+                (name, type_name)
+            }
+            None => {
+                let base = new_name(&first_name)
+                    .or_else(|_| new_name(&format!("my {}", ready.name)))?
+                    .0;
+                let mut number = 1;
+                loop {
+                    let typed = if number == 1 {
+                        base.clone()
+                    } else {
+                        format!("{base} {number}")
+                    };
+                    let (name, type_name) = new_name(&typed)?;
+                    if !taken(&name) {
+                        break (name, type_name);
+                    }
+                    number += 1;
+                }
+            }
+        };
+        let code = ready::copy_for_a_game(&ready, &name, &type_name).ok_or_else(|| {
+            Problem::new(
+                format!("Duck Forge has no file for {}.", ready.label),
+                "This is a mistake in Duck Forge: please say so.",
+            )
+        })?;
+        let connects_main = std::fs::read_to_string(game_folder.join("main.rs"))
+            .is_ok_and(|main| connect_main(&main).0 != main);
+        Ok(TurnPlan {
+            ready,
+            ids: ids.to_vec(),
+            all_with_it,
+            path: format!("scripts/{name}.rs"),
+            name,
+            type_name,
+            code,
+            connects_main,
+        })
+    }
+
+    /// `script.turn_into_code`: gives the game its own copy of the
+    /// objects' ready-made behaviour, as a script of its own: the file,
+    /// its line in `scripts.rs` (and `main.rs` connected, the first
+    /// time), and the objects' kind. Their settings stay as they are. One
+    /// step for Undo, which puts every file back.
+    pub(super) fn script_turn_into_code(
+        &mut self,
+        ids: Vec<u64>,
+        name: Option<String>,
+    ) -> Result<String, Problem> {
+        let plan = self.turn_into_code_plan(&ids, name.as_deref())?;
+        let game_folder = self.files_folder()?;
+        let main_path = game_folder.join("main.rs");
+        let main_before = std::fs::read_to_string(&main_path).unwrap_or_default();
+        let main_after = if main_before.is_empty() {
+            main_before.clone()
+        } else {
+            let (text, done) = connect_main(&main_before);
+            if let Connected::Tell { line } = done {
+                return Err(Problem::new(
+                    "Duck Forge can't tell where main.rs loads the scene, so the game wouldn't use the new code.",
+                    format!(
+                        "Add .with_scripts(scripts::all()) after Scene::load(...) in main.rs (near line {line}), then turn it into code again."
+                    ),
+                ));
+            }
+            text
+        };
+        let scripts_path = game_folder.join(SCRIPTS_FILE);
+        let scripts_before = std::fs::read_to_string(&scripts_path).unwrap_or_default();
+        let mut list = ScriptsFile::parse(&scripts_before);
+        list.entries.push(ScriptEntry {
+            name: plan.name.clone(),
+            path: plan.path.clone(),
+            module: plan.name.clone(),
+            type_name: plan.type_name.clone(),
+        });
+        let scripts_after = list.text();
+        let file = game_folder.join(&plan.path);
+
+        // The scene's change first: if it can't be made, nothing is written.
+        let changes: Vec<(u64, Map<String, Value>)> = plan
+            .ids
+            .iter()
+            .map(|id| {
+                (
+                    *id,
+                    Map::from_iter([(String::from("kind"), json!(plan.name))]),
+                )
+            })
+            .collect();
+        let open = self.open_game()?;
+        let doc = open.scene.as_ref().ok_or_else(super::objects::no_scene)?;
+        let scene_after = doc.with_set(&changes)?;
+        let who = open.called(&plan.ids);
+
+        if let Some(folder) = file.parent() {
+            std::fs::create_dir_all(folder).map_err(|error| {
+                Problem::new(
+                    format!("The folder for {} couldn't be made.", plan.path),
+                    error.to_string(),
+                )
+            })?;
+        }
+        let mut files = vec![FileEdit {
+            path: file.clone(),
+            before: String::new(),
+            after: plan.code.clone(),
+        }];
+        crate::level::write_whole(&file, &plan.code)?;
+        crate::level::write_whole(&scripts_path, &scripts_after)?;
+        files.push(FileEdit {
+            path: scripts_path,
+            before: scripts_before,
+            after: scripts_after,
+        });
+        if main_after != main_before {
+            crate::level::write_whole(&main_path, &main_after)?;
+            files.push(FileEdit {
+                path: main_path,
+                before: main_before,
+                after: main_after,
+            });
+        }
+        let title = format!(
+            "Turn {who}'s {} into code ({})",
+            plan.ready.label, plan.path
+        );
+        self.write_scene_with(scene_after, Vec::new(), files, title, None)?;
+        if let Some(open) = self.open.as_mut() {
+            open.files_selected = Some(plan.path.clone());
+        }
+        Ok(format!(
+            "{who} now runs {}, this game's own copy of the {}. Building it in...",
+            plan.path, plan.ready.label
+        ))
     }
 
     /// A script dropped from Files: onto objects (`ids`), they get it;

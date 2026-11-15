@@ -62,6 +62,7 @@ mod file;
 mod game;
 pub(crate) mod live;
 mod object;
+pub mod ready;
 pub mod script;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -582,6 +583,34 @@ impl Scene {
         touched
     }
 
+    /// Does the object's picture have this animation? (Only a Duck Quill
+    /// sheet has animations.)
+    pub fn has_animation(&self, id: Id, name: &str) -> bool {
+        let picture = self.get(id).and_then(|object| object.picture.as_ref());
+        matches!(
+            picture.and_then(|picture| self.pictures.get(picture)),
+            Some(Picture::Sheet(sheet)) if sheet.get(name).is_some()
+        )
+    }
+
+    /// Plays a sound file of the game's once: `scene.play_sound(ctx,
+    /// "assets/jump.wav")`. It's loaded the first time and kept. One that
+    /// can't be loaded is silent, and is one of the scene's
+    /// [`problems`](Scene::problems).
+    pub fn play_sound(&mut self, ctx: &mut Context, file: &str) {
+        if !self.sounds.contains_key(file) {
+            let loaded = Wav::load(self.folder.join(file)).map_err(|error| error.to_string());
+            let failed = loaded.is_err();
+            self.sounds.insert(file.to_string(), loaded);
+            if failed {
+                self.say_problems();
+            }
+        }
+        if let Some(Ok(wav)) = self.sounds.get(file) {
+            ctx.play_wav(wav);
+        }
+    }
+
     /// The scene's tile map: the first one in the file. Everything a
     /// [`TileMap`] can do works on it.
     pub fn tilemap(&self) -> Option<&TileMap> {
@@ -622,11 +651,10 @@ impl Scene {
         // The usual case, every update: no object has a script. Found
         // without making anything.
         if self.running.is_empty()
-            && (self.scripts.is_empty()
-                || !self
-                    .objects
-                    .iter()
-                    .any(|object| self.scripts.has(&object.kind)))
+            && !self
+                .objects
+                .iter()
+                .any(|object| object.kind != object::PLAIN_KIND && self.scripts.has(&object.kind))
         {
             return;
         }
@@ -1626,6 +1654,20 @@ impl Scene {
                         }
                     }
                 }
+            }
+        }
+        // A sound a script played that couldn't be loaded (a Sound
+        // object's own was said with its line, above).
+        for (sound, loaded) in &self.sounds {
+            let an_objects = self
+                .objects
+                .iter()
+                .any(|object| object.kind == "sound" && object.text("sound") == Some(sound));
+            if let (Err(why), false) = (loaded, an_objects) {
+                problems.push(format!(
+                    "{file}: a script plays the sound {sound:?}, which couldn't be loaded, \
+                     so it's silent ({why})"
+                ));
             }
         }
         // A file that couldn't be read at all stays said until one can.

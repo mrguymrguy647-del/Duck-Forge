@@ -85,6 +85,10 @@ test = true
 name = "scene_demo"
 test = true
 
+[[example]]
+name = "ready_made"
+test = true
+
 # A tool, not a game: writes the ids into a scene file (see the file).
 [[example]]
 name = "write_ids"

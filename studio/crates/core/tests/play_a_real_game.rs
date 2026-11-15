@@ -1654,3 +1654,202 @@ fn a_new_script_is_made_given_to_an_object_and_undone() {
     );
     say(&mut studio, Step::Do(Command::GameStop));
 }
+
+/// Replays a playthrough of an example with no window, as the code is
+/// now, and gives its last picture.
+fn replay_last_picture(example: &str, session: &Path, out: &Path) -> Vec<u32> {
+    let replay = std::process::Command::new("cargo")
+        .args([
+            "run",
+            "-q",
+            "--no-default-features",
+            "--example",
+            example,
+            "--",
+        ])
+        .args(["--headless", "--inputs"])
+        .arg(session)
+        .arg("--out")
+        .arg(out)
+        .current_dir(duck_forge())
+        .output()
+        .unwrap();
+    assert!(
+        replay.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&replay.stdout),
+        String::from_utf8_lossy(&replay.stderr)
+    );
+    png_pixels(&out.join("last.png")).2
+}
+
+/// Step 6: the ready-made game's duck is a Platformer player. Turn into
+/// code gives the game its own copy (scripts/duck.rs, scripts.rs, main.rs
+/// connected, the duck's kind), the game builds it in and comes back to
+/// the same frame, the whole playthrough replays to the same last picture
+/// with the game's own code, and one Undo puts every file back.
+#[test]
+fn a_ready_made_behaviour_is_turned_into_code_plays_the_same_and_is_undone() {
+    let mut studio = studio();
+    studio.opens_files = false;
+    let bin = TestFolder::new("bin-step6");
+    studio.recycle_bin = studio_core::recycle::RecycleBin::Folder(bin.to_path_buf());
+    let run = |studio: &mut Studio, command: serde_json::Value| {
+        let command: Command = serde_json::from_value(command).unwrap();
+        run_step(studio, &Step::Do(command)).unwrap_or_else(|problem| {
+            panic!("{problem}\n{}", problem.details);
+        })
+    };
+    let settle = |studio: &mut Studio| {
+        run_step(studio, &Step::Wait(Wait::Seconds { seconds: 0.3 })).unwrap();
+    };
+    let wait_for = |studio: &mut Studio, what: &str, done: &dyn Fn(&Studio) -> bool| {
+        let start = Instant::now();
+        while !done(studio) {
+            assert!(
+                start.elapsed().as_secs() < 900,
+                "waited too long for {what}: {:?}",
+                studio.problem
+            );
+            run_step(studio, &Step::Wait(Wait::Seconds { seconds: 0.5 })).unwrap();
+        }
+    };
+    let game = duck_forge().join("examples/ready_made");
+    let scene_file = game.join("scenes/level1.json");
+    let put_back = |path: PathBuf| PutBack {
+        text: std::fs::read_to_string(&path).unwrap(),
+        path,
+    };
+    let _scene_back = put_back(scene_file.clone());
+    let _main_back = put_back(game.join("main.rs"));
+    let duck_rs = game.join("scripts/duck.rs");
+    let _duck = TakeAway(duck_rs.clone());
+    let _list = TakeAway(game.join("scripts.rs"));
+    let plain = |text: &str| text.replace("\r\n", "\n");
+    assert!(
+        !game.join("scripts.rs").exists(),
+        "the game starts with no code but main.rs"
+    );
+
+    // The playthrough, as the code is now: Duck Forge's Platformer player.
+    // (Without the files it was recorded with, so it plays the scene file
+    // as it is on disk.)
+    let replays = TestFolder::new("replay-step6");
+    let mut script: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(duck_forge().join("playthroughs/ready_made.json")).unwrap(),
+    )
+    .unwrap();
+    script.as_object_mut().unwrap().remove("files");
+    let session = replays.join("ready_made.json");
+    std::fs::write(&session, script.to_string()).unwrap();
+    let before = replay_last_picture("ready_made", &session, &replays.join("before"));
+
+    run_step(
+        &mut studio,
+        &Step::Do(Command::GameOpen {
+            name: String::from("ready_made"),
+        }),
+    )
+    .unwrap();
+    run_step(&mut studio, &Step::Wait(Wait::Playing)).unwrap();
+    run_step(&mut studio, &Step::Wait(Wait::Frames { frames: 10 })).unwrap();
+    run_step(&mut studio, &Step::Do(Command::GameToggle)).unwrap();
+    settle(&mut studio);
+    wait_for(&mut studio, "the game to say its kinds", &|studio| {
+        studio
+            .open
+            .as_ref()
+            .unwrap()
+            .game_scripts()
+            .is_some_and(|scripts| scripts.get("platformer_player").is_some())
+    });
+    let ready_settings = studio
+        .open
+        .as_ref()
+        .unwrap()
+        .script_settings("platformer_player");
+    assert!(ready_settings.contains(&String::from("jump_height")));
+
+    // What it will do, as the Studio shows it first.
+    let plan = studio.turn_into_code_plan(&[5], None).unwrap();
+    assert_eq!(
+        (
+            plan.name.as_str(),
+            plan.type_name.as_str(),
+            plan.path.as_str()
+        ),
+        ("duck", "Duck", "scripts/duck.rs")
+    );
+    assert_eq!(plan.all_with_it, [5]);
+    assert!(plan.connects_main);
+    assert!(plan.code.contains("impl Script for Duck {"));
+    // A sign has no ready-made behaviour.
+    assert!(studio.turn_into_code_plan(&[4], None).is_err());
+
+    let said = run(
+        &mut studio,
+        serde_json::json!({"do": "script.turn_into_code", "ids": [5]}),
+    );
+    assert!(said.starts_with("duck now runs scripts/duck.rs"), "{said}");
+    assert_eq!(
+        plain(&std::fs::read_to_string(&duck_rs).unwrap()),
+        plan.code
+    );
+    let list = std::fs::read_to_string(game.join("scripts.rs")).unwrap();
+    assert!(list.contains(".add::<duck::Duck>(\"duck\")"), "{list}");
+    let main = std::fs::read_to_string(game.join("main.rs")).unwrap();
+    assert!(
+        main.contains("mod scripts;")
+            && main.contains(
+                "SceneGame::new(\"examples/ready_made\").with_scripts(scripts::all()).run();"
+            ),
+        "{main}"
+    );
+    let line = plain(&std::fs::read_to_string(&scene_file).unwrap())
+        .lines()
+        .find(|line| line.contains("{\"id\": 5,"))
+        .unwrap()
+        .to_string();
+    assert!(line.contains(r#""name": "duck", "kind": "duck""#), "{line}");
+    let frame = studio.play().unwrap().frame;
+
+    // Built in: back on the same frame, with the same settings.
+    wait_for(&mut studio, "duck to be built in", &|studio| {
+        let open = studio.open.as_ref().unwrap();
+        open.play.as_ref().is_some_and(|play| {
+            play.state == PlayState::Frozen
+                && play
+                    .scripts
+                    .as_ref()
+                    .is_some_and(|scripts| scripts.get("duck").is_some())
+        })
+    });
+    settle(&mut studio);
+    assert_eq!(studio.play().unwrap().frame, frame, "the same frozen frame");
+    assert_eq!(
+        studio.open.as_ref().unwrap().script_settings("duck"),
+        ready_settings
+    );
+
+    // The whole playthrough, with the game's own copy: the same picture.
+    let after = replay_last_picture("ready_made", &session, &replays.join("after"));
+    assert!(
+        after == before,
+        "the game's own code plays exactly the same"
+    );
+
+    // One Undo: every file as it was.
+    run_step(&mut studio, &Step::Do(Command::EditUndo)).unwrap();
+    assert!(!duck_rs.exists(), "the code went (to the Recycle Bin)");
+    assert!(!game.join("scripts.rs").exists());
+    assert_eq!(
+        plain(&std::fs::read_to_string(game.join("main.rs")).unwrap()),
+        plain(&_main_back.text)
+    );
+    assert_eq!(
+        plain(&std::fs::read_to_string(&scene_file).unwrap()),
+        plain(&_scene_back.text)
+    );
+    run_step(&mut studio, &Step::Do(Command::GameStop)).unwrap();
+    let _ = std::fs::remove_dir(game.join("scripts"));
+}

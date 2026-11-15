@@ -31,6 +31,7 @@ pub const CAME_WITH_DUCK_FORGE: &[&str] = &[
     "physics",
     "pollen_run",
     "quickstart",
+    "ready_made",
     "robot_walk",
     "scene_demo",
     "shapes",

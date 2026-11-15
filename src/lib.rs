@@ -29,6 +29,11 @@
 //! }
 //! ```
 
+// The ready-made kinds (`scene::ready`) are written as a game's scripts
+// are, with `use duckforge::prelude::*;`: inside the engine that names the
+// engine itself.
+extern crate self as duckforge;
+
 pub mod background;
 pub mod blocks;
 pub mod camera;
