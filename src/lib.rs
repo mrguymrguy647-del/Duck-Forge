@@ -75,6 +75,7 @@ pub mod sound;
 mod speaker;
 pub mod sprite;
 pub mod spritesheet;
+mod stages;
 /// The link between a game and Duck Forge Studio. Games don't use it
 /// themselves: the Studio builds them with the `studio` feature and starts
 /// them with `--studio`.

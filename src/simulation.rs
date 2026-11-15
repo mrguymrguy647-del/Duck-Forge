@@ -1211,7 +1211,11 @@ impl<G: Game> Simulation<G> {
             self.canvas.set_scene_look(self.scene_look);
             self.canvas.take_scenes();
         }
-        self.game.draw(&mut self.canvas);
+        let (game, canvas) = (&self.game, &mut self.canvas);
+        crate::stages::drawing(|| {
+            game.draw(canvas);
+            canvas.flush_3d(); // the 3D, timed as part of this frame's drawing
+        });
         #[cfg(feature = "studio")]
         {
             self.drawn_scenes = self.canvas.take_scenes();

@@ -24,6 +24,7 @@ use crate::script::{self, InputScript};
 use crate::sheet;
 use crate::simulation::Simulation;
 use crate::sound;
+use crate::stages::Stage;
 use crate::summary::Summary;
 use crate::video::{ClipWriter, VideoWriter};
 
@@ -320,6 +321,7 @@ fn run_and_save<G: Game>(
 ) -> Result<(Simulation<G>, Summary), String> {
     config.check()?;
     let started = Instant::now();
+    crate::stages::take(); // this run's stages, from nothing
     let close_up = match (options.crop, options.zoom) {
         (Some(crop), zoom) => Some((crop, zoom.max(1))),
         (None, zoom) if zoom > 1 => Some((
@@ -519,7 +521,7 @@ fn run_and_save<G: Game>(
             break;
         }
         RUNNING_FRAME.store(sim.context().frame() + 1, Ordering::Relaxed);
-        sim.step();
+        crate::stages::time(Stage::Update, || sim.step());
         let frame = sim.context().frame();
         if frame < first_drawn {
             continue; // before the section: updated, not drawn
@@ -530,7 +532,7 @@ fn run_and_save<G: Game>(
             if let Some(moments) = stills.get(&frame) {
                 let picture = for_saving(&mut sim, options);
                 let name = format!("still-{frame:06}.png");
-                save_png(&picture, &folder.join(&name))?;
+                crate::stages::time(Stage::Encode, || save_png(&picture, &folder.join(&name)))?;
                 saved.push(name);
                 let _ = moments; // the sheet labels each with its frame and time
                 still_pictures.push((frame, picture, String::new()));
@@ -548,7 +550,7 @@ fn run_and_save<G: Game>(
         if snapshot {
             let picture = for_saving(&mut sim, options);
             let name = format!("frame-{frame:06}.png");
-            save_png(&picture, &folder.join(&name))?;
+            crate::stages::time(Stage::Encode, || save_png(&picture, &folder.join(&name)))?;
             saved.push(name);
             let name = format!("frame-{frame:06}.scene.json");
             save_text(&sim.scene().to_json(), &folder.join(&name))?;
@@ -579,16 +581,19 @@ fn run_and_save<G: Game>(
             sheet.push((frame, picture, sim.scene().clone()));
         }
         if let Some(video) = &mut video {
-            video.add(sim.picture())?;
+            let picture = sim.picture();
+            crate::stages::time(Stage::Encode, || video.add(picture))?;
         }
         if let Some(clip) = &mut clip {
             if frame >= clip_from {
-                clip.add(sim.picture())?;
+                let picture = sim.picture();
+                crate::stages::time(Stage::Encode, || clip.add(picture))?;
             }
         }
         if let Some(gif) = &mut gif {
             if (frame - first_drawn).is_multiple_of(gif_every) {
-                gif.add(sim.picture())
+                let picture = sim.picture();
+                crate::stages::time(Stage::Encode, || gif.add(picture))
                     .map_err(|err| format!("could not add to run.gif: {err}"))?;
             }
         }
@@ -690,7 +695,7 @@ fn run_and_save<G: Game>(
         Some(video) => {
             let wav = folder.join("audio.wav");
             let audio = has_sound.then_some(wav.as_path());
-            Some(video.finish(audio)?)
+            Some(crate::stages::time(Stage::Encode, || video.finish(audio))?)
         }
         None => None,
     };
@@ -761,7 +766,10 @@ fn run_and_save<G: Game>(
     summary.notes.extend(clip_note);
     summary.folder = Some(folder.clone());
     summary.files = saved;
-    save_text(&summary.to_text(), &folder.join("summary.txt"))?;
+    let stages = crate::stages::take();
+    let drew = stages[Stage::World as usize] + stages[Stage::Overlay as usize] > 0.0;
+    summary.stages = drew.then_some(stages);
+    save_text(&summary.to_file_text(), &folder.join("summary.txt"))?;
     sim.quit(); // the run is over: the game's own goodbye, last of all
     Ok((sim, summary))
 }
@@ -1111,6 +1119,7 @@ pub(crate) fn time_from_command_line<G: Game>(
     }
     let (mut updating, mut drawing) = (std::time::Duration::ZERO, std::time::Duration::ZERO);
     let mut played = 0u64;
+    crate::stages::take();
     for _ in 0..frames {
         if sim.quit_requested() {
             break;
@@ -1132,6 +1141,9 @@ pub(crate) fn time_from_command_line<G: Game>(
         each(updating),
         drawing.as_secs_f64() * 1e3,
         each(drawing),
+    ) + &format!(
+        "\nduckforge: drawing, by stage: {}",
+        crate::stages::words(&crate::stages::take())
     ))
 }
 
@@ -1222,7 +1234,7 @@ pub(crate) fn run_from_command_line<G: Game>(
             path.display()
         ));
         if let Some(folder) = &headless.out {
-            save_text(&summary.to_text(), &folder.join("summary.txt"))?;
+            save_text(&summary.to_file_text(), &folder.join("summary.txt"))?;
         }
     }
     if options.json {
@@ -1236,7 +1248,7 @@ pub(crate) fn run_from_command_line<G: Game>(
             println!("duckforge: {line}");
         }
     } else {
-        print!("{}", summary.to_text());
+        print!("{}", summary.to_file_text());
         if options.describe {
             println!("{}", sim.scene().describe());
         }
@@ -2565,6 +2577,14 @@ mod tests {
             assert!(folder.join(name).exists(), "{name}");
         }
         assert!(!folder.join("still-000001.png").exists());
+        // How long each stage took, at the end of summary.txt.
+        let stages = summary.stages.expect("pictures were made");
+        assert!(stages[Stage::Overlay as usize] > 0.0 && stages[Stage::Update as usize] > 0.0);
+        let text = fs::read_to_string(folder.join("summary.txt")).unwrap();
+        assert!(
+            text.lines().last().unwrap().starts_with("time: updates "),
+            "{text}"
+        );
     }
 
     #[test]

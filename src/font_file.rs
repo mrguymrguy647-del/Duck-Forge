@@ -37,6 +37,24 @@ use crate::math::{Rect, Vec2, vec2};
 pub struct Font {
     font: FontArc,
     name: String,
+    /// The last few texts' letters, outlines and shadows, ready to paint:
+    /// a caption on screen for many frames is made once (only its colours
+    /// are painted again).
+    made: KeptTexts,
+}
+
+/// A font's texts kept ready: each with the number that says how it was
+/// made (see `draw_font_text`).
+type KeptTexts = std::sync::Arc<std::sync::Mutex<Vec<(u64, std::sync::Arc<TextMasks>)>>>;
+
+/// How many texts a font keeps ready.
+const KEPT_TEXTS: usize = 32;
+
+/// A text's coverage masks, ready to paint.
+struct TextMasks {
+    letters: Coverage,
+    outlined: Option<Coverage>,
+    shadow: Option<Coverage>,
 }
 
 impl std::fmt::Debug for Font {
@@ -136,6 +154,7 @@ impl Font {
         Ok(Font {
             font,
             name: name.to_string(),
+            made: Default::default(),
         })
     }
 
@@ -415,6 +434,115 @@ impl Canvas {
         let (left, top) = (area.x.floor() as i64 - pad, area.y.floor() as i64 - pad);
         let width = (area.w.ceil() as i64 + 2 * pad + 2).clamp(1, 16384) as usize;
         let height = (area.h.ceil() as i64 + 2 * pad + 2).clamp(1, 16384) as usize;
+        // Made before, exactly so (the same words, size, place, outline
+        // and shadow)? Then only the painting is left.
+        let key = {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            text.hash(&mut hasher);
+            for v in [
+                size, spacing, outline, blur, origin.x, origin.y, shift_x, shift_y,
+            ] {
+                v.to_bits().hash(&mut hasher);
+            }
+            style.wrap.map(|w| (w * scale).to_bits()).hash(&mut hasher);
+            (style.align as u8, shadow.is_some()).hash(&mut hasher);
+            (left, top, width, height).hash(&mut hasher);
+            hasher.finish()
+        };
+        let kept = font.made.lock().ok().and_then(|made| {
+            made.iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, masks)| masks.clone())
+        });
+        let masks = match kept {
+            Some(masks) => masks,
+            None => {
+                let masks = std::sync::Arc::new(font.make_masks(
+                    &lines,
+                    size,
+                    spacing,
+                    origin,
+                    &left_of,
+                    (left, top, width, height),
+                    outline,
+                    shadow.map(|_| blur),
+                ));
+                if let Ok(mut made) = font.made.lock() {
+                    if made.len() >= KEPT_TEXTS {
+                        made.remove(0);
+                    }
+                    made.push((key, masks.clone()));
+                }
+                masks
+            }
+        };
+        let (letters, outlined) = (&masks.letters, &masks.outlined);
+        let shadow_mask = masks.shadow.as_ref().zip(shadow);
+
+        // Shadow, outline, then the letters, mixed into the canvas.
+        let (canvas_w, canvas_h) = (self.width() as i64, self.height() as i64);
+        let pixels = self.pixels_mut();
+        let mut paint = |x: i64, y: i64, color: Color, cover: f32| {
+            let alpha = (cover.clamp(0.0, 1.0) * color.a as f32).round() as u8;
+            if alpha == 0 || x < 0 || y < 0 || x >= canvas_w || y >= canvas_h {
+                return;
+            }
+            let at = (y * canvas_w + x) as usize;
+            pixels[at] = color::blend(pixels[at], color.to_u32(), alpha);
+        };
+        if let Some((mask, offset)) = shadow_mask {
+            let (dx, dy) = (offset.x.round() as i64, offset.y.round() as i64);
+            for y in 0..height {
+                for x in 0..width {
+                    let cover = mask.values[y * width + x];
+                    if cover > 0.0 {
+                        let (px, py) = (left + x as i64 + dx, top + y as i64 + dy);
+                        paint(px, py, style.shadow_color, cover);
+                    }
+                }
+            }
+        }
+        if let Some(ring) = outlined {
+            for y in 0..height {
+                for x in 0..width {
+                    let cover = ring.values[y * width + x];
+                    if cover > 0.0 {
+                        paint(left + x as i64, top + y as i64, style.outline_color, cover);
+                    }
+                }
+            }
+        }
+        for y in 0..height {
+            for x in 0..width {
+                let cover = letters.values[y * width + x];
+                if cover > 0.0 {
+                    paint(left + x as i64, top + y as i64, style.color, cover);
+                }
+            }
+        }
+        area
+    }
+}
+
+impl Font {
+    /// Draws `lines`' letters into coverage masks covering `place` (left,
+    /// top, width, height), with the outline grown round them and the
+    /// shadow blurred (by `shadow_blur`, if there's a shadow).
+    #[allow(clippy::too_many_arguments)]
+    fn make_masks(
+        &self,
+        lines: &[Line],
+        size: f32,
+        spacing: f32,
+        origin: Vec2,
+        left_of: &dyn Fn(f32) -> f32,
+        place: (i64, i64, usize, usize),
+        outline: f32,
+        shadow_blur: Option<f32>,
+    ) -> TextMasks {
+        let font = self;
+        let (left, top, width, height) = place;
         let mut letters = Coverage::new(width, height);
         let scaled = font.font.as_scaled(PxScale::from(size));
         for (i, line) in lines.iter().enumerate() {
@@ -444,51 +572,12 @@ impl Canvas {
             }
         }
         let outlined = (outline > 0.0).then(|| letters.grown(outline));
-        let solid = outlined.as_ref().unwrap_or(&letters);
-        let shadow_mask = shadow.map(|s| (solid.blurred(blur), s));
-
-        // Shadow, outline, then the letters, mixed into the canvas.
-        let (canvas_w, canvas_h) = (self.width() as i64, self.height() as i64);
-        let pixels = self.pixels_mut();
-        let mut paint = |x: i64, y: i64, color: Color, cover: f32| {
-            let alpha = (cover.clamp(0.0, 1.0) * color.a as f32).round() as u8;
-            if alpha == 0 || x < 0 || y < 0 || x >= canvas_w || y >= canvas_h {
-                return;
-            }
-            let at = (y * canvas_w + x) as usize;
-            pixels[at] = color::blend(pixels[at], color.to_u32(), alpha);
-        };
-        if let Some((mask, offset)) = &shadow_mask {
-            let (dx, dy) = (offset.x.round() as i64, offset.y.round() as i64);
-            for y in 0..height {
-                for x in 0..width {
-                    let cover = mask.values[y * width + x];
-                    if cover > 0.0 {
-                        let (px, py) = (left + x as i64 + dx, top + y as i64 + dy);
-                        paint(px, py, style.shadow_color, cover);
-                    }
-                }
-            }
+        let shadow = shadow_blur.map(|blur| outlined.as_ref().unwrap_or(&letters).blurred(blur));
+        TextMasks {
+            letters,
+            outlined,
+            shadow,
         }
-        if let Some(ring) = &outlined {
-            for y in 0..height {
-                for x in 0..width {
-                    let cover = ring.values[y * width + x];
-                    if cover > 0.0 {
-                        paint(left + x as i64, top + y as i64, style.outline_color, cover);
-                    }
-                }
-            }
-        }
-        for y in 0..height {
-            for x in 0..width {
-                let cover = letters.values[y * width + x];
-                if cover > 0.0 {
-                    paint(left + x as i64, top + y as i64, style.color, cover);
-                }
-            }
-        }
-        area
     }
 }
 
@@ -501,6 +590,47 @@ mod tests {
             Font::load("assets/fonts/DejaVuSerif-Bold.ttf").unwrap(),
             Font::load("assets/fonts/Inter-Bold.otf").unwrap(),
         )
+    }
+
+    #[test]
+    fn a_caption_made_once_is_painted_the_same_every_frame() {
+        let (font, _) = fonts();
+        let style = |alpha: u8| TextStyle {
+            size: 28.0,
+            color: Color::rgba(255, 240, 200, alpha),
+            outline: 2.0,
+            shadow: Some(vec2(2.0, 3.0)),
+            shadow_blur: 1.5,
+            align: Align::Center,
+            ..TextStyle::default()
+        };
+        let draw = |font: &Font, text: &str, alpha: u8| {
+            let mut canvas = Canvas::new(320, 80);
+            canvas.clear(Color::rgb(30, 40, 50));
+            canvas.draw_font_text(font, text, vec2(160.0, 20.5), &style(alpha));
+            canvas.pixels().to_vec()
+        };
+        // A caption fading in over three frames, drawn by a font that keeps
+        // what it made, and by fresh fonts that make it each time.
+        let fresh = || fonts().0;
+        for alpha in [80, 160, 255] {
+            assert_eq!(
+                draw(&font, "It was watching.", alpha),
+                draw(&fresh(), "It was watching.", alpha)
+            );
+        }
+        assert_eq!(font.made.lock().unwrap().len(), 1, "made once, kept");
+        // Other words are other masks.
+        assert_ne!(
+            draw(&font, "It was waiting.", 255),
+            draw(&font, "It was watching.", 255)
+        );
+        assert_eq!(font.made.lock().unwrap().len(), 2);
+        // Only so many are kept.
+        for i in 0..40 {
+            draw(&font, &format!("line {i}"), 255);
+        }
+        assert_eq!(font.made.lock().unwrap().len(), KEPT_TEXTS);
     }
 
     #[test]

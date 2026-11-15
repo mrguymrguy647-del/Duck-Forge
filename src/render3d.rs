@@ -1879,7 +1879,8 @@ impl Canvas {
             in_view,
         };
         if let Some(lit) = self.effects.lit {
-            (lit.add)(&mut self.queue, adding);
+            let queue = &mut self.queue;
+            crate::stages::time(crate::stages::Stage::Models, || (lit.add)(queue, adding));
         }
     }
 }

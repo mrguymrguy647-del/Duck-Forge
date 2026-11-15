@@ -43,6 +43,7 @@ use crate::render3d::{
     triangle_corners,
 };
 use crate::sprite::Sprite;
+use crate::stages::Stage;
 
 /// Output rows in each band.
 const BAND_ROWS: usize = 16;
@@ -58,6 +59,24 @@ pub(crate) struct Queue {
     tris: Vec<WorldTri>,
     /// The next mesh starts in front of everything so far (a hand).
     reset_next: bool,
+    /// Lamps' shadow maps from the last frame, kept while the lamp and
+    /// everything near it stay put (see `lamp_map`).
+    shadow_cache: Vec<CachedFace>,
+}
+
+/// One face of a lamp's shadow map, kept from frame to frame.
+struct CachedFace {
+    /// The lamp, the face, the map's size and every shadow caster in its
+    /// reach, in one number: equal means the map would come out the same.
+    key: u64,
+    map: std::sync::Arc<DepthMap>,
+    used: bool,
+}
+
+/// Mixes `value` into the hash `h` (the Rust compiler's own "FxHash" step).
+#[inline]
+fn mix(h: u64, value: u64) -> u64 {
+    (h.rotate_left(5) ^ value).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95)
 }
 
 /// One mesh drawn: how, and which of the queue's triangles are its.
@@ -342,13 +361,14 @@ struct FaceMap {
     up: Vec3,
     forward: Vec3,
     tan_half: f32,
-    map: DepthMap,
+    map: std::sync::Arc<DepthMap>,
 }
 
 /// A lamp's shadow maps.
 struct LampMap {
     position: Vec3,
-    faces: Vec<FaceMap>,
+    /// A face nothing on screen needs isn't drawn (`None`).
+    faces: Vec<Option<FaceMap>>,
     point: bool,
 }
 
@@ -372,6 +392,9 @@ struct ScreenTri {
     seg: u32,
     see_through: bool,
     textured: bool,
+    /// Its texture has see-through pixels, so each point is looked up to
+    /// see whether it's there (a texture with none needn't be).
+    alpha_tested: bool,
     area: f32,
     /// Its box: x from `x0` to `x1`, y from `y0` to `y1` (not included).
     x0: usize,
@@ -439,6 +462,8 @@ pub(crate) fn render(
         queue.clear();
         return;
     }
+    let started = std::time::Instant::now();
+    let before = crate::stages::so_far();
     let ss = effects.samples();
     let threads = effects.thread_count();
     let draws = &queue.draws;
@@ -446,22 +471,26 @@ pub(crate) fn render(
 
     // The world's camera and light: the first mesh not drawn in view.
     let main = draws.iter().find(|d| !d.in_view).unwrap_or(&draws[0]);
-    let (sun_map, lamp_maps, lamps) = match effects.shadows {
-        Some(shadows) => shadow_maps(
-            draws,
-            tris,
-            &effects.lamps,
-            main,
-            &shadows,
-            width as f32 / height as f32,
-            threads,
-        ),
-        None => (
-            None,
-            Vec::new(),
-            effects.lamps.iter().filter_map(LampLight::new).collect(),
-        ),
+    // What casts shadows, and the sun's shadow map.
+    let (sun_map, casters) = match effects.shadows {
+        Some(shadows) => {
+            let casters = shadow_casters(draws, tris);
+            let aspect = width as f32 / height as f32;
+            let sun = crate::stages::time(Stage::Shadows, || {
+                sun_map(draws, tris, &casters, main, &shadows, aspect, threads)
+            });
+            (sun, casters)
+        }
+        None => (None, Vec::new()),
     };
+    // The lamps; those casting shadows get their maps once it's known
+    // what's on screen (only the faces something on screen needs).
+    let lit_lamps: Vec<&Lamp> = effects
+        .lamps
+        .iter()
+        .filter(|l| LampLight::new(l).is_some())
+        .collect();
+    let mut lamps: Vec<LampLight> = lit_lamps.iter().filter_map(|l| LampLight::new(l)).collect();
     let shadow_look = effects.shadows.map_or(
         ShadowLook {
             taps: 0,
@@ -490,6 +519,24 @@ pub(crate) fn render(
                 ambient: d.lighting.ambient_level(),
                 shadowed: sun_map.as_ref().is_some_and(|m| m.sun == sun),
             }
+        })
+        .collect();
+
+    // Which draws' textures are solid all over (each picture looked at once).
+    let mut seen: Vec<((usize, [usize; 4]), bool)> = Vec::new();
+    let solid_textures: Vec<bool> = draws
+        .iter()
+        .map(|draw| {
+            let Some(texture) = &draw.texture else {
+                return false;
+            };
+            let identity = texture.identity();
+            if let Some(&(_, solid)) = seen.iter().find(|(id, _)| *id == identity) {
+                return solid;
+            }
+            let solid = all_solid(texture);
+            seen.push((identity, solid));
+            solid
         })
         .collect();
 
@@ -537,6 +584,7 @@ pub(crate) fn render(
                     seg,
                     see_through: draw.tint.a < 255,
                     textured: tri.uv.is_some() && draw.texture.is_some(),
+                    alpha_tested: !solid_textures[d],
                     area,
                     x0,
                     x1,
@@ -545,6 +593,36 @@ pub(crate) fn render(
                 });
             });
         }
+    }
+
+    // The lamps' shadow maps: kept from the last frame where nothing in
+    // their reach moved, and only the faces something on screen needs.
+    let mut lamp_maps = Vec::new();
+    if let Some(shadows) = effects.shadows {
+        let cache = &mut queue.shadow_cache;
+        for face in cache.iter_mut() {
+            face.used = false;
+        }
+        for (index, lamp) in lit_lamps.iter().enumerate().filter(|(_, l)| l.shadows) {
+            let needed = if lamp.spot.is_some() {
+                1
+            } else {
+                faces_needed(&screen, lamp.position, lamp.reach)
+            };
+            if needed == 0 {
+                continue; // nothing on screen is in its reach
+            }
+            let map = crate::stages::time(Stage::Shadows, || {
+                lamp_map(
+                    draws, tris, &casters, lamp, &shadows, threads, needed, cache,
+                )
+            });
+            if let Some(map) = map {
+                lamps[index].shadow = Some(lamp_maps.len());
+                lamp_maps.push(map);
+            }
+        }
+        cache.retain(|face| face.used);
     }
 
     // Which triangles touch which band.
@@ -599,9 +677,19 @@ pub(crate) fn render(
     }
     drop(frame);
     if let Some(bloom) = effects.bloom {
-        add_bloom(pixels, &glow, width, height, bloom, threads);
+        crate::stages::time(Stage::Bloom, || {
+            add_bloom(pixels, &glow, width, height, bloom, threads)
+        });
     }
     queue.clear();
+    // The world: all of it but the shadows and bloom (timed themselves).
+    let after = crate::stages::so_far();
+    let others: f64 = [Stage::Shadows, Stage::Bloom]
+        .iter()
+        .map(|&s| after[s as usize] - before[s as usize])
+        .sum();
+    let total = started.elapsed().as_secs_f64();
+    crate::stages::add(Stage::World, (total - others).max(0.0));
 }
 
 /// The colour of a triangle with the same light all over it, exactly as
@@ -763,6 +851,66 @@ fn weights_at(xy: &[Vec2; 3], area: f32, p: Vec2) -> Option<[f32; 3]> {
     inside.then(|| [e[0] / area, e[1] / area, e[2] / area])
 }
 
+/// Calls `plot(x, y, weights)` for every pixel centre (x + 0.5, y + 0.5)
+/// in `xs` by `ys` inside the triangle `xy`, with the same weights
+/// [`weights_at`] gives, worked out with the same sums in the same
+/// order (so to the last bit). Each row is only looked along where the
+/// triangle can be (a little wider, to be safe): a long thin triangle
+/// doesn't cost its whole box.
+#[inline]
+fn for_each_inside(
+    xy: &[Vec2; 3],
+    area: f32,
+    xs: Range<usize>,
+    ys: Range<usize>,
+    mut plot: impl FnMut(usize, usize, [f32; 3]),
+) {
+    let [a, b, c] = *xy;
+    // Edge i runs from `from[i]` to `to[i]`: edge(from, to, p).
+    let from = [b, c, a];
+    let to = [c, a, b];
+    let across = [0, 1, 2].map(|i| to[i].x - from[i].x);
+    let down = [0, 1, 2].map(|i| to[i].y - from[i].y);
+    let ahead = area > 0.0;
+    for y in ys {
+        let py = y as f32 + 0.5;
+        // Each edge's value along this row is row[i] - down[i] * (px - from.x).
+        let row = [0, 1, 2].map(|i| across[i] * (py - from[i].y));
+        // Where along the row each edge lets points in (widened by two
+        // pixels; the exact test below decides).
+        let (mut lo, mut hi) = (xs.start as f32, xs.end as f32);
+        for i in 0..3 {
+            if down[i].abs() < 1e-6 {
+                continue; // level: no bound along the row
+            }
+            let cross = from[i].x + row[i] / down[i];
+            if !cross.is_finite() {
+                continue;
+            }
+            // Inside needs the edge value's sign to match the area's.
+            if (down[i] > 0.0) == ahead {
+                hi = hi.min(cross + 2.0);
+            } else {
+                lo = lo.max(cross - 2.0);
+            }
+        }
+        let first = (fast_floor(lo).max(xs.start as f32) as usize).max(xs.start);
+        let last = ((hi.min(xs.end as f32)).max(0.0).ceil() as usize).min(xs.end);
+        for x in first..last {
+            let px = x as f32 + 0.5;
+            let e = [0, 1, 2].map(|i| row[i] - down[i] * (px - from[i].x));
+            let inside = if ahead {
+                e.iter().all(|&v| v >= 0.0)
+            } else {
+                e.iter().all(|&v| v <= 0.0)
+            };
+            if inside {
+                plot(x, y, [e[0] / area, e[1] / area, e[2] / area]);
+            }
+        }
+    }
+}
+
 /// `x.floor()`, as a whole number, without calling the maths library
 /// (a big share of the time on computers without a rounding instruction).
 #[inline]
@@ -776,9 +924,25 @@ fn fast_floor(x: f32) -> f32 {
 fn wrap(position: f32, size: usize) -> usize {
     if position >= 0.0 && position < size as f32 {
         position as usize
+    } else if size.is_power_of_two() {
+        // The same as rem_euclid for these sizes, without dividing.
+        (position as i64 & (size as i64 - 1)) as usize
     } else {
         (position as i64).rem_euclid(size as i64) as usize
     }
+}
+
+/// Has the picture no see-through pixels at all (and any pixels)?
+fn all_solid(texture: &Sprite) -> bool {
+    let (w, h) = (texture.width(), texture.height());
+    let (_, alpha, row, start) = texture.texels();
+    w > 0
+        && h > 0
+        && (0..h).all(|y| {
+            alpha[start + y * row..start + y * row + w]
+                .iter()
+                .all(|&a| a >= 128)
+        })
 }
 
 /// Each thread's own working space, kept from band to band.
@@ -870,7 +1034,10 @@ impl Frame<'_> {
                 self.each_sample(t, band_rows.clone(), |x, y, w| {
                     let at = (y - srow0) * sw + x;
                     let d = w[0] * t.inv_z[0] + w[1] * t.inv_z[1] + w[2] * t.inv_z[2];
-                    if d > s.depth[at] && (!t.textured || (d > 0.0 && self.solid_texel(t, w, d))) {
+                    if d > s.depth[at]
+                        && (!t.textured
+                            || (d > 0.0 && (!t.alpha_tested || self.solid_texel(t, w, d))))
+                    {
                         s.depth[at] = d;
                         s.ids[at] = index;
                     }
@@ -928,7 +1095,7 @@ impl Frame<'_> {
                     if d <= s.depth[at] || s.marks[at] == t.draw {
                         return;
                     }
-                    if t.textured && (d <= 0.0 || !self.solid_texel(t, w, d)) {
+                    if t.textured && (d <= 0.0 || (t.alpha_tested && !self.solid_texel(t, w, d))) {
                         return;
                     }
                     s.marks[at] = t.draw;
@@ -999,18 +1166,10 @@ impl Frame<'_> {
         &self,
         t: &ScreenTri,
         rows: Range<usize>,
-        mut plot: impl FnMut(usize, usize, [f32; 3]),
+        plot: impl FnMut(usize, usize, [f32; 3]),
     ) {
-        let y0 = t.y0.max(rows.start);
-        let y1 = t.y1.min(rows.end);
-        for y in y0..y1 {
-            for x in t.x0..t.x1 {
-                let p = vec2(x as f32 + 0.5, y as f32 + 0.5);
-                if let Some(w) = weights_at(&t.xy, t.area, p) {
-                    plot(x, y, w);
-                }
-            }
-        }
+        let ys = t.y0.max(rows.start)..t.y1.min(rows.end);
+        for_each_inside(&t.xy, t.area, t.x0..t.x1, ys, plot);
     }
 
     /// Where on its texture a point of `t` is: (pixel x, pixel y).
@@ -1256,40 +1415,84 @@ fn basis(forward: Vec3) -> (Vec3, Vec3) {
 }
 
 /// The sun's shadow map and the lamps' (and the lamps, ready to light).
-fn shadow_maps(
-    draws: &[Draw],
-    tris: &[WorldTri],
-    lamps: &[Lamp],
-    main: &Draw,
-    shadows: &Shadows,
-    aspect: f32,
-    threads: usize,
-) -> (Option<SunMap>, Vec<LampMap>, Vec<LampLight>) {
-    // What casts shadows: every solid triangle not drawn in view, except
-    // glowing ones (a bulb doesn't shadow its own light).
-    let casters: Vec<(usize, usize)> = draws
+/// What casts shadows: every solid triangle not drawn in view, except
+/// glowing ones (a bulb doesn't shadow its own light).
+fn shadow_casters(draws: &[Draw], tris: &[WorldTri]) -> Vec<(usize, usize)> {
+    draws
         .iter()
         .enumerate()
         .filter(|(_, d)| !d.in_view && d.tint.a == 255)
         .flat_map(|(i, d)| d.tris.clone().map(move |t| (i, t)))
         .filter(|&(_, t)| tris[t].glow < 1.0)
-        .collect();
-    let sun_map = sun_map(draws, tris, &casters, main, shadows, aspect, threads);
-    let mut lamp_maps = Vec::new();
-    let mut lights = Vec::new();
-    for lamp in lamps {
-        let Some(mut light) = LampLight::new(lamp) else {
+        .collect()
+}
+
+/// Which of a point lamp's six shadow faces (bits, in `CUBE_FACES`'
+/// order) a point on screen can be looked up in: for each triangle on
+/// screen within the lamp's reach, the faces its box, seen from the lamp,
+/// can reach. A face no point needs is never looked up, so it needn't be
+/// drawn.
+fn faces_needed(screen: &[ScreenTri], lamp: Vec3, reach: f32) -> u8 {
+    let mut needed = 0u8;
+    for t in screen {
+        let p = t.world.map(|p| p - lamp);
+        let lo = vec3(
+            p[0].x.min(p[1].x).min(p[2].x),
+            p[0].y.min(p[1].y).min(p[2].y),
+            p[0].z.min(p[1].z).min(p[2].z),
+        );
+        let hi = vec3(
+            p[0].x.max(p[1].x).max(p[2].x),
+            p[0].y.max(p[1].y).max(p[2].y),
+            p[0].z.max(p[1].z).max(p[2].z),
+        );
+        // Out of reach (the box's nearest point is too far): no light.
+        let nearest = vec3(
+            0.0f32.clamp(lo.x, hi.x),
+            0.0f32.clamp(lo.y, hi.y),
+            0.0f32.clamp(lo.z, hi.z),
+        );
+        let distance = nearest.length();
+        if distance >= reach {
             continue;
+        }
+        if !(lo.x.is_finite()
+            && lo.y.is_finite()
+            && lo.z.is_finite()
+            && hi.x.is_finite()
+            && hi.y.is_finite()
+            && hi.z.is_finite())
+        {
+            return 0b11_1111; // can't tell: all of them
+        }
+        // The smallest size along an axis anywhere in the box.
+        let least = |lo: f32, hi: f32| {
+            if lo <= 0.0 && hi >= 0.0 {
+                0.0
+            } else {
+                lo.abs().min(hi.abs())
+            }
         };
-        if lamp.shadows {
-            if let Some(map) = lamp_map(draws, tris, &casters, lamp, shadows, threads) {
-                light.shadow = Some(lamp_maps.len());
-                lamp_maps.push(map);
+        let (lx, ly, lz) = (least(lo.x, hi.x), least(lo.y, hi.y), least(lo.z, hi.z));
+        // A face can be used if somewhere in the box its axis is at least
+        // as long as the other two, on its side.
+        for (bit, most, other_a, other_b) in [
+            (0, hi.x, ly, lz),
+            (1, -lo.x, ly, lz),
+            (2, hi.y, lx, lz),
+            (3, -lo.y, lx, lz),
+            (4, hi.z, lx, ly),
+            (5, -lo.z, lx, ly),
+        ] {
+            if most >= 0.0 && most >= other_a && most >= other_b {
+                needed |= 1 << bit;
             }
         }
-        lights.push(light);
+        if needed == 0b11_1111 {
+            break;
+        }
     }
-    (sun_map, lamp_maps, lights)
+    needed
 }
 
 fn sun_map(
@@ -1442,37 +1645,32 @@ impl DepthMap {
                 for &i in &bins[band] {
                     let t = &tris[i as usize];
                     let [x0, x1, y0, y1] = t.bounds;
-                    for y in y0.max(y_start)..y1.min(y_end) {
-                        for x in x0..x1 {
-                            let p = vec2(x as f32 + 0.5, y as f32 + 0.5);
-                            let Some(w) = weights_at(&t.xy, t.area, p) else {
-                                continue;
-                            };
-                            let mixed = w[0] * t.z[0] + w[1] * t.z[1] + w[2] * t.z[2];
-                            let z = if t.perspective {
-                                if mixed <= 0.0 {
-                                    continue;
-                                }
-                                1.0 / mixed
-                            } else {
-                                mixed
-                            };
-                            let at = (y - y_start) * size + x;
-                            if z >= rows[at] {
-                                continue;
+                    let ys = y0.max(y_start)..y1.min(y_end);
+                    for_each_inside(&t.xy, t.area, x0..x1, ys, |x, y, w| {
+                        let mixed = w[0] * t.z[0] + w[1] * t.z[1] + w[2] * t.z[2];
+                        let z = if t.perspective {
+                            if mixed <= 0.0 {
+                                return;
                             }
-                            if let Some((uv, d)) = &t.uv {
-                                let mut point = uv[0] * w[0] + uv[1] * w[1] + uv[2] * w[2];
-                                if t.perspective {
-                                    point = point * z;
-                                }
-                                if !solid_at(&draws[*d as usize], point) {
-                                    continue;
-                                }
-                            }
-                            rows[at] = z;
+                            1.0 / mixed
+                        } else {
+                            mixed
+                        };
+                        let at = (y - y_start) * size + x;
+                        if z >= rows[at] {
+                            return;
                         }
-                    }
+                        if let Some((uv, d)) = &t.uv {
+                            let mut point = uv[0] * w[0] + uv[1] * w[1] + uv[2] * w[2];
+                            if t.perspective {
+                                point = point * z;
+                            }
+                            if !solid_at(&draws[*d as usize], point) {
+                                return;
+                            }
+                        }
+                        rows[at] = z;
+                    });
                 }
             },
         );
@@ -1484,6 +1682,21 @@ impl DepthMap {
     fn light(&self, x: f32, y: f32, z: f32, taps: i32) -> f32 {
         let (cx, cy) = (fast_floor(x) as i64, fast_floor(y) as i64);
         let size = self.size as i64;
+        let t = taps as i64;
+        if taps >= 0 && cx - t >= 0 && cy - t >= 0 && cx + t < size && cy + t < size {
+            // All of it inside the map: the same count, without checking
+            // each tap.
+            let side = (2 * taps + 1) as usize;
+            let mut lit = 0;
+            for py in (cy - t) as usize..=(cy + t) as usize {
+                let start = py * self.size + (cx - t) as usize;
+                lit += self.depth[start..start + side]
+                    .iter()
+                    .filter(|&&d| z <= d)
+                    .count();
+            }
+            return lit as f32 / (side * side) as f32;
+        }
         let mut lit = 0;
         let mut total = 0;
         for dy in -taps..=taps {
@@ -1530,6 +1743,7 @@ impl SunMap {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lamp_map(
     draws: &[Draw],
     tris: &[WorldTri],
@@ -1537,6 +1751,8 @@ fn lamp_map(
     lamp: &Lamp,
     shadows: &Shadows,
     threads: usize,
+    needed: u8,
+    cache: &mut Vec<CachedFace>,
 ) -> Option<LampMap> {
     let reach = lamp.reach;
     if !(reach.is_finite() && reach > 0.0) {
@@ -1580,11 +1796,91 @@ fn lamp_map(
         }
         None => CUBE_FACES.iter().map(|&(f, u)| (f, u, 1.0)).collect(),
     };
+    // A spot lamp's map is a square round its cone: what's wholly outside
+    // the square's corners can't touch it (a ball round each triangle,
+    // against the angle out to the corners, with a little to spare).
+    let near: Vec<(usize, usize)> = match (lamp.spot, looks.first()) {
+        (Some(_), Some(&(forward, _, tan_half))) => {
+            let corner = (tan_half * std::f32::consts::SQRT_2).atan() + 0.01;
+            near.into_iter()
+                .filter(|&(_, t)| {
+                    let p = tris[t].p;
+                    let center = (p[0] + p[1] + p[2]) * (1.0 / 3.0);
+                    let radius = p.iter().map(|&q| (q - center).length()).fold(0.0, f32::max);
+                    let v = center - position;
+                    let d = v.length();
+                    if !(d > radius && d.is_finite() && radius.is_finite()) {
+                        return true; // round the lamp, or can't tell: keep it
+                    }
+                    let off = (v.dot(forward) / d).clamp(-1.0, 1.0).acos();
+                    off - (radius / d).min(1.0).asin() <= corner
+                })
+                .collect()
+        }
+        _ => near,
+    };
+    // Everything that decides the maps, in one number: the lamp, the
+    // maps' size, and every caster in reach (where it is, its texture
+    // points and which picture they're in).
+    let mut scene = mix(mix(0, size as u64), u64::from(reach.to_bits()));
+    for v in [position.x, position.y, position.z] {
+        scene = mix(scene, u64::from(v.to_bits()));
+    }
+    if let Some(spot) = lamp.spot {
+        for v in [
+            spot.direction.x,
+            spot.direction.y,
+            spot.direction.z,
+            spot.cone,
+        ] {
+            scene = mix(scene, u64::from(v.to_bits()));
+        }
+    }
+    for &(d, t) in &near {
+        let tri = &tris[t];
+        for p in tri.p {
+            scene = mix(
+                mix(
+                    mix(scene, u64::from(p.x.to_bits())),
+                    u64::from(p.y.to_bits()),
+                ),
+                u64::from(p.z.to_bits()),
+            );
+        }
+        if let (Some(uv), Some(texture)) = (tri.uv, &draws[d].texture) {
+            let (picture, part) = texture.identity();
+            scene = mix(scene, picture as u64);
+            for n in part {
+                scene = mix(scene, n as u64);
+            }
+            for c in uv {
+                scene = mix(
+                    mix(scene, u64::from(c.x.to_bits())),
+                    u64::from(c.y.to_bits()),
+                );
+            }
+        }
+    }
     let faces = looks
         .into_iter()
-        .map(|(forward, up, tan_half)| {
+        .enumerate()
+        .map(|(index, (forward, up, tan_half))| {
+            if needed & (1 << index) == 0 {
+                return None;
+            }
             let right = up.cross(forward).normalized();
             let up = forward.cross(right);
+            let key = mix(scene, index as u64);
+            if let Some(kept) = cache.iter_mut().find(|c| c.key == key) {
+                kept.used = true;
+                return Some(FaceMap {
+                    right,
+                    up,
+                    forward,
+                    tan_half,
+                    map: kept.map.clone(),
+                });
+            }
             let mut map_tris = Vec::new();
             for &(d, t) in &near {
                 let tri = &tris[t];
@@ -1612,13 +1908,19 @@ fn lamp_map(
                     }
                 });
             }
-            FaceMap {
+            let map = std::sync::Arc::new(DepthMap::draw(size, &map_tris, draws, threads));
+            cache.push(CachedFace {
+                key,
+                map: map.clone(),
+                used: true,
+            });
+            Some(FaceMap {
                 right,
                 up,
                 forward,
                 tan_half,
-                map: DepthMap::draw(size, &map_tris, draws, threads),
-            }
+                map,
+            })
         })
         .collect();
     Some(LampMap {
@@ -1679,7 +1981,9 @@ impl LampMap {
         } else {
             0
         };
-        let f = &self.faces[face];
+        let Some(f) = &self.faces[face] else {
+            return 1.0; // never asked: no point on screen is that way
+        };
         let size = f.map.size as f32;
         let distance = from_lamp.length();
         let texel = 2.0 * distance * f.tan_half / size;
@@ -1710,7 +2014,9 @@ fn add_bloom(
     } else {
         0.0
     };
-    if strength == 0.0 || !glow.iter().any(|g| g[0] + g[1] + g[2] > 0.0) {
+    // (No glow at all costs little: the blurs skip rows of nothing, on
+    // every thread, and so does the mixing in.)
+    if strength == 0.0 {
         return;
     }
     let radius = if bloom.radius.is_finite() {
@@ -1738,13 +2044,23 @@ fn add_bloom(
     );
     let jobs: Vec<(usize, &mut [u32])> = pixels.chunks_mut(width).enumerate().collect();
     let (tight, wide) = (&tight, &wide);
+    // Where each column of the picture falls in each blur: worked out
+    // once, not once a pixel.
+    let (tight_columns, wide_columns) = (tight.columns(width), wide.columns(width));
+    let (tight_columns, wide_columns) = (&tight_columns, &wide_columns);
     run_jobs(
         threads,
         jobs,
         || (),
         |_, (y, row)| {
+            // Rows far from any glow: both blurs exactly nothing there.
+            if tight.row_is_dark(y) && wide.row_is_dark(y) {
+                return;
+            }
+            let (tight_row, wide_row) = (tight.row(y), wide.row(y));
             for (x, pixel) in row.iter_mut().enumerate() {
-                let (a, b) = (tight.at(x, y), wide.at(x, y));
+                let a = tight.mixed(&tight_row, tight_columns[x]);
+                let b = wide.mixed(&wide_row, wide_columns[x]);
                 let add = [0, 1, 2].map(|c| (a[c] * 0.5 + b[c] * 0.5) * strength);
                 if add.iter().all(|&v| v < 0.5) {
                     continue;
@@ -1766,6 +2082,8 @@ struct Blurred {
     width: usize,
     height: usize,
     q: usize,
+    /// Which of its rows are nothing all along.
+    dark: Vec<bool>,
 }
 
 impl Blurred {
@@ -1779,22 +2097,37 @@ impl Blurred {
     ) -> Blurred {
         let (w, h) = (width.div_ceil(q), height.div_ceil(q));
         let mut small = vec![[0.0f32; 3]; w * h];
-        for (y, row) in small.chunks_mut(w).enumerate() {
-            for (x, cell) in row.iter_mut().enumerate() {
-                let mut sum = [0.0f32; 3];
-                let mut count = 0.0;
-                for gy in y * q..((y + 1) * q).min(height) {
-                    for gx in x * q..((x + 1) * q).min(width) {
-                        let g = glow[gy * width + gx];
-                        sum[0] += g[0];
-                        sum[1] += g[1];
-                        sum[2] += g[2];
-                        count += 1.0;
-                    }
+        // A row at a time, on several threads.
+        let rows: Vec<(usize, &mut [[f32; 3]])> = small.chunks_mut(w).enumerate().collect();
+        run_jobs(
+            threads,
+            rows,
+            || (),
+            |_, (y, row)| {
+                let glow_rows = y * q..((y + 1) * q).min(height);
+                if glow_rows.clone().all(|gy| {
+                    glow[gy * width..(gy + 1) * width]
+                        .iter()
+                        .all(|g| *g == [0.0; 3])
+                }) {
+                    return; // no glow in these rows: nothing (row stays 0)
                 }
-                *cell = sum.map(|v| v / count);
-            }
-        }
+                for (x, cell) in row.iter_mut().enumerate() {
+                    let mut sum = [0.0f32; 3];
+                    let mut count = 0.0;
+                    for gy in glow_rows.clone() {
+                        for gx in x * q..((x + 1) * q).min(width) {
+                            let g = glow[gy * width + gx];
+                            sum[0] += g[0];
+                            sum[1] += g[1];
+                            sum[2] += g[2];
+                            count += 1.0;
+                        }
+                    }
+                    *cell = sum.map(|v| v / count);
+                }
+            },
+        );
         let sigma = (radius * height as f32 / q as f32).max(0.5);
         let reach = (sigma * 3.0).ceil() as i64;
         let mut kernel: Vec<f32> = (-reach..=reach)
@@ -1804,72 +2137,134 @@ impl Blurred {
         for k in &mut kernel {
             *k /= total;
         }
-        let blur = |from: &[[f32; 3]], to: &mut [[f32; 3]], across: bool| {
-            let (lines, length) = if across { (h, w) } else { (w, h) };
-            let at = |line: usize, i: usize| if across { line * w + i } else { i * w + line };
-            // Each line on its own, so lines can go to threads; written
-            // back in one go after.
-            let done: Vec<Mutex<Vec<[f32; 3]>>> =
-                (0..lines).map(|_| Mutex::new(Vec::new())).collect();
+        // Each output value adds the same terms in the same order however
+        // the work is split, so the picture is the same on any number of
+        // threads. Both passes go a row at a time (rows are next to each
+        // other in memory), straight into their own rows of `to`.
+        let blur_across = |from: &[[f32; 3]], to: &mut [[f32; 3]]| {
+            let rows: Vec<(usize, &mut [[f32; 3]])> = to.chunks_mut(w).enumerate().collect();
             run_jobs(
                 threads,
-                (0..lines).collect(),
+                rows,
                 || (),
-                |_, line| {
+                |_, (y, out)| {
+                    let line = &from[y * w..(y + 1) * w];
                     // Most lines of a dark picture have no glow at all.
-                    if (0..length).all(|i| from[at(line, i)] == [0.0; 3]) {
+                    if line.iter().all(|v| *v == [0.0; 3]) {
+                        out.fill([0.0; 3]);
                         return;
                     }
-                    let mut out = Vec::with_capacity(length);
-                    for i in 0..length as i64 {
+                    for (i, slot) in out.iter_mut().enumerate() {
                         let mut sum = [0.0f32; 3];
                         for (k, weight) in kernel.iter().enumerate() {
-                            let j = (i + k as i64 - reach).clamp(0, length as i64 - 1) as usize;
-                            let v = from[at(line, j)];
+                            let j = (i as i64 + k as i64 - reach).clamp(0, w as i64 - 1) as usize;
+                            let v = line[j];
                             sum[0] += v[0] * weight;
                             sum[1] += v[1] * weight;
                             sum[2] += v[2] * weight;
                         }
-                        out.push(sum);
-                    }
-                    if let Ok(mut slot) = done[line].lock() {
-                        *slot = out;
+                        *slot = sum;
                     }
                 },
             );
-            for (line, slot) in done.into_iter().enumerate() {
-                let values = slot.into_inner().unwrap_or_default();
-                if values.is_empty() {
-                    for i in 0..length {
-                        to[at(line, i)] = [0.0; 3];
+        };
+        let blur_down = |from: &[[f32; 3]], to: &mut [[f32; 3]]| {
+            let lit_rows: Vec<bool> = (0..h)
+                .map(|y| from[y * w..(y + 1) * w].iter().any(|v| *v != [0.0; 3]))
+                .collect();
+            let rows: Vec<(usize, &mut [[f32; 3]])> = to.chunks_mut(w).enumerate().collect();
+            run_jobs(
+                threads,
+                rows,
+                || (),
+                |_, (y, out)| {
+                    let near =
+                        |k: usize| (y as i64 + k as i64 - reach).clamp(0, h as i64 - 1) as usize;
+                    if (0..kernel.len()).all(|k| !lit_rows[near(k)]) {
+                        out.fill([0.0; 3]);
+                        return;
                     }
-                }
-                for (i, v) in values.into_iter().enumerate() {
-                    to[at(line, i)] = v;
-                }
-            }
+                    out.fill([0.0; 3]);
+                    for (k, weight) in kernel.iter().enumerate() {
+                        let row = &from[near(k) * w..(near(k) + 1) * w];
+                        for (sum, v) in out.iter_mut().zip(row) {
+                            sum[0] += v[0] * weight;
+                            sum[1] += v[1] * weight;
+                            sum[2] += v[2] * weight;
+                        }
+                    }
+                },
+            );
         };
         let mut across = vec![[0.0f32; 3]; w * h];
-        blur(&small, &mut across, true);
-        blur(&across, &mut small, false);
+        blur_across(&small, &mut across);
+        blur_down(&across, &mut small);
+        let dark = small
+            .chunks(w)
+            .map(|row| row.iter().all(|v| *v == [0.0; 3]))
+            .collect();
         Blurred {
             values: small,
             width: w,
             height: h,
             q,
+            dark,
         }
     }
 
-    /// The blurred glow at pixel `x`, `y` of the picture (mixed from the
-    /// four nearest of its own).
-    fn at(&self, x: usize, y: usize) -> [f32; 3] {
+    /// The four of its own pixels the glow is mixed from for pixel
+    /// `x`, `y`, and how much of each: across, then down.
+    #[inline]
+    fn corners(&self, x: usize, y: usize) -> ([usize; 4], f32, f32) {
         let (w, h, q) = (self.width, self.height, self.q as f32);
         let fy = ((y as f32 + 0.5) / q - 0.5).clamp(0.0, (h - 1) as f32);
         let fx = ((x as f32 + 0.5) / q - 0.5).clamp(0.0, (w - 1) as f32);
         let (y0, ty) = (fy as usize, fy - fast_floor(fy));
         let (x0, tx) = (fx as usize, fx - fast_floor(fx));
         let (x1, y1) = ((x0 + 1).min(w - 1), (y0 + 1).min(h - 1));
-        let v = &self.values;
+        ([y0 * w + x0, y0 * w + x1, y1 * w + x0, y1 * w + x1], tx, ty)
+    }
+
+    /// True if every pixel of row `y` of the picture is mixed from rows
+    /// of nothing.
+    fn row_is_dark(&self, y: usize) -> bool {
+        let (corners, _, _) = self.corners(0, y);
+        let (top, bottom) = (corners[0] / self.width, corners[2] / self.width);
+        self.dark[top] && self.dark[bottom]
+    }
+
+    /// For each column `x` of a picture `width` wide: the two of its own
+    /// columns a pixel is mixed from, and how much of the second.
+    fn columns(&self, width: usize) -> Vec<(usize, usize, f32)> {
+        (0..width)
+            .map(|x| {
+                let (w, q) = (self.width, self.q as f32);
+                let fx = ((x as f32 + 0.5) / q - 0.5).clamp(0.0, (w - 1) as f32);
+                let (x0, tx) = (fx as usize, fx - fast_floor(fx));
+                (x0, (x0 + 1).min(w - 1), tx)
+            })
+            .collect()
+    }
+
+    /// The same for row `y`: the two of its own rows, and how much of the
+    /// second.
+    fn row(&self, y: usize) -> (usize, usize, f32) {
+        let (h, q) = (self.height, self.q as f32);
+        let fy = ((y as f32 + 0.5) / q - 0.5).clamp(0.0, (h - 1) as f32);
+        let (y0, ty) = (fy as usize, fy - fast_floor(fy));
+        (y0, (y0 + 1).min(h - 1), ty)
+    }
+
+    /// The blurred glow at a pixel, from its [`row`](Blurred::row) and
+    /// its column of [`columns`](Blurred::columns): mixed from the four
+    /// nearest of its own.
+    #[inline]
+    fn mixed(
+        &self,
+        &(y0, y1, ty): &(usize, usize, f32),
+        (x0, x1, tx): (usize, usize, f32),
+    ) -> [f32; 3] {
+        let (w, v) = (self.width, &self.values);
         [0, 1, 2].map(|c| {
             let top = v[y0 * w + x0][c] * (1.0 - tx) + v[y0 * w + x1][c] * tx;
             let bottom = v[y1 * w + x0][c] * (1.0 - tx) + v[y1 * w + x1][c] * tx;
@@ -1987,6 +2382,111 @@ mod tests {
             let differ = plain.iter().zip(&new).filter(|(a, b)| a != b).count();
             assert!(differ <= 8, "the hand: {differ} pixels differ");
         }
+    }
+
+    /// A room of cubes round a lamp with shadows, seen from `camera`;
+    /// `moved` shifts one cube.
+    fn lamp_room(canvas: &mut Canvas, camera: &Camera3D, moved: bool) {
+        canvas.clear(Color::BLACK);
+        canvas.set_lighting(Lighting {
+            sun_strength: 0.0,
+            ambient: 0.1,
+            ..Lighting::default()
+        });
+        canvas
+            .set_lamps(&[Lamp::point(vec3(0.0, 1.0, 0.0), Color::WHITE, 2.0, 8.0).with_shadows()]);
+        canvas.set_shadows(Some(Shadows {
+            lamp_resolution: 128,
+            ..Shadows::default()
+        }));
+        let floor = Mesh::cube(Color::GRAY);
+        canvas.draw_mesh(
+            &floor,
+            &Transform::at(vec3(0.0, -0.5, 0.0)).scaled(vec3(12.0, 1.0, 12.0)),
+            camera,
+        );
+        for (i, x) in [-2.0f32, 0.0, 2.0].into_iter().enumerate() {
+            let shift = if moved && i == 1 { 0.5 } else { 0.0 };
+            let cube = Transform::at(vec3(x + shift, 0.4, 2.5)).sized(0.8);
+            canvas.draw_mesh(&Mesh::cube(Color::from_hex(0xc08040)), &cube, camera);
+        }
+    }
+
+    fn kept_maps(canvas: &Canvas) -> Vec<usize> {
+        canvas
+            .queue
+            .shadow_cache
+            .iter()
+            .map(|f| std::sync::Arc::as_ptr(&f.map) as usize)
+            .collect()
+    }
+
+    #[test]
+    fn a_lamp_s_shadow_map_is_kept_while_nothing_near_it_moves() {
+        let camera = Camera3D::looking_at(vec3(0.0, 2.0, -3.0), vec3(0.0, 0.5, 2.0));
+        let mut canvas = Canvas::new(120, 90);
+        lamp_room(&mut canvas, &camera, false);
+        canvas.flush_3d();
+        let first = kept_maps(&canvas);
+        let picture = canvas.pixels().to_vec();
+        assert!(!first.is_empty());
+        // The same again: the very same maps, and the same picture as a
+        // canvas that drew everything afresh.
+        lamp_room(&mut canvas, &camera, false);
+        canvas.flush_3d();
+        assert_eq!(kept_maps(&canvas), first, "kept");
+        assert_eq!(canvas.pixels(), &picture[..]);
+        // A cube moved: drawn again, and the picture is a fresh canvas's.
+        lamp_room(&mut canvas, &camera, true);
+        canvas.flush_3d();
+        let after_move = kept_maps(&canvas);
+        assert!(after_move.iter().all(|m| !first.contains(m)), "drawn again");
+        let mut fresh = Canvas::new(120, 90);
+        lamp_room(&mut fresh, &camera, true);
+        fresh.flush_3d();
+        assert_eq!(canvas.pixels(), fresh.pixels());
+    }
+
+    #[test]
+    fn only_the_faces_of_a_point_lamp_something_on_screen_needs_are_drawn() {
+        // Looking along +z from beside the lamp, at things ahead and low:
+        // the lamp's back face (-z) is never needed.
+        let camera = Camera3D::looking_at(vec3(0.0, 1.0, 0.5), vec3(0.0, 0.3, 5.0));
+        let mut canvas = Canvas::new(120, 90);
+        lamp_room(&mut canvas, &camera, false);
+        canvas.flush_3d();
+        let faces = canvas.queue.shadow_cache.len();
+        assert!((1..6).contains(&faces), "{faces} of 6 faces drawn");
+        // And the picture is the same as with all six (a canvas that
+        // sees the whole room needs them all; the part both see matches).
+        let tri = |x: f32, z: f32| ScreenTri {
+            xy: [Vec2::ZERO; 3],
+            inv_z: [1.0; 3],
+            uv_over_z: [Vec2::ZERO; 3],
+            world: [vec3(x, 0.0, z), vec3(x + 0.1, 0.0, z), vec3(x, 0.1, z)],
+            normal: [Vec3::UP; 3],
+            look: 0,
+            draw: 0,
+            seg: 0,
+            see_through: false,
+            textured: false,
+            alpha_tested: false,
+            area: 1.0,
+            x0: 0,
+            x1: 1,
+            y0: 0,
+            y1: 1,
+        };
+        // Straight ahead along +x: only face 0. Out of reach: none.
+        assert_eq!(faces_needed(&[tri(3.0, 0.0)], Vec3::ZERO, 8.0), 0b00_0001);
+        assert_eq!(faces_needed(&[tri(-3.0, 0.0)], Vec3::ZERO, 8.0), 0b00_0010);
+        assert_eq!(faces_needed(&[tri(0.0, -3.0)], Vec3::ZERO, 8.0), 0b10_0000);
+        assert_eq!(faces_needed(&[tri(30.0, 0.0)], Vec3::ZERO, 8.0), 0);
+        // On a diagonal: both faces it could be looked up in.
+        assert_eq!(
+            faces_needed(&[tri(2.0, 2.0)], Vec3::ZERO, 8.0) & 0b01_0001,
+            0b01_0001
+        );
     }
 
     #[test]

@@ -137,7 +137,12 @@ impl VideoWriter {
             .args(["-pix_fmt", "yuv420p", "-g", &keyframes])
             .args(if fragments {
                 // Written out as each piece is ready (not held in a buffer).
-                &["-movflags", "+frag_keyframe+empty_moov", "-flush_packets", "1"][..]
+                &[
+                    "-movflags",
+                    "+frag_keyframe+empty_moov",
+                    "-flush_packets",
+                    "1",
+                ][..]
             } else {
                 &[][..]
             })

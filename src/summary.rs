@@ -68,6 +68,8 @@ pub(crate) struct Summary {
     pub notes: Vec<String>,
     pub folder: Option<PathBuf>,
     pub files: Vec<String>,
+    /// Seconds spent in each stage (see `stages.rs`), when pictures were made.
+    pub stages: Option<[f64; 7]>,
 }
 
 impl Summary {
@@ -191,6 +193,22 @@ impl Summary {
             lines.push(format!("and {more} more problems (all in log.json)"));
         }
         lines
+    }
+
+    /// How long each stage of making the pictures took, as one line for
+    /// the end of `summary.txt`, if pictures were made.
+    pub(crate) fn time_line(&self) -> Option<String> {
+        self.stages
+            .as_ref()
+            .map(|stages| format!("time: {}", crate::stages::words(stages)))
+    }
+
+    /// `summary.txt`: the summary, and how long each stage took.
+    pub(crate) fn to_file_text(&self) -> String {
+        match self.time_line() {
+            Some(line) => format!("{}{line}\n", self.to_text()),
+            None => self.to_text(),
+        }
     }
 
     /// The summary as text: at most about 15 lines.
@@ -382,6 +400,13 @@ impl Summary {
             "notes": self.notes,
             "folder": self.folder.as_ref().map(|f| f.display().to_string()),
             "files": self.files,
+            "stages": self.stages.map(|spent| {
+                crate::stages::NAMES
+                    .iter()
+                    .zip(spent)
+                    .map(|(name, seconds)| (name.to_string(), json!(seconds)))
+                    .collect::<Map<String, Value>>()
+            }),
         })
     }
 }
@@ -493,7 +518,22 @@ mod tests {
                 String::from("log.json"),
                 String::from("summary.txt"),
             ],
+            stages: Some([0.4, 0.12, 3.1, 20.5, 2.0, 1.1, 3.0]),
         }
+    }
+
+    #[test]
+    fn the_time_each_stage_took_is_one_line() {
+        let text = busy().to_file_text();
+        assert!(
+            !busy().to_text().contains("time: "),
+            "not in the short summary"
+        );
+        assert_eq!(busy().to_json()["stages"]["world"], json!(20.5));
+        assert!(
+            text.contains("\ntime: updates 0.40 s, models 0.12 s, shadows 3.10 s, world 20.50 s, bloom 2.00 s, overlay 1.10 s, encode 3.00 s\n"),
+            "{text}"
+        );
     }
 
     #[test]
