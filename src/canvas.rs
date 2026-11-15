@@ -759,23 +759,25 @@ impl Canvas {
     /// Fills a textured 3D triangle (see `render3d.rs`): `uv_over_z` is each
     /// corner's texture point divided by its distance, `shade` what the
     /// texture's red, green and blue are multiplied by. See-through texture
-    /// pixels (alpha below half) are left out, depth and all.
+    /// pixels (alpha below half) are left out, depth and all. `glow`: its
+    /// glow map, if its texture glows in places.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn fill_triangle_3d_textured(
         &mut self,
         corners: [Vec2; 3],
         inverse_depths: [f32; 3],
         uv_over_z: [Vec2; 3],
         texture: &Sprite,
-        shade: [f32; 3],
+        shade: [u32; 3],
+        glow: Option<&crate::render3d::TexelGlow>,
         opacity: u8,
     ) {
         let (tw, th) = (texture.width(), texture.height());
         if tw == 0 || th == 0 {
             return;
         }
-        // The shade as whole numbers out of 65,536, so each pixel's colour
+        // The shade is whole numbers out of 65,536, so each pixel's colour
         // is integer arithmetic (much quicker than rounding floats).
-        let shade = shade.map(|k| (k.clamp(0.0, 255.0) * 65536.0).round() as u32);
         let (texture_rgb, texture_alpha, row, start) = texture.texels();
         let fog = self.fog.map(|f| (f, f.color.to_u32()));
         let (pixels, depth) = (&mut self.pixels, &mut self.depth);
@@ -810,6 +812,8 @@ impl Canvas {
                 let c = ((rgb >> shift) & 0xff) as u64 * k as u64;
                 (((c + 32768) >> 16).min(255) as u32) << shift
             };
+            // A glowing pixel of the texture is at least as bright as it glows.
+            let shade = glow.and_then(|g| g.shade_at(x, y)).unwrap_or(shade);
             let color = channel(16, shade[0]) | channel(8, shade[1]) | channel(0, shade[2]);
             let color = fogged(color, fog, d);
             if opacity < 255 {

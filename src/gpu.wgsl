@@ -29,6 +29,8 @@ struct Globals {
 // Vertex flags (see gpu.rs): the triangle is textured; the mesh glows.
 const TEXTURED: u32 = 1u;
 const GLOWING: u32 = 2u;
+// The texture's alpha says how much each pixel glows: 128 plus 0 to 127.
+const TEXEL_GLOW: u32 = 4u;
 
 struct VertexIn {
     // From the mesh: one corner of one triangle.
@@ -101,12 +103,16 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     // texture pixels aren't drawn at all (nor written to the depth buffer).
     // (`textureSampleLevel`, unlike `textureSample`, may be used inside an `if`.)
     var color = in.color;
+    var glow = in.glow;
     if (in.flags & TEXTURED) != 0u {
         let texel = textureSampleLevel(picture, picture_sampler, in.uv, 0.0);
         if texel.a < 0.5 {
             discard;
         }
         color = color * texel.rgb;
+        if (in.flags & TEXEL_GLOW) != 0u {
+            glow = max(glow, (round(texel.a * 255.0) - 128.0) / 127.0);
+        }
     }
     color = color * in.tint.rgb;
     var lit = color;
@@ -116,7 +122,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         let ambient = globals.sun.w;
         let brightness = max(
             ambient + (1.0 - ambient) * (sunlight * globals.sun_color.rgb),
-            vec3<f32>(in.glow),
+            vec3<f32>(glow),
         );
         lit = color * brightness;
     }

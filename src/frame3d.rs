@@ -38,7 +38,10 @@ use std::sync::Mutex;
 use crate::color::{self, Color};
 use crate::lights::{Bloom, CUBE_FACES, Effects, Lamp, Shadows};
 use crate::math::{Vec2, Vec3, vec2, vec3};
-use crate::render3d::{Camera3D, Fog, Lighting, Mesh, NEAR, Transform, triangle_corners};
+use crate::render3d::{
+    Camera3D, Fog, GLOW_LEVELS, GlowMap, Lighting, Mesh, NEAR, Transform, texture_shade,
+    triangle_corners,
+};
 use crate::sprite::Sprite;
 
 /// Output rows in each band.
@@ -64,6 +67,8 @@ struct Draw {
     fog: Option<Fog>,
     tint: Color,
     texture: Option<Sprite>,
+    /// Which pixels of the texture glow (see `GlowMap`).
+    glow_map: Option<GlowMap>,
     /// A billboard: drawn as painted, and not glowing.
     unlit: bool,
     /// Drawn with `draw_mesh_in_view`: casts no shadow.
@@ -84,6 +89,8 @@ struct WorldTri {
     uv: Option<[Vec2; 3]>,
     color: Color,
     glow: f32,
+    /// It glows where its texture's glow map says.
+    texel_glow: bool,
     /// Its front faces the camera (only fronts are drawn; both sides
     /// cast shadows).
     front: bool,
@@ -156,6 +163,7 @@ impl Queue {
                 uv: mesh.uvs_of(index),
                 color: triangle.color,
                 glow: mesh.glow_of(index),
+                texel_glow: mesh.uses_glow_map(index),
                 front: face.dot(p[0] - camera_at) < 0.0,
             });
         }
@@ -169,6 +177,7 @@ impl Queue {
             fog: adding.fog,
             tint: adding.tint,
             texture: mesh.texture.clone(),
+            glow_map: mesh.glow_map.clone(),
             unlit: adding.unlit,
             in_view: adding.in_view,
             reset_depth: std::mem::take(&mut self.reset_next),
@@ -376,6 +385,13 @@ struct TriLook {
     /// Its colour times the tint, 0 to 1.
     albedo: [f32; 3],
     glow: f32,
+    /// Its texture glows in places: the glow map, and what a glowing
+    /// pixel's colour is worked out from (the exact light, its colour and
+    /// the tint).
+    texel_glow: bool,
+    brightness: [f32; 3],
+    own: Color,
+    tint: Color,
     face: Vec3,
     smooth: bool,
     unlit: bool,
@@ -600,6 +616,7 @@ fn tri_look(tri: &WorldTri, draw: &Draw, light: &DrawLight, flat: bool) -> TriLo
     ];
     let glow = tri.glow;
     let constant = flat || draw.unlit || glow >= 1.0;
+    let mut kept = [1.0; 3];
     let exact = constant.then(|| {
         let brightness = if glow >= 1.0 || draw.unlit {
             [1.0; 3]
@@ -611,15 +628,9 @@ fn tri_look(tri: &WorldTri, draw: &Draw, light: &DrawLight, flat: bool) -> TriLo
                 b
             }
         };
+        kept = brightness;
         if tri.uv.is_some() && draw.texture.is_some() {
-            let own = [c.r, c.g, c.b];
-            let mut shade = [0, 1, 2].map(|i| own[i] as f32 / 255.0 * brightness[i]);
-            if tint != Color::WHITE {
-                for (channel, t) in shade.iter_mut().zip([tint.r, tint.g, tint.b]) {
-                    *channel *= t as f32 / 255.0;
-                }
-            }
-            Exact::Shade(shade.map(|k| (k.clamp(0.0, 255.0) * 65536.0).round() as u32))
+            Exact::Shade(texture_shade(c, brightness, tint))
         } else {
             let lit = if brightness[0] == brightness[1] && brightness[1] == brightness[2] {
                 Color::BLACK.lerp(c, brightness[0])
@@ -637,6 +648,10 @@ fn tri_look(tri: &WorldTri, draw: &Draw, light: &DrawLight, flat: bool) -> TriLo
     TriLook {
         albedo,
         glow,
+        texel_glow: tri.texel_glow && !draw.unlit && draw.glow_map.is_some(),
+        brightness: kept,
+        own: c,
+        tint,
         face: tri.face,
         smooth: tri.n.is_some(),
         unlit: draw.unlit,
@@ -983,6 +998,18 @@ impl Frame<'_> {
     /// Where on its texture a point of `t` is: (pixel x, pixel y).
     #[inline]
     fn texel_at(&self, t: &ScreenTri, w: [f32; 3], d: f32, texture: &Sprite) -> usize {
+        self.texel_xy(t, w, d, texture).0
+    }
+
+    /// [`texel_at`](Self::texel_at), with the pixel's x and y too.
+    #[inline]
+    fn texel_xy(
+        &self,
+        t: &ScreenTri,
+        w: [f32; 3],
+        d: f32,
+        texture: &Sprite,
+    ) -> (usize, usize, usize) {
         let (tw, th) = (texture.width(), texture.height());
         let to_texture = 1.0 / d;
         let u = (w[0] * t.uv_over_z[0].x + w[1] * t.uv_over_z[1].x + w[2] * t.uv_over_z[2].x)
@@ -992,7 +1019,7 @@ impl Frame<'_> {
         let x = wrap(fast_floor(u * tw as f32), tw);
         let y = wrap(fast_floor(v * th as f32), th);
         let (_, _, row, start) = texture.texels();
-        start + y * row + x
+        (start + y * row + x, x, y)
     }
 
     /// Is the texture solid at this point (not a see-through pixel)?
@@ -1010,9 +1037,15 @@ impl Frame<'_> {
     fn shade(&self, t: &ScreenTri, w: [f32; 3], d: f32) -> (u32, [f32; 3]) {
         let look = &self.looks[t.look as usize];
         let draw = &self.draws[t.draw as usize];
+        let mut texel_glow = 0.0;
         let texel = if t.textured {
             draw.texture.as_ref().map(|texture| {
-                let at = self.texel_at(t, w, d, texture);
+                let (at, x, y) = self.texel_xy(t, w, d, texture);
+                if look.texel_glow {
+                    if let Some(map) = &draw.glow_map {
+                        texel_glow = f32::from(map.raw(x, y)) / f32::from(GLOW_LEVELS);
+                    }
+                }
                 texture.texels().0[at]
             })
         } else {
@@ -1021,21 +1054,33 @@ impl Frame<'_> {
         let color = match (look.exact, texel) {
             (Some(Exact::Color(c)), None) => c,
             (Some(Exact::Shade(k)), Some(rgb)) => {
+                // A glowing pixel of the texture: at least as bright as it
+                // glows (worked out as the plain renderer does).
+                let k = if texel_glow > 0.0 && look.brightness.iter().any(|&b| b < texel_glow) {
+                    texture_shade(
+                        look.own,
+                        look.brightness.map(|b| b.max(texel_glow)),
+                        look.tint,
+                    )
+                } else {
+                    k
+                };
                 let channel = |shift: u32, k: u32| {
                     let c = ((rgb >> shift) & 0xff) as u64 * k as u64;
                     (((c + 32768) >> 16).min(255) as u32) << shift
                 };
                 channel(16, k[0]) | channel(8, k[1]) | channel(0, k[2])
             }
-            _ => self.light_point(t, look, w, d, texel),
+            _ => self.light_point(t, look, w, d, texel, texel_glow),
         };
         let fog = draw.fog.map_or(0, |f| f.amount(1.0 / d));
         let fogged = match (draw.fog, fog) {
             (Some(f), amount) if amount > 0 => color::blend(color, f.color.to_u32(), amount),
             _ => color,
         };
-        let glow = if self.bloom && look.glow > 0.0 && !look.unlit {
-            let k = look.glow * (1.0 - fog as f32 / 255.0);
+        let glows = look.glow.max(texel_glow);
+        let glow = if self.bloom && glows > 0.0 && !look.unlit {
+            let k = glows * (1.0 - fog as f32 / 255.0);
             [
                 ((color >> 16) & 0xff) as f32 * k,
                 ((color >> 8) & 0xff) as f32 * k,
@@ -1055,7 +1100,9 @@ impl Frame<'_> {
         w: [f32; 3],
         d: f32,
         texel: Option<u32>,
+        texel_glow: f32,
     ) -> u32 {
+        let glow = look.glow.max(texel_glow);
         // Perspective-correct weights for the point's place and normal.
         let k = [
             w[0] * t.inv_z[0] / d,
@@ -1071,7 +1118,7 @@ impl Frame<'_> {
         } else {
             look.face
         };
-        let brightness = if look.unlit || look.glow >= 1.0 {
+        let brightness = if look.unlit || glow >= 1.0 {
             [1.0; 3]
         } else {
             let light = &self.lights[t.draw as usize];
@@ -1089,8 +1136,8 @@ impl Frame<'_> {
             for lamp in &self.lamps {
                 self.add_lamp(lamp, position, normal, &mut b);
             }
-            if look.glow > 0.0 {
-                b = b.map(|b| b.max(look.glow));
+            if glow > 0.0 {
+                b = b.map(|b| b.max(glow));
             }
             b
         };
@@ -1898,8 +1945,9 @@ mod tests {
     #[test]
     fn with_nothing_turned_on_the_lit_renderer_draws_what_the_plain_one_does() {
         type Scene = fn(&mut Canvas);
-        let scenes: [(&str, Scene); 4] = [
+        let scenes: [(&str, Scene); 5] = [
             ("glow and fog", draw_glow_and_fog_scene),
+            ("glowing ore veins", crate::blocks::draw_ore_scene),
             ("see-through", |c| draw_glass_scene(c, false)),
             ("repeated texture", draw_repeated_tile_floor),
             ("mixed", mixed_scene),

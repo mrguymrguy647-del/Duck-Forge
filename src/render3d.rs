@@ -564,6 +564,138 @@ pub struct Mesh {
     /// is "at least this bright" (a face lit by a lamp at night). Set with
     /// [`set_glow`](Mesh::set_glow).
     pub glow: Vec<f32>,
+    /// Which pixels of the texture glow, and how much (see [`GlowMap`]):
+    /// an ore block's red veins, not the whole block. Only triangles that
+    /// say so use it ([`texel_glow`](Mesh::texel_glow)).
+    pub glow_map: Option<GlowMap>,
+    /// Which triangles use the glow map, in the same order as `triangles`
+    /// (a shorter list leaves the rest using it, if there is one).
+    pub texel_glow: Vec<bool>,
+}
+
+/// Which pixels of a picture glow, and how much: the same size as the
+/// picture, each pixel 0 (lit as usual) up to 1 (full brightness whatever
+/// the light, and with bloom, a glow round it). A mesh with a glow map
+/// glows only where its texture's pixels do: the veins of an ore block,
+/// the eyes of a face, the flame of a torch.
+///
+/// ```
+/// # use duckforge::prelude::*;
+/// let ore = Sprite::from_ascii(&["gr", "gg"], &[('g', Color::GRAY), ('r', Color::from_hex(0xff3030))]);
+/// // Only the red pixel glows, at full strength.
+/// let glow = GlowMap::where_colours(&ore, &[Color::from_hex(0xff3030)], 1.0);
+/// assert_eq!(glow.level(1, 0), 1.0);
+/// assert_eq!(glow.level(0, 0), 0.0);
+/// let block = Mesh::cube(Color::WHITE).with_texture(ore).with_glow_map(glow);
+/// ```
+///
+/// Levels are kept as 0 to 127 (the GPU reads the same numbers, so both
+/// renderers draw the same picture).
+#[derive(Debug, Clone, PartialEq)]
+pub struct GlowMap {
+    width: usize,
+    height: usize,
+    levels: std::sync::Arc<Vec<u8>>,
+}
+
+/// The highest glow level a [`GlowMap`] keeps: full glow.
+pub(crate) const GLOW_LEVELS: u8 = 127;
+
+impl GlowMap {
+    /// A map of `width` x `height` pixels, none glowing.
+    pub fn new(width: usize, height: usize) -> GlowMap {
+        GlowMap {
+            width,
+            height,
+            levels: std::sync::Arc::new(vec![0; width * height]),
+        }
+    }
+
+    /// The pixels of `picture` that are one of `colours` glow by
+    /// `strength` (0 to 1); the rest don't.
+    pub fn where_colours(picture: &Sprite, colours: &[Color], strength: f32) -> GlowMap {
+        let mut map = GlowMap::new(picture.width(), picture.height());
+        let wanted: Vec<u32> = colours.iter().map(|c| c.to_u32() & 0x00ff_ffff).collect();
+        for y in 0..picture.height() {
+            for x in 0..picture.width() {
+                let (rgb, alpha) = picture.texel(x, y);
+                if alpha >= 128 && wanted.contains(&(rgb & 0x00ff_ffff)) {
+                    map.set(x, y, strength);
+                }
+            }
+        }
+        map
+    }
+
+    /// From a second picture the same size, painted where it glows: the
+    /// brighter and more solid its pixel, the more that pixel glows (black
+    /// or see-through: none), times `strength`.
+    pub fn from_picture(glow: &Sprite, strength: f32) -> GlowMap {
+        let mut map = GlowMap::new(glow.width(), glow.height());
+        for y in 0..glow.height() {
+            for x in 0..glow.width() {
+                let (rgb, alpha) = glow.texel(x, y);
+                let brightest = ((rgb >> 16) & 0xff).max((rgb >> 8) & 0xff).max(rgb & 0xff);
+                let level = brightest as f32 / 255.0 * alpha as f32 / 255.0;
+                map.set(x, y, level * strength);
+            }
+        }
+        map
+    }
+
+    /// Its size: width, height.
+    pub fn size(&self) -> (usize, usize) {
+        (self.width, self.height)
+    }
+
+    /// How much pixel (x, y) glows, 0 to 1 (0 outside the map).
+    pub fn level(&self, x: usize, y: usize) -> f32 {
+        f32::from(self.raw(x, y)) / f32::from(GLOW_LEVELS)
+    }
+
+    /// Makes pixel (x, y) glow by `level` (0 to 1).
+    pub fn set(&mut self, x: usize, y: usize, level: f32) {
+        if x < self.width && y < self.height {
+            let raw = (level.clamp(0.0, 1.0) * f32::from(GLOW_LEVELS)).round() as u8;
+            std::sync::Arc::make_mut(&mut self.levels)[y * self.width + x] = raw;
+        }
+    }
+
+    /// The level as kept: 0 to 127.
+    #[inline]
+    pub(crate) fn raw(&self, x: usize, y: usize) -> u8 {
+        if x < self.width && y < self.height {
+            self.levels[y * self.width + x]
+        } else {
+            0
+        }
+    }
+
+    /// Does any pixel glow?
+    pub fn any(&self) -> bool {
+        self.levels.iter().any(|&l| l > 0)
+    }
+
+    /// Which map this is, for the GPU's texture cache.
+    #[cfg_attr(not(feature = "gpu"), allow(dead_code))]
+    pub(crate) fn identity(&self) -> usize {
+        std::sync::Arc::as_ptr(&self.levels) as usize
+    }
+}
+
+/// What a textured triangle's texture is multiplied by, out of 65,536:
+/// its own colour, times the light, times the tint. The plain renderer,
+/// the lit renderer and glowing texture pixels all work it out here, so
+/// they agree to the last bit.
+pub(crate) fn texture_shade(own: Color, brightness: [f32; 3], tint: Color) -> [u32; 3] {
+    let own = [own.r, own.g, own.b];
+    let mut shade = [0, 1, 2].map(|i| own[i] as f32 / 255.0 * brightness[i]);
+    if tint != Color::WHITE {
+        for (channel, t) in shade.iter_mut().zip([tint.r, tint.g, tint.b]) {
+            *channel *= t as f32 / 255.0;
+        }
+    }
+    shade.map(|k| (k.clamp(0.0, 255.0) * 65536.0).round() as u32)
 }
 
 impl Mesh {
@@ -658,6 +790,32 @@ impl Mesh {
     pub fn with_texture(mut self, texture: Sprite) -> Self {
         self.texture = Some(texture);
         self
+    }
+
+    /// Glows only where its texture's pixels do (see [`GlowMap`]); every
+    /// textured triangle uses the map.
+    pub fn with_glow_map(mut self, map: GlowMap) -> Self {
+        self.glow_map = Some(map);
+        self.texel_glow.clear();
+        self
+    }
+
+    /// Glows only where its texture is one of `colours`, by `strength`:
+    /// `Mesh::block(&atlas, ["ore"; 3]).glowing_where(&[Color::from_hex(0xff3030)], 1.0)`.
+    /// Does nothing to a mesh with no texture.
+    pub fn glowing_where(self, colours: &[Color], strength: f32) -> Self {
+        match &self.texture {
+            Some(texture) => {
+                let map = GlowMap::where_colours(texture, colours, strength);
+                self.with_glow_map(map)
+            }
+            None => self,
+        }
+    }
+
+    /// Does triangle `index` use the glow map (if there is one)?
+    pub fn uses_glow_map(&self, index: usize) -> bool {
+        self.glow_map.is_some() && self.texel_glow.get(index).copied().unwrap_or(true)
     }
 
     /// Makes it glow: drawn at full brightness whatever the light, like
@@ -979,6 +1137,19 @@ impl Mesh {
         }
         let base = self.vertices.len();
         let first = self.triangles.len();
+        // Glow maps: one per mesh, like the texture. Triangles say whether
+        // they use it, so a plain part doesn't start glowing in places.
+        if self.glow_map.is_some() || other.glow_map.is_some() {
+            let mine: Vec<bool> = (0..first).map(|i| self.uses_glow_map(i)).collect();
+            let theirs: Vec<bool> = (0..other.triangles.len())
+                .map(|i| other.uses_glow_map(i))
+                .collect();
+            if self.glow_map.is_none() {
+                self.glow_map = other.glow_map.clone();
+            }
+            self.texel_glow = mine;
+            self.texel_glow.extend(theirs);
+        }
         self.vertices
             .extend(other.vertices.iter().map(|&v| transform.apply(v)));
         self.triangles
@@ -1345,13 +1516,17 @@ impl Canvas {
             if let (Some(uvs), Some(texture)) = (mesh.uvs_of(index), &mesh.texture) {
                 // Textured: each colour is the texture's, times the
                 // triangle's, times the light.
-                let own = [triangle.color.r, triangle.color.g, triangle.color.b];
-                let mut shade = [0, 1, 2].map(|i| own[i] as f32 / 255.0 * brightness[i]);
-                if tint != Color::WHITE {
-                    for (channel, t) in shade.iter_mut().zip([tint.r, tint.g, tint.b]) {
-                        *channel *= t as f32 / 255.0;
-                    }
-                }
+                let shade = texture_shade(triangle.color, brightness, tint);
+                let glow_map = mesh
+                    .glow_map
+                    .as_ref()
+                    .filter(|_| mesh.uses_glow_map(index))
+                    .map(|map| TexelGlow {
+                        map,
+                        own: triangle.color,
+                        brightness,
+                        tint,
+                    });
                 let (points, count) = clip_near_uv(in_camera, uvs);
                 for i in 1..count.saturating_sub(1) {
                     let corners = [points[0], points[i], points[i + 1]];
@@ -1368,6 +1543,7 @@ impl Canvas {
                         uv_over_z,
                         texture,
                         shade,
+                        glow_map.as_ref(),
                         tint.a,
                     );
                 }
@@ -1519,6 +1695,33 @@ impl Canvas {
         self.drawing_billboard = true;
         self.draw_mesh(&mesh, &transform, camera);
         self.drawing_billboard = false;
+    }
+}
+
+/// A textured triangle's glow map, and what it needs to work out a
+/// glowing pixel's colour.
+pub(crate) struct TexelGlow<'a> {
+    pub(crate) map: &'a GlowMap,
+    pub(crate) own: Color,
+    pub(crate) brightness: [f32; 3],
+    pub(crate) tint: Color,
+}
+
+impl TexelGlow<'_> {
+    /// The shade of texture pixel (x, y) if it glows (`None` if not, or
+    /// no brighter than the light already is).
+    #[inline]
+    pub(crate) fn shade_at(&self, x: usize, y: usize) -> Option<[u32; 3]> {
+        let raw = self.map.raw(x, y);
+        if raw == 0 {
+            return None;
+        }
+        let g = f32::from(raw) / f32::from(GLOW_LEVELS);
+        if self.brightness.iter().all(|&b| b >= g) {
+            return None;
+        }
+        let brightness = self.brightness.map(|b| b.max(g));
+        Some(texture_shade(self.own, brightness, self.tint))
     }
 }
 
@@ -1722,6 +1925,67 @@ pub(crate) fn draw_repeated_tile_floor(canvas: &mut crate::canvas::Canvas) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_mesh_glows_only_where_its_texture_is_the_chosen_colour() {
+        let vein = Color::from_hex(0xff_30_30);
+        let ore = Sprite::from_pixels(2, 1, vec![Color::from_hex(0x60_60_60), vein]);
+        let lit_cube = Mesh::cube(Color::WHITE).with_texture(ore.clone());
+        // Every face's texture points cover the whole picture: left half
+        // stone, right half vein.
+        let ore_cube = lit_cube.clone().glowing_where(&[vein], 1.0);
+        assert!(ore_cube.uses_glow_map(0));
+        assert!(
+            lit_cube
+                .clone()
+                .glowing_where(&[Color::BLUE], 1.0)
+                .glow_map
+                .is_some()
+        );
+        assert!(
+            Mesh::cube(Color::WHITE)
+                .glowing_where(&[vein], 1.0)
+                .glow_map
+                .is_none()
+        );
+        // Side by side, merged into one mesh: the plain cube's triangles
+        // keep off the map.
+        let mut both = Mesh::new();
+        both.merge(&ore_cube, &Transform::at(vec3(-0.8, 0.0, 0.0)).sized(0.7));
+        both.merge(&lit_cube, &Transform::at(vec3(0.8, 0.0, 0.0)).sized(0.7));
+        let half = ore_cube.triangles.len();
+        assert!((0..half).all(|t| both.uses_glow_map(t)));
+        assert!((half..2 * half).all(|t| !both.uses_glow_map(t)));
+        let mut canvas = crate::canvas::Canvas::new(80, 40);
+        canvas.clear(Color::BLACK);
+        canvas.set_lighting(Lighting {
+            sun_direction: vec3(0.0, 0.0, 1.0),
+            ambient: 0.1,
+            ..Lighting::default()
+        });
+        canvas.draw_mesh(
+            &both,
+            &Transform::default(),
+            &Camera3D::new(vec3(0.0, 0.0, -2.0)),
+        );
+        canvas.flush_3d();
+        let bright: Vec<(i32, i32)> = (0..40)
+            .flat_map(|y| (0..80).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let c = canvas.get_pixel(x, y).unwrap();
+                c.r.max(c.g).max(c.b) > 0x40
+            })
+            .collect();
+        assert!(!bright.is_empty());
+        for &(x, y) in &bright {
+            assert_eq!(
+                canvas.get_pixel(x, y),
+                Some(vein),
+                "({x}, {y}) is the vein's own red"
+            );
+            assert!(x < 40, "({x}, {y}): only the left cube glows");
+        }
+    }
 
     /// Every triangle's front should face away from the center of a solid shape.
     fn assert_faces_point_outward(mesh: &Mesh) {

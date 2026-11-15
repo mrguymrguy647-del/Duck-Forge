@@ -45,7 +45,7 @@
 use crate::canvas::Canvas;
 use crate::color::Color;
 use crate::math::{Vec2, Vec3, vec3};
-use crate::render3d::{Camera3D, Mesh, Transform};
+use crate::render3d::{Camera3D, GlowMap, Mesh, Transform};
 use crate::sprite::Sprite;
 use crate::tileset::Tileset;
 
@@ -99,6 +99,22 @@ pub struct BlockKind {
     pub inner_faces: bool,
     /// Drawn at full brightness, whatever the light (lamps, lava).
     pub glows: bool,
+    /// Glows only in places: chosen colours of its tiles, or where a glow
+    /// tile says (ore veins, a jack-o'-lantern's face). See
+    /// [`glowing_where`](BlockKind::glowing_where).
+    pub glow_mask: Option<GlowMask>,
+}
+
+/// Which pixels of a block's tiles glow, for
+/// [`BlockKind::glowing_where`] and [`BlockKind::glowing_from`]: from 0
+/// (lit as usual) to `strength` (1: full brightness whatever the light).
+#[derive(Debug, Clone, PartialEq)]
+pub enum GlowMask {
+    /// The tiles' pixels of these colours glow.
+    Colours { colours: Vec<Color>, strength: f32 },
+    /// Glow tiles `[top, sides, bottom]`, the same size as the block's own,
+    /// painted where it glows: the brighter the pixel, the more it glows.
+    Tiles { tiles: [String; 3], strength: f32 },
 }
 
 impl BlockKind {
@@ -110,6 +126,7 @@ impl BlockKind {
             see_through: false,
             inner_faces: false,
             glows: false,
+            glow_mask: None,
         }
     }
 
@@ -133,6 +150,135 @@ impl BlockKind {
         self.glows = true;
         self
     }
+
+    /// Glows only on these colours of its tiles, written `"#rrggbb"`: the
+    /// red veins of an ore, and not the stone round them. Full strength
+    /// unless [`glow_strength`](BlockKind::glow_strength) says.
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// let ore = BlockKind::new("ore", ["ore", "ore", "ore"]).glowing_where(["#ff3030"]);
+    /// let dim = BlockKind::new("ember", ["ore", "ore", "ore"])
+    ///     .glowing_where(["#ff3030", "#ffa020"])
+    ///     .glow_strength(0.6);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// If a colour isn't written `"#rrggbb"`.
+    #[track_caller]
+    pub fn glowing_where<S: AsRef<str>>(
+        mut self,
+        colours: impl IntoIterator<Item = S>,
+    ) -> BlockKind {
+        let colours = colours
+            .into_iter()
+            .map(|word| {
+                let word = word.as_ref();
+                Color::from_hex_str(word).unwrap_or_else(|| {
+                    panic!(
+                        "BlockKind::glowing_where: {word:?} isn't a colour; write it \"#rrggbb\""
+                    )
+                })
+            })
+            .collect();
+        self.glow_mask = Some(GlowMask::Colours {
+            colours,
+            strength: self.mask_strength(),
+        });
+        self
+    }
+
+    /// Glows where the atlas tile `tile` says, on every face: a second
+    /// tile the same size as its own, black where it doesn't glow and
+    /// bright where it does (a lantern's face, a screen's picture).
+    pub fn glowing_from(self, tile: &str) -> BlockKind {
+        self.glowing_from_tiles([tile, tile, tile])
+    }
+
+    /// The same with a glow tile for each of `[top, sides, bottom]`.
+    pub fn glowing_from_tiles(mut self, tiles: [&str; 3]) -> BlockKind {
+        self.glow_mask = Some(GlowMask::Tiles {
+            tiles: tiles.map(String::from),
+            strength: self.mask_strength(),
+        });
+        self
+    }
+
+    /// How strongly its glowing pixels glow, 0 to 1 (1 unless you say):
+    /// after [`glowing_where`](BlockKind::glowing_where) or
+    /// [`glowing_from`](BlockKind::glowing_from).
+    pub fn glow_strength(mut self, strength: f32) -> BlockKind {
+        if let Some(GlowMask::Colours { strength: s, .. } | GlowMask::Tiles { strength: s, .. }) =
+            &mut self.glow_mask
+        {
+            *s = strength.clamp(0.0, 1.0);
+        }
+        self
+    }
+
+    fn mask_strength(&self) -> f32 {
+        match &self.glow_mask {
+            Some(GlowMask::Colours { strength, .. } | GlowMask::Tiles { strength, .. }) => {
+                *strength
+            }
+            None => 1.0,
+        }
+    }
+}
+
+/// The atlas's glow map for every kind with a [`GlowMask`], or `None` if
+/// none has one. A pixel two kinds light glows the more of the two.
+#[track_caller]
+fn glow_map_of(atlas: &Tileset, kinds: &[BlockKind], sheet: &Sprite) -> Option<GlowMap> {
+    let mut map: Option<GlowMap> = None;
+    for kind in kinds {
+        let Some(mask) = &kind.glow_mask else {
+            continue;
+        };
+        let map = map.get_or_insert_with(|| GlowMap::new(sheet.width(), sheet.height()));
+        for (face, tile_name) in kind.tiles.iter().enumerate() {
+            let (_, [left, top, w, h]) = atlas.frame(tile_name, 0.0).in_sheet();
+            let mut raise = |x: usize, y: usize, level: f32| {
+                if level > map.level(left + x, top + y) {
+                    map.set(left + x, top + y, level);
+                }
+            };
+            match mask {
+                GlowMask::Colours { colours, strength } => {
+                    let wanted: Vec<u32> = colours.iter().map(|c| c.to_u32()).collect();
+                    for y in 0..h {
+                        for x in 0..w {
+                            let (rgb, alpha) = sheet.texel(left + x, top + y);
+                            if alpha >= 128 && wanted.contains(&(rgb & 0x00ff_ffff)) {
+                                raise(x, y, *strength);
+                            }
+                        }
+                    }
+                }
+                GlowMask::Tiles { tiles, strength } => {
+                    let glow = atlas.frame(&tiles[face], 0.0);
+                    assert!(
+                        glow.width() == w && glow.height() == h,
+                        "BlockPalette::new: block {:?}'s glow tile {:?} is {}x{}, but its tile {:?} \
+                         is {w}x{h}; make them the same size",
+                        kind.name,
+                        tiles[face],
+                        glow.width(),
+                        glow.height(),
+                        tile_name
+                    );
+                    let levels = GlowMap::from_picture(glow, *strength);
+                    for y in 0..h {
+                        for x in 0..w {
+                            raise(x, y, levels.level(x, y));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    map
 }
 
 /// One face of a block, ready to copy into a chunk: corners round the
@@ -151,6 +297,8 @@ pub struct BlockPalette {
     /// Index 0 is air (`None`); kind `n` is at index `n`.
     kinds: Vec<Option<(BlockKind, [Face; 6])>>,
     texture: Sprite,
+    /// Which atlas pixels glow, for the kinds with a [`GlowMask`].
+    glow_map: Option<GlowMap>,
 }
 
 impl BlockPalette {
@@ -160,8 +308,8 @@ impl BlockPalette {
     /// # Panics
     ///
     /// If a tile isn't in the atlas, the tiles come from different
-    /// pictures, there are no kinds or more than 255, or two have the same
-    /// name.
+    /// pictures, there are no kinds or more than 255, two have the same
+    /// name, or a glow tile isn't the size of the tile it lights.
     #[track_caller]
     pub fn new(atlas: &Tileset, kinds: &[BlockKind]) -> BlockPalette {
         assert!(
@@ -191,9 +339,12 @@ impl BlockPalette {
             texture = Some(picture);
             list.push(Some((kind.clone(), faces_of(&cube))));
         }
+        let texture = texture.expect("at least one kind");
+        let glow_map = glow_map_of(atlas, kinds, &texture);
         BlockPalette {
             kinds: list,
-            texture: texture.expect("at least one kind"),
+            texture,
+            glow_map,
         }
     }
 
@@ -233,6 +384,11 @@ impl BlockPalette {
     /// The atlas picture every block is painted from.
     pub fn texture(&self) -> &Sprite {
         &self.texture
+    }
+
+    /// Which pixels of the atlas glow, if any kind has a [`GlowMask`].
+    pub fn glow_map(&self) -> Option<&GlowMap> {
+        self.glow_map.as_ref()
     }
 
     /// Whether a block's face shows when `neighbour` is next to it: next
@@ -436,6 +592,9 @@ impl BlockWorld {
         shade: &impl Fn(&BlockWorld, i32, i32, i32) -> L,
     ) -> Mesh {
         let mut mesh = Mesh::new().with_texture(palette.texture.clone());
+        if let Some(map) = &palette.glow_map {
+            mesh = mesh.with_glow_map(map.clone());
+        }
         let n = self.chunk_size;
         let [w, h, d] = self.size;
         for y in 0..h as i32 {
@@ -464,6 +623,9 @@ impl BlockWorld {
                             mesh.add_triangle_uv(a, b, c, *uvs, color);
                             if glow > 0.0 {
                                 mesh.set_glow(mesh.triangles.len() - 1, glow);
+                            }
+                            if palette.glow_map.is_some() {
+                                mesh.texel_glow.push(kind.glow_mask.is_some());
                             }
                         }
                     }
@@ -593,6 +755,59 @@ fn faces_of(cube: &Mesh) -> [Face; 6] {
             .push(cube.uvs[i].expect("Mesh::block gives every triangle texture points"));
     }
     faces
+}
+
+/// The ore's stone and its veins, for the glow-mask tests.
+#[cfg(test)]
+pub(crate) const ORE_STONE: Color = Color::from_hex(0x60_60_60);
+#[cfg(test)]
+pub(crate) const ORE_VEIN: Color = Color::from_hex(0xff_30_30);
+
+/// An atlas of two 4 x 4 tiles: "ore" (grey stone with four red vein
+/// pixels down a diagonal) and "glow" (black, one white pixel top left),
+/// and a palette of "ore" (glowing where it's red), "rock" (the same tile,
+/// no glow) and "lantern" (the ore tile, glowing where "glow" says, at
+/// half strength).
+#[cfg(test)]
+pub(crate) fn ore_palette() -> BlockPalette {
+    let mut pixels = vec![Color::BLACK; 8 * 4];
+    for y in 0..4 {
+        for x in 0..4 {
+            pixels[y * 8 + x] = if x == y { ORE_VEIN } else { ORE_STONE };
+        }
+    }
+    pixels[4] = Color::WHITE;
+    let atlas = Tileset::grid(&Sprite::from_pixels(8, 4, pixels), 4, 4, &["ore", "glow"]);
+    BlockPalette::new(
+        &atlas,
+        &[
+            BlockKind::new("ore", ["ore"; 3]).glowing_where(["#ff3030"]),
+            BlockKind::new("rock", ["ore"; 3]),
+            BlockKind::new("lantern", ["ore"; 3])
+                .glowing_from("glow")
+                .glow_strength(0.5),
+        ],
+    )
+}
+
+/// An ore block (left) and a rock block with the same tile (right),
+/// face on, at night: the sun behind them and a dim ambient light. Only
+/// the ore's red veins should come out bright.
+#[cfg(test)]
+pub(crate) fn draw_ore_scene(canvas: &mut Canvas) {
+    let palette = ore_palette();
+    let mut world = BlockWorld::new(3, 1, 1);
+    world.set(0, 0, 0, palette.id("ore"));
+    world.set(2, 0, 0, palette.id("rock"));
+    world.update_meshes(&palette);
+    canvas.clear(Color::BLACK);
+    canvas.set_lighting(crate::render3d::Lighting {
+        sun_direction: vec3(0.0, 0.0, 1.0),
+        ambient: 0.1,
+        ..crate::render3d::Lighting::default()
+    });
+    let camera = Camera3D::new(vec3(1.5, 0.5, -2.2));
+    world.draw(canvas, &camera);
 }
 
 #[cfg(test)]
@@ -755,6 +970,171 @@ mod tests {
             .filter(|&t| mesh.glow_of(t) == 0.5)
             .count();
         assert_eq!(half, 2, "the stone's face towards the lamp");
+    }
+
+    #[test]
+    fn a_glow_mask_lights_only_the_chosen_colours_of_a_tile() {
+        let palette = ore_palette();
+        let map = palette.glow_map().expect("the ore has a glow mask");
+        // The ore tile's diagonal is red: those pixels glow fully, the
+        // stone round them not at all.
+        for y in 0..4 {
+            for x in 0..4 {
+                let level = map.level(x, y);
+                if x == y {
+                    assert_eq!(level, 1.0, "the vein at ({x}, {y})");
+                } else if (x, y) != (0, 0) {
+                    assert_eq!(level, 0.0, "the stone at ({x}, {y})");
+                }
+            }
+        }
+        // The glow tile is never drawn, so never glows.
+        assert!((4..8).all(|x| (0..4).all(|y| map.level(x, y) == 0.0)));
+        // The chunk: only the ore's faces use the map.
+        let mut world = BlockWorld::new(3, 1, 1);
+        world.set(0, 0, 0, palette.id("ore"));
+        world.set(2, 0, 0, palette.id("rock"));
+        world.update_meshes(&palette);
+        let mesh = world.chunk_mesh(0, 0);
+        assert_eq!(mesh.texel_glow.len(), mesh.triangles.len());
+        assert_eq!(mesh.texel_glow.iter().filter(|&&on| on).count(), 12);
+        assert!((0..mesh.triangles.len()).all(|t| mesh.glow_of(t) == 0.0));
+        // Kinds without a mask: no map at all.
+        assert!(super::tests::palette().glow_map().is_none());
+    }
+
+    #[test]
+    fn a_glow_tile_says_where_and_glow_strength_how_much() {
+        let palette = ore_palette();
+        let map = palette.glow_map().unwrap();
+        // The lantern's glow tile is white top left only, at half
+        // strength; the ore's vein there glows fully, so the more wins.
+        assert_eq!(map.level(0, 0), 1.0);
+        let kind = palette.kind(palette.id("lantern")).unwrap();
+        assert_eq!(
+            kind.glow_mask,
+            Some(GlowMask::Tiles {
+                tiles: ["glow".to_string(), "glow".to_string(), "glow".to_string()],
+                strength: 0.5
+            })
+        );
+        // On its own, the lantern glows by half where the tile is white.
+        let atlas = Tileset::grid(
+            &Sprite::from_pixels(
+                8,
+                4,
+                (0..32)
+                    .map(|i| match i {
+                        4 => Color::WHITE,
+                        _ if i % 8 >= 4 => Color::BLACK,
+                        _ => Color::GRAY,
+                    })
+                    .collect(),
+            ),
+            4,
+            4,
+            &["face", "glow"],
+        );
+        let lantern = BlockPalette::new(
+            &atlas,
+            &[BlockKind::new("lantern", ["face"; 3])
+                .glowing_from("glow")
+                .glow_strength(0.5)],
+        );
+        let map = lantern.glow_map().unwrap();
+        assert!((map.level(0, 0) - 0.5).abs() < 0.01);
+        assert_eq!(map.level(1, 0), 0.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "isn't a colour")]
+    fn a_glow_colour_must_be_written_as_hex() {
+        let _ = BlockKind::new("ore", ["ore"; 3]).glowing_where(["red"]);
+    }
+
+    #[test]
+    fn only_the_vein_pixels_come_out_bright() {
+        let mut canvas = Canvas::new(96, 48);
+        draw_ore_scene(&mut canvas);
+        canvas.flush_3d();
+        let (mut bright, mut face, mut bright_on_the_rock) = (0, 0, 0);
+        for y in 0..48 {
+            for x in 0..96 {
+                let c = canvas.get_pixel(x, y).unwrap();
+                if c == Color::BLACK {
+                    continue;
+                }
+                let brightest = c.r.max(c.g).max(c.b);
+                if brightest > 0x40 {
+                    // A glowing pixel is the vein's own colour, exactly.
+                    assert_eq!(c, ORE_VEIN, "({x}, {y})");
+                    bright += 1;
+                    if x >= 48 {
+                        bright_on_the_rock += 1;
+                    }
+                } else if x < 48 {
+                    face += 1;
+                }
+            }
+        }
+        assert!(bright > 0, "the veins glow");
+        assert_eq!(
+            bright_on_the_rock, 0,
+            "the rock, with the same tile, doesn't glow"
+        );
+        // Four of the sixteen pixels are vein: about a quarter of the face.
+        let share = bright as f32 / (bright + face) as f32;
+        assert!(
+            (0.15..0.35).contains(&share),
+            "{:.0}% bright",
+            share * 100.0
+        );
+    }
+
+    #[test]
+    fn veins_glow_the_same_in_the_lit_renderer_and_feed_bloom() {
+        let plain = {
+            let mut canvas = Canvas::new(96, 48);
+            draw_ore_scene(&mut canvas);
+            canvas.flush_3d();
+            canvas.pixels().to_vec()
+        };
+        // Smooth shading turns the lit renderer on; flat faces look the same.
+        let mut lit = Canvas::new(96, 48);
+        lit.set_smooth_shading(true);
+        draw_ore_scene(&mut lit);
+        lit.flush_3d();
+        let differ = plain
+            .iter()
+            .zip(lit.pixels())
+            .filter(|(a, b)| a != b)
+            .count();
+        assert_eq!(differ, 0, "{differ} pixels differ");
+        // With bloom, the veins light the stone round them, and the rock
+        // (whose tile has the same red, not glowing) stays dark.
+        let mut bloom = Canvas::new(96, 48);
+        bloom.set_bloom(Some(crate::lights::Bloom::default()));
+        draw_ore_scene(&mut bloom);
+        bloom.flush_3d();
+        let sum = |pixels: &[u32], left: bool| -> u64 {
+            (0..48)
+                .flat_map(|y| (0..96).map(move |x| (x, y)))
+                .filter(|&(x, _)| (x < 48) == left)
+                .map(|(x, y)| {
+                    let p = pixels[y * 96 + x];
+                    ((p >> 16) & 0xff) as u64 + ((p >> 8) & 0xff) as u64 + (p & 0xff) as u64
+                })
+                .sum()
+        };
+        assert!(
+            sum(bloom.pixels(), true) > sum(&plain, true),
+            "bloom round the veins"
+        );
+        assert_eq!(
+            sum(bloom.pixels(), false),
+            sum(&plain, false),
+            "none on the rock"
+        );
     }
 
     /// A sea of stone 192 blocks across (144 chunks), seen through fog from

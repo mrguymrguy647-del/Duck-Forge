@@ -585,11 +585,10 @@ pub(crate) fn point_of(value: &Value) -> Option<Vec2> {
 
 /// `"#rrggbb"` as a colour.
 pub(crate) fn colour_of(word: &str) -> Option<Color> {
-    let digits = word.strip_prefix('#')?;
-    if digits.len() != 6 || !digits.chars().all(|c| c.is_ascii_hexdigit()) {
+    if word.trim() != word {
         return None;
     }
-    u32::from_str_radix(digits, 16).ok().map(Color::from_hex)
+    Color::from_hex_str(word)
 }
 
 /// A colour as `"#rrggbb"`.

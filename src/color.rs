@@ -67,6 +67,16 @@ impl Color {
         Self::rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
     }
 
+    /// Reads a colour written `"#rrggbb"` (as in scene files and CSS),
+    /// or `None` if it isn't one: `Color::from_hex_str("#ff3030")`.
+    pub fn from_hex_str(word: &str) -> Option<Color> {
+        let digits = word.trim().strip_prefix('#')?;
+        if digits.len() != 6 || !digits.chars().all(|c| c.is_ascii_hexdigit()) {
+            return None;
+        }
+        u32::from_str_radix(digits, 16).ok().map(Color::from_hex)
+    }
+
     /// Mixes two colors (alpha too). `t = 0.0` gives `self`, `t = 1.0`
     /// gives `other`.
     pub fn lerp(self, other: Color, t: f32) -> Color {

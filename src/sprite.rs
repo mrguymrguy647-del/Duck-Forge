@@ -298,7 +298,6 @@ impl Sprite {
     /// The colour (`0x00RRGGBB`) and alpha of pixel `(x, y)`, which must be
     /// inside the sprite. For 3D textures, read many times a frame.
     #[inline]
-    #[cfg_attr(not(feature = "gpu"), allow(dead_code))] // only the GPU uses it
     pub(crate) fn texel(&self, x: usize, y: usize) -> (u32, u8) {
         let i = self.index(x, y);
         (self.sheet.rgb[i], self.sheet.alpha[i])

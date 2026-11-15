@@ -22,7 +22,7 @@ use std::hash::{BuildHasherDefault, Hash, Hasher};
 
 use bytemuck::{Pod, Zeroable};
 
-use crate::render3d::{Camera3D, Fog, Lighting, Mesh, Transform, triangle_corners};
+use crate::render3d::{Camera3D, Fog, GlowMap, Lighting, Mesh, Transform, triangle_corners};
 use crate::sprite::Sprite;
 
 /// One corner of one triangle, laid out exactly as the shader reads it.
@@ -46,6 +46,9 @@ struct Vertex {
 const TEXTURED: u32 = 1;
 /// `Vertex::flags`: the triangle ignores the light (it fully glows).
 const GLOWING: u32 = 2;
+/// `Vertex::flags`: the triangle glows where its texture's glow map says
+/// (the texture's alpha carries the level: 128 plus 0 to 127).
+const TEXEL_GLOW: u32 = 4;
 
 /// Per-object data: the object's transform matrix, and its tint (red,
 /// green, blue multiply its colours; alpha is how solid it is).
@@ -125,6 +128,11 @@ fn fingerprint(mesh: &Mesh) -> u64 {
     for glow in &mesh.glow {
         glow.to_bits().hash(&mut hasher);
     }
+    mesh.glow_map
+        .as_ref()
+        .map(GlowMap::identity)
+        .hash(&mut hasher);
+    mesh.texel_glow.hash(&mut hasher);
     hasher.finish()
 }
 
@@ -136,9 +144,10 @@ struct Sample {
     vertices: [Option<crate::math::Vec3>; 3],
     triangles: [Option<crate::render3d::Triangle>; 3],
     uvs: [Option<Option<[crate::math::Vec2; 3]>>; 3],
-    texture: Option<(usize, [usize; 4])>,
+    texture: Option<TextureKey>,
     glowing: bool,
     glow: [Option<u32>; 3],
+    texel_glow: [Option<bool>; 3],
 }
 
 fn sample(mesh: &Mesh) -> Sample {
@@ -147,9 +156,13 @@ fn sample(mesh: &Mesh) -> Sample {
         vertices: picks(mesh.vertices.len()).map(|i| mesh.vertices.get(i).copied()),
         triangles: picks(mesh.triangles.len()).map(|i| mesh.triangles.get(i).copied()),
         uvs: picks(mesh.uvs.len()).map(|i| mesh.uvs.get(i).copied()),
-        texture: mesh.texture.as_ref().map(Sprite::identity),
+        texture: mesh
+            .texture
+            .as_ref()
+            .map(|sprite| texture_key(sprite, mesh)),
         glowing: mesh.glowing,
         glow: picks(mesh.glow.len()).map(|i| mesh.glow.get(i).map(|g| g.to_bits())),
+        texel_glow: picks(mesh.texel_glow.len()).map(|i| mesh.texel_glow.get(i).copied()),
     }
 }
 
@@ -215,9 +228,20 @@ struct GpuMesh {
     last_used: u64,
 }
 
-/// How the texture cache recognizes a picture: which picture, and which
-/// part of it (see `Sprite::identity`).
-type TextureKey = (usize, [usize; 4]);
+/// How the texture cache recognizes a picture: which picture, which part
+/// of it (see `Sprite::identity`), and which glow map rides in its alpha
+/// (0 for none).
+type TextureKey = (usize, [usize; 4], usize);
+
+/// The texture cache's key for `mesh`'s texture `sprite`.
+fn texture_key(sprite: &Sprite, mesh: &Mesh) -> TextureKey {
+    let (picture, part) = sprite.identity();
+    (
+        picture,
+        part,
+        mesh.glow_map.as_ref().map_or(0, GlowMap::identity),
+    )
+}
 
 /// A texture that lives on the GPU.
 struct GpuTexture {
@@ -225,6 +249,7 @@ struct GpuTexture {
     /// Kept so the picture can't be freed (and its address reused by
     /// another picture) while the GPU has a copy under its key.
     _sprite: Sprite,
+    _glow_map: Option<GlowMap>,
     last_used: u64,
 }
 
@@ -410,7 +435,7 @@ impl GpuRenderer {
             ..Default::default()
         });
         let white = Sprite::from_pixels(1, 1, vec![crate::color::Color::WHITE]);
-        let plain = texture_bind_group(&device, &queue, &texture_layout, &sampler, &white);
+        let plain = texture_bind_group(&device, &queue, &texture_layout, &sampler, &white, None);
 
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("mesh"),
@@ -679,7 +704,10 @@ impl GpuRenderer {
                 let partly = (level * 255.0).round() as u8;
                 let color = [triangle.color.r, triangle.color.g, triangle.color.b, partly];
                 let uvs = mesh.uvs_of(index);
-                let flags = glow | if uvs.is_some() { TEXTURED } else { 0 };
+                let mut flags = glow | if uvs.is_some() { TEXTURED } else { 0 };
+                if uvs.is_some() && mesh.uses_glow_map(index) {
+                    flags |= TEXEL_GLOW;
+                }
                 let corners = triangle_corners(&mesh.vertices, index, triangle);
                 [0, 1, 2].map(|i| {
                     let p = corners[i];
@@ -694,7 +722,7 @@ impl GpuRenderer {
             })
             .collect();
         let texture = mesh.texture.as_ref().map(|sprite| {
-            let texture_key = sprite.identity();
+            let texture_key = texture_key(sprite, mesh);
             if !self.textures.contains_key(&texture_key) {
                 let bind_group = texture_bind_group(
                     &self.device,
@@ -702,10 +730,12 @@ impl GpuRenderer {
                     &self.texture_layout,
                     &self.sampler,
                     sprite,
+                    mesh.glow_map.as_ref(),
                 );
                 let texture = GpuTexture {
                     bind_group,
                     _sprite: sprite.clone(),
+                    _glow_map: mesh.glow_map.clone(),
                     last_used: self.flushes,
                 };
                 self.textures.insert(texture_key, texture);
@@ -930,20 +960,26 @@ impl GpuRenderer {
 const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8Unorm;
 
 /// Sends a sprite's pixels to the GPU as a texture, and makes the bind
-/// group the shader reads it through.
+/// group the shader reads it through. With a glow map, each pixel's alpha
+/// says how much it glows instead (128 plus its level; see-through pixels
+/// stay 0), since the shader only asks alpha "is it see-through?".
 fn texture_bind_group(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     layout: &wgpu::BindGroupLayout,
     sampler: &wgpu::Sampler,
     sprite: &Sprite,
+    glow_map: Option<&GlowMap>,
 ) -> wgpu::BindGroup {
     let (width, height) = (sprite.width().max(1) as u32, sprite.height().max(1) as u32);
     // Red, green, blue, alpha bytes, row by row.
     let mut bytes = Vec::with_capacity(width as usize * height as usize * 4);
     for y in 0..sprite.height() {
         for x in 0..sprite.width() {
-            let (rgb, alpha) = sprite.texel(x, y);
+            let (rgb, mut alpha) = sprite.texel(x, y);
+            if let Some(map) = glow_map {
+                alpha = if alpha < 128 { 0 } else { 128 + map.raw(x, y) };
+            }
             bytes.extend_from_slice(&[(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8, alpha]);
         }
     }
@@ -1249,6 +1285,32 @@ mod tests {
         gpu.flush_3d();
         let share = share_different(&gpu, &cpu);
         assert!(share < 0.02, "{:.1}% of pixels differ", share * 100.0);
+    }
+
+    #[test]
+    fn glowing_ore_veins_are_drawn_like_the_cpu() {
+        let Some(mut gpu) = gpu_canvas(96, 48) else {
+            return;
+        };
+        let mut cpu = Canvas::new(96, 48);
+        crate::blocks::draw_ore_scene(&mut gpu);
+        crate::blocks::draw_ore_scene(&mut cpu);
+        gpu.flush_3d();
+        cpu.flush_3d();
+        let share = share_different(&gpu, &cpu);
+        assert!(share < 0.02, "{:.1}% of pixels differ", share * 100.0);
+        let veins = |canvas: &Canvas| {
+            canvas
+                .pixels()
+                .iter()
+                .filter(|&&p| p == crate::blocks::ORE_VEIN.to_u32())
+                .count()
+        };
+        let (g, c) = (veins(&gpu), veins(&cpu));
+        assert!(
+            c > 0 && g.abs_diff(c) <= c / 10,
+            "bright vein pixels: GPU {g}, CPU {c}"
+        );
     }
 
     #[test]
