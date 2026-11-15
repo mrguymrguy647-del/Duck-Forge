@@ -1288,6 +1288,21 @@ mod tests {
     }
 
     #[test]
+    fn the_sky_is_behind_gpu_drawing_too() {
+        let Some(mut gpu) = gpu_canvas(64, 48) else {
+            return;
+        };
+        let sky = crate::sprite::Sprite::from_pixels(2, 2, vec![Color::BLUE; 4]);
+        gpu.set_sky(&sky);
+        gpu.clear(Color::BLACK);
+        let camera = Camera3D::new(vec3(0.0, 0.0, -3.0));
+        gpu.draw_mesh(&Mesh::cube(Color::RED).glowing(), &Transform::default(), &camera);
+        gpu.flush_3d();
+        assert_eq!(gpu.get_pixel(32, 24), Some(Color::RED));
+        assert_eq!(gpu.get_pixel(1, 1), Some(Color::BLUE));
+    }
+
+    #[test]
     fn snow_is_drawn_like_the_cpu() {
         let Some(mut gpu) = gpu_canvas(160, 120) else {
             return;

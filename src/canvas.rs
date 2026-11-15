@@ -539,6 +539,9 @@ impl Canvas {
         self.depth.fill(0.0);
         self.drawing_in_view = false;
         self.queue.clear();
+        if let Some(sky) = &mut self.effects.sky {
+            sky.pending = true;
+        }
         #[cfg(feature = "gpu")]
         if let GpuSlot::Running(gpu) = &mut self.gpu {
             gpu.clear(); // throw away 3D that was never shown, and reset the GPU's depth

@@ -227,6 +227,8 @@ pub(crate) struct Effects {
     pub(crate) supersample: u32,
     /// How many threads draw (0: as many as the computer has cores).
     pub(crate) threads: usize,
+    /// The 360° sky behind the 3D, if there is one (see `sky.rs`).
+    pub(crate) sky: Option<Box<crate::sky::Sky>>,
     /// For tests: the lit renderer even with nothing asking for it.
     #[cfg(test)]
     pub(crate) always: bool,

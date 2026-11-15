@@ -68,6 +68,7 @@ pub mod scene;
 pub mod script;
 mod sheet;
 pub mod simulation;
+pub mod sky;
 pub mod sound;
 #[cfg(all(feature = "audio", any(feature = "window", feature = "studio")))]
 mod speaker;

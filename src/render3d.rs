@@ -1463,6 +1463,9 @@ impl Canvas {
         camera: &Camera3D,
         tint: Color,
     ) {
+        if !self.drawing_in_view {
+            self.sky_before_3d(camera);
+        }
         if self.effects.on() {
             // Lamps, shadows, glow or smooth edges: the lit renderer (see
             // frame3d.rs), which draws the whole frame at once.
