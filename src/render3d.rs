@@ -907,15 +907,154 @@ impl Mesh {
 
     /// Glows only where its texture is one of `colours`, by `strength`:
     /// `Mesh::block(&atlas, ["ore"; 3]).glowing_where(&[Color::from_hex(0xff3030)], 1.0)`.
-    /// Does nothing to a mesh with no texture.
-    pub fn glowing_where(self, colours: &[Color], strength: f32) -> Self {
+    /// A mesh with no texture glows on its triangles of those colours (a
+    /// [`from_sprite`](Mesh::from_sprite) torch's flame).
+    pub fn glowing_where(mut self, colours: &[Color], strength: f32) -> Self {
         match &self.texture {
             Some(texture) => {
                 let map = GlowMap::where_colours(texture, colours, strength);
                 self.with_glow_map(map)
             }
-            None => self,
+            None => {
+                let wanted: Vec<u32> = colours.iter().map(|c| c.to_u32()).collect();
+                for index in 0..self.triangles.len() {
+                    if wanted.contains(&self.triangles[index].color.to_u32()) {
+                        self.set_glow(index, strength);
+                    }
+                }
+                self
+            }
         }
+    }
+
+    /// Pixel art made solid: each pixel of `sprite` you can't see through
+    /// becomes a little cube of its colour, `depth` pixels thick (1: like
+    /// an item held in a block game). The mesh is 1 unit across its longer
+    /// side, in the middle of its own space, facing -z (towards a camera
+    /// looking along +z, the right way round). Only the outside faces are
+    /// made, and a row of one colour is one face, so a 16 x 16 sprite is a
+    /// few hundred triangles.
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// let sword = Sprite::from_ascii(&[".w", "b."], &[('w', Color::WHITE), ('b', Color::rgb(120, 70, 30))]);
+    /// let mesh = Mesh::from_sprite(&sword, 1.0);
+    /// assert_eq!(mesh.vertices.iter().map(|v| v.z).fold(f32::MIN, f32::max), 0.25); // half a pixel
+    /// ```
+    pub fn from_sprite(sprite: &Sprite, depth: f32) -> Mesh {
+        Mesh::from_sprite_glowing(sprite, depth, &GlowMap::new(0, 0))
+    }
+
+    /// [`from_sprite`](Mesh::from_sprite), glowing where `glow` says (the
+    /// same glow map as the sprite's texture has, say: a torch's flame
+    /// glows as it does in the block world).
+    pub fn from_sprite_glowing(sprite: &Sprite, depth: f32, glow: &GlowMap) -> Mesh {
+        let (w, h) = (sprite.width(), sprite.height());
+        let mut mesh = Mesh::new();
+        if w == 0 || h == 0 {
+            return mesh;
+        }
+        let unit = 1.0 / w.max(h) as f32;
+        let half_depth = depth.max(0.0) * unit / 2.0;
+        let solid = |x: i32, y: i32| {
+            x >= 0
+                && y >= 0
+                && (x as usize) < w
+                && (y as usize) < h
+                && sprite.texel(x as usize, y as usize).1 >= 128
+        };
+        let colour = |x: usize, y: usize| {
+            let (rgb, _) = sprite.texel(x, y);
+            Color::from_hex(rgb & 0x00ff_ffff)
+        };
+        // Pixel corner (x, y) on the face at depth z.
+        let corner = |x: f32, y: f32, z: f32| {
+            vec3((x - w as f32 / 2.0) * unit, (h as f32 / 2.0 - y) * unit, z)
+        };
+        let face =
+            |mesh: &mut Mesh, corners: [Vec3; 4], outward: Vec3, color: Color, level: f32| {
+                let first = mesh.vertices.len();
+                for c in corners {
+                    mesh.add_vertex(c);
+                }
+                let [a, b, c, d] = [first, first + 1, first + 2, first + 3];
+                // The front of a triangle is the side (b - a) x (c - a) points to.
+                let front = (corners[1] - corners[0])
+                    .cross(corners[2] - corners[0])
+                    .dot(outward)
+                    > 0.0;
+                let (b, d) = if front { (b, d) } else { (d, b) };
+                mesh.add_triangle(a, b, c, color);
+                mesh.add_triangle(a, c, d, color);
+                if level > 0.0 {
+                    let n = mesh.triangles.len();
+                    mesh.set_glow(n - 2, level);
+                    mesh.set_glow(n - 1, level);
+                }
+            };
+        let level = |x: usize, y: usize| glow.level(x, y);
+        let (front_z, back_z) = (-half_depth, half_depth);
+        for y in 0..h {
+            // Front and back: a run of one colour (and glow) is one face.
+            let mut x = 0;
+            while x < w {
+                if !solid(x as i32, y as i32) {
+                    x += 1;
+                    continue;
+                }
+                let (c, g) = (colour(x, y), level(x, y));
+                let mut end = x + 1;
+                while end < w
+                    && solid(end as i32, y as i32)
+                    && colour(end, y) == c
+                    && level(end, y) == g
+                {
+                    end += 1;
+                }
+                let (x0, x1, y0, y1) = (x as f32, end as f32, y as f32, y as f32 + 1.0);
+                for (z, outward) in [
+                    (front_z, vec3(0.0, 0.0, -1.0)),
+                    (back_z, vec3(0.0, 0.0, 1.0)),
+                ] {
+                    let corners = [
+                        corner(x0, y0, z),
+                        corner(x1, y0, z),
+                        corner(x1, y1, z),
+                        corner(x0, y1, z),
+                    ];
+                    face(&mut mesh, corners, outward, c, g);
+                }
+                x = end;
+            }
+            // The edges, where a solid pixel meets a see-through one.
+            for x in 0..w {
+                if !solid(x as i32, y as i32) {
+                    continue;
+                }
+                let (c, g) = (colour(x, y), level(x, y));
+                let (xi, yi) = (x as i32, y as i32);
+                let (x0, x1, y0, y1) = (x as f32, x as f32 + 1.0, y as f32, y as f32 + 1.0);
+                let sides = [
+                    ((xi - 1, yi), [(x0, y0), (x0, y1)], vec3(-1.0, 0.0, 0.0)),
+                    ((xi + 1, yi), [(x1, y0), (x1, y1)], vec3(1.0, 0.0, 0.0)),
+                    ((xi, yi - 1), [(x0, y0), (x1, y0)], vec3(0.0, 1.0, 0.0)),
+                    ((xi, yi + 1), [(x0, y1), (x1, y1)], vec3(0.0, -1.0, 0.0)),
+                ];
+                for ((nx, ny), [(ax, ay), (bx, by)], outward) in sides {
+                    if solid(nx, ny) {
+                        continue;
+                    }
+                    let corners = [
+                        corner(ax, ay, front_z),
+                        corner(bx, by, front_z),
+                        corner(bx, by, back_z),
+                        corner(ax, ay, back_z),
+                    ];
+                    face(&mut mesh, corners, outward, c, g);
+                }
+            }
+        }
+        mesh
     }
 
     /// Does triangle `index` use the glow map (if there is one)?
@@ -2076,6 +2215,97 @@ mod tests {
 
     fn close(a: Vec3, b: Vec3) -> bool {
         (a - b).length() < 1e-4
+    }
+
+    #[test]
+    fn pixel_art_becomes_solid_with_only_its_outside_faces() {
+        // One pixel: a closed cube, faces out.
+        let dot = Sprite::from_pixels(1, 1, vec![Color::RED]);
+        let cube = Mesh::from_sprite(&dot, 1.0);
+        assert_eq!(cube.triangles.len(), 12);
+        assert_faces_point_outward(&cube);
+        // A full 3 x 3 of one colour: a row is one face front and back,
+        // and only the twelve edges round the outside get sides.
+        let square = Sprite::from_pixels(3, 3, vec![Color::GREEN; 9]);
+        let slab = Mesh::from_sprite(&square, 2.0);
+        assert_eq!(slab.triangles.len(), (3 * 2 + 12) * 2);
+        assert_faces_point_outward(&slab);
+        let (low, high) = slab.bounds();
+        assert!((high.x - low.x - 1.0).abs() < 1e-6, "1 unit across");
+        assert!(
+            (high.z - low.z - 2.0 / 3.0).abs() < 1e-6,
+            "two pixels thick"
+        );
+        // See-through pixels make nothing.
+        let empty = Sprite::from_pixels(2, 2, vec![Color::rgba(0, 0, 0, 0); 4]);
+        assert!(Mesh::from_sprite(&empty, 1.0).triangles.is_empty());
+    }
+
+    #[test]
+    fn pixel_art_in_3d_is_the_right_way_round_and_keeps_its_glow() {
+        let flame = Color::from_hex(0xff_a0_20);
+        let wood = Color::from_hex(0x6a_40_20);
+        // A torch: flame on top, wood below, see-through either side.
+        let clear = Color::rgba(0, 0, 0, 0);
+        let torch = Sprite::from_pixels(
+            3,
+            3,
+            vec![
+                clear,
+                flame,
+                clear,
+                clear,
+                wood,
+                clear,
+                clear,
+                wood,
+                Color::BLUE,
+            ],
+        );
+        let by_colour = Mesh::from_sprite(&torch, 1.0).glowing_where(&[flame], 1.0);
+        let glowing = |mesh: &Mesh| {
+            (0..mesh.triangles.len())
+                .filter(|&t| mesh.glow_of(t) > 0.0)
+                .map(|t| mesh.triangles[t].color)
+                .collect::<Vec<_>>()
+        };
+        assert!(!glowing(&by_colour).is_empty());
+        assert!(glowing(&by_colour).iter().all(|&c| c == flame));
+        let map = GlowMap::where_colours(&torch, &[flame], 0.8);
+        let by_map = Mesh::from_sprite_glowing(&torch, 1.0, &map);
+        assert_eq!(glowing(&by_map), glowing(&by_colour));
+        assert!(
+            (0..by_map.triangles.len())
+                .all(|t| [0.0, map.level(1, 0)].contains(&by_map.glow_of(t)))
+        );
+        // Seen from in front at night: the flame bright, the wood dark,
+        // the blue pixel bottom right on the right.
+        let mut canvas = crate::canvas::Canvas::new(60, 60);
+        canvas.clear(Color::BLACK);
+        canvas.set_lighting(Lighting {
+            sun_direction: vec3(0.0, 0.0, 1.0),
+            ambient: 0.1,
+            ..Lighting::default()
+        });
+        canvas.draw_mesh(
+            &by_colour,
+            &Transform::default(),
+            &Camera3D::new(vec3(0.0, 0.0, -1.6)),
+        );
+        canvas.flush_3d();
+        assert_eq!(canvas.get_pixel(30, 18), Some(flame), "the flame glows");
+        let wood_seen = canvas.get_pixel(30, 30).unwrap();
+        assert!(wood_seen.r < 20, "the wood is in the dark: {wood_seen:?}");
+        assert_eq!(
+            canvas.get_pixel(18, 42),
+            Some(Color::BLACK),
+            "bottom left is see-through"
+        );
+        let right = canvas.get_pixel(42, 42).unwrap();
+        assert!(
+            right.b > right.r && right.b > 0,
+            "the blue pixel is bottom right: {right:?}"
+        );
     }
 
     #[test]
