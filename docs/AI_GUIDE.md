@@ -1626,6 +1626,20 @@ canvas.draw_mesh(self.robot.mesh(), &Transform::at(self.position), &self.camera)
   back. Part names are the recipe's: `"left_arm"`, `"left_arm/elbow"`.
 - `socket("head.top")` is where that socket is **now**, moved with the
   part that carries it: `place.apply(robot.socket("head.top")?.position())`.
+- `events()` lists the **events** passed in the last `update`: names a
+  recipe puts on keys (`{ at = 0.4, pose = "step_right", event =
+  "footstep" }`), each an `AnimationEvent { name, animation, at }`.
+  Each is listed once each time its key is passed, whatever the size
+  of the updates: `for event in robot.events() { if event.name ==
+  "footstep" { ctx.play(step) } }`. The event on the key an animation
+  starts from is heard on the first update after `play` or `restart`;
+  looping, an event on the last key is heard as the loop comes round
+  and one on the first key at each round's start (on both, twice:
+  `duck-mold inspect` warns `event_twice`); played backwards, in the
+  reverse order; a long update lists every key passed, at most the
+  last ten rounds of a loop; changing animation stops the old one's at
+  once; stopped, finished, speed 0 or a pose: none. The list is
+  emptied by the next `update`.
 - **An animation doesn't move the model along the ground.** A walk
   swings the legs in place; the game changes the `Transform`. Match
   the speed to the steps or the feet slide: the example's robot takes
@@ -1673,6 +1687,12 @@ or the prelude):
   were scaled by the largest of the three.
 - Not physics: use a physics `Body` for standing and bumping, the hit
   shapes for which part a bullet or a click found.
+
+`examples/robot_click/` is hit shapes and events in one small game: the
+robot walks round, each `footstep` event plays a sound and leaves a
+puff at the foot that lands (the further forward of its two
+`foot.bottom` sockets), and a click names the part and flashes its
+triangles (`robot.mesh_mut().triangles[part.range()]`).
 
 **Any other glTF model, textured and moving.** A `.glb` from Blender or
 elsewhere loads with `GltfModel` (`use duckforge::gltf::GltfModel;`):

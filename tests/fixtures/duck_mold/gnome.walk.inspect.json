@@ -1,6 +1,6 @@
 {
   "ok": true,
-  "summary": "gnome, \"walk\": 0.8 s, 5 keys, loops, sinks 0.001 into the ground at 0.133 s, and is 0.002 above the ground at 0 s, nothing floating, 6 overlaps, no limits broken",
+  "summary": "gnome, \"walk\": 0.8 s, 5 keys, loops, sinks 0.002 into the ground at 0.1 s, nothing floating, 6 overlaps, no limits broken",
   "source": "examples/gnome.toml",
   "name": "gnome",
   "animation": "walk",
@@ -11,7 +11,10 @@
     {
       "key": 1,
       "at": 0.0,
-      "pose": "step_left"
+      "pose": "step_left",
+      "events": [
+        "footstep"
+      ]
     },
     {
       "key": 2,
@@ -21,7 +24,10 @@
     {
       "key": 3,
       "at": 0.4,
-      "pose": "step_right"
+      "pose": "step_right",
+      "events": [
+        "footstep"
+      ]
     },
     {
       "key": 4,
@@ -32,6 +38,18 @@
       "key": 5,
       "at": 0.8,
       "pose": "step_left"
+    }
+  ],
+  "events": [
+    {
+      "name": "footstep",
+      "at": 0.0,
+      "key": 1
+    },
+    {
+      "name": "footstep",
+      "at": 0.4,
+      "key": 3
     }
   ],
   "frames": 25,
@@ -46,9 +64,9 @@
   ],
   "ground": {
     "stays_on_ground": false,
-    "lowest_y": -0.001256,
-    "lowest_at": 0.13333333333333333,
-    "highest_y": 0.001738,
+    "lowest_y": -0.001959,
+    "lowest_at": 0.1,
+    "highest_y": 0.000038,
     "highest_at": 0.0
   },
   "floating": [],

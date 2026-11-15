@@ -72,6 +72,7 @@ cargo run --release --example duck_craft   # a Minecraft-style island: dig, buil
 cargo run --release --example stress3d   # thousands of spinning 3D shapes
 cargo run --example turntable  # a robot made in Duck Mold, slowly turning
 cargo run --example robot_walk # the same robot, moving: it idles, walks and waves
+cargo run --example robot_click # it walks round; its footsteps sound; click it to see which part
 cargo run --example physics    # 2D physics sandbox: click to drop balls and boxes
 cargo run --example breakout   # the classic game
 cargo run --example dodge      # dodge the falling rocks: sprites, shake and sound
@@ -104,6 +105,7 @@ cargo run --no-default-features --example breakout -- --headless --frames 600 --
 | `stress3d` | 1–6 pick 500 to 20,000 objects · O toggles orbit/fly |
 | `turntable` | Space stops and starts it · Left/Right turn it by hand |
 | `robot_walk` | Arrows walk the robot about · Space makes it wave |
+| `robot_click` | Click the robot: it says which part, which flashes |
 | `template` | Arrows or A/D run · Up, W or Space jumps · P pauses |
 | every game | **F1** debug overlay · **F3** shows the FPS · **F10** starts and stops recording · **F12** saves a screenshot (PNG) · Escape quits |
 
@@ -466,6 +468,24 @@ canvas.draw_mesh(self.robot.mesh(), &Transform::at(self.position), &self.camera)
 | `robot.is_playing()`, `robot.finished()`, `robot.playing()` | Whether something is running, whether a one-time animation has reached its end, and its name. |
 | `robot.socket("head.top")` | Where a socket is **now**: a hat stays on a nodding head, a sword in a waving hand. |
 | `robot.animations()`, `robot.poses()` | The names the model has. `duck-mold inspect robot.toml` lists them too. |
+| `robot.events()` | The moments the animation passed in the last `update`: the names its recipe puts on keys (`footstep`), each heard once each time its key is passed. Play a step sound, make a puff of dust. |
+
+```rust
+robot.update(ctx.dt());
+for event in robot.events() {
+    if event.name == "footstep" {
+        ctx.play(Sound::hit()); // a step
+    }
+}
+```
+
+An event on the key an animation starts from is heard on the first
+update after `play`; looping, the last key and the first are one
+moment; played backwards, the last key's are heard first; a long
+update hears every key it passed, from at most the last ten rounds of
+a loop; stopped, finished, at speed 0 or holding a pose, none.
+`duck-mold inspect robot.toml --animation walk` says when each is
+heard.
 
 Changing from one animation to another isn't a snap: the model changes
 over in 0.15 seconds (`robot.set_blend(0.0)` turns that off). A name the
@@ -505,6 +525,9 @@ if ctx.input.was_mouse_pressed(MouseButton::Left) {
 A model whose recipe has no hit shapes is never hit. This isn't
 physics: a physics body is still what a character stands and bumps
 with; the hit shapes say which part was found.
+[examples/robot_click/](examples/robot_click/main.rs) is the robot
+walking round, its footsteps making a sound and a puff of dust, and a
+click naming the part it found, which flashes.
 
 ### With physics
 
@@ -1050,7 +1073,7 @@ On a computer with one (in PowerShell or cmd, in the project folder):
 | `src/font.rs`     | A built-in 3-pixel-wide font: every printable ASCII character        |
 | `src/color.rs`    | Colors with alpha, and see-through blending                         |
 | `src/rng.rs`      | A tiny xorshift random number generator                             |
-| `examples/`       | `hello`, `shapes`, `template`, `starter_topdown`, `starter_shooter`, `scene_demo`, `pollen_run`, `breakout`, `dodge`, `duckling_parade`, `door_short`, `door_show_3d`, `physics`, `world3d`, `stress3d`, `turntable` and `robot_walk` |
+| `examples/`       | `hello`, `shapes`, `template`, `starter_topdown`, `starter_shooter`, `scene_demo`, `pollen_run`, `breakout`, `dodge`, `duckling_parade`, `door_short`, `door_show_3d`, `physics`, `world3d`, `stress3d`, `turntable`, `robot_walk` and `robot_click` |
 | `tools/write_ids.rs` | Writes the ids into a scene file made by hand: `cargo run --example write_ids -- FILE` |
 | `Start Duck Forge Studio.bat` | Builds Duck Forge Studio from this folder and opens it, with a double-click |
 | `tools/Run tests (for developers).bat` | Runs every test on Windows with a double-click: the engine's both ways, then the Studio's |

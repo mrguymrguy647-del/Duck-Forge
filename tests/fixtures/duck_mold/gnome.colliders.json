@@ -971,7 +971,9 @@
     "step_right",
     "wave_up",
     "wave_a",
-    "wave_b"
+    "wave_b",
+    "jump_crouch",
+    "jump_up"
   ],
   "animations": [
     {
@@ -985,6 +987,12 @@
       "length": 1.8,
       "loops": false,
       "keys": 8
+    },
+    {
+      "name": "jump",
+      "length": 1.3,
+      "loops": false,
+      "keys": 5
     }
   ],
   "warnings": [],

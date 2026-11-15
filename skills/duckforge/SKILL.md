@@ -53,7 +53,7 @@ Details: the guide's section 7 (cheat sheet) and section 11 (3D).
   gives a bot its way, hop by hop.
 - **Art** from Duck Quill: `quill export art/hero.json --sheet --out assets`, then
   `SpriteSheet::load("assets/hero.json")?` and `sheet.draw(canvas, "walk", time, feet, blit)` (by the pivot).
-  Tiles: `Tileset::grid(&sheet, 16, 16, &names)`. 3D models from Duck Mold: `Mesh::load_glb(path)?` (they face +z); `glb::GlbModel::load(path)?.socket("head.top")` says where to put a hat. Which part was clicked or shot: `ctx.mouse_ray(&camera).and_then(|ray| robot.hit_ray(ray, &place))` gives `PartHit { part, point, .. }` (also `hit_segment`, `hits_ball`), for recipes with `colliders = "parts"`.
+  Tiles: `Tileset::grid(&sheet, 16, 16, &names)`. 3D models from Duck Mold: `Mesh::load_glb(path)?` (they face +z); `glb::GlbModel::load(path)?.socket("head.top")` says where to put a hat. Which part was clicked or shot: `ctx.mouse_ray(&camera).and_then(|ray| robot.hit_ray(ray, &place))` gives `PartHit { part, point, .. }` (also `hit_segment`, `hits_ball`), for recipes with `colliders = "parts"`. Footsteps: after `robot.update(dt)`, `for e in robot.events() { if e.name == "footstep" { ... } }` (names a recipe puts on animation keys, each heard once per pass).
   Any other `.glb`: `gltf::GltfModel::load(path)?` (PNG textures, node animation: `model.draw_animated(..)`).
 - **Backgrounds**: `Background::new(image).parallax_xy(0.3, 0.1)`, drawn with `canvas.draw_background(&sky,
   &camera)` before `push_camera`; no seams.
