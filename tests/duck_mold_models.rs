@@ -848,8 +848,10 @@ const ANIMATIONS: [(&str, bool, f32); 4] = [
 /// animation, whether it loops and how long it lasts. The door opens
 /// (its handle first), the cart's wheels roll, and the gnome walks with
 /// the robot's walk (copied into its recipe from a file Duck Mold's
-/// `save-animation` wrote) and waves with Duck Mold's starter `wave`.
-const PLAYED: [(&str, &str, bool, f32); 8] = [
+/// `save-animation` wrote), waves with Duck Mold's starter `wave` and
+/// jumps with its starter `jump`, each stood on the ground by
+/// `fit-ground`.
+const PLAYED: [(&str, &str, bool, f32); 9] = [
     ("robot", "idle", true, 2.0),
     ("robot", "walk", true, 0.8),
     ("robot", "wave", false, 1.5),
@@ -858,6 +860,7 @@ const PLAYED: [(&str, &str, bool, f32); 8] = [
     ("cart", "roll", true, 1.0),
     ("gnome", "walk", true, 0.8),
     ("gnome", "wave", false, 1.8),
+    ("gnome", "jump", false, 1.3),
 ];
 
 fn robot(test: &str) -> Result<(TestFolder, PathBuf, AnimatedModel), LoadError> {

@@ -22,7 +22,7 @@ fn fixtures(test: &str) -> (TestFolder, PathBuf) {
 }
 
 /// Every animation of the example models.
-const ANIMATED: [(&str, &str); 8] = [
+const ANIMATED: [(&str, &str); 9] = [
     ("robot", "idle"),
     ("robot", "walk"),
     ("robot", "wave"),
@@ -31,6 +31,7 @@ const ANIMATED: [(&str, &str); 8] = [
     ("cart", "roll"),
     ("gnome", "walk"),
     ("gnome", "wave"),
+    ("gnome", "jump"),
 ];
 
 /// Updates that add up to `total` seconds, of sizes that repeat in a

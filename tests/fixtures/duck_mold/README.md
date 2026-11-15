@@ -9,7 +9,7 @@ version 4): every part is an object at the join it turns about. The
 robot also moves (reader version 5): its file holds four animations
 (`idle`, `walk`, `wave`, `jump`) and eight poses. So do the door (it
 opens), the cart (its wheels roll) and the gnome (it walks with the
-robot's walk, copied into its recipe from a file, and waves).
+robot's walk, copied into its recipe from a file, waves and jumps).
 
 `../duck_mold_before_tree/` holds three of the same models (`crate`,
 `house`, `robot`) as Duck Mold wrote them before that, at the end of its
@@ -28,7 +28,7 @@ its `tests/before-phase5/`.
 | `snowman.glb` | 600 | Balls, cones and coal: parts joined on curved surfaces. |
 | `door.glb` | 60 | A frame and a door on a hinge; `open` (the handle turns, then the door swings 90 degrees towards the front). |
 | `cart.glb` | 436 | A bed on four wheels (four assemblies), one spoke each so the turning shows; `roll` loops. |
-| `gnome.glb` | 432 | The robot's six part names on another body: four assemblies (arms and legs); `walk` (the robot's) and `wave`. |
+| `gnome.glb` | 432 | The robot's six part names on another body: four assemblies (arms and legs); `walk` (the robot's), `wave` and `jump` (the starters'), each stood on the ground by Duck Mold's `fit-ground`. |
 
 Each `<name>.inspect.json` is what `duck-mold inspect examples/<name>.toml
 --json` said about it: its size, its box (`bounds`), its triangle count and
@@ -57,7 +57,7 @@ is passed.
 
 `<model>.<animation>.inspect.json` (the robot's `idle`, `walk`,
 `wave` and `jump`, the door's `open`, the cart's `roll`, the gnome's
-`walk` and `wave`) are what `duck-mold inspect examples/robot.toml
+`walk`, `wave` and `jump`) are what `duck-mold inspect examples/robot.toml
 --animation <name> --json` said about each animation: its length, whether
 it loops, how many frames Duck Mold looked at (thirty a second), and how
 far the robot's lowest point goes below the ground and above it. The
