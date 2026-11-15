@@ -1032,6 +1032,47 @@ mod tests {
         }
     }
 
+    /// Lamps, shadows, glow and smooth edges are drawn by the CPU's lit
+    /// renderer, whatever the canvas's renderer: a canvas set to the GPU
+    /// gives exactly the CPU's picture, 2D under and over it included.
+    #[test]
+    fn lit_3d_on_a_gpu_canvas_is_the_cpu_picture_exactly() {
+        let Some(mut gpu) = gpu_canvas(160, 120) else {
+            return;
+        };
+        let mut cpu = Canvas::new(160, 120);
+        for canvas in [&mut gpu, &mut cpu] {
+            canvas.set_lamps(&[crate::lights::Lamp::point(
+                vec3(1.0, 2.5, -1.0),
+                Color::from_hex(0xffc080),
+                2.0,
+                9.0,
+            )
+            .with_shadows()]);
+            canvas.set_shadows(Some(crate::lights::Shadows {
+                resolution: 512,
+                lamp_resolution: 128,
+                ..Default::default()
+            }));
+            canvas.set_bloom(Some(crate::lights::Bloom::default()));
+            canvas.set_supersample(2);
+            canvas.set_threads(2);
+            draw_scene(canvas);
+            canvas.flush_3d();
+        }
+        let differ = gpu
+            .pixels()
+            .iter()
+            .zip(cpu.pixels())
+            .filter(|(a, b)| a != b)
+            .count();
+        assert_eq!(differ, 0, "{differ} pixels differ");
+        assert!(
+            gpu.renderer_name().starts_with("GPU:"),
+            "the GPU canvas still has its GPU for the plain look"
+        );
+    }
+
     /// 2D background, a floor, several shapes at odd angles, and 2D on top.
     fn draw_scene(canvas: &mut Canvas) {
         let camera = Camera3D::looking_at(vec3(-3.0, 4.0, -7.0), vec3(0.0, 0.5, 0.0));
