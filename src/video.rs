@@ -3,10 +3,14 @@
 //!
 //! Every frame is drawn and handed, at the game's own size, to `ffmpeg`,
 //! which enlarges it by the biggest whole number that fits in 1920 x 1080
-//! (each pixel a sharp square: 320 x 240 becomes 1280 x 960) and centres it
-//! on black. Only whole numbers keep every pixel the same size; 4.5 times,
-//! to fill the height exactly, would make some pixels wider than others.
-//! After the run, the sound (`audio.wav`) is added.
+//! (1080 x 1920 for a game taller than it's wide), each pixel a sharp
+//! square: 320 x 240 becomes 1280 x 960, and a vertical 1080 x 1920 short
+//! stays 1080 x 1920. The video is the game's own shape, with no black
+//! bars. Only whole numbers keep every pixel the same size; 4.5 times, to
+//! fill the height exactly, would make some pixels wider than others. A
+//! game bigger than that is kept at its own size (video formats need even
+//! sizes, so an odd one loses its last row or column). After the run, the
+//! sound (`audio.wav`) is added, in the same command.
 //!
 //! Without `ffmpeg`, the frames are saved as PNG files instead, next to
 //! `audio.wav`, and the exact `ffmpeg` command to join them is printed.
@@ -19,7 +23,8 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 
 use crate::canvas::Canvas;
 
-/// The video's size: the game is enlarged by a whole number to fit in this.
+/// The video's size: the game is enlarged by a whole number to fit in this
+/// (turned on its side for a game taller than it's wide).
 const FRAME_WIDTH: usize = 1920;
 const FRAME_HEIGHT: usize = 1080;
 
@@ -29,26 +34,38 @@ fn ffmpeg() -> String {
 }
 
 /// The biggest whole number the game can be enlarged by and still fit in
-/// 1920 x 1080, and the size of the video (at least the game's own size,
-/// rounded up to even numbers, which video formats need).
+/// 1920 x 1080 (or 1080 x 1920, for a tall game), at least 1, and the size
+/// of the video: the game's, enlarged, down to even numbers (which video
+/// formats need).
 pub(crate) fn layout(width: usize, height: usize) -> (usize, usize, usize) {
-    let scale = (FRAME_WIDTH / width.max(1))
-        .min(FRAME_HEIGHT / height.max(1))
-        .max(1);
-    let even = |n: usize| n + n % 2;
-    let video_w = even(FRAME_WIDTH.max(width * scale));
-    let video_h = even(FRAME_HEIGHT.max(height * scale));
-    (scale, video_w, video_h)
+    let (fit_w, fit_h) = if height > width {
+        (FRAME_HEIGHT, FRAME_WIDTH)
+    } else {
+        (FRAME_WIDTH, FRAME_HEIGHT)
+    };
+    let scale = (fit_w / width.max(1)).min(fit_h / height.max(1)).max(1);
+    let even = |n: usize| (n - n % 2).max(2);
+    (scale, even(width * scale), even(height * scale))
 }
 
-/// ffmpeg's filter for that: enlarge with sharp pixels, centre on black.
+/// ffmpeg's filter for that: enlarge with sharp pixels (and cut off an odd
+/// last row or column).
 fn filter(width: usize, height: usize) -> String {
     let (scale, video_w, video_h) = layout(width, height);
-    format!(
-        "scale={}:{}:flags=neighbor,pad={video_w}:{video_h}:(ow-iw)/2:(oh-ih)/2:black",
-        width * scale,
-        height * scale
-    )
+    let (big_w, big_h) = (width * scale, height * scale);
+    let mut filter = format!("scale={big_w}:{big_h}:flags=neighbor");
+    if (video_w, video_h) != (big_w, big_h) {
+        filter += &format!(",crop={video_w}:{video_h}:0:0");
+    }
+    filter
+}
+
+/// What [`layout`] made of a game's size, in words for the summary.
+fn size_words(width: usize, height: usize) -> String {
+    match layout(width, height) {
+        (1, w, h) => format!("{w} x {h}"),
+        (scale, w, h) => format!("{width} x {height} enlarged {scale} times, {w} x {h}"),
+    }
 }
 
 /// Collects a run's frames into a video (or into PNG files, without ffmpeg).
@@ -163,12 +180,8 @@ impl VideoWriter {
     /// Finishes the video, with `audio` (a WAV) if there's any sound, and
     /// says what it made, in one line for the summary.
     pub(crate) fn finish(self, audio: Option<&Path>) -> Result<String, String> {
-        let (scale, video_w, video_h) = layout(self.width, self.height);
         let seconds = self.frames as f64 / self.fps;
-        let size = format!(
-            "{} x {} enlarged {scale} times in {video_w} x {video_h}",
-            self.width, self.height
-        );
+        let size = size_words(self.width, self.height);
         match (self.encoder, self.frames_folder) {
             (Some((child, stdin, silent)), _) => {
                 drop(stdin); // the end of the frames: ffmpeg finishes the file
@@ -371,16 +384,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn games_are_enlarged_by_whole_numbers_into_1080p() {
-        assert_eq!(layout(320, 240), (4, 1920, 1080), "1280 x 960, centred");
-        assert_eq!(layout(240, 320), (3, 1920, 1080), "720 x 960");
-        assert_eq!(layout(480, 270), (4, 1920, 1080), "fills it exactly");
+    fn games_are_enlarged_by_whole_numbers_and_keep_their_shape() {
+        assert_eq!(layout(320, 240), (4, 1280, 960), "no black bars");
+        assert_eq!(layout(480, 270), (4, 1920, 1080), "fills 1080p exactly");
         assert_eq!(layout(1920, 1080), (1, 1920, 1080));
-        // Bigger than 1080p: as it is, rounded up to even sizes.
-        assert_eq!(layout(2001, 1201), (1, 2002, 1202));
+        // Tall games fit in 1080 x 1920, a phone's screen.
+        assert_eq!(layout(1080, 1920), (1, 1080, 1920), "a vertical short");
+        assert_eq!(layout(270, 480), (4, 1080, 1920));
+        assert_eq!(layout(240, 320), (4, 960, 1280));
+        // Bigger: as it is, an odd row or column cut off.
+        assert_eq!(layout(2160, 3840), (1, 2160, 3840));
+        assert_eq!(layout(2001, 1201), (1, 2000, 1200));
+        assert_eq!(filter(320, 240), "scale=1280:960:flags=neighbor");
+        assert_eq!(filter(1080, 1920), "scale=1080:1920:flags=neighbor");
         assert_eq!(
-            filter(320, 240),
-            "scale=1280:960:flags=neighbor,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black"
+            filter(2001, 1201),
+            "scale=2001:1201:flags=neighbor,crop=2000:1200:0:0"
+        );
+        assert_eq!(size_words(1080, 1920), "1080 x 1920");
+        assert_eq!(
+            size_words(320, 240),
+            "320 x 240 enlarged 4 times, 1280 x 960"
         );
     }
 }

@@ -27,6 +27,7 @@ pub const CAME_WITH_DUCK_FORGE: &[&str] = &[
     "empty",
     "hello",
     "mini_craft",
+    "night_cellar",
     "physics",
     "pollen_run",
     "quickstart",

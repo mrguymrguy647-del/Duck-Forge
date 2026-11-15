@@ -38,11 +38,9 @@ First build about 15 s, a one-line change under a second. `VERIFY OK` means it w
 tools/new_game.sh mygame topdown
 ```
 
-It copies the starter (and its feel file, not its tune file), renames its type, titles it ("Mygame"), points the
-bot at `playthroughs/mygame.json`, adds it to `Cargo.toml`, records a playthrough and runs `verify` (Windows:
-`tools\new_game.bat`). The platformer's and the top-down's level is two files, `level.txt` and
-`level.legend.json`: change it freely. Their tests don't name its positions (they play tiny levels of their own,
-and ask that the level's rules hold and the bot still wins on it).
+It copies the starter (with its feel file, not its tune file), renames and titles it, points the bot at
+`playthroughs/mygame.json`, adds it to `Cargo.toml`, records a playthrough and runs `verify` (Windows: `tools\new_game.bat`).
+The platformer's and top-down's level is `level.txt` + `level.legend.json`: change it freely (tests don't name it).
 
 ## 3. Built in: use these, don't write your own
 
@@ -56,9 +54,12 @@ Details: the guide's section 7 (cheat sheet) and section 11 (3D).
 - **Art** from Duck Quill: `quill export art/hero.json --sheet --out assets`, then
   `SpriteSheet::load("assets/hero.json")?` and `sheet.draw(canvas, "walk", time, feet, blit)` (by the pivot).
   Tiles: `Tileset::grid(&sheet, 16, 16, &names)`. 3D models from Duck Mold: `Mesh::load_glb(path)?` (they face +z); `glb::GlbModel::load(path)?.socket("head.top")` says where to put a hat.
+  Any other `.glb`: `gltf::GltfModel::load(path)?` (PNG textures, node animation: `model.draw_animated(..)`).
 - **Backgrounds**: `Background::new(image).parallax_xy(0.3, 0.1)`, drawn with `canvas.draw_background(&sky,
   &camera)` before `push_camera`; no seams.
-- **Music and hums**: a Duck Echo `.wav` with `ctx.play_loop(&music, 0.6)`; `ctx.stop_loop(id)`.
+- **Sound**: `ctx.play_loop(&music, 0.6)`; one-offs `ctx.play_with(&thud, 0.4, -0.5)` (volume, pan); a limiter
+  stops clipping. **Captions**: `Font::load("assets/fonts/DejaVuSerif-Bold.ttf")?` (any `.ttf`/`.otf`), then
+  `canvas.draw_font_text(&font, text, pos, &TextStyle { size, outline, shadow: Some(offset), ..Default::default() })`.
 - **3D**: `Mesh::block(&atlas, [top, sides, bottom])`, `.with_texture(sprite)`, `canvas.set_lighting(..)`,
   `.glowing()` / `mesh.set_glow(triangle, 1.0)`, `canvas.set_fog(Some(Fog { color: sky, near, far }))`,
   billboards for 2D characters, `camera.project(point, canvas)` for labels. Block worlds: `BlockWorld` +
@@ -66,6 +67,9 @@ Details: the guide's section 7 (cheat sheet) and section 11 (3D).
   chunks). Hands: `canvas.draw_mesh_in_view(..)` after the world; shadows, ghosts, glass:
   `canvas.draw_mesh_tinted(.., Color::rgba(0, 0, 0, 90))`, last. Mouse look: `ctx.lock_pointer(true)`, turn by
   `ctx.input.mouse_delta()` (Escape should free it; tests: `sim.move_mouse_by(vec2(dx, dy))`).
+- **Lit 3D** (CPU, every core, the same picture on any number): `canvas.set_lamps(&[Lamp::point(..),
+  Lamp::spot(..).with_shadows()])`, `set_shadows(Some(Shadows::default()))`, `set_bloom(Some(Bloom::default()))`,
+  `set_smooth_shading(true)`, `Config { supersample: 2, .. }`. Walls by the metre: `Mesh::floor/wall/tiled_box/room`.
 
 ## 4. The loop
 
@@ -120,25 +124,22 @@ or re-record.
 The Studio (an app; installed, its folder is `Documents\Duck Forge`) reads and writes the same files as you, so you can take
 turns, even while their game is open (it rebuilds when code changes and reloads a changed level):
 
-- they paint `examples/mygame/level.txt`, move Feel sliders (`examples/mygame.tune.json`; the sliders' labels
-  and presets are `examples/mygame.feel.json`) and go back in time in `history/` (leave it alone);
+- they paint `examples/mygame/level.txt`, move Feel sliders (`examples/mygame.tune.json`; labels and presets in
+  `examples/mygame.feel.json`) and go back in time in `history/` (leave it alone);
 - what they last played is `out/sessions/mygame/latest.json`: replay it with `--inputs` to see what they saw;
 - their Check is `tools/verify.sh` and the level's own lines; what it said is `out/verify/mygame/check.json`.
 
-Keep Check true after your change: the bot in `bot.rs` must still win on their level, with every Feel preset, so
-teach it any rule you add (a double jump, an enemy), and keep the game's `reload` working. With no window:
-`cargo run -p studio_app -- --run script.json` in `studio/` (guide 13).
+Keep Check true: the bot in `bot.rs` must still win on their level with every Feel preset, so teach it any rule you
+add, and keep `reload` working. With no window: `cargo run -p studio_app -- --run script.json` in `studio/`.
 
 ## 10. Common mistakes (and the quick start's five)
 
-- Report the player's position, not only the score, or `--fuzz` calls moving a freeze. `draw` has no `ctx`:
-  report, play sounds and check in `update`.
+- Report the player's position, not only the score, or `--fuzz` calls moving a freeze. Report in `update`.
 - Randomness not from `ctx.rng` breaks repeatable runs; effects get their own `Rng::new(1)`. Fast bullets pass
   through things: `swept_aabb`.
 - Without `test = true` in `Cargo.toml` the play tests never run.
-- `cargo test` doesn't rebuild the game's own program: after it, running `target/.../examples/mygame` runs old
-  code. Use `tools/verify.sh` or `cargo run`. A test keeps a picture with
-  `sim.picture().save_png("out/x.png")?`.
+- `cargo test` doesn't rebuild the game's own program: running `target/.../examples/mygame` after it runs old
+  code. Use `tools/verify.sh` or `cargo run`. A test keeps a picture with `sim.picture().save_png("out/x.png")?`.
 
 ## 11. Show your work
 
@@ -146,5 +147,4 @@ teach it any rule you add (a double jump, an enemy), and keep the game's `reload
 cargo run --release --no-default-features --example mygame -- --headless --inputs playthroughs/mygame.json --sheet-events --video out/show/run.mp4 --out out/show
 ```
 
-`--video` saves every frame, sharp, 1080p, with sound (needs `ffmpeg`). Send the sheet, the video and the verify
-report.
+`--video` saves every frame with sound (`ffmpeg`), the game's shape, no bars (1080 x 1920 is vertical: `examples/night_cellar`).

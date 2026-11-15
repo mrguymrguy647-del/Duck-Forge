@@ -10,7 +10,8 @@ the mouse pointer for mouse look),
 [wgpu](https://wgpu.rs) talks to the graphics card,
 [png](https://crates.io/crates/png) reads and saves pictures and
 [tinyaudio](https://crates.io/crates/tinyaudio) plays sound on Windows and
-macOS; everything else is written from scratch: drawing, text, both 3D
+macOS, and [ab_glyph](https://crates.io/crates/ab_glyph) reads TrueType and
+OpenType fonts; everything else is written from scratch: drawing, text, both 3D
 renderers, the sound synthesizer, the physics solver, input, and random
 numbers.
 
@@ -250,8 +251,10 @@ Forge".
 ## Features
 
 - **2D drawing:** rectangles, circles, lines, triangles, text in a built-in
-  pixel font (every ASCII character, lowercase too, multi-line), see-through colors (`Color::rgba`, `with_alpha`), and `.png`
-  or `.bmp` screenshots.
+  pixel font (every ASCII character, lowercase too, multi-line), text in
+  any `.ttf` or `.otf` font at any size with an outline and a soft drop
+  shadow (`Font::load`, `draw_font_text`: captions), see-through colors
+  (`Color::rgba`, `with_alpha`), and `.png` or `.bmp` screenshots.
 - **Sprites:** load a `.png`, or draw one with letters in your code
   (`Sprite::from_ascii`); cut frames from a sprite sheet, animate them, and
   draw them flipped, scaled (pixels stay sharp), tinted or see-through.
@@ -263,9 +266,11 @@ Forge".
 - **Sound, with no files needed:** `ctx.beep(440.0, 100.0)`, ready-made
   `Sound::coin()`, `jump()`, `hit()` and `explosion()`, your own synth
   sounds (square, sine, triangle or noise, with a pitch slide), `.wav`
-  files, and loops for music (`ctx.play_loop`, with volume and stop).
+  files, and loops for music (`ctx.play_loop`, with volume and stop);
+  one-off sounds at their own volume and pan (`ctx.play_with`).
   Headless runs mix every sound into `audio.wav` at its exact frame
-  and list it in `log.json`, so tests can check sounds too.
+  and list it in `log.json`, so tests can check sounds too; a limiter
+  keeps a busy mix from clipping, and `log.json` warns when it acted.
 - **Scenes:** a game's objects in a plain file, one per line
   (`examples/scene_demo/scenes/pond.json`): a name, a kind, a position,
   a picture, a turn, a scale, a layer, and settings of its own; a
@@ -284,11 +289,18 @@ Forge".
   pyramid, sphere, cylinder, cone, quad, checkerboard, blocks from an
   atlas, or build your own, and merge many into one), models made in
   [Duck Mold](https://github.com/mrguymrguy647-del/Duck-Mold) (its `.glb`
-  files, with their colours), transforms, a depth
+  files, with their colours) and any other `.glb` (`GltfModel`: PNG
+  textures and node animation), walls, floors and rooms whose texture
+  repeats by the metre, transforms, a depth
   buffer, and near-plane clipping. Textures with sharp pixels and
   see-through holes, drawn perspective-correct; a sun you can aim, colour
   and dim, and glowing meshes; sprites standing in the world
   (billboards); meshes off screen skipped (frustum culling).
+  - **Lit, on every CPU core**: point and spot lamps, shadows from the
+    sun and from lamps, bloom round glowing things, smooth shading and
+    supersampled edges, drawn in bands on every core, the same picture
+    on any number of them (`examples/night_cellar`, a vertical horror
+    short).
   - **On the graphics card** with wgpu (the default): meshes are cached on
     the GPU and every copy of a mesh is drawn with one draw call
     (instancing). Works with DirectX 12, Metal, Vulkan and OpenGL.
@@ -529,7 +541,7 @@ after `--` goes to the game, not to Cargo):
 | `--sheet-events` | Make `sheet.png` from the frames where reported values changed (state, lives, score...), plus the first and last, each captioned with what changed |
 | `--sheet-follow NAME` | Also save `sheet-follow.png`: the sheet's frames, each zoomed in three times around the label NAME (like `player`), to see small sprites |
 | `--gif` | Save `run.gif`: the run, shrunk, at about 20 pictures per second |
-| `--video FILE` | Save the run as a video (like `out/run.mp4`): every frame at the game's frame rate, each pixel a sharp square, enlarged by a whole number into 1920 x 1080 with black bars, with the sound. Needs `ffmpeg` (or `DUCKFORGE_FFMPEG`); without it the frames are saved as PNGs and the command to join them is printed |
+| `--video FILE` | Save the run as a video (like `out/run.mp4`): every frame at the game's frame rate, each pixel a sharp square, enlarged by the biggest whole number that fits 1920 x 1080 (1080 x 1920 for a tall game), in the game's own shape with no black bars, with the sound. Needs `ffmpeg` (or `DUCKFORGE_FFMPEG`); without it the frames are saved as PNGs and the command to join them is printed |
 | `--clip FILE` | Save the end of the run as a clip (like `out/clip.mp4`), to watch or share: with `ffmpeg`, a video like `--video`'s, with the sound; without it, a GIF next to it (`out/clip.gif`), full size and sharp, at the game's own speed with up to 50 pictures a second, and a line saying where to get `ffmpeg` for sound |
 | `--clip-seconds S` | How many seconds of the run's end `--clip` keeps (default 10) |
 | `--crop X,Y,W,H` | Save `closeup.png`: that area of the last frame (and of each snapshot), enlarged |

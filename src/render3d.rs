@@ -28,7 +28,7 @@ use crate::sprite::Sprite;
 
 /// Anything closer to the camera than this is cut off. Without it we'd
 /// divide by zero (or by negative numbers, for things behind the camera).
-const NEAR: f32 = 0.05;
+pub(crate) const NEAR: f32 = 0.05;
 
 /// The light 3D is drawn with: one sun, far away (all its rays are
 /// parallel, like real sunlight), and a soft light from everywhere.
@@ -300,7 +300,7 @@ impl Camera3D {
     /// (or 60 degrees if it isn't a number). At 0 or 180 degrees the
     /// projection would divide by zero, and beyond 180 the picture would turn
     /// upside down.
-    fn usable_fov(&self) -> f32 {
+    pub(crate) fn usable_fov(&self) -> f32 {
         if self.fov.is_finite() {
             self.fov.clamp(1f32.to_radians(), 179f32.to_radians())
         } else {
@@ -311,7 +311,12 @@ impl Camera3D {
     /// The numbers needed to project points onto `canvas`. They're worked
     /// out once and then used for every corner, since `tan` isn't cheap.
     fn projection(&self, canvas: &Canvas) -> Projection {
-        let (width, height) = (canvas.width() as f32, canvas.height() as f32);
+        self.projection_for(canvas.width() as f32, canvas.height() as f32)
+    }
+
+    /// [`projection`](Camera3D::projection) for a picture `width` x
+    /// `height` (the lit renderer's samples can outnumber the pixels).
+    pub(crate) fn projection_for(&self, width: f32, height: f32) -> Projection {
         Projection {
             center: vec2(width / 2.0, height / 2.0),
             // How many pixels one unit covers at distance 1. A narrow field of
@@ -337,14 +342,14 @@ impl Camera3D {
 }
 
 /// Turns camera-space points into canvas pixels (see [`Camera3D::projection`]).
-struct Projection {
+pub(crate) struct Projection {
     center: Vec2,
     focal_length: f32,
 }
 
 impl Projection {
     /// The perspective divide: further away (bigger `z`) means closer to the middle.
-    fn project(&self, p: Vec3) -> Vec2 {
+    pub(crate) fn project(&self, p: Vec3) -> Vec2 {
         vec2(
             self.center.x + p.x / p.z * self.focal_length,
             self.center.y - p.y / p.z * self.focal_length, // minus: screen y points down
@@ -1051,6 +1056,135 @@ impl Mesh {
         }
         mesh
     }
+
+    /// A floor `width` x `depth` metres, lying on the ground (y = 0),
+    /// facing up and centred on (0, 0, 0), for a texture repeating every
+    /// `metres_per_tile` metres: `Mesh::floor(8.0, 12.0, 2.0)
+    /// .with_texture(boards)` shows the boards picture once every 2 x 2
+    /// metres, 4 x 6 times. It's cut into squares no bigger than 1 metre
+    /// (so a long floor isn't one huge triangle), and the texture runs on
+    /// across them without a seam. White, so the texture shows as painted.
+    pub fn floor(width: f32, depth: f32, metres_per_tile: f32) -> Mesh {
+        let (w, d) = (width / 2.0, depth / 2.0);
+        let mut mesh = Mesh::new();
+        mesh.add_tiled_face(
+            vec3(-w, 0.0, -d),
+            vec3(width, 0.0, 0.0),
+            vec3(0.0, 0.0, depth),
+            metres_per_tile,
+        );
+        mesh
+    }
+
+    /// A wall `width` x `height` metres, standing up (in the x-y plane,
+    /// centred on (0, 0, 0)) and facing a camera that looks along +z, like
+    /// [`Mesh::quad`], for a texture repeating every `metres_per_tile`
+    /// metres (upright, starting at the wall's bottom edge). Cut into
+    /// squares no bigger than 1 metre; one side only.
+    pub fn wall(width: f32, height: f32, metres_per_tile: f32) -> Mesh {
+        let (w, h) = (width / 2.0, height / 2.0);
+        let mut mesh = Mesh::new();
+        mesh.add_tiled_face(
+            vec3(-w, -h, 0.0),
+            vec3(width, 0.0, 0.0),
+            vec3(0.0, height, 0.0),
+            metres_per_tile,
+        );
+        mesh
+    }
+
+    /// A box `size` metres (x, y, z), centred on (0, 0, 0), its six faces
+    /// facing out, for a texture repeating every `metres_per_tile` metres
+    /// on each face (upright on the sides): a crate, a pillar, a table
+    /// top. Cut into squares no bigger than 1 metre.
+    pub fn tiled_box(size: Vec3, metres_per_tile: f32) -> Mesh {
+        let mut mesh = Mesh::new();
+        for (origin, right, up) in box_faces(size) {
+            mesh.add_tiled_face(origin, right, up, metres_per_tile);
+        }
+        mesh
+    }
+
+    /// A room: [`Mesh::tiled_box`] with its faces facing *in*, so a camera
+    /// inside sees the floor, the walls and the ceiling (and from outside
+    /// it's invisible). Centred on (0, 0, 0): `Transform::at(vec3(0.0,
+    /// size.y / 2.0, 0.0))` puts its floor on y = 0.
+    pub fn room(size: Vec3, metres_per_tile: f32) -> Mesh {
+        let mut mesh = Mesh::new();
+        for (origin, right, up) in box_faces(size) {
+            // Read from the other side: the right is the other way.
+            mesh.add_tiled_face(origin + right, -right, up, metres_per_tile);
+        }
+        mesh
+    }
+
+    /// Adds a flat face from `origin` (its bottom-left corner seen from the
+    /// front) along `right` and `up`, cut into squares at most 1 metre
+    /// long, with texture coordinates in metres over `metres_per_tile`.
+    fn add_tiled_face(&mut self, origin: Vec3, right: Vec3, up: Vec3, metres_per_tile: f32) {
+        let tile = if metres_per_tile.is_finite() && metres_per_tile > 0.0 {
+            metres_per_tile
+        } else {
+            1.0
+        };
+        let (across, high) = (right.length(), up.length());
+        let cells = |length: f32| {
+            if length.is_finite() {
+                (length.ceil() as usize).clamp(1, 512)
+            } else {
+                1
+            }
+        };
+        let (nu, nv) = (cells(across), cells(high));
+        let first = self.vertices.len();
+        for j in 0..=nv {
+            for i in 0..=nu {
+                let (fu, fv) = (i as f32 / nu as f32, j as f32 / nv as f32);
+                self.add_vertex(origin + right * fu + up * fv);
+            }
+        }
+        let at = |i: usize, j: usize| first + j * (nu + 1) + i;
+        // Upright: v grows downwards in a picture, and the face's height
+        // upwards, so v is minus the height (the picture's top edge sits on
+        // the face's bottom edge, and repeats up from there).
+        let uv = |i: usize, j: usize| {
+            vec2(
+                i as f32 / nu as f32 * across / tile,
+                -(j as f32 / nv as f32) * high / tile,
+            )
+        };
+        for j in 0..nv {
+            for i in 0..nu {
+                self.add_quad_uv(
+                    at(i, j),
+                    at(i, j + 1),
+                    at(i + 1, j + 1),
+                    at(i + 1, j),
+                    [uv(i, j), uv(i, j + 1), uv(i + 1, j + 1), uv(i + 1, j)],
+                    Color::WHITE,
+                );
+            }
+        }
+    }
+}
+
+/// A box's six faces, facing out: each one's bottom-left corner (seen from
+/// outside), its right and its up.
+fn box_faces(size: Vec3) -> [(Vec3, Vec3, Vec3); 6] {
+    let (x, y, z) = (size.x / 2.0, size.y / 2.0, size.z / 2.0);
+    let (right, up, forward) = (
+        vec3(size.x, 0.0, 0.0),
+        vec3(0.0, size.y, 0.0),
+        vec3(0.0, 0.0, size.z),
+    );
+    [
+        (vec3(-x, -y, -z), right, up),      // the near side, facing -z
+        (vec3(x, -y, z), -right, up),       // the far side, facing +z
+        (vec3(x, -y, -z), forward, up),     // facing +x
+        (vec3(-x, -y, z), -forward, up),    // facing -x
+        (vec3(-x, y, -z), right, forward),  // the top, facing up
+        (vec3(-x, -y, z), right, -forward), // the bottom, facing down
+    ]
 }
 
 impl Canvas {
@@ -1112,6 +1246,12 @@ impl Canvas {
             self.forget_depth();
             self.drawing_in_view = true;
         }
+        if self.effects.on() {
+            // The lit renderer puts it back in the world, where the lamps
+            // and the sun light it as they light the world.
+            self.queue_mesh(mesh, transform, camera, Color::WHITE, true);
+            return;
+        }
         // A camera at the middle of the world, looking along +z: view
         // space is its world.
         let view = Camera3D {
@@ -1141,6 +1281,12 @@ impl Canvas {
         camera: &Camera3D,
         tint: Color,
     ) {
+        if self.effects.on() {
+            // Lamps, shadows, glow or smooth edges: the lit renderer (see
+            // frame3d.rs), which draws the whole frame at once.
+            self.queue_mesh(mesh, transform, camera, tint, false);
+            return;
+        }
         #[cfg(feature = "gpu")]
         if self.draw_mesh_on_gpu(mesh, transform, camera, tint) {
             return; // the graphics card will draw it (see gpu.rs)
@@ -1252,6 +1398,42 @@ impl Canvas {
             }
         }
     }
+
+    /// Adds a mesh to the lit renderer's frame.
+    fn queue_mesh(
+        &mut self,
+        mesh: &Mesh,
+        transform: &Transform,
+        camera: &Camera3D,
+        tint: Color,
+        in_view: bool,
+    ) {
+        if !in_view && self.effects.shadows.is_none() {
+            // Off screen, and it can't cast a shadow onto the screen.
+            let (center, radius) = mesh.bounding_ball();
+            let (width, height) = (self.width() as f32, self.height() as f32);
+            if !camera.might_see(
+                transform.apply(center),
+                radius * transform.largest_scale(),
+                width,
+                height,
+            ) {
+                return;
+            }
+        }
+        let adding = crate::frame3d::Adding {
+            mesh,
+            transform,
+            camera,
+            lighting: self.lighting(),
+            fog: self.fog(),
+            tint,
+            smooth: self.effects.smooth,
+            unlit: self.drawing_billboard,
+            in_view,
+        };
+        self.queue.add(adding);
+    }
 }
 
 /// How a [billboard](Canvas::draw_billboard_with) is drawn.
@@ -1332,7 +1514,9 @@ impl Canvas {
             scale: size,
         };
         let mesh = self.billboard_mesh(sprite, look.flip_x);
+        self.drawing_billboard = true;
         self.draw_mesh(&mesh, &transform, camera);
+        self.drawing_billboard = false;
     }
 }
 
@@ -1547,6 +1731,66 @@ mod tests {
                 normal.dot(middle) > 0.0,
                 "triangle {triangle:?} faces inward"
             );
+        }
+    }
+
+    #[test]
+    fn tiled_floors_walls_boxes_and_rooms_repeat_their_texture_by_the_metre() {
+        // A box faces out, a room in; both cut into squares of 1 metre at most.
+        let size = vec3(3.0, 2.5, 4.2);
+        let boxed = Mesh::tiled_box(size, 0.5);
+        assert_faces_point_outward(&boxed);
+        let room = Mesh::room(size, 0.5);
+        for triangle in &room.triangles {
+            let [a, b, c] = triangle.corners.map(|i| room.vertices[i]);
+            let middle = (a + b + c) * (1.0 / 3.0);
+            assert!((b - a).cross(c - a).dot(middle) < 0.0, "a room faces in");
+        }
+        let squares = |x: f32, y: f32| (x.ceil() * y.ceil()) as usize * 2;
+        let expected = 2 * (squares(3.0, 2.5) + squares(4.2, 2.5) + squares(3.0, 4.2));
+        assert_eq!(boxed.triangles.len(), expected);
+        let (low, high) = boxed.bounds();
+        assert_eq!((low, high), (size * -0.5, size * 0.5), "centred");
+
+        // A floor 8 x 6, texture every 2 metres: coordinates 0 to 4 across
+        // and 0 to -3 along, the same where squares meet (no seams).
+        let floor = Mesh::floor(8.0, 6.0, 2.0);
+        assert_eq!(floor.triangles.len(), 8 * 6 * 2);
+        let mut seen: Vec<(Vec3, Vec2)> = Vec::new();
+        for (index, triangle) in floor.triangles.iter().enumerate() {
+            let uvs = floor.uvs[index].unwrap();
+            for (corner, uv) in triangle.corners.iter().zip(uvs) {
+                let p = floor.vertices[*corner];
+                assert_eq!(p.y, 0.0);
+                assert!(
+                    (uv.x - (p.x + 4.0) / 2.0).abs() < 1e-5,
+                    "across: {p:?} {uv:?}"
+                );
+                assert!(
+                    (uv.y + (p.z + 3.0) / 2.0).abs() < 1e-5,
+                    "along: {p:?} {uv:?}"
+                );
+                if let Some((_, other)) = seen.iter().find(|(q, _)| *q == p) {
+                    assert_eq!(*other, uv, "the same point, the same place on the texture");
+                }
+                seen.push((p, uv));
+            }
+            let [a, b, c] = triangle.corners.map(|i| floor.vertices[i]);
+            assert!((b - a).cross(c - a).y > 0.0, "a floor faces up");
+        }
+
+        // A wall faces the camera like a quad, and its picture is upright:
+        // higher on the wall is higher on the picture (smaller v).
+        let wall = Mesh::wall(2.0, 3.0, 1.0);
+        let camera = Camera3D::new(vec3(0.0, 0.0, -4.0));
+        for (index, triangle) in wall.triangles.iter().enumerate() {
+            let [a, b, c] = triangle.corners.map(|i| wall.vertices[i]);
+            assert!((b - a).cross(c - a).dot(a - camera.position) < 0.0);
+            let uvs = wall.uvs[index].unwrap();
+            for (corner, uv) in triangle.corners.iter().zip(uvs) {
+                let p = wall.vertices[*corner];
+                assert!((uv.y + (p.y + 1.5)).abs() < 1e-5, "upright: {p:?} {uv:?}");
+            }
         }
     }
 

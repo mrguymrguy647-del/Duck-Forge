@@ -43,6 +43,9 @@ softbuffer = { version = "0.4", optional = true, default-features = false, featu
 gif = "0.14"
 png = "0.18"
 serde_json = "1"
+# Reads TrueType and OpenType fonts and turns their letters into pixels
+# (see font_file.rs). Pure Rust, on the CPU.
+ab_glyph = { version = "0.2", default-features = false, features = ["std"] }
 wgpu = { version = "30", optional = true }
 pollster = { version = "1", optional = true }
 bytemuck = { version = "1", features = ["derive"], optional = true }
@@ -154,4 +157,8 @@ test = true
 
 [[example]]
 name = "robot_walk"
+test = true
+
+[[example]]
+name = "night_cellar"
 test = true

@@ -40,12 +40,16 @@ mod diff;
 pub mod engine;
 pub mod error;
 mod files;
+pub mod font_file;
+mod frame3d;
 mod fuzz;
 pub mod glb;
+pub mod gltf;
 #[cfg(feature = "gpu")]
 mod gpu;
 pub mod headless;
 pub mod input;
+pub mod lights;
 pub mod math;
 pub mod on_screen;
 pub mod physics;
@@ -100,7 +104,9 @@ pub mod prelude {
     pub use crate::canvas::{Canvas, Placed};
     pub use crate::color::Color;
     pub use crate::engine::{Config, Context, Corner, FailedCheck, Game, Timestep};
+    pub use crate::font_file::{Align, Font, TextStyle};
     pub use crate::input::{Input, Key, MouseButton};
+    pub use crate::lights::{Bloom, Lamp, Shadows, Spot};
     pub use crate::math::{
         Hit, Rect, Vec2, Vec3, approach, circle_vs_circle, circle_vs_rect, remap, swept_aabb, vec2,
         vec3,

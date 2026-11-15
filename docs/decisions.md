@@ -5226,3 +5226,142 @@ another model with a `walk`: nothing ties the two files together.
 |---|---|
 | Models that move | 4 (robot, door, cart, gnome) |
 | Animations played and pictured | 8 |
+
+# Lit 3D, fonts and video for shorts
+
+An agent made a 47-second vertical horror short (1080 x 1920, 30 fps)
+with Duck Forge and listed what it had to work round. Each item was
+checked against the code first: all nine were real, two in part (a
+one-off sound already had a pan, and `--video` already added the sound).
+
+## What was built
+
+1. **Lamps and smooth shading.** `Lamp::point` and `Lamp::spot` (position,
+   colour, power, reach; a spot's cone and soft edge), as many as wanted,
+   with `canvas.set_lamps`. `canvas.set_smooth_shading(true)` shades the
+   meshes drawn after it from corner normals.
+2. **Shadows.** `canvas.set_shadows(Some(Shadows::default()))`: the sun's,
+   and each lamp's made `with_shadows()` (spot lamps one shadow map, point
+   lamps six).
+3. **Bloom.** `canvas.set_bloom(Some(Bloom::default()))`: glowing triangles
+   glow into the picture round them.
+4. **Smooth edges and threads.** `Config::supersample` /
+   `canvas.set_supersample`, and every core draws.
+5. **Video.** `--video` keeps the game's shape: enlarged by a whole number
+   to fit 1920 x 1080, or 1080 x 1920 for a tall game, with no black bars,
+   with the sound, in one command.
+6. **Sound.** `ctx.play_with(sound, volume, pan)` for one-off sounds, a
+   limiter on the recorded mix, and a warning in `log.json` when it acted.
+7. **Text.** `Font::load` (TTF and OTF) and `canvas.draw_font_text` with a
+   `TextStyle`: any size, outline, drop shadow (blurred if asked),
+   alignment and wrapping. `assets/fonts` has DejaVu Serif Bold (TTF) and
+   Inter Bold (OTF), unchanged, with their licences.
+8. **Walls and floors.** `Mesh::floor`, `Mesh::wall`, `Mesh::tiled_box`
+   and `Mesh::room`: cut into squares of at most a metre, the texture
+   repeating every so many metres.
+9. **glTF models.** `GltfModel` reads any `.glb`: PNG textures, the tree of
+   nodes and their animations (translation, rotation, scale).
+
+`examples/night_cellar` uses lamps, shadows, glow, supersampling, smooth
+shading, TrueType captions and sound volumes, and makes an 8-second
+vertical video with its sound in one command.
+
+## Decisions made on the way
+
+**A second CPU renderer, used only when asked for.** The plain renderer
+lights a triangle once and draws it the moment it's given; lamps need
+the light at every pixel, and shadows need every mesh before any pixel is
+lit (the shadow map). So the *lit renderer* (`frame3d.rs`) collects the
+frame's 3D and draws it at `flush_3d`, the place the GPU batches already
+finish. It's used only when a lamp, shadows, bloom, smooth shading or
+supersampling is on; otherwise nothing changes. With none of them, its
+pixels are the plain renderer's exactly (the same edge functions, sums,
+rounding and order), and a test draws four scenes both ways and compares
+every pixel, so it can't drift.
+
+**Bands of rows, so the picture doesn't depend on the threads.** The
+frame is cut into bands of 16 rows; a band is drawn from the same
+triangles in the same order, whoever draws it. One thread or sixteen
+give the same picture (a test checks 1 against 4), every run. Threads
+come from `std::thread::scope`, with no new crate.
+
+**Depth first, then light each point once.** In each band every solid
+triangle is depth-tested first, keeping only which is nearest; then each
+point is lit once. A point behind ten walls is lit once, not ten times.
+With supersampling, a pixel's samples on the same triangle share one
+lighting (like a graphics card's multisampling): edges get the extra
+work, the insides don't, so 2 x 2 costs far less than four times.
+
+**Shadow maps fit what the camera sees.** The sun's covers the view up to
+`Shadows::distance` (and no more than the things casting shadows), so its
+pixels aren't spent on the far side of the world. Points are moved a
+little off their surface before the lookup, which keeps faces from
+shadowing themselves, and `softness` averages the nearby map pixels.
+Glowing triangles cast no shadow: a bulb would otherwise shadow its own
+light (the first frame of the example had a black disc round it).
+
+**Bloom in two blurs at small sizes.** A tight blur (a halo round small
+lights) and a wide one (the glow in the air), each worked out a few
+times smaller than the picture, skipping rows with no glow. One wide blur
+alone hid the bulb's halo; a full-size tight blur doubled the frame time.
+
+**Not on the graphics card.** These settings draw on the CPU even in a
+window with a GPU: the brief was CPU-only and the same frames every
+time, and the GPU's results differ by a shade at edges. The plain look
+still goes to the GPU.
+
+**Lighting stays as it was.** `Lighting` is built field by field in
+games (`starter_runner3d`, `duck_craft`), so it gained no fields: lamps,
+shadows and bloom are separate settings. `Mesh` gained no fields either:
+smooth shading works its normals out from the triangles each draw (by
+position, so meshes made of separate triangles smooth too) instead of
+storing them.
+
+**Video.** The old frame was always 1920 x 1080 with black bars round the
+game. Now the video is the game's shape, enlarged by the biggest whole
+number that fits 1920 x 1080, turned on its side for a tall game. A game
+bigger than that keeps its size; an odd size loses a row or a column,
+since video needs even sizes (cropping is better than a black bar).
+
+**The limiter.** Clamping cut peaks flat (a crackle). The limiter turns
+the mix down only where it would go over: it looks 5 ms ahead, glides
+down over those 5 ms, and comes back over about a tenth of a second. A
+mix that never goes over is left exactly as before, so every existing
+`audio.wav` is unchanged. In a window the existing soft limiter stays
+(it can't look ahead).
+
+**A font crate.** Reading TrueType and OpenType outlines (TrueType's
+curves, OpenType's CFF) is a big job; `ab_glyph` does it in pure Rust and
+was already in the Studio's build. It adds `ab_glyph`,
+`ab_glyph_rasterizer`, `owned_ttf_parser` and `ttf-parser` to the
+headless build; `tests/dependencies.rs` lists them now. A clean headless
+build of `dodge`, three times each way, alternating: 17.8, 18.4 and 18.7
+s before, 20.0, 20.0 and 20.1 s after (about 1.8 s, 10%; ttf-parser takes
+5 s but builds while png and serde_json do). Captions in headless videos
+are the point, so it's not behind a feature.
+
+**glTF beside Duck Mold's reader, not in it.** `glb.rs` holds Duck Mold's
+reader byte for byte, shared with that project, so the general reader is
+its own module, `gltf.rs`. It mirrors x as Duck Mold's does, so models
+from both face the same way. What it can't read (JPEG textures, skins,
+morph targets) is said in `warnings` and the rest still loads, rather
+than refusing a whole model for one JPEG. `Mesh::load_glb` falls back to
+it for files Duck Mold didn't make.
+
+## The numbers
+
+On this machine (4 cores), `examples/night_cellar`, all 240 frames, with
+`--headless --time`:
+
+| | Drawing, all 240 frames | A frame |
+|---|---|---|
+| Before: the plain renderer, sun light only, at 2160 x 3840 (the agent's way of getting smooth edges), 1 thread | 113.4 s | 0.47 s |
+| After: the lit renderer at 1080 x 1920, 2 x 2 supersampling, two lamps with shadows, bloom, 4 threads | 58.9 s | 0.25 s |
+| After, the same on 1 thread | 202.2 s | 0.84 s |
+
+The same number of points a frame (8.3 million), now with lamps, shadows
+and glow, in half the time. The agent's run (1,425 frames at 2160 x 3840,
+14 minutes: 0.59 s a frame on its machine) would take about 6 minutes
+this way here. The video of the short (240 frames, 1080 x 1920, with its
+sound, encoded by ffmpeg) took 72 s in all.
+
