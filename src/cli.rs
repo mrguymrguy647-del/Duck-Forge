@@ -712,6 +712,7 @@ mod tests {
     /// Flags in the docs that aren't the engine's: Cargo's, the Rust
     /// installer's, and the stress3d example's own options.
     const NOT_ENGINE_FLAGS: &[&str] = &[
+        "--bin",
         "--example",
         "--examples",
         "--no-default-features",
@@ -849,6 +850,9 @@ mod tests {
             }
             if option.name == "--clip-seconds" {
                 words.extend([String::from("--clip"), String::from("c.mp4")]);
+            }
+            if option.name == "--profiles" {
+                words.push(String::from("--review"));
             }
             if option.name == "--accept" {
                 words.extend([String::from("--inputs"), String::from("p.json")]);
