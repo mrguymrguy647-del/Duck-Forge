@@ -1296,3 +1296,44 @@ fn every_function_in_the_cheat_sheet_is_used_here() {
         "the cheat sheet was found and read"
     );
 }
+
+#[test]
+fn actions_are_names_for_keys() {
+    struct Hopper {
+        hops: u32,
+        x: f32,
+    }
+    impl Game for Hopper {
+        fn update(&mut self, ctx: &mut Context) {
+            if ctx.frame() == 1 {
+                // A key of the game's own for an action of the game's own.
+                ctx.input.bind("dash", &[Key::LeftShift]);
+            }
+            if ctx.input.action_pressed("jump") {
+                self.hops += 1;
+            }
+            let _ = ctx.input.action_released("jump");
+            self.x += ctx.input.action_axis("left", "right");
+            if ctx.input.action_down("dash") {
+                self.x += 10.0;
+            }
+        }
+        fn draw(&self, _: &mut Canvas) {}
+    }
+    let mut sim = Simulation::new(Config::default(), Hopper { hops: 0, x: 0.0 });
+    sim.step();
+    // Up, then Space while Up is held: one jump, not two.
+    sim.press(Key::Up);
+    sim.step();
+    sim.press(Key::Space);
+    sim.step();
+    sim.release(Key::Up);
+    sim.release(Key::Space);
+    sim.step();
+    assert_eq!(sim.game().hops, 1);
+    // D is right; Shift is dash.
+    sim.press(Key::D);
+    sim.press(Key::LeftShift);
+    sim.step();
+    assert_eq!(sim.game().x, 11.0);
+}

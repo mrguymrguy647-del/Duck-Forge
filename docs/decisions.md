@@ -5245,8 +5245,9 @@ one-off sound already had a pan, and `--video` already added the sound).
    lamps six).
 3. **Bloom.** `canvas.set_bloom(Some(Bloom::default()))`: glowing triangles
    glow into the picture round them.
-4. **Smooth edges and threads.** `Config::supersample` /
-   `canvas.set_supersample`, and every core draws.
+4. **Smooth edges and threads.** `canvas.set_supersample`, and every
+   core draws. (`Config::supersample` was here too, until "The lit
+   renderer only in games that use it", below, took it out.)
 5. **Video.** `--video` keeps the game's shape: enlarged by a whole number
    to fit 1920 x 1080, or 1080 x 1920 for a tall game, with no black bars,
    with the sound, in one command.
@@ -5365,4 +5366,260 @@ and glow, in half the time. The agent's run (1,425 frames at 2160 x 3840,
 14 minutes: 0.59 s a frame on its machine) would take about 6 minutes
 this way here. The video of the short (240 frames, 1080 x 1920, with its
 sound, encoded by ffmpeg) took 72 s in all.
+
+
+# Phase 5, Step 6, part 1: main brought up to date, and the first ready-made behaviour
+
+## Part A: one branch with everything
+
+`claude/phase5-step6` starts from main (Steps 1 to 4, Duck Mold's tree of
+parts and motion, and the door, cart and gnome examples, which were on
+main already) and merges the two branches that weren't:
+`claude/phase5-step5` (scripts) merged cleanly, and the lit 3D, fonts,
+sound and video branch clashed in `Cargo.toml`, `docs/AI_GUIDE.md` and
+this file only where both sides added to the same list; every side's
+lines are kept. Nothing was dropped from either side.
+
+### Two model readers
+
+The engine had two: `src/glb.rs`, Duck Mold's reader (a byte-for-byte
+copy of the one in Duck Mold, between its markers, for the models Duck
+Mold writes: tree of parts, sockets, animations, `AnimatedModel`), and
+`src/gltf.rs` (`GltfModel`), which reads any glTF `.glb` with its
+textures and node animation.
+
+**Chosen: two readers, each the only one for its own files, sharing
+nothing but the `Mesh` they make.** Neither is built on the other:
+
+- Duck Mold's reader can't be built on `GltfModel`: it's Duck Mold's own
+  file, copied in unchanged so the two programs can never disagree about
+  what a Duck Mold model is, and it has what `GltfModel` hasn't (sockets,
+  poses, blending). Changing it here would break that promise.
+- `GltfModel` can't be built on Duck Mold's reader: that reader refuses
+  any file Duck Mold didn't write, on purpose (it checks Duck Mold's
+  marks so a wrong file says so plainly).
+- So neither is a copy of the other's code: they share the `Mesh` type
+  and nothing else. `Mesh::load_glb` used to fall back to `GltfModel` for
+  files Duck Mold didn't make; that fallback is gone, so a game that only
+  loads Duck Mold's models carries only Duck Mold's reader (67,000 bytes
+  less than with the fallback). A file Duck Mold didn't make gets a
+  message naming the other reader: "...only .glb files made by Duck Mold
+  load here: make one with duck-mold export recipe.toml, or load a .glb
+  from anywhere else with duckforge::gltf::GltfModel::load".
+- Nothing that loaded before stops loading: every Duck Mold model loads
+  with `Mesh::load_glb` as before (the tests of all nine of Duck Mold's
+  fixtures pass), and `GltfModel::load` reads them too, to the same
+  triangles and colours (a test compares the two readers on all nine).
+
+### The new 3D and the engine's rules
+
+Checked one rule at a time, plainly:
+
+| Rule | Kept? |
+|---|---|
+| The same picture on the CPU and the GPU | Yes, but only because the lit renderer is CPU only. Lamps, shadows, glow, smooth shading and supersampling are always drawn on the CPU, even in a window with a graphics card; a test draws a lit scene on a canvas set to the GPU and gets the CPU's picture exactly. The plain renderer still uses the GPU as before |
+| Replays match frame for frame | Yes. The lit renderer draws in bands of 16 rows on several threads and joins them in order; the picture is the same with any number of threads (a test draws the same lit frame on 1 thread and on 4). Every older example's playthrough replays here to main's pictures (the row below), and `tools/verify` replays each playthrough exactly |
+| The old "Duck Forge look" unchanged when it's chosen | Yes. With no lamps, shadows, glow, smooth shading or supersampling, nothing goes to the lit renderer: meshes are drawn exactly as before (and a test shows the lit renderer, given nothing to do, draws what the plain one does, pixel for pixel). The plain triangle filler is main's again, line for line (see the next row but one) |
+| Every older example's picture unchanged | Yes: every example main has, drawn on main and on this branch for 600 frames with the same seed and its playthrough, a picture every 60 frames: all 264 pictures of all 24 examples are the same, byte for byte. Their sound (`audio.wav`) is the same, byte for byte, for the 12 that make sound, and none trips the new limiter |
+| Existing games no slower | **No, at first.** That branch rewrote the plain renderer's triangle filler to skip three divisions for pixels outside a triangle; it drew the same pixels but did 7.5% more work drawing meshes (the 3D runner: 220.8 million instructions drawing its meshes in 600 frames on main, 237.4 million after). Main's filler is back, and the lit renderer has its own. The new limiter also reads the whole sound once when a headless run writes `audio.wav` (14.5 million instructions for 10 seconds of sound, about 5 ms, once, at the end): not while the game plays |
+| Existing games no bigger (more than 1%) | **No, at first.** Merged as it was, every game carried the lit renderer whether it used it or not: on GitHub's Windows machine the Platformer starter was 120,320 bytes (3.1%) bigger than main, the shooter 3.1%, the 3D runner 1.5% and the scene demo 3.7%. Fixed: see "The lit renderer only in games that use it" |
+
+Where the new 3D doesn't do what you might expect, though no rule says
+it must:
+
+- **A window's GPU isn't used for lit scenes.** A game that turns on
+  lamps draws all its 3D on the CPU, on every core. On this machine the
+  night cellar draws a 1080 x 1920 frame with two lamps, shadows, glow and
+  2 x 2 supersampling in 0.25 s: fine for making a video, too slow to
+  play at 60 frames a second at that size. At the Platformer's 320 x 240
+  it's fast enough to play.
+- **Plain and lit meshes don't share depth in one frame on a GPU
+  canvas.** If a game draws some meshes with the lit renderer and then
+  turns it off and draws more, the second lot (drawn by the GPU) doesn't
+  hide behind the first. Turning effects on and off within one frame is
+  unusual; the guide says to set them at the start of `draw`.
+- **`--video` of an older game is a different size from main's.** Main
+  put black bars round a game whose shape wasn't the video's; the new
+  `--video` makes the video the game's own size, with no bars. The
+  game's pictures are the same; only the video file differs.
+
+### The lit renderer only in games that use it
+
+The cause of the size: `Canvas::flush_3d` called the lit renderer
+whenever its queue had anything, and every game draws through a canvas,
+so every game carried all of it (lamps, shadow maps, glow, bands on
+threads: about 60,000 bytes of machine code) and `Simulation` set every
+canvas's supersampling from `Config::supersample` at the start.
+
+Now the lit renderer is reached only through two function pointers (in
+`lights.rs`, `LIT`), which `set_lamps`, `set_shadows`, `set_bloom`,
+`set_smooth_shading` and `set_supersample` put in the canvas. A game
+that never calls one of them never mentions the lit renderer, so the
+compiler leaves it out. `Config::supersample` went: it was read for
+every game, so it made every game carry it.
+`canvas.set_supersample(2)` at the start of `draw` does the same (the
+night cellar already did both). That's the one change to the lit
+branch's way of being used.
+
+## Part B: Step 6, part 1: the Platformer player, the pattern for the other seven
+
+### What was built
+
+1. **Named actions** (`src/input.rs`). `left` (Left, A), `right` (Right,
+   D), `up` (Up, W), `down` (Down, S) and `jump` (Space, Up, W):
+   `action_down`, `action_pressed`, `action_released`, `action_axis`, and
+   `bind("jump", &[Key::J])` to give one other keys or make a new one.
+   The smallest version that keeps keyboard play as it is: an action is a
+   list of keys, read the same way the keys are read (so `--fuzz` still
+   knows which keys a game listens to, and recordings, which hold keys,
+   replay exactly). No existing game was changed to use them: their keys
+   work exactly as before. When gamepads come, an action gets buttons as
+   well as keys, and nothing that reads actions changes.
+2. **Ready-made kinds** (`src/scene/ready/`). Each is a script that comes
+   with Duck Forge, written as a game's own (`use duckforge::prelude::*;`
+   and nothing else: inside the engine, `extern crate self as duckforge`
+   in `lib.rs` makes that name the engine). `ready::ALL` lists them with
+   what the Studio calls them. A scene runs one for any object whose
+   `"kind"` names it, with no `scripts.rs` and no code: `Scripts` falls
+   back on them for a kind the game's own scripts haven't got (the game's
+   own script of the same name would win, but the Studio won't make one,
+   and `new_name` refuses the name). The Studio's "scripts" question
+   lists them, marked `"ready_made": true`, with their label and a few
+   words about them.
+3. **The Platformer player** (`src/scene/ready/platformer_player.rs`,
+   `"kind": "platformer_player"`): runs, jumps, falls, lands on one-way
+   planks; faces the way it runs; shows its sheet's idle, run, jump and
+   fall animations if it has them; comes back where it started if it
+   falls out of the scene; the scene's ends are walls. Ten boxes in the
+   Inspector (run speed, jump height, gravity, stays inside, comes back,
+   jump sound, and its four animations), and eight more for
+   experts (fall limit, speed-up time, short hops, jumping just after an
+   edge, jumps pressed early, and the three actions it reads).
+   "Jumps this high" is exact to a pixel: the jump speed allows for the
+   updates coming in steps of a 60th of a second (rising under gravity
+   in steps loses half a step's height).
+4. **Two things any script can use**, added to `Scene` because the player
+   needed them and a game's own copy must be able to use them too:
+   `scene.play_sound(ctx, "assets/jump.wav")` (loaded the first time and
+   kept; one that can't be loaded is a problem of the scene's, said once)
+   and `scene.has_animation(id, "run")`.
+5. **`examples/ready_made/`**: a game with no code but its five-line
+   `main.rs` (`SceneGame::new("examples/ready_made").run()`), a scene with
+   a duck that is a Platformer player, a one-way plank and some bricks,
+   its playthrough (recorded by playing it through by where the duck is:
+   `cargo test --example ready_made -- --ignored`), and its tests. Each
+   behaviour still to come is added to this scene as it's built.
+6. **Turn into code** (`{"do": "script.turn_into_code", "ids": [5],
+   "name": "duck"}`, the name optional). It writes `scripts/duck.rs`
+   (Duck Forge's file with its first lines saying it's the game's own
+   now, and its type renamed `Duck`; every other line the same), adds it
+   to `scripts.rs` (making `scripts.rs` the first time, and connecting
+   `main.rs`: `mod scripts;` and `.with_scripts(scripts::all())`), and
+   changes the objects' kind to `duck`. Their settings stay, with the
+   same names. It's one step of Undo, which puts all four files back (the
+   code to the Recycle Bin). `turn_into_code_plan` works out exactly what
+   it will write first, and the Studio's window shows that and the whole
+   file before anything is written, with "Only this duck" or "All N
+   objects that use Platformer player". If `main.rs` loads its scene in a
+   way the Studio can't follow, it writes nothing and says the one line
+   to add.
+7. **The Studio's screens**: the Inspector shows a ready-made object's
+   kind by name, with what it does, its settings (the expert ones folded
+   under "8 more settings"), Turn into code... and Remove. Add has a
+   "Ready-made" row (a Platformer player needs a picture, like a
+   Picture). The Script box lists the ready-made kinds after the game's
+   own. The Scene list says "Platformer player", not `platformer_player`.
+
+Pictures: `docs/studio-screens/52` to `55`.
+
+### Decisions made on the way
+
+- **Actions are names for keys, kept in `Input`, with the usual ones
+  built in.** Not in a file yet: `game.json` will say a game's own
+  actions when there are several scenes (step 7), and gamepads add
+  buttons to the same names. The built-in list is a constant, so a game
+  that never reads an action carries only an empty list.
+- **An action starts once.** `action_pressed("jump")` is true when a key
+  of it is pressed and none of its keys was held the frame before, so
+  pressing Space while Up is held isn't a second jump.
+- **The player reads three actions it names in settings**, `left`,
+  `right` and `jump`, for experts. Two players in one scene are two
+  objects naming different actions (`p2_left`), given keys by
+  `ctx.input.bind`, until `game.json` can name them.
+- **Ready-made kinds are linked into every game that uses scenes**, not
+  only those that use them: a scene finds its scripts by the names in its
+  file, which can change while it runs, so the engine can't know in
+  advance. It's about 13,000 bytes (0.3% of the scene demo). Games
+  without scenes carry none of it.
+- **The engine's file is the one the game gets**, text for text, but the
+  first lines and the type's name. So "Turn into code" can't drift from
+  what the behaviour does, and the copy is checked: a test compares the
+  copy with the engine's file line by line, and the Studio's real-game
+  test replays the ready-made game's whole playthrough before and after
+  turning the duck into code, and the last pictures are the same.
+- **Turning into code in the middle of a jump** starts the new script
+  fresh at the frozen frame (its speed is 0 there, so it falls instead
+  of finishing the jump). From the start of the game it plays the same,
+  which the replay above proves. Carrying a ready-made script's state
+  over to the game's copy would need every behaviour to save and load
+  its state; it isn't worth it for one frame.
+- **`Scene::play_sound` keeps sounds by file name** in the scene, as
+  Sound objects' sounds are kept, so the jump sound is loaded once.
+
+### How to add a ready-made behaviour (for the next seven)
+
+Follow this exactly, one behaviour at a time; the Platformer player is
+the example to copy at every step. Run the commands from the Duck Forge
+folder.
+
+1. **Its file.** Copy `src/scene/ready/platformer_player.rs` to
+   `src/scene/ready/<name>.rs` (`coin.rs`, `enemy_patrol.rs`...). Keep its
+   shape: the first line says what it does in a few words after a colon
+   (`//! Coin: taken when the player touches it.`), then the same two
+   lines about being ready-made, then `use duckforge::prelude::*;` and
+   nothing else from the engine (never `crate::`). One `pub struct` named
+   after it (`Coin`), `#[derive(Default)]`, settings first and what it
+   remembers after. Write only with what a game's own script can use
+   (`docs/AI_GUIDE.md` section 14 and 15): if you need something the
+   engine hasn't got, add it to `Scene` as a public function any game
+   can use, with a test, the way `play_sound` was added.
+2. **Its settings.** In `settings`, every value a person might change,
+   each with `.label("...")` in plain words and `.help("...")`, a
+   `.range(...)` for numbers, and `.expert()` for the ones a beginner
+   needn't see. Read actions, never keys (`ctx.input.action_down(...)`),
+   and name the actions in settings, as the player does. Read a setting's
+   name once and never rename it: scene files keep them.
+3. **Its line in the list.** In `src/scene/ready/mod.rs`: `pub mod <name>;`,
+   one entry in `ALL` (name, label, about, type name: the label is what
+   the Studio shows, the about is the words after the colon in step 1,
+   without the full stop), one `.add::<<name>::<Type>>("<name>")` in
+   `scripts()`, and one line in `source()`. Change `ALL`'s length.
+4. **Its test.** Copy `src/scene/ready/tests/platformer_player.rs` to
+   `src/scene/ready/tests/<name>.rs`, add `mod <name>;` at the top of
+   `src/scene/ready/tests/mod.rs`, and test what it does in a small scene
+   written in the test: each setting changes what it should, it plays the
+   same twice, and it works with no `scripts.rs`. The test in `mod.rs`
+   checks the file uses only the prelude and that a game's copy matches.
+5. **In the ready-made game.** Add an object of its kind to
+   `examples/ready_made/scenes/level1.json` (with an id one higher than
+   the last), extend `play_it_through` in `examples/ready_made/tests.rs`
+   if the player has to do something new, and record the playthrough
+   again: `cargo test --example ready_made -- --ignored`.
+6. **Its page.** In `docs/AI_GUIDE.md` section 15: change its row in the
+   table to "yes", and add a page like "Platformer player": its line in a
+   scene file, what it does, a table of every setting with its meaning
+   and usual value, and how game code reaches it.
+7. **The checks**, all of which must pass:
+   `cargo test --no-default-features`, `cargo test`,
+   `cargo clippy --all-targets -- -D warnings`,
+   `cargo clippy --no-default-features --all-targets -- -D warnings`,
+   `cargo fmt --all --check`, `tools/verify.sh ready_made`, and in
+   `studio/`: `cargo test -p studio_core -p studio_app` and
+   `cargo clippy -p studio_core -p studio_app --all-targets -- -D warnings`.
+   The Studio needs nothing new: its Inspector, Add and Turn into code
+   read the list from the game.
+8. **Its numbers.** Build the scene demo and `ready_made` as in "the
+   numbers" below, before and after, and write how many bytes it added.
+   A ready-made behaviour should be a few thousand bytes; more than
+   10,000 means look again.
 

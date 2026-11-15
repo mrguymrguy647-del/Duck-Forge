@@ -1365,16 +1365,13 @@ fn for_each_pixel_in_triangle(
     for y in y0..y1 {
         for x in x0..x1 {
             let p = vec2(x as f32 + 0.5, y as f32 + 0.5); // the pixel's center
-            let e = [edge(b, c, p), edge(c, a, p), edge(a, b, p)];
-            // Inside when every weight (edge / area) is at least 0: the
-            // signs say so without dividing, so outside pixels are quicker.
-            let inside = if area > 0.0 {
-                e.iter().all(|&v| v >= 0.0)
-            } else {
-                e.iter().all(|&v| v <= 0.0)
-            };
-            if inside {
-                plot(y * width + x, [e[0] / area, e[1] / area, e[2] / area]);
+            let weights = [
+                edge(b, c, p) / area,
+                edge(c, a, p) / area,
+                edge(a, b, p) / area,
+            ];
+            if weights.iter().all(|&w| w >= 0.0) {
+                plot(y * width + x, weights);
             }
         }
     }

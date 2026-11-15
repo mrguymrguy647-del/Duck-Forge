@@ -31,20 +31,24 @@ fn every_ready_made_kind_is_listed_once_with_its_file() {
 
 #[test]
 fn a_games_copy_has_its_own_names_and_the_same_code() {
-    let ready = get("platformer_player").unwrap();
-    let copy = copy_for_a_game(ready, "duck", "Bird").unwrap();
-    assert!(copy.starts_with("//! duck: runs, jumps, falls, and lands on one-way planks.\n"));
-    assert!(copy.contains("ready-made \"Platformer player\""));
-    assert!(copy.contains("pub struct Bird {"));
-    assert!(copy.contains("impl Script for Bird {"));
-    assert!(!copy.contains("PlatformerPlayer"));
-    // Everything from the first line of code on is the same, but for
-    // the type's name.
-    let original = source("platformer_player").unwrap();
-    let code = |text: &str| text[text.find("\nuse ").unwrap()..].to_string();
-    assert_eq!(
-        code(&copy).replace("Bird", "PlatformerPlayer"),
-        code(original)
-    );
+    for ready in ALL {
+        let copy = copy_for_a_game(&ready, "bird", "Bird").unwrap();
+        assert!(
+            copy.starts_with(&format!("//! bird: {}.\n", ready.about)),
+            "{copy}"
+        );
+        assert!(copy.contains(&format!("ready-made \"{}\"", ready.label)));
+        assert!(copy.contains("pub struct Bird {"));
+        assert!(copy.contains("impl Script for Bird {"));
+        assert!(!copy.contains(ready.type_name));
+        // Everything from the first line of code on is the same, but for
+        // the type's name.
+        let original = source(ready.name).unwrap();
+        assert!(!original.contains("Bird"), "the test's name is free");
+        let code = |text: &str| text[text.find("\nuse ").unwrap()..].to_string();
+        assert_eq!(code(&copy).replace("Bird", ready.type_name), code(original));
+        // And its first line says what the list says it does.
+        assert!(original.starts_with(&format!("//! {}: {}.", ready.label, ready.about)));
+    }
     assert_eq!(replace_word("A AB A_ BA A", "A", "Z"), "Z AB A_ BA Z");
 }

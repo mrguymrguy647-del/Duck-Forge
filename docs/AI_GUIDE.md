@@ -1148,7 +1148,7 @@ power, reach), Lamp::spot(position, direction, cone, color, power,
 reach).with_shadows()])`, `canvas.set_shadows(Some(Shadows::default()))`,
 `canvas.set_bloom(Some(Bloom::default()))`,
 `canvas.set_smooth_shading(true)` (for the meshes drawn after it),
-`canvas.set_supersample(2)` or `Config { supersample: 2, .. }`,
+`canvas.set_supersample(2)` (at the start of `draw`),
 `canvas.set_threads(n)` (0: every core). Sprites in 3D:
 `canvas.draw_billboard(&sprite, feet, height, &camera)`, or
 `canvas.draw_billboard_with(&sprite, feet, height, &camera, Billboard {
@@ -1746,7 +1746,7 @@ canvas.set_lamps(&[
 canvas.set_shadows(Some(Shadows::default())); // the sun's, and lamps' with_shadows
 canvas.set_bloom(Some(Bloom::default()));     // glowing triangles glow into the air
 canvas.set_smooth_shading(true);              // round things look round (per mesh drawn after)
-canvas.set_supersample(2);                    // smooth edges (or Config { supersample: 2 })
+canvas.set_supersample(2);                    // smooth edges
 ```
 
 - **Lamps** add to the sun and the ambient light; as many as you like

@@ -943,7 +943,7 @@ to copy.
 | 3 | **The other tools.** Turn, Size, several at once, box select, copy, paste, duplicate, delete, nudge, reorder, Add (plain kinds). **Built** | Build a small picture of a level by hand | Cheaper |
 | 4 | **Dragging from Files.** Onto the scene and onto Inspector boxes, and from Windows. **Built** | Drag a picture in, drag a sound onto a box | Cheaper |
 | 5 | **Scripts, the way Unity has them.** `Script`, `Settings`, `Scripts` and `scripts.rs`, `SceneGame`; New script in Files; dragging a script onto an object, onto empty space or onto the Script box; its settings in the Inspector, drawn from the game's own list; Remove; "Open bee.rs". The scene demo gets `scripts.rs` and one script of its own. **Built** | Right-click in Files, New script "bee", give it to the sign by dragging, type a speed in the Inspector, press Tab and watch the sign go. Add a setting in the code, save, and see its box appear | Stronger |
-| 6 | **Ready-made behaviours and saved things.** The eight, one small file and one test each; "Turn into code"; two scene starters | Make a platformer with coins, a snail, a lift and a door, with no code. Turn the snail into code | Cheaper, one behaviour at a time. The first one (platformer player) by the stronger model, as the pattern |
+| 6 | **Ready-made behaviours and saved things.** The eight, one small file and one test each; "Turn into code"; two scene starters. **Part 1 built**: input actions, the Platformer player, Turn into code, the Ready Made game | Make a platformer with coins, a snail, a lift and a door, with no code. Turn the snail into code | Cheaper, one behaviour at a time. The first one (platformer player) by the stronger model, as the pattern |
 | 7 | **Several scenes.** `game.json`, numbers, going between scenes, Text and Button, the scene chooser, New scene, the Scenes page, Play this scene | Make a title, a level select and two levels, and play through them | Stronger for the engine half, cheaper for the Scenes page |
 | 8 | **Check and bots.** Scene checks, reach with objects, the ready-made bot, problems that select their object, `tools/verify` | Put a coin out of reach and be told which; break a door and be told which | Stronger |
 | 9 | **Beginner and Expert, and the Code panel** | Switch with one click; open, change and save code inside the Studio and see a mistake on its line | Cheaper |
@@ -1675,3 +1675,74 @@ see it. These need your PC, with no terminal:
 146. Tell me anything that felt wrong or surprising, especially whether
      the skeleton's comments were easy to follow (item 132), and how long
      building a script in took on your PC (item 133).
+
+## What you test on Windows after Step 6, part 1
+
+GitHub's Windows machine runs a test that opens the new **Ready Made**
+game with a pretend mouse, looks at the duck in the Inspector, opens Add,
+turns the duck into code, waits for it to be built in and undoes it; and
+one that does the same through commands and then replays the whole
+playthrough with the game's own copy of the code, to the same last
+picture. What it can't do is feel the jump, or open your code editor.
+These need your PC, with no terminal:
+
+147. Open **Ready Made** (new in the list of games). Play it: the arrow
+     keys or A and D run, Space, Up or W jumps. Run under the plank and
+     jump straight up: the duck goes up through it and lands on top. Jump
+     off the end and up the bricks. Tap Space quickly for a little hop;
+     hold it for a full jump.
+148. Run off the right-hand end of the plank and press jump just after
+     leaving it: it still jumps. Press jump just before landing: it jumps
+     as soon as it lands.
+149. Run into the left edge of the screen: it stops there, as at a wall.
+150. Press Tab to freeze, and click the duck. The Scene list says
+     "duck  Platformer player". The Inspector says **Platformer player**,
+     "runs, jumps, falls, and lands on one-way planks", and has sliders
+     **Runs at** (110), **Jumps this high** (60) and **Gravity** (900),
+     two tick boxes, a Jump sound box, four animation names, and
+     **8 more settings** folded away. Open them: Falls at most, Reaches
+     full speed in, short hops, the two "jumps" times, and Keys.
+151. Set **Jumps this high** to 100 and press Tab: the duck jumps much
+     higher. Freeze, and the **x** beside the slider puts it back to 60.
+     Ctrl+Z puts it back too.
+152. Untick **Stays inside the scene** and press Tab, then run left: the
+     duck runs off the screen. Freeze, Ctrl+Z, and "Restart the game".
+153. Drag any `.wav` sound from Windows into Files' assets folder, then
+     drag it from Files onto the **Jump sound** box: the duck's jump
+     makes that sound now. Ctrl+Z: Duck Forge's own jump sound again.
+154. **+ Add**: a **Ready-made** row with **Platformer player**. Click it,
+     choose `hero.json` as its picture, **Add it**: a second duck in the
+     middle of the view. Press Tab: both ducks run and jump together
+     (they read the same keys). Ctrl+Z.
+155. Click the **sign**, then open its **Script** box: below "(none)" the
+     list has **Platformer player**. Choose it and press Tab: the sign
+     falls to the ground and runs with the arrow keys (with no animation:
+     its picture has none). Ctrl+Z.
+156. Click the duck and press **Turn into code...**. A window says what
+     Duck Forge will do: write `ready_made/scripts/duck.rs`, add it to
+     `scripts.rs` and two lines to `main.rs`, change the duck's kind.
+     Below that is the whole code, starting "duck: runs, jumps...".
+     Press **Cancel**: nothing changes (Files has no scripts folder).
+157. Press **Turn into code...** again, then **Write the code**. The
+     status bar says "duck now runs scripts/duck.rs... Building it in".
+     Within a few seconds (longer the first time) the game is back on
+     the same frozen frame. The Inspector now says **Duck (script)**,
+     with the same boxes and values as before, and **Open duck.rs**.
+158. Press Tab and play: it runs and jumps exactly as before.
+159. Press **Open duck.rs**: your code editor opens it. Find
+     `run_speed` in `settings` and change its 110.0 to 200.0. Save. After
+     a few seconds the game is back on the same frame; Runs at says 200,
+     and the duck is faster. (If you made a typing mistake, the Studio
+     says what's wrong instead: fix it and save again.)
+160. Press Ctrl+Z until the status bar says it undid "Turn duck's
+     Platformer player into code": `duck.rs` is in the Recycle Bin (with
+     your change), `scripts.rs` is gone, `main.rs` is as it was, and the
+     duck is a Platformer player again. After the build it plays as at
+     the start.
+161. Open **Scene demo**: it plays exactly as before (its duck is the
+     game's own code, not the ready-made one). Click its sign and open
+     the Script box: Platformer player is offered there too.
+162. Check on Ready Made: it passes.
+163. Tell me how the jump felt next to your own platformer (too floaty,
+     too quick?), whether the Inspector's words made sense without
+     reading this, and anything that felt wrong or surprising.
