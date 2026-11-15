@@ -258,7 +258,9 @@ Forge".
 - **2D drawing:** rectangles, circles, lines, triangles, text in a built-in
   pixel font (every ASCII character, lowercase too, multi-line), text in
   any `.ttf` or `.otf` font at any size with an outline and a soft drop
-  shadow (`Font::load`, `draw_font_text`: captions), see-through colors
+  shadow (`Font::load`, `draw_font_text`: captions), pixel fonts from a
+  tileset with shadows, boxes, wrapping, centring and colours inside the
+  text (`BitmapFont`, `draw_bitmap_text`), see-through colors
   (`Color::rgba`, `with_alpha`), and `.png` or `.bmp` screenshots.
 - **Sprites:** load a `.png`, or draw one with letters in your code
   (`Sprite::from_ascii`); cut frames from a sprite sheet, animate them, and
@@ -275,7 +277,10 @@ Forge".
   one-off sounds at their own volume and pan (`ctx.play_with`).
   Headless runs mix every sound into `audio.wav` at its exact frame
   and list it in `log.json`, so tests can check sounds too; a limiter
-  keeps a busy mix from clipping, and `log.json` warns when it acted.
+  keeps a busy mix from clipping, and the warning names the sounds at the
+  loudest moments and the volume to play them at. Music, ambience and
+  effects groups with their own volumes, a master volume, and ducking
+  (the music dips while a scream plays), in a window and in `audio.wav`.
 - **Scenes:** a game's objects in a plain file, one per line
   (`examples/scene_demo/scenes/pond.json`): a name, a kind, a position,
   a picture, a turn, a scale, a layer, and settings of its own; a
@@ -300,12 +305,17 @@ Forge".
   buffer, and near-plane clipping. Textures with sharp pixels and
   see-through holes, drawn perspective-correct; a sun you can aim, colour
   and dim, and glowing meshes; sprites standing in the world
-  (billboards); meshes off screen skipped (frustum culling).
+  (billboards); meshes off screen skipped (frustum culling). Glow only
+  where a texture says (ore veins, a lantern's face), snow and rain as one
+  mesh of thousands of flakes, a 360° sky that turns with the camera,
+  things held in front of the camera that never sink into walls, and
+  pixel art turned into 3D blocks (`Mesh::from_sprite`).
   - **Lit, on every CPU core**: point and spot lamps, shadows from the
     sun and from lamps, bloom round glowing things, smooth shading and
     supersampled edges, drawn in bands on every core, the same picture
     on any number of them (`examples/night_cellar`, a vertical horror
-    short).
+    short). Shadow maps are kept while nothing near a lamp moves, and
+    `summary.txt` says how long each stage took.
   - **On the graphics card** with wgpu (the default): meshes are cached on
     the GPU and every copy of a mesh is drawn with one draw call
     (instancing). Works with DirectX 12, Metal, Vulkan and OpenGL.
