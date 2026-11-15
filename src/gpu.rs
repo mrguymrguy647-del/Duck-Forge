@@ -1288,6 +1288,29 @@ mod tests {
     }
 
     #[test]
+    fn snow_is_drawn_like_the_cpu() {
+        let Some(mut gpu) = gpu_canvas(160, 120) else {
+            return;
+        };
+        let mut cpu = Canvas::new(160, 120);
+        let snow =
+            crate::particles::Particles::snow(1500, [vec3(-4.0, 0.0, 0.0), vec3(4.0, 5.0, 8.0)]);
+        let camera = Camera3D::new(vec3(0.0, 2.5, -2.0));
+        for canvas in [&mut gpu, &mut cpu] {
+            canvas.clear(Color::BLACK);
+            canvas.draw_mesh(
+                &Mesh::cube(Color::rgb(90, 60, 40)),
+                &Transform::at(vec3(0.0, 1.5, 3.0)),
+                &camera,
+            );
+            snow.draw(canvas, &camera);
+            canvas.flush_3d();
+        }
+        let share = share_different(&gpu, &cpu);
+        assert!(share < 0.03, "{:.1}% of pixels differ", share * 100.0);
+    }
+
+    #[test]
     fn glowing_ore_veins_are_drawn_like_the_cpu() {
         let Some(mut gpu) = gpu_canvas(96, 48) else {
             return;

@@ -200,6 +200,17 @@ impl Camera3D {
         vec3(self.yaw.cos(), 0.0, -self.yaw.sin())
     }
 
+    /// The camera's up: square to [`forward`](Camera3D::forward) and
+    /// [`right`](Camera3D::right), the top of the screen (length 1). Level,
+    /// it's straight up; looking down, it leans the way you face.
+    pub fn up(&self) -> Vec3 {
+        vec3(
+            -self.yaw.sin() * self.pitch.sin(),
+            self.pitch.cos(),
+            -self.yaw.cos() * self.pitch.sin(),
+        )
+    }
+
     /// Ready-made controls for flying around a scene:
     ///
     /// - **W/A/S/D** move, **Q/E** move down/up, hold **Shift** to go faster
@@ -1925,6 +1936,26 @@ pub(crate) fn draw_repeated_tile_floor(canvas: &mut crate::canvas::Canvas) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_camera_s_up_is_the_top_of_the_screen() {
+        let canvas = crate::canvas::Canvas::new(90, 160);
+        for (yaw, pitch) in [(0.0, 0.0), (0.7, 0.4), (-2.0, -1.2), (3.0, 1.5)] {
+            let mut camera = Camera3D::new(vec3(1.0, 2.0, 3.0));
+            camera.yaw = yaw;
+            camera.pitch = pitch;
+            let (up, right, forward) = (camera.up(), camera.right(), camera.forward());
+            assert!((up.length() - 1.0).abs() < 1e-5);
+            assert!(up.dot(forward).abs() < 1e-5 && up.dot(right).abs() < 1e-5);
+            // A point ahead and a little up lands straight above the middle.
+            let ahead = camera.position + forward * 5.0;
+            let middle = camera.world_to_screen(ahead, &canvas).unwrap();
+            let above = camera.world_to_screen(ahead + up, &canvas).unwrap();
+            assert!((above.x - middle.x).abs() < 1e-2, "{yaw} {pitch}");
+            assert!(above.y < middle.y - 1.0, "{yaw} {pitch}");
+        }
+        assert_eq!(Camera3D::new(Vec3::ZERO).up(), vec3(0.0, 1.0, 0.0));
+    }
 
     #[test]
     fn a_mesh_glows_only_where_its_texture_is_the_chosen_colour() {

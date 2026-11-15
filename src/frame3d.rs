@@ -817,17 +817,31 @@ impl Frame<'_> {
         }
         s.colors.clear();
         s.depth.clear();
-        for sy in 0..srows {
-            let row = (sy / ss) * width;
-            for sx in 0..sw {
-                s.colors.push(out[row + sx / ss]);
-                s.depth.push(out_depth[row + sx / ss]);
+        if ss == 1 {
+            s.colors.extend_from_slice(out);
+            s.depth.extend_from_slice(out_depth);
+        } else {
+            for oy in 0..rows {
+                let (colors, depths) = (
+                    &out[oy * width..(oy + 1) * width],
+                    &out_depth[oy * width..(oy + 1) * width],
+                );
+                for _ in 0..ss {
+                    for (&c, &d) in colors.iter().zip(depths) {
+                        for _ in 0..ss {
+                            s.colors.push(c);
+                            s.depth.push(d);
+                        }
+                    }
+                }
             }
         }
         s.ids.clear();
         s.ids.resize(samples, NONE);
-        s.marks.clear();
-        s.marks.resize(samples, NONE);
+        if list.iter().any(|&i| self.tris[i as usize].see_through) {
+            s.marks.clear();
+            s.marks.resize(samples, NONE);
+        }
         if self.bloom {
             s.glow.clear();
             s.glow.resize(samples, [0.0; 3]);
@@ -864,33 +878,38 @@ impl Frame<'_> {
             }
             // 2. Lit once each: once per triangle per pixel (with
             // supersampling, a pixel's samples on the same triangle share
-            // its light, and only the edges get the extra work).
-            let mut lit: Vec<(u32, u32, [f32; 3])> = Vec::with_capacity(ss * ss);
-            for oy in 0..rows {
-                for ox in 0..width {
-                    lit.clear();
-                    for sy in 0..ss {
-                        let row = (oy * ss + sy) * sw + ox * ss;
-                        for at in row..row + ss {
-                            let index = s.ids[at];
-                            if index == NONE {
-                                continue;
-                            }
-                            let (color, glow) = match lit.iter().find(|l| l.0 == index) {
-                                Some(&(_, color, glow)) => (color, glow),
-                                None => {
-                                    let t = &self.tris[index as usize];
+            // the light at the first of them, and only the edges get the
+            // extra work). Each triangle looks only inside its own box, so
+            // a thousand snowflakes don't each cost a whole band.
+            for &index in run {
+                let t = &self.tris[index as usize];
+                if t.see_through {
+                    continue;
+                }
+                let (sy0, sy1) = (t.y0.max(srow0) - srow0, t.y1.min(srow0 + srows));
+                if sy1 <= srow0 + sy0 {
+                    continue;
+                }
+                let sy1 = sy1 - srow0;
+                for oy in sy0 / ss..sy1.div_ceil(ss) {
+                    for ox in t.x0 / ss..t.x1.div_ceil(ss) {
+                        let mut shaded: Option<(u32, [f32; 3])> = None;
+                        for sy in 0..ss {
+                            let row = (oy * ss + sy) * sw + ox * ss;
+                            for at in row..row + ss {
+                                if s.ids[at] != index {
+                                    continue;
+                                }
+                                let (color, glow) = *shaded.get_or_insert_with(|| {
                                     let (x, y) = (at % sw, srow0 + at / sw);
                                     let p = vec2(x as f32 + 0.5, y as f32 + 0.5);
                                     let w = weights_at(&t.xy, t.area, p).unwrap_or([1.0 / 3.0; 3]);
-                                    let (color, glow) = self.shade(t, w, s.depth[at]);
-                                    lit.push((index, color, glow));
-                                    (color, glow)
+                                    self.shade(t, w, s.depth[at])
+                                });
+                                s.colors[at] = color;
+                                if self.bloom {
+                                    s.glow[at] = glow;
                                 }
-                            };
-                            s.colors[at] = color;
-                            if self.bloom {
-                                s.glow[at] = glow;
                             }
                         }
                     }
@@ -930,14 +949,13 @@ impl Frame<'_> {
         }
         // 4. Each pixel: the average of its samples.
         let n = (ss * ss) as u32;
-        for oy in 0..rows {
+        if ss == 1 {
+            out.copy_from_slice(&s.colors);
+            out_depth.copy_from_slice(&s.depth);
+        }
+        for oy in (0..rows).filter(|_| ss > 1) {
             for ox in 0..width {
                 let o = oy * width + ox;
-                if ss == 1 {
-                    out[o] = s.colors[o];
-                    out_depth[o] = s.depth[o];
-                    continue;
-                }
                 let (mut r, mut g, mut b, mut near) = (0u32, 0u32, 0u32, 0.0f32);
                 for sy in 0..ss {
                     let row = (oy * ss + sy) * sw + ox * ss;

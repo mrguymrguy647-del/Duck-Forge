@@ -57,6 +57,7 @@ pub mod input;
 pub mod lights;
 pub mod math;
 pub mod on_screen;
+pub mod particles;
 pub mod physics;
 pub mod pictures;
 pub mod playtest;
@@ -118,6 +119,7 @@ pub mod prelude {
         Hit, Rect, Vec2, Vec3, approach, circle_vs_circle, circle_vs_rect, remap, swept_aabb, vec2,
         vec3,
     };
+    pub use crate::particles::Particles;
     pub use crate::playtest::PlayTest;
     pub use crate::render3d::{
         Billboard, Camera3D, Fog, GlowMap, Lighting, Mesh, Renderer, Transform,
