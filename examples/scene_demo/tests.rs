@@ -221,3 +221,32 @@ fn a_scene_with_no_duck_or_a_mistake_doesnt_stop_the_game() {
         "{problems:?}"
     );
 }
+
+#[test]
+fn the_bob_script_makes_the_object_it_is_given_bob() {
+    let copy = Copy::of_the_game(&scene_with(
+        r#", {"id": 3, "name": "sign", "kind": "bob", "at": [150, 200], "picture": "assets/sign.png", "how_far": 4}"#,
+    ));
+    let mut sim = Simulation::new(config(), SceneDemo::with_scene(copy.scene()).unwrap());
+    let mut heights = Vec::new();
+    for _ in 0..60 {
+        sim.run(1);
+        let scene = &sim.game().scene;
+        heights.push(scene[scene.find("sign").unwrap()].at.y);
+    }
+    let (low, high) = heights.iter().fold((f32::MAX, f32::MIN), |(low, high), y| {
+        (low.min(*y), high.max(*y))
+    });
+    // Four pixels up and down from where it starts, once a second.
+    assert!(
+        (high - 204.0).abs() < 0.2 && (low - 196.0).abs() < 0.2,
+        "{low} {high}"
+    );
+    let scene = &sim.game().scene;
+    let sign = scene.find("sign").unwrap();
+    assert_eq!(
+        scene.starts_as(sign).unwrap().at.y,
+        200.0,
+        "the file is left alone"
+    );
+}

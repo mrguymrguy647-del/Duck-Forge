@@ -1714,3 +1714,258 @@ fn files_drag_into_the_scene_and_onto_the_inspectors_boxes() {
     assert_eq!(on_disk(), original);
     shots.run(Command::GameStop);
 }
+
+/// Step 5 with the mouse: New script from Files' right-click menu, the
+/// script dragged onto the sign, its setting in the Inspector moving the
+/// sign, another script dropped on the Script box, Add's "Your scripts",
+/// and Undo back to how it all was.
+#[test]
+fn scripts_are_made_in_files_and_dragged_onto_objects() {
+    let _one = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let pictures = std::env::var_os("STUDIO_SCREENSHOTS").map(PathBuf::from);
+    if let Some(folder) = &pictures {
+        std::fs::create_dir_all(folder).unwrap();
+    }
+    let game = duck_forge().join("examples/scene_demo");
+    let scene_file = game.join("scenes/pond.json");
+    let back = |path: PathBuf| FileBack {
+        text: std::fs::read_to_string(&path).unwrap(),
+        path,
+    };
+    let _scene = back(scene_file.clone());
+    let _scripts = back(game.join("scripts.rs"));
+    let _main = back(game.join("main.rs"));
+    let bee = game.join("scripts/bee.rs");
+    let _bee = TakeAway(bee.clone());
+    let plain = |text: &str| text.replace("\r\n", "\n");
+    let original = plain(&_scene.text);
+    let on_disk = || plain(&std::fs::read_to_string(&scene_file).unwrap());
+    let line_of = |id: u64| {
+        on_disk()
+            .lines()
+            .find(|line| line.contains(&format!("{{\"id\": {id},")))
+            .unwrap_or_default()
+            .to_string()
+    };
+    let bin = studio_core::test_folder::TestFolder::new("screens-bin");
+    let mut studio = studio();
+    studio.opens_files = false;
+    studio.recycle_bin = studio_core::recycle::RecycleBin::Folder(bin.to_path_buf());
+    let mut shots = Shots {
+        folder: pictures.clone().unwrap_or_default(),
+        harness: harness(StudioApp::new(studio), pictures.is_some()),
+    };
+    let shoot = |shots: &mut Shots, name: &str| {
+        if pictures.is_some() {
+            shots.shoot(name);
+        }
+    };
+    let on_screen = |shots: &Shots, point: duckforge::prelude::Vec2| -> egui::Pos2 {
+        let placement = shots.harness.state().game_placement().unwrap();
+        let each = placement.scale / placement.pixels_per_point;
+        placement.rect.min + egui::vec2(point.x, point.y) * each
+    };
+    let middle_of = |shots: &Shots, id: u64| {
+        let open = shots.harness.state().studio.open.as_ref().unwrap();
+        let drawn = open.drawn_scene().unwrap();
+        let (rect, _, _) = studio_core::scene_edit::shape(drawn.object(id).unwrap()).unwrap();
+        on_screen(
+            shots,
+            duckforge::prelude::Vec2::new(rect.x + rect.w / 2.0, rect.y + rect.h / 2.0),
+        )
+    };
+    let x_of = |shots: &Shots, id: u64| {
+        let open = shots.harness.state().studio.open.as_ref().unwrap();
+        open.drawn_scene()
+            .and_then(|drawn| drawn.object(id).and_then(|object| object.rect))
+            .map(|rect| rect.x)
+            .unwrap()
+    };
+    let click = |shots: &mut Shots, at: egui::Pos2| {
+        shots.harness.hover_at(at);
+        shots.harness.step();
+        shots.harness.drag_at(at);
+        shots.harness.step();
+        shots.harness.drop_at(at);
+        shots.harness.run_steps(4);
+    };
+    let drag = |shots: &mut Shots, from: egui::Pos2, to: egui::Pos2| {
+        shots.harness.hover_at(from);
+        shots.harness.step();
+        shots.harness.drag_at(from);
+        shots.harness.step();
+        for part in 1..=6 {
+            shots
+                .harness
+                .hover_at(from + (to - from) * (part as f32 / 6.0));
+            shots.play_for(Duration::from_millis(40));
+        }
+        shots.play_for(Duration::from_millis(150));
+    };
+    let let_go = |shots: &mut Shots, at: egui::Pos2| {
+        shots.harness.drop_at(at);
+        shots.play_for(Duration::from_millis(300));
+    };
+    let undo = |shots: &mut Shots| {
+        shots
+            .harness
+            .key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+        shots.play_for(Duration::from_millis(300));
+    };
+    let row = |shots: &mut Shots, name: &str| {
+        shots
+            .harness
+            .get_by_role_and_label(egui::accesskit::Role::Button, name)
+            .scroll_to_me();
+        shots.harness.run_steps(3);
+        shots
+            .harness
+            .get_by_role_and_label(egui::accesskit::Role::Button, name)
+            .rect()
+            .center()
+    };
+    let frozen = |shots: &mut Shots| {
+        shots.until(
+            "the frozen picture's objects",
+            Duration::from_secs(60),
+            |app| {
+                let open = app.studio.open.as_ref().unwrap();
+                app.studio
+                    .play()
+                    .is_some_and(|play| play.state == PlayState::Frozen)
+                    && open.drawn_scene().is_some()
+                    && app.game_placement().is_some()
+            },
+        );
+        shots.harness.run_steps(4);
+    };
+
+    shots.harness.step();
+    shots.run(Command::GameOpen {
+        name: String::from("scene_demo"),
+    });
+    shots.playing();
+    shots.play_for(Duration::from_millis(300));
+    shots.run(Command::GameFreeze);
+    frozen(&mut shots);
+
+    // Right-click the scripts folder in Files: New script, and a name.
+    let folder = row(&mut shots, "v scripts");
+    shots.harness.hover_at(folder);
+    shots.harness.step();
+    shots
+        .harness
+        .get_by_role_and_label(egui::accesskit::Role::Button, "v scripts")
+        .click_secondary();
+    shots.harness.run_steps(3);
+    shots.harness.get_by_label("New script...").click();
+    shots.harness.run_steps(3);
+    shots
+        .harness
+        .get_by_label("New script, in scripts. Its name:");
+    shots
+        .harness
+        .input_mut()
+        .events
+        .push(egui::Event::Text(String::from("bee")));
+    shots.harness.run_steps(3);
+    shots.harness.get_by_label("bee.rs, with Bee in it");
+    shoot(&mut shots, "47-new-script-its-name");
+    shots.harness.get_by_label("OK").click();
+    shots.play_for(Duration::from_millis(300));
+    assert!(
+        bee.is_file(),
+        "bee.rs is made: {:?}",
+        shots.harness.state().studio.problem
+    );
+    assert!(
+        std::fs::read_to_string(game.join("scripts.rs"))
+            .unwrap()
+            .contains(".add::<bee::Bee>(\"bee\")")
+    );
+
+    // The game builds it in and comes back to the same frame.
+    shots.until("bee to be built in", Duration::from_secs(900), |app| {
+        app.studio.play().is_some_and(|play| {
+            play.state == PlayState::Frozen
+                && play
+                    .scripts
+                    .as_ref()
+                    .is_some_and(|scripts| scripts.get("bee").is_some())
+        })
+    });
+    frozen(&mut shots);
+
+    // bee.rs dragged onto the sign: the sign gets the script.
+    let sign = middle_of(&shots, 4);
+    let bee_row = row(&mut shots, "bee.rs");
+    drag(&mut shots, bee_row, sign);
+    shoot(&mut shots, "48-a-script-over-the-sign");
+    let_go(&mut shots, sign);
+    assert!(
+        line_of(4).contains(r#""name": "sign", "kind": "bee""#),
+        "{}",
+        line_of(4)
+    );
+
+    // Its settings in the Inspector, and a speed.
+    click(&mut shots, sign);
+    shots.harness.run_steps(3);
+    shots.harness.get_by_label("Bee (script)");
+    shots.harness.get_by_label("speed");
+    shots.harness.get_by_label("Open bee.rs");
+    shoot(&mut shots, "49-the-script-in-the-inspector");
+    shots.run(Command::ObjectSet {
+        ids: vec![4],
+        set: serde_json::Map::from_iter([(String::from("speed"), serde_json::json!(60))]),
+        stroke: None,
+    });
+    shots.play_for(Duration::from_millis(300));
+    let before = x_of(&shots, 4);
+    shots.run(Command::GameToggle);
+    shots.play_for(Duration::from_millis(1000));
+    shots.run(Command::GameFreeze);
+    frozen(&mut shots);
+    assert!(x_of(&shots, 4) > before + 20.0, "the sign went right");
+    shoot(&mut shots, "50-the-sign-went-right");
+
+    // bob.rs dropped on the Script box: bob takes bee's place, and bee's
+    // speed goes with it.
+    // (The Inspector's box; the Scene list says "bee" too.)
+    let script_box = shots
+        .harness
+        .query_all_by_value("bee")
+        .map(|node| node.rect())
+        .max_by(|a, b| a.left().total_cmp(&b.left()))
+        .unwrap()
+        .center();
+    let bob_row = row(&mut shots, "bob.rs");
+    drag(&mut shots, bob_row, script_box);
+    shots.harness.get_by_label("Let go to use bob.rs");
+    let_go(&mut shots, script_box);
+    assert!(
+        line_of(4).contains(r#""kind": "bob""#) && !line_of(4).contains("speed"),
+        "{}",
+        line_of(4)
+    );
+
+    // + Add lists the game's scripts.
+    shots.harness.get_by_label("+ Add").click();
+    shots.harness.run_steps(3);
+    shots.harness.get_by_label("Your scripts");
+    shots.harness.get_by_label("New script...");
+    shoot(&mut shots, "51-add-has-your-scripts");
+    shots.harness.get_by_label("Cancel").click();
+    shots.harness.run_steps(2);
+
+    // Undo: bob, the speed, bee on the sign; then New script.
+    for _ in 0..3 {
+        undo(&mut shots);
+    }
+    assert_eq!(on_disk(), original);
+    undo(&mut shots);
+    assert!(!bee.exists(), "Undo took bee.rs to the Recycle Bin");
+    shots.run(Command::GameStop);
+}

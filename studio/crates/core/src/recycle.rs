@@ -31,7 +31,16 @@ impl RecycleBin {
                 std::fs::create_dir_all(folder).map_err(|e| e.to_string())?;
                 for path in &paths {
                     let to = free_name(folder, path);
-                    std::fs::rename(path, &to).map_err(|e| format!("{}: {e}", path.display()))?;
+                    if let Err(error) = std::fs::rename(path, &to) {
+                        // Another drive (Windows can't move a file there by
+                        // renaming it): a copy, then the file goes.
+                        if !path.is_file() {
+                            return Err(format!("{}: {error}", path.display()));
+                        }
+                        std::fs::copy(path, &to)
+                            .and_then(|_| std::fs::remove_file(path))
+                            .map_err(|e| format!("{}: {e}", path.display()))?;
+                    }
                 }
                 Ok(())
             }

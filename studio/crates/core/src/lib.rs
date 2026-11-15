@@ -35,6 +35,7 @@ pub mod problem;
 pub mod recycle;
 pub mod scene_edit;
 pub mod script;
+pub mod scripts;
 pub mod settings;
 pub mod studio;
 #[doc(hidden)]

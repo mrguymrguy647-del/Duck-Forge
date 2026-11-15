@@ -732,10 +732,38 @@ impl<G: Game> Simulation<G> {
         }
     }
 
+    /// Makes the script's changes that were made while the game stood
+    /// still on this frame (a file edited while frozen in Duck Forge
+    /// Studio is kept on the coming frame): now, as they were made then,
+    /// rather than at the coming update. For a replay that stops on the
+    /// frame they were made on.
+    pub fn catch_up_changes(&mut self) {
+        self.apply_script_changes(self.ctx.frame() + 1);
+    }
+
     /// Does the script's changes and events that are due by the coming
     /// frame: the changes first.
     fn apply_script_events(&mut self) {
         let coming_frame = self.ctx.frame() + 1;
+        self.apply_script_changes(coming_frame);
+        let Some((script, done)) = &mut self.script else {
+            return;
+        };
+        let mut due = Vec::new();
+        while let Some(event) = script.events.get(*done) {
+            if event.frame > coming_frame {
+                break;
+            }
+            due.push(event.action);
+            *done += 1;
+        }
+        for action in due {
+            self.apply(action);
+        }
+    }
+
+    /// Does the script's changes due by `coming_frame`.
+    fn apply_script_changes(&mut self, coming_frame: u64) {
         let mut changes = Vec::new();
         if let Some((script, _)) = &self.script {
             while let Some(change) = script.changes.get(self.script_changes_done) {
@@ -763,20 +791,6 @@ impl<G: Game> Simulation<G> {
                 }
             }
             self.changes.push(change);
-        }
-        let Some((script, done)) = &mut self.script else {
-            return;
-        };
-        let mut due = Vec::new();
-        while let Some(event) = script.events.get(*done) {
-            if event.frame > coming_frame {
-                break;
-            }
-            due.push(event.action);
-            *done += 1;
-        }
-        for action in due {
-            self.apply(action);
         }
     }
 

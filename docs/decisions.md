@@ -4694,8 +4694,224 @@ On GitHub's Windows machine (run 43437587053, release builds, the same
 
 The times are Step 3's there. The sizes there are 29,000 to 31,000
 bytes bigger for the three games without scenes, which Linux says isn't
-their code; Step 3's run is being run again on today's Windows machine
-to see how much of that is the machine rather than the step.
+their code; Step 3's run was started again on GitHub to see how much of
+that is the machine rather than the step, but GitHub never gave it a
+machine. Linux says the three games' code didn't change; Step 5's
+numbers compare with Step 4's from the same day instead.
+
+## Step 5: scripts, the way Unity has them
+
+**A script is a type with `Script`, and an object's `"kind"` names it.**
+The design called the trait `Kind`; it's `Script`, the word Unity users
+and the Studio's screens use, and the file's key stays `"kind"`, so no
+scene file changes. A game's scripts are a `Scripts` list
+(`Scripts::new().add::<bee::Bee>("bee")`) given to its scenes with
+`with_scripts`. It's given, not found by itself: Rust has no way to
+find every type of a kind without a library that runs before `main`, and
+giving the list is one line a beginner never has to write (the Studio
+writes it).
+
+**What a script can say about a setting.** `number`, `whole`, `flag`,
+`words`, `choice`, `colour`, `picture` and `sound`, each with `.range`,
+`.label`, `.help`, `.group` and `.expert`. The design's other boxes
+come with the steps that need them: a point to drag in the view and
+another object (step 6, for the ready-made scripts), a scene (step 7), a
+saved thing (step 6), a key (step 6's player). `.expert()` is noted now
+and hides nothing until Beginner and Expert (step 9).
+
+**When scripts run.** In `scene.update`, after the scene's clock and
+camera and before its sounds, in the order of the objects' ids, as the
+design says, so the file's order never changes how the game plays. A
+script's `start` runs just before its first update. An object a script
+adds starts at the next update; one it removes stops at once. An object
+whose kind changes (in the file, or in code) starts the new script
+afresh. When the scene's file changes, running scripts take their
+objects' values again through the same `settings`, so `speed` changes
+and what the script remembers stays. A copy of a scene (the Studio's
+"As it starts" view is one) starts its scripts again rather than sharing
+them.
+
+**`draw` gets the scene.** The design had `fn draw(&self, me: &Object,
+canvas)`, with the usual drawing its picture. To draw a picture it needs
+the scene's loaded pictures, so it's `draw(&self, me, scene, canvas)`,
+and `scene.draw_picture(me, canvas)` draws it as an object with no
+script is drawn.
+
+**Mistakes in plain words.** A value of the wrong kind for a setting is
+a problem with the object's line ("\"fast bee\"'s \"speed\" should be a
+number, like 40; it's \"fast\", so it has the script's 30") and the
+script uses its default. A script with a setting called `at` (or any key
+every object has), or named after a plain kind, is a problem too.
+
+**The skeleton.** As the design shows it, with one change: it has no
+`start`. An empty `start` with its three inputs unused makes Rust print
+three warnings in the Console for every new script, which would look
+like something went wrong; the comment at the end of the skeleton shows
+what a `start` looks like, and the guide has the rest. `speed` starts at
+0, so a script given to an object never moves anything by surprise, and
+the first thing to try is in the Inspector.
+
+**`scripts.rs` is the Studio's.** It's written whole, the same way every
+time, like a scene file, with `#[rustfmt::skip]` on its list so `cargo
+fmt` leaves it as written. It reads back whatever its shape (a list
+`rustfmt` put on one line, one written by hand), so it can be fixed by
+hand. A script's line names its file with `#[path]`, so a script can be
+in any folder.
+
+**Names.** "Big bee" is the script `big_bee` (its kind and file) and the
+type `BigBee`. The Studio refuses, saying why: no name, a name that
+starts with a number, letters Rust can't use, a word Rust keeps for
+itself (`move`), a plain kind (`sound`), a name Duck Forge already
+gives a type a script uses (`scene` would hide `Scene`), and a name the
+game has already.
+
+**Connecting `main.rs` once, outside Undo.** The first New script in a
+game adds `mod scripts;` after its `use` lines and
+`.with_scripts(scripts::all())` after its one `SceneGame::new(...)` or
+`Scene::load(...)?` (or `.expect(...)`). If there are several, the
+Studio says the line to add and opens `main.rs`, rather than guessing in
+someone's code. Like a file copied in (Step 4), the connection stays
+after Undo: it's harmless, and undoing it would break a game whose
+`main.rs` was edited since.
+
+**Undo never loses code.** Undo of New script takes the script's file to
+the Recycle Bin, not away for good, and so does any Undo that would
+write over a `.rs` file edited since its step: a script written in the
+code editor can always be found again.
+
+**Giving a script to an object.** A Picture or an Area can take one, and
+so can an object that has one (the new script takes its place, and the
+old one's settings go with it: one per object). A tile map, a
+background or a sound already has a job, and a kind the game's code
+looks for (the demo's `"coin"`) is the code's, so the Studio says so
+instead. A script let go on empty space is a new object with it, named
+after it, with a box like an Area's (it has no picture yet), shown
+dashed as an Area is. **Remove** takes the script and its settings off;
+an object with no picture becomes an Area, so it can still be seen and
+picked. A value is saved only when it differs from the script's
+default, so changing a default in the code changes every object still
+using it, as in Unity; the small x beside a box puts the default back.
+
+**Files keeps `scripts.rs` up to date.** Rename moves a script's file and
+its line follows; the script keeps its name, so scenes don't change.
+Delete takes it out of the list, and objects keep their kind (it becomes
+a kind the game's code can still look for). Files also has a right-click
+menu now: New script, New folder, Open, Rename, Delete. The box for a
+name opens as a small window, because at the bottom of a long list it
+was out of sight.
+
+**A new build of a frozen game with scripts comes back to the same
+frame.** Phase 4 kept a finished build behind "New build ready" while
+the game ran. When the game is frozen and has `scripts.rs`, the Studio
+now does "Restart and replay my moves" by itself, from a recording made
+at that moment (so edits made while frozen are in it), and asks the new
+game for its frozen picture, its scripts and its Feel. So a new script,
+or a new setting saved in the code editor, arrives without losing the
+moment. Games without scripts behave as before.
+
+**A replay fix that made it work.** An edit made while frozen is kept on
+the next frame. A replay that stopped on the frozen frame left those
+edits waiting, and made them at the next update, over anything newer.
+Now the game makes them as soon as it reaches that frame
+(`Simulation::catch_up_changes`), as they were made at the time. Replays
+of whole sessions were never affected: they play past that frame.
+
+**The scene demo** has `scripts.rs` and one script, `bob` (an object
+bobs gently where it starts), which no object in `pond.json` has, so the
+demo and its playthroughs are frame for frame what they were. A test
+gives it to the sign and watches it bob. `SceneGame` is built as small
+as step 5 needs: it plays the scene `game.json` names, or the first in
+`scenes/`, with its scripts; several scenes come in step 7.
+
+## Step 5: the numbers
+
+Release builds with the usual features, on this Linux machine, Step 4's
+code and Step 5's built the same way side by side. Stripped is how a
+game is sent (the function names taken out); one piece takes the
+compiler's arrangement out, as in Step 3:
+
+| Game | After Step 4 | after Step 5 | Stripped, Step 4 | Step 5 | Machine code, one piece |
+|---|---|---|---|---|---|
+| Platformer starter | 6,413,424 | 6,419,480 | 4,572,352 | 4,567,176 | 224 bytes less |
+| Shooter starter | 6,283,304 | 6,291,264 | 4,469,856 | 4,465,600 | 624 bytes less |
+| 3D runner starter | 11,618,616 | 11,623,816 | 8,662,720 | 8,657,472 | 432 bytes less |
+| Scene demo | 6,699,144 | 6,753,160 | 4,811,064 | 4,840,560 | 18,960 bytes more |
+
+The three games without scenes have a little less machine code than
+after Step 4 and are smaller stripped (4,256 to 5,248 bytes). Unstripped
+they're 5,000 to 8,000 bytes bigger, all of it in tables and names: the
+replay code that every game has (`Simulation`) was rearranged by this
+step's replay fix, which changes where the compiler keeps the tables
+used to unwind after a crash and adds a few names.
+
+The scene demo is 29,496 bytes bigger stripped (0.61%): the scripts
+themselves. `Scene` now runs scripts (looking for them each update,
+making them, starting them, giving them their settings, drawing them),
+`Settings` and `Scripts` say what a script's settings are, and the demo
+has `bob` (454 bytes of it). The first build was 1.1% bigger, over the
+design's 1%; keeping the running scripts in a plain list rather than a
+tree map took 25,000 bytes off.
+
+Speed. This machine's timings wandered by 15% or more between runs of
+the same program today (both builds, every game), so the instructions
+each game ran for 600 frames were counted too (valgrind), which don't
+depend on how busy the machine is:
+
+| Game | Instructions, Step 4 | Step 5 |
+|---|---|---|
+| Platformer starter | 63,282,535 | 63,281,306 (the same) |
+| Shooter starter | 49,470,595 | 49,475,611 (0.01% more) |
+| Scene demo | 75,562,645 | 75,732,284 (0.22% more) |
+
+The scene demo's own update does 0.94% more: 230 instructions an update,
+which is `Scene` looking for objects whose kind is one of the game's
+scripts (it has one, `bob`, so it looks; a game with no scripts doesn't).
+That's about 60 billionths of a second an update. Drawing is the same.
+The first version also made a list each update even when no object had
+a script, which cost more: it now finds that out without making
+anything. Timed with `--headless --time`, five runs each turn about, the
+lowest to highest and the middle run:
+
+| Game | Drawing a frame, Step 4 | Step 5 | An update, Step 4 | Step 5 |
+|---|---|---|---|---|
+| Platformer starter | 88.2 to 147.9 µs (101.1) | 89.9 to 115.5 µs (98.4) | 1.41 to 3.68 µs (1.86) | 1.21 to 2.30 µs (1.55) |
+| Shooter starter | 19.4 to 32.5 µs (23.1) | 23.0 to 28.9 µs (24.2) | 1.15 to 2.22 µs (1.37) | 1.47 to 1.89 µs (1.57) |
+| 3D runner starter | 1,651 to 2,057 µs (1,790) | 1,780 to 2,221 µs (1,864) | 2.41 to 4.27 µs (3.33) | 3.30 to 5.52 µs (4.24) |
+| Scene demo | 93.1 to 118.5 µs (100.9) | 95.9 to 147.3 µs (113.3) | 2.86 to 4.13 µs (3.59) | 3.02 to 6.29 µs (3.88) |
+
+Within this machine's spread for all four (the 3D runner's code didn't
+change at all, and it moved as much as the others); the instruction
+counts above are the steadier measure.
+
+- Tests: the engine 626 (headless) and 661 (with a window), 351 with the
+  link; the Studio's core 84 unit tests and 9 that play real games (one
+  makes a script in a real game, builds it, gives it to an object and
+  undoes it all); the app 13 unit tests and 12 screen tests (one makes a
+  script from Files' right-click, drags it onto an object and onto empty
+  space, and changes its settings in the Inspector). All of them pass on
+  a copy checked out with Windows line endings too.
+
+On GitHub's Windows machine (run 43462792219, release builds, the same
+`--headless --time`), against Step 4's run 43437587053 there:
+
+| Game | Size after Step 4 | after Step 5 | An update, Step 4 | Step 5 | Drawing a frame, Step 4 | Step 5 |
+|---|---|---|---|---|---|---|
+| Platformer starter | 3,902,464 | 3,884,544 | 1.27 to 1.33 µs | 1.26 to 1.36 µs | 83.6 to 84.4 µs | 83.1 to 84.7 µs |
+| Shooter starter | 3,795,456 | 3,772,416 | 1.66 to 1.81 µs | 1.68 to 1.74 µs | 16.2 to 16.8 µs | 16.4 to 16.8 µs |
+| 3D runner starter | 9,206,784 | 9,185,280 | 1.53 to 1.63 µs | 1.74 to 1.81 µs | 1,165 to 1,169 µs | 1,169 to 1,186 µs |
+| Scene demo | 4,185,088 | 4,184,064 | 3.16 to 3.17 µs | 3.06 to 3.18 µs | 85.1 to 86.0 µs | 84.0 to 84.8 µs |
+
+Every game is smaller there than after Step 4: 17,920 to 23,040 bytes
+for the three without scenes, and 1,024 bytes for the scene demo, whose
+scripts fit in what the others lost. (Windows keeps function names in a
+separate file, so its sizes are like Linux's stripped ones.) The times
+are Step 4's, but for the 3D runner's update, which is 0.2 µs slower
+though its code didn't change and its drawing, which does almost all
+the work, is the same: that's the machine. The engine's tests passed
+five times in a row there, both ways (659 and 625: tests of parts only
+Linux has, such as `tools/verify.sh`, aren't built there), and so did
+the Studio's tests and the beginner's proof, from the zip and from the
+installed Studio.
 
 # Models from Duck Mold
 

@@ -232,9 +232,10 @@ with the same id is a mistake said in plain words; the second is given a
 new one.
 
 **Kept for later.** `"parent"` (objects inside objects) and `"kinds"`
-(several behaviours on one object) are reserved now: no kind can use
-them for a setting, a file that has them keeps them, and the engine says
-they do nothing yet. So files made now won't change when those arrive.
+(several scripts on one object, section 2) are reserved now: no script
+can use them for a setting, a file that has them keeps them, and the
+engine says they do nothing yet. So files made now won't change when
+those arrive.
 The same goes for `"space": "3d"` and `"model"` (section 6).
 
 **Its own settings** are every other key (`speed`, `walks`,
@@ -332,37 +333,136 @@ objects that just aren't in the file. Objects update in the order of
 their ids (section 1, "Order"), so the same inputs give the same game
 however the file's lines are arranged.
 
-**A new kind, in Rust:**
+**Scripts, the way Unity has them.** Code that belongs to one object is
+a **script**: one `.rs` file, made from the Studio, given to an object by
+dragging it there, with its settings in the Inspector. An object's
+`"kind"` names its script. The ready-made behaviours of step 6 are
+scripts that come with Duck Forge, written the same way.
+
+*Making one.* Right-click in **Files**, **New script**. The Studio asks
+for a name ("bee", or "big bee"), and then:
+
+1. writes `bee.rs` in the folder that was right-clicked (or the folder of
+   the file that was), from the skeleton below, with `Bee` for the
+   type's name;
+2. connects it to the game: it adds it to the game's `scripts.rs` (below);
+3. opens it in the person's code editor, as clicking a `.rs` file in
+   Files does now;
+4. and the game builds by itself, as it does whenever its code changes.
+   When the build is ready, the Studio does what "Restart and replay my
+   moves" does today: the new program replays the session (inputs and
+   edits) back to the same frozen frame, so the scene is as it was, with
+   the script now in the game. The script shows in Files with a script
+   mark, and in **+ Add** under "Your scripts".
+
+The name becomes the file's name, the script's name in scenes (`"kind":
+"big_bee"`) and the type's (`BigBee`). The Studio says plainly when a
+name can't be used: empty, starting with a number, a word Rust keeps for
+itself (`move`, `type`), the name of a plain kind (`picture`, `sound`)
+or of another script. It's one step of Undo (which takes the file to the
+Recycle Bin and the line out of `scripts.rs`).
+
+*The skeleton*, written for someone who has never seen Rust:
 
 ```rust
-#[derive(Default)]
-pub struct Bee { speed: f32, bob: f32, home_y: f32, time: f32 }
+//! bee: a script. Drag it from Files onto an object to give that object
+//! this script. Its settings are the boxes the Inspector shows for it.
 
-impl Kind for Bee {
+use duckforge::prelude::*;
+
+#[derive(Default)]
+pub struct Bee {
+    // Each setting is a box in the Inspector. Add your own the same way.
+    speed: f32,
+    // Things it remembers while the game runs go here too, without a box.
+}
+
+impl Script for Bee {
+    /// The settings: a name, where it goes, and its value at the start.
     fn settings(&mut self, s: &mut Settings) {
-        s.number("speed", &mut self.speed, 40.0).range(0.0, 200.0);
-        s.number("bob", &mut self.bob, 12.0).label("Bobs up and down by");
+        s.number("speed", &mut self.speed, 0.0).help("Pixels a second, to the right");
     }
-    fn start(&mut self, me: Id, scene: &mut Scene, _ctx: &mut Context) {
-        self.home_y = scene[me].at.y;
-    }
+
+    /// Once, when the object starts (when the scene starts, or when it's added).
+    fn start(&mut self, me: Id, scene: &mut Scene, ctx: &mut Context) {}
+
+    /// Sixty times a second, while the game plays.
     fn update(&mut self, me: Id, scene: &mut Scene, ctx: &mut Context) {
-        self.time += ctx.dt();
+        // An example to change or remove: it moves right at `speed`.
+        // Give speed a value in the Inspector and press Tab to see it.
         scene[me].at.x += self.speed * ctx.dt();
-        scene[me].at.y = self.home_y + (self.time * 4.0).sin() * self.bob;
     }
 }
 ```
 
-and one line where the game starts: `game.kind::<Bee>("bee")`.
+It does nothing until `speed` is given a value, so giving a script to an
+object never surprises anyone, and the first thing to try is in the
+Inspector.
 
-**Why its settings appear in the Inspector by themselves.** `settings`
-is the one place a kind names its settings, and the engine calls it for
-three jobs with the same code:
+*Connecting it.* Rust needs every file named somewhere, so the Studio
+keeps one file beside `main.rs` that lists the game's scripts. The Studio
+writes it whole every time, the same way, like a scene file:
+
+```rust
+// Duck Forge Studio keeps this file: it lists this game's scripts.
+// New script, Rename and Delete in Files change it. Writing it by hand
+// is fine too, one line each in the same shape.
+#[path = "scripts/bee.rs"]
+mod bee;
+
+pub fn all() -> Scripts {
+    Scripts::new()
+        .add::<bee::Bee>("bee")
+}
+```
+
+A game made with scenes (the starters of step 6, and the scene demo
+from this step) says `mod scripts;` once in `main.rs` and gives
+`scripts::all()` to its scenes (`SceneGame::new(...).with_scripts(...)`,
+or `Scene::load(...)?.with_scripts(...)` in a game that writes its own
+`Game`). The first New script in a game whose `main.rs` hasn't those
+adds `mod scripts;` itself, and if it can't tell where the scene is
+loaded, it says the one line to add and opens `main.rs` at the place,
+rather than guessing in someone's own code. Tests give the same
+`scripts::all()` to the scenes they load.
+
+*Giving it to an object.* Drag the script from Files:
+
+- onto an object in the frozen game: that object gets it (it lights up
+  under the pointer as the box does, with "Let go to give sign the
+  script bee");
+- onto empty space in the game: a new object with that script, where
+  it's let go (shown dashed, as an Area is, until it has a picture);
+- onto the Inspector's **Script** box: the selected object gets it, or
+  all of them when several are selected.
+
+The object's `"kind"` becomes `"bee"` and it keeps its picture, box and
+everything else. It's one step of Undo, the command is `files.use`, and
+the game takes it at once while frozen: the script starts on the next
+frame played. A Picture or an Area can take a script, and so can an
+object that has one (the new one takes its place: one per object, for
+now). A tile map, a background, a sound, a text or a button already has
+a job; the Studio says so, and that a script beside it comes with
+several scripts per object. The Inspector's Script box also lists the
+game's scripts to choose from, and has **Remove**, which takes the
+script and its settings off the object (keys it doesn't know, like a
+note, stay).
+
+*Its settings in the Inspector*, as Unity shows a script's public
+values: under the object's own boxes, a section named after the script,
+with one box per setting, then **Open bee.rs**. A value is saved to the
+scene file only when it differs from the script's default, so changing a
+default in code changes every object still using it. Changing a box
+while frozen gives the running script the new value at once, keeping
+what it remembers (`time`, `home_y`), as Feel does now.
+
+**How the settings appear in the Inspector by themselves.** `settings`
+is the one place a script names its settings, and the engine calls it
+for three jobs with the same code:
 
 1. *To list them:* the engine runs it on an empty `Bee` and notes each
    name, its type, its default and its range. The Studio asks the
-   running game for that list (`ask kinds`, over the link that exists)
+   running game for that list (`ask scripts`, over the link that exists)
    and draws the boxes. No list to keep in step, nothing to register
    twice.
 2. *To load them:* the values from the scene file go into the fields.
@@ -378,13 +478,40 @@ whole number, a tick box, words, a choice from a list, a colour, a
 picture, a sound, a point you can drag in the view, another object, a
 scene, a saved thing, a key. Each can have `.label("...")`,
 `.help("...")`, `.group("...")` and `.expert()` (hidden in Beginner).
+A picture or sound setting takes a file dropped on its box, as in Step
+4.
 
 The Studio keeps the last list it was given, so when the code doesn't
 build the Inspector still works from the build before, and says so.
 
-A kind can also draw itself (`fn draw(&self, me: &Object, canvas)`; the
-default draws its picture) and code can reach a kind's own fields
-(`scene.kind::<Bee>(id)`).
+A script can also draw itself (`fn draw(&self, me: &Object, canvas)`;
+the default draws its picture), and code can reach a script's own fields
+(`scene.script::<Bee>(id)`).
+
+**Several scripts on one object, later.** One script per object keeps
+this step simple to build and to explain, and it's where Unity users
+start too. The key `"kinds"` is kept for the rest, in this shape:
+
+```json
+{"id": 7, "name": "snail", "kind": "patrol", "speed": 30, "kinds": {"shoots": {"every": 2}, "blinks": {"how_fast": 4}}}
+```
+
+- The first script stays in `"kind"` with its settings beside the
+  object's own, so every file written before then means the same thing.
+- Each further script is a key of `"kinds"`, holding its own settings,
+  so two scripts can both have a `speed` without meeting.
+- They run in that order: `kind`, then `kinds` from left to right, each
+  object's in the order of the ids, so a game stays the same however
+  the file is arranged.
+- A tile map, a sound or a text can then have scripts too, in `"kinds"`,
+  beside the job its `kind` does.
+- The Inspector shows a section per script, each with Remove, and
+  dropping a script on an object that has one asks: put it in place of
+  bee, or beside it.
+- Code asks for one with `scene.script::<Shoots>(id)`, as now.
+
+What waits is the hard part, not the file: two scripts that both move
+the object, and which one wins, has to be explained before it's offered.
 
 **The engine's old `Scene`.** The engine already has a type called
 `Scene`: "what was on screen", made from `canvas.label` and saved as
@@ -411,7 +538,8 @@ current scene, the game's numbers, and moves between scenes. It still
 has to be built by Rust like any game, which the Studio already does by
 itself. You never have to open the file.
 
-**Ready-made behaviours.** Each is a kind, with settings in the
+**Ready-made behaviours.** Each is a script that comes with Duck Forge
+(section 2), given to an object the same way, with settings in the
 Inspector:
 
 | Kind | What it does | Main settings |
@@ -458,7 +586,7 @@ whole game.
 **Both turn into Rust.**
 
 - *A behaviour:* "Turn into code" copies the ready-made kind's own file
-  into the game's folder under a new name, adds two lines to `main.rs`,
+  into the game's folder under a new name, adds it to `scripts.rs`,
   and changes the object's kind. Same settings, same picture, and a test
   replays the last run to show the game plays the same. From then on
   it's the game's code.
@@ -472,7 +600,7 @@ whole game.
 | In Phase 5 | Waits |
 |---|---|
 | The eight behaviours and the plain kinds | More behaviours (shooter ship, bullets, health bars, checkpoints, dialogue) |
-| Turn a behaviour into code | Several behaviours on one object |
+| Turn a behaviour into code | Several scripts on one object (the file's shape is decided: section 2) |
 | Saved things | Rules with "and", "or", "else" or sums |
 | Rules, as the **last** 2D step, and the first thing I'd move out if the phase runs long | Animation driven by rules; a timeline |
 
@@ -484,7 +612,7 @@ the middle.
 | Panel | Where | What it does |
 |---|---|---|
 | **Scene** | Top left | The scene's objects in drawing order, with their kind. Click to select, drag to reorder, double-click to rename, a search box, **+ Add** |
-| **Files** | Bottom left | The game's folder as a tree (built in the first-hour fixes). Click a picture to see it, a sound to hear it, a scene to open it, code to open it in the Code panel |
+| **Files** | Bottom left | The game's folder as a tree (built in the first-hour fixes). Click a picture to see it, a sound to hear it, a scene to open it, code to open it in the Code panel. Right-click: **New script**, New folder, Rename, Delete. Drag pictures, sounds and scripts out of it |
 | **View** | Middle | The frozen game, with the Studio's own drawing on top: the selection, handles, the grid |
 | **Inspector** | Right | The selected object's settings. Tabs for Feel (today's sliders) and Rules |
 | **Code, Console, Problems** | Bottom, on request | See below |
@@ -528,6 +656,9 @@ to the frozen game a few times a second, as painting does now.
 | A level's `.txt` | the scene | A new Tile map |
 | A saved thing | the scene | An object like it |
 | A scene | a Door's or Button's "Goes to" | It goes there |
+| A script | an object in the scene | That object gets the script (one per object, for now) |
+| A script | empty space in the scene | A new object with that script, there |
+| A script | the Script box | The selected object, or all the selected ones, get it |
 | Files from Windows | the scene | Copied into `assets/` first, then as above |
 
 **Starts at and Now.** This is the one place the editor differs from
@@ -598,7 +729,7 @@ has, so agents and `--run` scripts can press all of them:
 | select | `set`, `add`, `all`, `none` |
 | view | `tool`, `snap`, `grid`, `show` (frozen moment or start), `zoom`, `pan`, `whole`, `fly` |
 | rule | `add`, `set`, `delete`, `turn_into_code` |
-| kind | `new` (writes a kind's skeleton in code) |
+| script | `new` (writes a script's skeleton, adds it to `scripts.rs`, opens it), `remove` (takes an object's script and its settings off it) |
 | code | `open`, `save`, `find`, `go_to` |
 | files | the ones from the first-hour fixes, plus `use` (a file dropped on the scene or on a box) |
 | studio | `mode` (Beginner or Expert) |
@@ -607,6 +738,8 @@ has, so agents and `--run` scripts can press all of them:
 {"do": "object.add", "kind": "patrol", "name": "snail", "at": [496, 208]}
 {"do": "object.set", "ids": [7], "set": {"speed": 60}}
 {"do": "files.use", "path": "assets/sign.png", "at": [128, 208]}
+{"do": "script.new", "name": "bee", "folder": "scripts"}
+{"do": "files.use", "path": "scripts/bee.rs", "ids": [4]}
 ```
 
 ## 5. Several scenes in one game
@@ -809,7 +942,7 @@ to copy.
 | 2 | **Scene list, Inspector, select and move.** The link's new questions, the `object` and `select` commands, snap and grid, Undo, "Starts at and Now". **Built** | Click an object, drag it, change its name, position, picture and layer, undo, and play on from the frozen frame | Stronger |
 | 3 | **The other tools.** Turn, Size, several at once, box select, copy, paste, duplicate, delete, nudge, reorder, Add (plain kinds). **Built** | Build a small picture of a level by hand | Cheaper |
 | 4 | **Dragging from Files.** Onto the scene and onto Inspector boxes, and from Windows. **Built** | Drag a picture in, drag a sound onto a box | Cheaper |
-| 5 | **Kinds.** `Kind`, `Settings`, `SceneGame`, the Inspector's boxes drawn from the game's own list, "New kind in code", "Show me the code" | Add a kind's skeleton from the Studio, give it a setting in code, and see the box appear | Stronger |
+| 5 | **Scripts, the way Unity has them.** `Script`, `Settings`, `Scripts` and `scripts.rs`, `SceneGame`; New script in Files; dragging a script onto an object, onto empty space or onto the Script box; its settings in the Inspector, drawn from the game's own list; Remove; "Open bee.rs". The scene demo gets `scripts.rs` and one script of its own. **Built** | Right-click in Files, New script "bee", give it to the sign by dragging, type a speed in the Inspector, press Tab and watch the sign go. Add a setting in the code, save, and see its box appear | Stronger |
 | 6 | **Ready-made behaviours and saved things.** The eight, one small file and one test each; "Turn into code"; two scene starters | Make a platformer with coins, a snail, a lift and a door, with no code. Turn the snail into code | Cheaper, one behaviour at a time. The first one (platformer player) by the stronger model, as the pattern |
 | 7 | **Several scenes.** `game.json`, numbers, going between scenes, Text and Button, the scene chooser, New scene, the Scenes page, Play this scene | Make a title, a level select and two levels, and play through them | Stronger for the engine half, cheaper for the Scenes page |
 | 8 | **Check and bots.** Scene checks, reach with objects, the ready-made bot, problems that select their object, `tools/verify` | Put a coin out of reach and be told which; break a door and be told which | Stronger |
@@ -860,9 +993,10 @@ of step 6, to show how, and leave the rest alone.
   the code harder, and the games Duck Forge makes rarely need it. A lift
   carries what stands on it because the lift does that, not because of a
   tree. The key `"parent"` is kept for it (section 1).
-- **One behaviour per object.** No stacking "patrol" and "shoots" on one
-  snail. For that you turn it into code. The key `"kinds"` is kept for
-  it.
+- **One script per object.** No stacking "patrol" and "shoots" on one
+  snail yet: for that, one script does both. The key `"kinds"` is kept
+  for it, and its shape is decided (section 2, "Several scripts on one
+  object, later"), so files made now won't change.
 - **The Code panel is a plain editor.** Suggestions as you type and "go
   to definition" mean running rust-analyzer, a large separate program,
   inside the Studio and keeping it alive on Windows. That's a phase of
@@ -897,6 +1031,13 @@ still whole without them.
 - *The Inspector from the game's own list* (step 5) depends on the game
   being built. A game whose code doesn't build shows the last list it
   had, which can be stale.
+- *A new script needs a build.* Unity compiles too, but Rust is slower
+  to: a few seconds for a small game, longer the first time on a new
+  PC. The Studio says "Building bee..." and comes back to the same
+  frozen frame when it's done; the script can be dragged onto objects
+  straight away, and its boxes appear when the build finishes. Saving a
+  change to a script's code works the same way, so a new setting's box
+  appears without losing the moment.
 - *Dragging smoothness.* The frozen game redraws a few times a second
   while you drag. The outline under the pointer hides that, but a very
   big scene may still feel a beat behind.
@@ -970,7 +1111,7 @@ The questions, as answered in the review:
    (`Mesh::load_glb`, merged in at step 2), so Phase 5b uses it and
    builds none. Section 6 says what it covers. Parts that move, and
    their animation, come when Duck Mold writes them.
-6. **A flat list and one behaviour per object**, for now. `"parent"` and
+6. **A flat list and one script per object**, for now. `"parent"` and
    `"kinds"` are kept for later, so files made now never change.
 7. **The plain Code panel**, with "Open in my editor".
 8. **The names** stay as they are.
@@ -1002,6 +1143,25 @@ And three more:
 - **The first-hour fixes** come first: Step 1's branch is main with
   those fixes and this design.
 
+Changed before Step 5 was built, so it feels like Unity's scripts
+(sections 2, 4 and 9):
+
+- **Code for one object is a script**: one `.rs` file, made with **New
+  script** in Files (the main way; **+ Add** has "Your scripts" and New
+  script too), connected to the game through `scripts.rs`, which the
+  Studio keeps, and opened in the person's code editor.
+- **A script is given to an object by dragging it** from Files onto the
+  object, onto empty space (a new object), or onto the Inspector's
+  Script box: `files.use`, one step of Undo, as pictures and sounds are
+  in Step 4.
+- **Its settings are boxes in the Inspector**, like Unity's public
+  values, drawn from the game's own list.
+- **One script per object**, with the shape of several decided now:
+  `"kind"` for the first, `"kinds"` for the rest, each with its own
+  settings.
+- The trait is `Script` (it was `Kind` in this design), and an object's
+  `"kind"` names its script, so nothing in the file changes.
+
 ## What Step 2 built, and what it left for Step 3
 
 Built: the Scene list, the bar above the view (Select, Move, Snap with
@@ -1023,8 +1183,8 @@ Three things work differently from the mockups, on purpose:
 - **The scene is edited while the game is frozen**, as painting is. A
   game that isn't running has no picture to click on yet; "As it starts"
   with no game running comes with several scenes, in step 7.
-- **Kind is shown, not changed.** It becomes a list in step 5, when
-  games can say which kinds they have.
+- **Kind is shown, not changed.** In step 5 it becomes the Script box,
+  when games can say which scripts they have.
 
 Left for Step 3, as the table says: Turn and Size tools in the view (the
 numbers are in the Inspector already), a box to select several, nudging
@@ -1397,3 +1557,121 @@ terminal:
 129. Tell me anything that felt wrong or surprising, especially where a
      picture lands when you let go (items 113 and 122), and whether a
      dragged sound should loop (item 117).
+
+## What Step 5 built
+
+Scripts, as section 2 describes them, and as Unity has them:
+
+- **Files** has a right-click menu on every line: **New script...**,
+  New folder..., Open, Rename..., Delete; and a New script button. New
+  script asks for a name in a small window ("bee.rs, with Bee in it"
+  under the box), writes the file in that folder from the skeleton, adds
+  it to `scripts.rs`, and opens it in your code editor. The game builds
+  it in and comes back to the same frozen frame by itself. Scripts are
+  marked "script" in Files.
+- **Dragging a script** from Files onto an object outlines that object
+  ("Let go to give sign the script bee"); letting go gives it the
+  script. On empty space it makes a new object with the script, shown
+  dashed until it has a picture. On the Inspector's **Script** box it
+  goes to the selected object, or to all of them.
+- **The Inspector** has the Script box (with the game's scripts to choose
+  from, and Remove), then the script's settings as boxes, under its name
+  ("Bee (script)"): sliders for numbers with a range, tick boxes, words,
+  choices, colours, pictures and sounds (a file from Files can be
+  dropped on those), each with its help under the pointer and an x to
+  put the script's default back. **Open bee.rs** opens it.
+- **+ Add** has "Your scripts" (an object with that script, in the
+  middle of the view) and New script.
+- The engine runs them, the scene demo has `scripts.rs` and its own
+  script (`bob`, on no object yet), and agents have `script.new`,
+  `script.remove` and `files.use` for them.
+
+Pictures 47 to 51 in `docs/studio-screens/` are the real screens;
+`docs/decisions.md` ("Step 5: scripts, the way Unity has them") says why
+each works as it does.
+
+Different from the plan, on purpose:
+
+- **The skeleton has no `start`**: an empty one makes Rust print three
+  warnings for every new script. Its last comment shows what one looks
+  like.
+- **A script's `draw` is given the scene** (`draw(&self, me, scene,
+  canvas)`), which it needs to draw its picture.
+- **Some of section 2's boxes wait for the steps that need them**: a
+  point to drag, another object, a scene, a saved thing and a key.
+- **Renaming a script's file keeps the script's name**, so scenes
+  don't change; deleting it leaves objects with that kind as it is.
+- **A new build of a frozen game with scripts comes back to the same
+  frame by itself**, where Phase 4 waited behind "New build ready".
+
+## What you test on Windows after Step 5
+
+GitHub's Windows machine runs a test that does most of this with a
+pretend mouse on the real Scene demo (New script from the right-click
+menu, building it in, dragging it onto the sign, a speed that moves the
+sign, another script dropped on the Script box, Add's "Your scripts",
+and Undo back to the start), and one that does it through commands. What
+it can't do is open your code editor, or let you change the code and
+see it. These need your PC, with no terminal:
+
+130. Open **Scene demo** and press Tab. In Files (bottom left), open the
+     **scripts** folder: `bob.rs` is there, marked "script".
+131. Right-click **scripts** in Files: a menu with **New script...**, New
+     folder..., Rename... and Delete. Choose **New script...**. A small
+     window asks for its name. Type `big bee`: under the box it says
+     "big_bee.rs, with BigBee in it". Type `sound` instead: it says Duck
+     Forge already has a kind called "sound". Type `bee` and press
+     **OK**.
+132. Your code editor opens `bee.rs` (if Windows asks which program to
+     use, choose yours, or Notepad). Read it: the comments say what each
+     part does. Leave it open.
+133. Back in the Studio, the status bar says "New script bee:
+     scripts/bee.rs. Building it in...". Within a few seconds (longer the
+     very first time) the game comes back to the same frozen frame, and
+     `bee.rs` is in Files, marked "script".
+134. Drag **bee.rs** from Files onto the **sign** in the game: the sign
+     gets a yellow outline and "Let go to give sign the script bee". Let
+     go. Click the sign: the Inspector says Kind: bee, Script **bee**,
+     and under **Bee (script)** a box **speed** at 0.
+135. Make speed **60** (drag the number, or double-click it and type).
+     Press Tab: the sign slides right. Press Tab again to freeze.
+     Ctrl+Z twice: speed and script are gone from the sign (it stays
+     where it slid to in this run; "Restart the game" puts it back).
+136. Give the sign bee again. In your code editor, add a second setting
+     under speed: in `pub struct Bee`, the line `fall: f32,`; in
+     `settings`, the line
+     `s.number("fall", &mut self.fall, 0.0).range(0.0, 100.0);`; in
+     `update`, the line `scene[me].at.y += self.fall * ctx.dt();`. Save.
+     After a few seconds the game comes back to the same frame, and the
+     Inspector has a **fall** slider. Set it to 20 and press Tab: the sign
+     slides down too. (If you made a typing mistake, the Studio says
+     what's wrong instead: fix it and save again.)
+137. Drag **bob.rs** onto the **Script** box in the Inspector: the sign
+     has bob now, with "Bobs up and down by" and "Bobs a second"
+     sliders, and bee's speed and fall are gone from its line in
+     `scenes/pond.json`. Press Tab: it bobs. Freeze.
+138. Drag **bee.rs** onto empty sky: a new object called bee appears
+     there, a dashed box. Drag `crate.png` from Files onto its Picture
+     box: it's a crate that slides right once you give it a speed.
+139. Drag **bee.rs** onto a **coin**: nothing changes, and the Studio
+     says the coin's kind is one the game's code looks for.
+140. Click the sign, then **Remove** beside its Script box: the script
+     and its settings come off; it's a plain picture again.
+141. **+ Add**: under the kinds, "Your scripts" lists bob and bee, and
+     **New script...**. Click **bob**: an object with bob in the middle
+     of the view. Ctrl+Z.
+142. Press Ctrl+Z until the status bar says it undid "New script bee":
+     `bee.rs` is in the Recycle Bin (open it from the desktop to see),
+     with the setting you added, and `scripts.rs` lists only bob.
+143. New script `wasp`, then right-click `wasp.rs` in Files,
+     **Rename...**, call it `hornet.rs`. Open `scripts.rs` in Notepad: its
+     line now says `scripts/hornet.rs`, and the game still builds. Right-
+     click `hornet.rs`, **Delete**: it goes to the Recycle Bin, and
+     `scripts.rs` lists only bob again.
+144. "Restart the game", then Check: it passes (or says the playthrough
+     is from an older level: "Record it again").
+145. Your own platformer, or Duck Peaks (no scenes): Files has its tab on
+     the right as before, and its right-click menu has no New script.
+146. Tell me anything that felt wrong or surprising, especially whether
+     the skeleton's comments were easy to follow (item 132), and how long
+     building a script in took on your PC (item 133).

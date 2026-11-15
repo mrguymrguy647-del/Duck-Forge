@@ -51,21 +51,26 @@ pub struct FilesPanel {
     open_folders: BTreeSet<String>,
     /// Folders the person closed (every folder starts open).
     closed_folders: BTreeSet<String>,
-    /// A name being typed: for a new folder, or a rename.
+    /// A name being typed: for a new folder, a new script, or a rename.
     naming: Option<Naming>,
+    /// The game's scripts, by their files' places (`scripts/bee.rs`): they
+    /// can be dragged onto objects. The app sets it before drawing.
+    pub scripts: Vec<String>,
 }
 
 /// A name being typed in the panel.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Naming {
     NewFolder { inside: String, typed: String },
+    NewScript { inside: String, typed: String },
     Rename { path: String, typed: String },
 }
 
 impl FilesPanel {
     /// Draws the panel for the game whose folder is `folder` (`None` for a
-    /// one-file game). With `drag`, pictures, sounds and levels can be
-    /// dragged out into the scene. Returns the commands to run.
+    /// one-file game). With `drag` (a game with scenes), pictures, sounds,
+    /// levels and scripts can be dragged out into the scene, and there's
+    /// New script. Returns the commands to run.
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
@@ -101,6 +106,20 @@ impl FilesPanel {
                     typed: String::new(),
                 });
             }
+            if drag
+                && ui
+                    .button("New script")
+                    .on_hover_text(match target.as_str() {
+                        "" => String::from("Code for one object, in the game's folder"),
+                        inside => format!("Code for one object, in {inside}"),
+                    })
+                    .clicked()
+            {
+                self.naming = Some(Naming::NewScript {
+                    inside: target.clone(),
+                    typed: String::new(),
+                });
+            }
             if ui
                 .button("Show in File Explorer")
                 .on_hover_text("Open the game's folder")
@@ -122,6 +141,19 @@ impl FilesPanel {
             .small()
             .weak(),
         );
+        // Typing a name: in a small window of its own, always in view.
+        if self.naming.is_some() {
+            let modal = egui::Modal::new(egui::Id::unique("files naming")).show(ui.ctx(), |ui| {
+                ui.set_width(360.0);
+                self.naming_box(ui)
+            });
+            if modal.should_close() {
+                self.naming = None;
+            }
+            if let Some(command) = modal.inner {
+                commands.push(command);
+            }
+        }
         ui.add_space(4.0);
 
         // The tree.
@@ -146,20 +178,29 @@ impl FilesPanel {
                     }
                     _ => entry.name.clone(),
                 };
+                let is_script = self.scripts.contains(&entry.path);
                 let usable = drag
-                    && matches!(
-                        entry.kind,
-                        FileKind::Picture | FileKind::Sound | FileKind::Level
-                    );
+                    && (is_script
+                        || matches!(
+                            entry.kind,
+                            FileKind::Picture | FileKind::Sound | FileKind::Level
+                        ));
                 let response = ui.selectable_label(picked, text);
                 let response = if usable {
                     response
                         .interact(egui::Sense::drag())
-                        .on_hover_text(drag_text(entry))
+                        .on_hover_text(if is_script {
+                            String::from(
+                                "Click to open it in your code editor. Drag it onto an object to \
+                                 give that object this script",
+                            )
+                        } else {
+                            drag_text(entry)
+                        })
                 } else {
                     response.on_hover_text(hover_text(entry))
                 };
-                if usable && response.drag_started() {
+                if usable && !is_script && response.drag_started() {
                     egui::DragAndDrop::set_payload(
                         ui.ctx(),
                         DraggedFile {
@@ -168,10 +209,74 @@ impl FilesPanel {
                         },
                     );
                 }
+                // Right-click: what can be done here.
+                let inside = match entry.kind {
+                    FileKind::Folder => entry.path.clone(),
+                    _ => entry
+                        .path
+                        .rsplit_once('/')
+                        .map_or(String::new(), |(folder, _)| folder.to_string()),
+                };
+                response.context_menu(|ui| {
+                    if drag && ui.button("New script...").clicked() {
+                        self.naming = Some(Naming::NewScript {
+                            inside: inside.clone(),
+                            typed: String::new(),
+                        });
+                        ui.close();
+                    }
+                    if ui.button("New folder...").clicked() {
+                        self.naming = Some(Naming::NewFolder {
+                            inside: inside.clone(),
+                            typed: String::new(),
+                        });
+                        ui.close();
+                    }
+                    if entry.kind != FileKind::Folder && ui.button("Open").clicked() {
+                        commands.push(Command::FilesOpen {
+                            path: entry.path.clone(),
+                        });
+                        ui.close();
+                    }
+                    let is_main = entry.path == "main.rs";
+                    if ui
+                        .add_enabled(!is_main, egui::Button::new("Rename..."))
+                        .clicked()
+                    {
+                        self.naming = Some(Naming::Rename {
+                            path: entry.path.clone(),
+                            typed: entry.name.clone(),
+                        });
+                        ui.close();
+                    }
+                    if ui
+                        .add_enabled(!is_main, egui::Button::new("Delete"))
+                        .clicked()
+                    {
+                        commands.push(Command::FilesDelete {
+                            path: entry.path.clone(),
+                        });
+                        ui.close();
+                    }
+                });
+                if usable && is_script && response.drag_started() {
+                    egui::DragAndDrop::set_payload(
+                        ui.ctx(),
+                        DraggedFile {
+                            path: entry.path.clone(),
+                            kind: FileKind::Code,
+                        },
+                    );
+                }
                 if response.clicked() {
                     commands.extend(self.clicked(entry));
                 }
-                ui.label(RichText::new(entry.kind.word()).small().weak());
+                let word = if is_script {
+                    "script"
+                } else {
+                    entry.kind.word()
+                };
+                ui.label(RichText::new(word).small().weak());
             });
         }
         if entries.is_empty() {
@@ -249,11 +354,15 @@ impl FilesPanel {
             });
         }
 
-        // Typing a name.
-        if let Some(command) = self.naming_box(ui) {
-            commands.push(command);
-        }
         commands
+    }
+
+    /// Asks for a new script's name, to make it in `inside`.
+    pub fn new_script(&mut self, inside: &str) {
+        self.naming = Some(Naming::NewScript {
+            inside: inside.to_string(),
+            typed: String::new(),
+        });
     }
 
     fn is_open(&self, folder: &str) -> bool {
@@ -298,7 +407,7 @@ impl FilesPanel {
         let naming = self.naming.as_mut()?;
         let mut command = None;
         let mut done = false;
-        ui.separator();
+        let script = matches!(naming, Naming::NewScript { .. });
         let (title, typed) = match naming {
             Naming::NewFolder { inside, typed } => (
                 if inside.is_empty() {
@@ -308,12 +417,31 @@ impl FilesPanel {
                 },
                 typed,
             ),
+            Naming::NewScript { inside, typed } => (
+                if inside.is_empty() {
+                    String::from("New script, in the game's folder. Its name:")
+                } else {
+                    format!("New script, in {inside}. Its name:")
+                },
+                typed,
+            ),
             Naming::Rename { path, typed } => (format!("New name for {path}:"), typed),
         };
         ui.label(title);
         let field = ui.add(egui::TextEdit::singleline(typed).desired_width(f32::INFINITY));
         field.request_focus();
-        let check = game_files::check_name(typed);
+        let check = if script {
+            // A script's name becomes its file's, and its type's in the code.
+            studio_core::scripts::new_name(typed).map(|(name, type_name)| {
+                ui.label(
+                    RichText::new(format!("{name}.rs, with {type_name} in it"))
+                        .small()
+                        .weak(),
+                );
+            })
+        } else {
+            game_files::check_name(typed).map(|_| ())
+        };
         if let Err(problem) = &check
             && !typed.is_empty()
         {
@@ -330,6 +458,10 @@ impl FilesPanel {
                         } else {
                             format!("{inside}/{}", typed.trim())
                         },
+                    },
+                    Naming::NewScript { inside, typed } => Command::ScriptNew {
+                        name: typed.trim().to_string(),
+                        folder: inside.clone(),
                     },
                     Naming::Rename { path, typed } => Command::FilesRename {
                         path: path.clone(),
