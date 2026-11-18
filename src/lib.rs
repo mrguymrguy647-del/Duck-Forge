@@ -69,6 +69,7 @@ pub mod script;
 mod sheet;
 pub mod simulation;
 pub mod sound;
+mod sound_files;
 #[cfg(all(feature = "audio", any(feature = "window", feature = "studio")))]
 mod speaker;
 pub mod sprite;

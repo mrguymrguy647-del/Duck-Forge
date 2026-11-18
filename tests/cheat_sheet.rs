@@ -368,6 +368,63 @@ fn looping_sounds() {
     assert!(!hum.is_playing());
 }
 
+/// A 16-bit mono WAV file of `samples` at 44,100 a second.
+fn wav_file(samples: &[i16]) -> Vec<u8> {
+    let data = samples.len() as u32 * 2;
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"RIFF");
+    bytes.extend_from_slice(&(36 + data).to_le_bytes());
+    bytes.extend_from_slice(b"WAVEfmt ");
+    bytes.extend_from_slice(&16u32.to_le_bytes());
+    bytes.extend_from_slice(&1u16.to_le_bytes()); // plain PCM
+    bytes.extend_from_slice(&1u16.to_le_bytes()); // one channel
+    bytes.extend_from_slice(&44_100u32.to_le_bytes());
+    bytes.extend_from_slice(&88_200u32.to_le_bytes());
+    bytes.extend_from_slice(&2u16.to_le_bytes());
+    bytes.extend_from_slice(&16u16.to_le_bytes());
+    bytes.extend_from_slice(b"data");
+    bytes.extend_from_slice(&data.to_le_bytes());
+    for sample in samples {
+        bytes.extend_from_slice(&sample.to_le_bytes());
+    }
+    bytes
+}
+
+#[test]
+fn a_sound_file_that_changes_while_the_game_runs() {
+    struct Steps(Wav);
+    impl Game for Steps {
+        fn update(&mut self, ctx: &mut Context) {
+            ctx.play_wav(&self.0);
+        }
+        fn draw(&self, canvas: &mut Canvas) {
+            canvas.clear(Color::BLACK);
+        }
+    }
+    let folder = TestFolder::new("cheat-sheet-sound-file");
+    let step = folder.join("step.wav");
+    std::fs::write(&step, wav_file(&[1000; 441])).unwrap();
+    let mut sim = Simulation::new(config(), Steps(Wav::load(&step).unwrap()));
+    sim.run(10);
+    // Sent again from Duck Echo: heard from the next step on.
+    std::fs::write(&step, wav_file(&[2000; 882])).unwrap();
+    let name = step.to_string_lossy().replace('\\', "/");
+    assert_eq!(sim.change_sound_file(&name), Ok(Some(11)));
+    sim.step();
+    assert_eq!(sim.game().0.seconds(), 0.02);
+    assert_eq!(sim.recording().sounds.len(), 1, "its SHA-256 on frame 1");
+    drop(sim); // that run is over: the next one starts afresh
+    // A game with no sound files has nothing to put in the store.
+    let quiet = Simulation::new(
+        config(),
+        Looper {
+            music: None,
+            theme: None,
+        },
+    );
+    assert_eq!(quiet.save_sounds(&quiet.recording()), Ok(0));
+}
+
 #[test]
 fn sprite_sheets_from_duck_quill() -> Result<(), LoadError> {
     let fixtures = TestFolder::new("cheat-sheet-quill");

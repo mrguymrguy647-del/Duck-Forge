@@ -1028,6 +1028,8 @@ pub(crate) fn run_from_command_line<G: Game>(
             .collect();
         script.tune = (!tuned.is_empty()).then_some(tuned);
         script.save(path)?;
+        // The sounds it names, if the store doesn't have them yet.
+        sim.save_sounds(&script)?;
         let was = if summary.changed.is_empty() {
             String::new()
         } else {

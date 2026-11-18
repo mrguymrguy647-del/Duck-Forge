@@ -409,8 +409,23 @@ impl Play {
     /// A file the game read has new text (a level painted in Build mode):
     /// the game reads it again now. A frozen game draws its picture again,
     /// so the change shows at once. Kept in the session's recording.
+    ///
+    /// A sound file (`.wav`) has no text: the game reads it from disk and
+    /// hears it from the coming update. The game keeps that change in its
+    /// own recording, with the file's SHA-256, so the Studio doesn't.
     pub fn send_file(&mut self, name: &str, text: &str) {
         if self.hello.is_none() || !self.is_running() {
+            return;
+        }
+        let sound = std::path::Path::new(name)
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("wav"));
+        if sound {
+            self.send(&ToGame::File {
+                path: name.to_string(),
+                text: String::new(),
+            });
+            self.redraw();
             return;
         }
         // As the game reads it, so the recording is the same on Windows.
@@ -805,6 +820,8 @@ impl Play {
             expect: None,
             tune: None,
             files: self.files_at_start.clone(),
+            // The game keeps the sounds it heard; the Studio can't know them.
+            sounds: BTreeMap::new(),
             changes: self.changes.clone(),
         }
     }

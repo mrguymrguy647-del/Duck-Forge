@@ -32,7 +32,6 @@
 //!
 //! [`Context::play`]: crate::engine::Context::play
 
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -41,6 +40,7 @@ use serde_json::Value;
 
 use crate::error::LoadError;
 use crate::report::ReportValue;
+use crate::sound_files::LoadProblem;
 
 use crate::sprite::missing_file_error;
 
@@ -376,11 +376,16 @@ impl Noise {
 /// ```
 ///
 /// Cloning a `Wav` is cheap: the samples are shared, not copied.
+///
+/// When the file changes while the game runs (a new sound sent from Duck
+/// Echo, say), the `Wav` plays the new sound from the next update on, with
+/// no change to the game: it reads its samples from the engine's table of
+/// sound files each time it's played (see `sound_files.rs`).
 #[derive(Clone)]
 pub struct Wav {
     name: String,
     path: PathBuf,
-    samples: Samples,
+    slot: Arc<crate::sound_files::SoundSlot>,
 }
 
 impl Wav {
@@ -394,16 +399,16 @@ impl Wav {
     /// says so in one sentence.
     pub fn load(path: impl AsRef<Path>) -> Result<Wav, LoadError> {
         let path = path.as_ref();
-        let bytes = fs::read(path).map_err(|error| missing_file_error(path, "sound", &error))?;
-        let samples = decode_wav(&bytes).map_err(|problem| {
-            LoadError::new(
+        let slot = crate::sound_files::load(path).map_err(|problem| match problem {
+            LoadProblem::Unreadable(error) => missing_file_error(path, "sound", &error),
+            LoadProblem::NotWav(problem) => LoadError::new(
                 io::ErrorKind::InvalidData,
                 format!(
                     "couldn't read {} as a WAV sound ({problem}); save it again as a plain \
                      16-bit PCM .wav file (most sound editors call this \"WAV, 16-bit PCM\")",
                     path.display()
                 ),
-            )
+            ),
         })?;
         let name = path
             .file_stem()
@@ -412,8 +417,13 @@ impl Wav {
         Ok(Wav {
             name,
             path: path.to_path_buf(),
-            samples,
+            slot,
         })
+    }
+
+    /// The samples it plays now.
+    fn samples(&self) -> Samples {
+        self.slot.samples()
     }
 
     /// The name shown in logs and used by play tests: the file name
@@ -422,14 +432,15 @@ impl Wav {
         &self.name
     }
 
-    /// How long the sound lasts, in seconds.
+    /// How long the sound lasts, in seconds. If the file changes while
+    /// the game runs, this is the new sound's length from then on.
     pub fn seconds(&self) -> f32 {
-        self.samples.frames() as f32 / SAMPLE_RATE as f32
+        self.samples().frames() as f32 / SAMPLE_RATE as f32
     }
 
     /// Whether the file is stereo (a left and a right channel).
     pub fn is_stereo(&self) -> bool {
-        self.samples.is_stereo()
+        self.samples().is_stereo()
     }
 }
 
@@ -442,7 +453,7 @@ impl std::fmt::Debug for Wav {
 /// Reads the samples out of a WAV file, converted to [`SAMPLE_RATE`]:
 /// mono stays mono, stereo stays stereo (more channels keep the first
 /// two). The error says what's wrong with the file.
-fn decode_wav(bytes: &[u8]) -> Result<Samples, String> {
+pub(crate) fn decode_wav(bytes: &[u8]) -> Result<Samples, String> {
     if bytes.len() < 12 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
         return Err(String::from("it doesn't start like a WAV file"));
     }
@@ -657,7 +668,7 @@ impl SoundRequest {
         SoundRequest {
             name: wav.name.clone(),
             source: SoundSource::File(wav.path.clone()),
-            samples: wav.samples.clone(),
+            samples: wav.samples(),
             pan: 0.0,
             volume: 1.0,
         }
@@ -768,6 +779,14 @@ pub(crate) enum LoopCommand {
     Start(LoopId, SoundRequest, f32),
     Volume(LoopId, f32),
     Stop(LoopId),
+    /// Its file changed: play these samples from its next wrap (when it
+    /// reaches its end and starts again), so music never jumps mid-bar.
+    /// (Only the speakers read it, and a build without sound has none.)
+    #[cfg_attr(
+        not(all(feature = "audio", any(feature = "window", feature = "studio"))),
+        allow(dead_code)
+    )]
+    NextRound(LoopId, Samples),
 }
 
 /// One looping sound the game played: when it started and stopped, and
@@ -788,7 +807,10 @@ pub struct PlayedLoop {
     /// `[(1, 0.6), (400, 0.3)]`.
     pub volumes: Vec<(u64, f32)>,
     pub(crate) source: SoundSource,
-    pub(crate) samples: Samples,
+    /// The sound it repeats, and the sample in `audio.wav` each version
+    /// starts at: the first where the loop starts, then one more each time
+    /// its file changed, starting at the wrap after the change.
+    pub(crate) versions: Vec<(u64, Samples)>,
     /// The samples in `audio.wav` where it starts and stops, and where
     /// each volume begins (the same order as `volumes`).
     pub(crate) start_sample: u64,
@@ -833,14 +855,39 @@ impl PlayedLoop {
         )
     }
 
+    /// Its file changed between two updates, and the next update begins at
+    /// `sample`: the loop plays `samples` from its next wrap. If a version
+    /// is already waiting for that wrap, this one takes its place. Returns
+    /// the sample the new version starts at.
+    pub(crate) fn change_at_next_wrap(&mut self, sample: u64, samples: Samples) -> u64 {
+        let (from, playing) = self.versions.last().expect("a loop has a sound");
+        let (from, length) = (*from, playing.frames() as u64);
+        if from >= sample {
+            // Not reached yet: the newer sound waits for the same wrap.
+            let last = self.versions.len() - 1;
+            self.versions[last].1 = samples;
+            return from;
+        }
+        let wrap = if length == 0 {
+            sample // silent: nothing to wait for
+        } else {
+            // The first wrap at or after `sample`.
+            from + (sample - from).div_ceil(length) * length
+        };
+        self.versions.push((wrap, samples));
+        wrap
+    }
+
+    /// Whether any version of its sound is stereo.
+    pub(crate) fn is_stereo(&self) -> bool {
+        self.versions.iter().any(|(_, s)| s.is_stereo())
+    }
+
     /// Adds the loop into the `left` and `right` tracks, repeating it with
     /// no gap, from its start to its stop (or the end of the tracks), at
-    /// each volume in turn.
+    /// each volume in turn. Each version of its sound starts from its own
+    /// beginning, at the wrap it waited for.
     fn mix_into(&self, left: &mut [f32], right: &mut [f32]) {
-        let length = self.samples.frames() as u64;
-        if length == 0 {
-            return;
-        }
         let end = self
             .stop_sample
             .unwrap_or(left.len() as u64)
@@ -853,11 +900,18 @@ impl PlayedLoop {
                 .copied()
                 .unwrap_or(end)
                 .min(end);
-            for at in from..to {
-                let i = ((at - self.start_sample) % length) as usize;
-                let (l, r) = self.samples.frame(i);
-                left[at as usize] += l * volume;
-                right[at as usize] += r * volume;
+            for (k, (version_from, samples)) in self.versions.iter().enumerate() {
+                let length = samples.frames() as u64;
+                let version_to = self.versions.get(k + 1).map_or(u64::MAX, |v| v.0);
+                if length == 0 {
+                    continue;
+                }
+                for at in from.max(*version_from)..to.min(version_to) {
+                    let i = ((at - version_from) % length) as usize;
+                    let (l, r) = samples.frame(i);
+                    left[at as usize] += l * volume;
+                    right[at as usize] += r * volume;
+                }
             }
         }
     }
@@ -914,7 +968,7 @@ pub(crate) fn mix_to_wav(sounds: &[PlayedSound], loops: &[PlayedLoop], length: u
     // rather than wrapping round.
     let pcm = |s: f32| (s.clamp(-1.0, 1.0) * 32767.0).round() as i16;
     let stereo = sounds.iter().any(|s| s.samples.is_stereo() || s.pan != 0.0)
-        || loops.iter().any(|l| l.samples.is_stereo());
+        || loops.iter().any(|l| l.is_stereo());
     let bytes = if stereo {
         let both = left
             .iter()
@@ -1364,7 +1418,7 @@ mod tests {
             missing.contains("couldn't find the sound file"),
             "{missing}"
         );
-        fs::write(dir.join("bad.wav"), b"not a wav").unwrap();
+        std::fs::write(dir.join("bad.wav"), b"not a wav").unwrap();
         let bad = Wav::load(dir.join("bad.wav")).unwrap_err().to_string();
         assert!(
             bad.contains("as a WAV sound") && bad.contains("16-bit PCM"),
@@ -1465,7 +1519,7 @@ mod tests {
             stop: stop.map(|_| 3),
             volumes: vec![(1, 1.0), (2, 0.5)],
             source: SoundSource::Synth(Sound::default()),
-            samples: Samples::mono(vec![0.1, 0.2, 0.3]),
+            versions: vec![(1, Samples::mono(vec![0.1, 0.2, 0.3]))],
             start_sample: 1,
             stop_sample: stop,
             volume_samples: vec![1, 5],

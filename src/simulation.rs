@@ -138,12 +138,21 @@ pub struct Simulation<G> {
 
 /// The text a run gave the game instead of what's on disk (from the Studio,
 /// or a replay's files) is forgotten when the run ends, so the next game
-/// started on this thread reads the disk again.
+/// started on this thread reads the disk again. So are the sound files no
+/// game holds any more (see `sound_files.rs`).
 struct ForgetGivenFiles;
+
+impl ForgetGivenFiles {
+    fn new() -> ForgetGivenFiles {
+        crate::sound_files::run_started();
+        ForgetGivenFiles
+    }
+}
 
 impl Drop for ForgetGivenFiles {
     fn drop(&mut self) {
         crate::files::forget_given();
+        crate::sound_files::run_ended();
     }
 }
 
@@ -213,7 +222,7 @@ impl<G: Game> Simulation<G> {
             script_changes_done: 0,
             reload_first: Vec::new(),
             replay_warnings: Vec::new(),
-            _forget_given_files: ForgetGivenFiles,
+            _forget_given_files: ForgetGivenFiles::new(),
             drawn_maps: Vec::new(),
             #[cfg(feature = "studio")]
             drawn_scenes: Vec::new(),
@@ -335,6 +344,8 @@ impl<G: Game> Simulation<G> {
             }
         }
         self.apply_script_events();
+        self.replay_warnings
+            .extend(crate::sound_files::take_warnings());
         self.ctx.begin_frame(dt, self.keys_down.iter().copied());
         let buttons = self.mouse_buttons_down.iter().copied();
         self.ctx
@@ -387,7 +398,7 @@ impl<G: Game> Simulation<G> {
                 stop: None,
                 volumes: vec![(frame, *volume)],
                 source: request.source.clone(),
-                samples: request.samples.clone(),
+                versions: vec![(sample, request.samples.clone())],
                 start_sample: sample,
                 stop_sample: None,
                 volume_samples: vec![sample],
@@ -411,6 +422,9 @@ impl<G: Game> Simulation<G> {
                 looped.stop = Some(frame);
                 looped.stop_sample = Some(sample);
             }
+            // Only the engine sends this, when a file changes (see
+            // `make_sound_change`); a game can't.
+            LoopCommand::NextRound(..) => return,
         }
         if !self.keep_sounds {
             self.loops_for_speaker.push(command); // in a window
@@ -569,6 +583,13 @@ impl<G: Game> Simulation<G> {
             self.ctx.tunes_mut().use_recording(tune);
         }
         self.reload_first = crate::files::start_with(&script.files);
+        // The sounds as they were on frame 1. A sound already loaded with
+        // another version plays the recorded one from the first update.
+        for changed in crate::sound_files::start_with(&script.sounds) {
+            crate::sound_files::swap(&changed.name, changed.version);
+        }
+        self.replay_warnings
+            .extend(crate::sound_files::take_warnings());
         self.script = Some((script, 0));
         self.script_changes_done = 0;
     }
@@ -581,7 +602,14 @@ impl<G: Game> Simulation<G> {
     /// The change is kept in the [`recording`](Simulation::recording), on
     /// the coming frame, so a replay makes it at the same moment. Duck
     /// Forge Studio and the window (when a file changes on disk) use this.
+    ///
+    /// A sound file (`.wav`) the game plays isn't text: for one of those,
+    /// this does [`change_sound_file`](Simulation::change_sound_file), and
+    /// says whether the new sound was taken.
     pub fn change_file(&mut self, name: &str, text: &str) -> bool {
+        if crate::sound_files::is_sound_file(name) {
+            return self.change_sound_file(name).is_ok();
+        }
         // As the game will read it (lines ending `\n`), so the recording
         // is the same on every system.
         let text = crate::files::lines_end_with_newline(text);
@@ -593,6 +621,85 @@ impl<G: Game> Simulation<G> {
             },
         });
         self.make_file_change(name, &text)
+    }
+
+    /// A sound file the game plays (`assets/step.wav`) changed on disk:
+    /// it's read now, and if it decodes, the game hears the new sound from
+    /// the coming update on. Duck Forge Studio and the window (when the
+    /// file changes on disk) use this.
+    ///
+    /// - A sound played from the coming update on uses the new samples;
+    ///   one already playing finishes with the old ones.
+    /// - A looping sound switches at its next wrap (when it reaches its
+    ///   end and starts again), so music never jumps mid-bar.
+    /// - The game's [`reload`](Game::reload) isn't called: a sound
+    ///   changing doesn't change the game.
+    ///
+    /// Returns the frame the new sound plays from, or `Ok(None)` if the
+    /// sound is the same (or not one the game has loaded). `Err` says why
+    /// it couldn't be read yet (a file still being written): the game
+    /// keeps the old sound, and the window looks at it again later.
+    ///
+    /// The change is kept in the [`recording`](Simulation::recording), with
+    /// the file's SHA-256, on the coming frame, so a replay makes it at the
+    /// same moment.
+    pub fn change_sound_file(&mut self, name: &str) -> Result<Option<u64>, String> {
+        let name = crate::files::name_of(std::path::Path::new(name));
+        Ok(crate::sound_files::read_now(&name)?.map(|changed| self.take_sound_change(changed)))
+    }
+
+    /// Looks at the sound files the game plays, on disk (the window and
+    /// Duck Forge Studio's link do this twice a second): a changed one is
+    /// heard from the coming update on. Returns what to say about it, like
+    /// `assets/step.wav changed; plays from frame 913`. One that doesn't
+    /// decode yet (still being written) is said once and looked at again
+    /// next time.
+    #[cfg_attr(not(any(feature = "window", feature = "studio")), allow(dead_code))]
+    pub(crate) fn pick_up_sound_files(&mut self) -> Vec<String> {
+        let (changed, mut said) = crate::sound_files::changed_on_disk();
+        for changed in changed {
+            let name = changed.name.clone();
+            let frame = self.take_sound_change(changed);
+            said.push(format!("{name} changed; plays from frame {frame}"));
+        }
+        said
+    }
+
+    /// Hears a changed sound file from the coming update on, and keeps the
+    /// change in the recording. Returns the frame it plays from.
+    pub(crate) fn take_sound_change(&mut self, changed: crate::sound_files::Changed) -> u64 {
+        let frame = self.ctx.frame() + 1;
+        self.changes.push(ChangeEvent {
+            frame,
+            change: Change::SoundFile {
+                path: changed.name.clone(),
+                sha256: changed.version.hash.clone(),
+            },
+        });
+        self.make_sound_change(&changed.name, changed.version);
+        frame
+    }
+
+    /// Swaps a sound file's samples between two updates (see
+    /// [`change_sound_file`](Simulation::change_sound_file)).
+    fn make_sound_change(&mut self, name: &str, version: crate::sound_files::Version) {
+        // Where the coming update begins in `audio.wav`.
+        let sample = self.sample_at(self.ctx.frame() + 1);
+        for looped in self.loops.iter_mut().filter(|l| l.stop.is_none()) {
+            let crate::sound::SoundSource::File(path) = &looped.source else {
+                continue;
+            };
+            if crate::files::name_of(path) != name {
+                continue;
+            }
+            looped.change_at_next_wrap(sample, version.samples.clone());
+            if !self.keep_sounds {
+                // In a window: the speakers switch at their next wrap.
+                self.loops_for_speaker
+                    .push(LoopCommand::NextRound(looped.id, version.samples.clone()));
+            }
+        }
+        crate::sound_files::swap(name, version);
     }
 
     /// Changes `ctx.tune` values from now on (Duck Forge Studio's Feel).
@@ -729,8 +836,23 @@ impl<G: Game> Simulation<G> {
             expect: (!reported.is_empty()).then_some(reported),
             tune: (!tuned.is_empty()).then_some(tuned),
             files: crate::files::first_texts(),
+            sounds: crate::sound_files::first_hashes(),
             changes: self.changes.clone(),
         }
+    }
+
+    /// Writes the sounds `recording` names (its `"sounds"` and the versions
+    /// its changes swapped in) to the sound store, `out/sound-store/`, if
+    /// they aren't there yet, so a replay hears exactly those sounds even
+    /// after the files change again. Only versions heard in this run can
+    /// be written. Returns how many were written. The window, headless
+    /// runs and Duck Forge Studio do this when they save a recording.
+    pub fn save_sounds(&self, recording: &InputScript) -> Result<usize, String> {
+        let changed = recording.changes.iter().filter_map(|c| match &c.change {
+            Change::SoundFile { sha256, .. } => Some(sha256),
+            _ => None,
+        });
+        crate::sound_files::save_to_store(recording.sounds.values().chain(changed))
     }
 
     /// Makes the script's changes that were made while the game stood
@@ -789,6 +911,13 @@ impl<G: Game> Simulation<G> {
                 }
                 Change::Object { file, id, set } => {
                     self.make_object_change(file, *id, set);
+                }
+                Change::SoundFile { path, sha256 } => {
+                    // From the sound store, or the disk if it has the same
+                    // version; else it keeps the sound it has, and warns.
+                    if let Some(version) = crate::sound_files::recorded_change(path, sha256) {
+                        self.make_sound_change(path, version);
+                    }
                 }
             }
             self.changes.push(change);
@@ -1164,6 +1293,10 @@ impl<G: Game> Simulation<G> {
                 let sample = looped.volume_samples[looped.volume_samples.len() - 1];
                 looped.volumes = vec![volume];
                 looped.volume_samples = vec![sample];
+                // And only the last version of its sound (the one waiting
+                // for its next wrap, if its file changed).
+                let last = looped.versions.len() - 1;
+                looped.versions.drain(..last);
             }
         }
         std::mem::take(&mut self.loops_for_speaker)

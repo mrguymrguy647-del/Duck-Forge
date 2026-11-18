@@ -44,6 +44,7 @@ Only `"events"` is required.
 | `"expect"` | Optional. The game's reported values at the end, like `{"score": 20, "state": "Won"}`. Written by recordings; a replay that ends differently says `playthrough changed: ...`. `--accept` rewrites it. |
 | `"tune"` | Optional. The `ctx.tune` values it was recorded with, as they were on frame 1. A replay uses them. |
 | `"files"` | Optional. The text files the game read (its level and legend), as they were on frame 1: `{"examples/mygame/level.txt": "...", ...}`. A replay gives the game these, not what's on disk now, so a playthrough still replays after the level is painted. Written by recordings. |
+| `"sounds"` | Optional. The sound files the game played (`.wav`), each with the SHA-256 of the version it heard on frame 1: `{"examples/mygame/assets/step.wav": "sha256:9f2c...", ...}`. The sounds themselves are too big to keep here: saving a recording copies them into `out/sound-store/<sha256>.wav`, and a replay plays those exact bytes (or the file on disk, if it's still the same version). Without either, the replay plays today's file and warns that `audio.wav` won't match; the game still plays out the same. Written by recordings; a script without it plays the files as they are. |
 | `"frames"` | How long the recording lasted. `--headless` runs this many frames unless `--frames` says otherwise. Without either, it runs until two seconds after the last event (600 frames if there are no events). If the run stops before some events, the summary warns how many were skipped. |
 | `"events"` | The list of events, described below. |
 
@@ -61,7 +62,7 @@ Every event is an object with a `"frame"` and exactly **one** action:
 | `"mouse_release"` | `{"frame": 12, "mouse_release": "Left"}` | Lets go of a mouse button. |
 | `"scroll"` | `{"frame": 10, "scroll": 1}` | Rolls the wheel for one frame: positive is up (away from you), negative is down. |
 
-Three more kinds of event are **changes made while the game ran** (in Duck
+Four more kinds of event are **changes made while the game ran** (in Duck
 Forge Studio, or by editing a file while a window is open). Recordings
 write them; they're applied just before that frame's update, before its
 inputs:
@@ -71,6 +72,7 @@ inputs:
 | `"file"` | `{"frame": 413, "file": "examples/mygame/level.txt", "text": "..."}` | A file the game read has this new text. The game's `reload` hook is called, as when it happened. |
 | `"tune"` | `{"frame": 413, "tune": {"jump_speed": 380}}` | `ctx.tune` gives these values from now on. |
 | `"object"` | `{"frame": 413, "object": 9, "in": "examples/mygame/scenes/pond.json", "set": {"at": [200, 208]}}` | An object of a scene (by its id, in that scene file) gets these keys as it is now. The scene's file is left alone: it's a move "for this run only", made in the Studio on a frozen game. The game's `reload` hook is called with the scene file's name, and `scene.reload` makes the change. |
+| `"sound_file"` | `{"frame": 913, "sound_file": "examples/mygame/assets/step.wav", "sha256": "sha256:4a71..."}` | A sound file the game plays has a new sound, the version with this SHA-256 (found in `out/sound-store/`, or on disk). Sounds played from this frame on use it; one already playing finishes with the old sound; a loop switches at its next wrap. No `reload` is called. |
 
 ### What "frame" means
 

@@ -195,6 +195,8 @@ struct Loop {
     /// The loop's number, from its [`LoopId`](crate::sound::LoopId).
     id: u32,
     samples: Samples,
+    /// Its file changed: the sound to play from the next wrap on.
+    next: Option<Samples>,
     /// How far through the samples we are.
     at: usize,
     /// Its volume now...
@@ -268,10 +270,16 @@ impl Voices {
         self.playing
             .retain(|voice| voice.at < voice.samples.frames());
         for looped in &mut self.loops {
-            let length = looped.samples.frames();
             let (from, to) = (looped.volume, looped.target);
             looped.volume = to;
-            if length == 0 || frames == 0 {
+            if looped.samples.frames() == 0 {
+                // Silent: a new sound waiting starts straight away.
+                if let Some(next) = looped.next.take() {
+                    looped.samples = next;
+                    looped.at = 0;
+                }
+            }
+            if looped.samples.frames() == 0 || frames == 0 {
                 continue;
             }
             for (n, pair) in out.chunks_exact_mut(2).enumerate() {
@@ -281,7 +289,18 @@ impl Voices {
                 let (l, r) = looped.samples.frame(looped.at);
                 pair[0] += l * volume;
                 pair[1] += r * volume;
-                looped.at = (looped.at + 1) % length; // round again, with no gap
+                looped.at += 1;
+                if looped.at >= looped.samples.frames() {
+                    // Round again, with no gap: with the new sound if its
+                    // file changed.
+                    looped.at = 0;
+                    if let Some(next) = looped.next.take() {
+                        looped.samples = next;
+                        if looped.samples.frames() == 0 {
+                            break; // the new sound is silent
+                        }
+                    }
+                }
             }
         }
         // Stopped loops have now faded out.
@@ -300,6 +319,7 @@ impl Voices {
                 self.loops.push(Loop {
                     id: id.0,
                     samples: request.samples,
+                    next: None,
                     at: 0,
                     volume,
                     target: volume,
@@ -315,6 +335,11 @@ impl Voices {
                 for looped in self.loops.iter_mut().filter(|l| l.is(id)) {
                     looped.target = 0.0;
                     looped.stopping = true;
+                }
+            }
+            LoopCommand::NextRound(id, samples) => {
+                for looped in self.loops.iter_mut().filter(|l| l.is(id)) {
+                    looped.next = Some(samples.clone());
                 }
             }
         }
@@ -669,6 +694,7 @@ mod tests {
         Loop {
             id,
             samples,
+            next: None,
             at: 0,
             volume,
             target: volume,
@@ -804,6 +830,27 @@ mod tests {
             lefts(&out).iter().all(|&v| close(v, 0.6)),
             "then it stays there: {out:?}"
         );
+    }
+
+    #[test]
+    fn a_changed_loop_finishes_its_round_then_plays_the_new_sound() {
+        let mut voices = Voices::default();
+        let small = |values: &[f32]| Samples::mono(values.to_vec());
+        voices
+            .loops
+            .push(looping(5, small(&[0.1, 0.2, 0.3, 0.4]), 1.0));
+        let mut out = [0.0; 4]; // two moments
+        voices.fill(&mut out);
+        // Its file changed half-way round: the rest of the round is the
+        // old sound, then the new one from its start, and round again.
+        // (Quieter than 0.8, which the speakers' limiter rounds off.)
+        voices.change_loop(LoopCommand::NextRound(LoopId(5), small(&[0.5, 0.6, 0.7])));
+        let mut out = [0.0; 14]; // seven moments
+        voices.fill(&mut out);
+        let want = [0.3, 0.4, 0.5, 0.6, 0.7, 0.5, 0.6];
+        for (got, want) in lefts(&out).iter().zip(want) {
+            assert!(close(*got, want), "{out:?}");
+        }
     }
 
     #[test]

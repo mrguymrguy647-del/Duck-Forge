@@ -278,6 +278,9 @@ Forge".
   Headless runs mix every sound into `audio.wav` at its exact frame
   and list it in `log.json`, so tests can check sounds too; a limiter
   keeps a busy mix from clipping, and `log.json` warns when it acted.
+  A `.wav` that changes while the game runs (sent again from Duck Echo)
+  is heard from the next update, a loop at its next wrap; recordings
+  keep which version played when, so replays still sound the same.
 - **Scenes:** a game's objects in a plain file, one per line
   (`examples/scene_demo/scenes/pond.json`): a name, a kind, a position,
   a picture, a turn, a scale, a layer, and settings of its own; a
@@ -1087,6 +1090,7 @@ On a computer with one (in PowerShell or cmd, in the project folder):
 | `src/sprite.rs`   | `Sprite` (from PNG, ASCII art or pixels), `Blit` options, `Animation` |
 | `src/camera.rs`   | `Camera2D`: position, zoom, smooth follow, screen shake            |
 | `src/sound.rs`    | The synthesizer (`Sound`, `Wave`), `.wav` files, mixing `audio.wav` |
+| `src/sound_files.rs` | The `.wav` files a game loaded: noticing one changed, swapping it in, the sound store for replays |
 | `src/speaker.rs`  | Playing sounds out loud in a window (only with the `audio` feature) |
 | `src/debug.rs`    | The debug overlay (F1, `--debug`)                                   |
 | `src/error.rs`    | `LoadError`: a missing or broken file, in one sentence              |

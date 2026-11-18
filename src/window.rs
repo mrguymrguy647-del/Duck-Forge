@@ -196,6 +196,8 @@ pub(crate) fn run<G: Game>(
     let mut last_frame = Instant::now();
     let mut last_tune_check = Instant::now();
     let mut checks_reported = 0;
+    // Replay warnings already printed (a sound missing from the store).
+    let mut warnings_reported = 0;
 
     let frames = options.frames.unwrap_or(u64::MAX);
 
@@ -261,6 +263,10 @@ pub(crate) fn run<G: Game>(
             );
         }
         checks_reported = sim.failed_checks().len();
+        for warning in &sim.replay_warnings()[warnings_reported..] {
+            println!("duckforge: warning: {warning}");
+        }
+        warnings_reported = sim.replay_warnings().len();
 
         // Sounds played during those updates go to the speakers.
         let sounds = sim.take_new_sounds();
@@ -367,9 +373,10 @@ fn pump(event_loop: &mut EventLoop<()>, screen: &mut Screen, patience: Duration)
     )
 }
 
-/// Takes in edits made while the game runs: the tune file's values, and
-/// the files the game read (its level). Each is a change the recording
-/// keeps on its frame, so a replay plays out the same.
+/// Takes in edits made while the game runs: the tune file's values, the
+/// sound files the game plays, and the files the game read (its level).
+/// Each is a change the recording keeps on its frame, so a replay plays
+/// out the same.
 fn pick_up_edits<G: Game>(sim: &mut Simulation<G>) {
     match sim.tunes_mut().reload_if_changed() {
         Some(Ok(message)) => {
@@ -379,6 +386,12 @@ fn pick_up_edits<G: Game>(sim: &mut Simulation<G>) {
         }
         Some(Err(problem)) => println!("duckforge: {problem}; keeping the old values"),
         None => {}
+    }
+    // The sound files it plays: a changed one is heard from the coming
+    // update on (a loop at its next wrap). One that doesn't decode yet is
+    // being written: it's looked at again next time.
+    for line in sim.pick_up_sound_files() {
+        println!("duckforge: {line}");
     }
     for (name, text) in crate::files::changed_on_disk() {
         if sim.change_file(&name, &text) {
@@ -887,6 +900,11 @@ impl Recorder {
                 path.display(),
             ),
             Err(err) => eprintln!("duckforge: {err}"),
+        }
+        // The sounds it heard, so a replay hears the same even after the
+        // files change again.
+        if let Err(err) = sim.save_sounds(&recording) {
+            eprintln!("duckforge: {err}");
         }
     }
 }

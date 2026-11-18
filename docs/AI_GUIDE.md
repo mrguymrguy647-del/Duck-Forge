@@ -1063,6 +1063,23 @@ sounds: `let music: LoopId = ctx.play_loop(&w, 0.6);` (a `Wav`, or a
 `.volume_at(frame)` and `.is_playing()`). Headless runs mix loops into
 `audio.wav` and list them in `log.json` under `"loops"`.
 
+**A `.wav` that changes while the game runs** (sent again from Duck
+Echo, say) is heard from the next update on, with no code: a window
+looks at the game's sound files twice a second, and Duck Forge Studio
+sends a changed one. New plays use the new sound, one already playing
+finishes with the old one, a loop switches at its next wrap (when it
+starts again), and `w.seconds()` gives the new length. A file still
+being written is skipped until it's whole. The terminal says
+`duckforge: examples/mygame/assets/step.wav changed; plays from frame 913`.
+In a test: `sim.change_sound_file("examples/mygame/assets/step.wav")`
+between two steps. Recordings keep each sound's SHA-256 (`"sounds"`) and
+each change (`"sound_file"` events), and saving one (F10, the Studio,
+`--accept`, or `sim.save_sounds(&script)`) copies those versions into
+`out/sound-store/`, so a replay plays exactly those bytes. Without them
+the replay warns `... differs from the recording ...; the game plays out
+the same, audio.wav will not`. So decide game logic from frames, not
+from a sound's length.
+
 **Physics** (`use duckforge::physics::{Body, BodyId, PhysicsWorld, Shape};`):
 `PhysicsWorld::new(vec2(0.0, 400.0))` (gravity, y down),
 `world.add(Body::ball(position, radius))` or
@@ -1163,7 +1180,11 @@ and `Simulation::new(config, game)` with `press`, `release`,
 `run(frames)`, `game()`, `picture()`, `recording()`, `follow(script)`,
 `resize(w, h)`, `sim.with_context(|game, ctx| ...)` (runs one
 of the game's methods that takes `ctx`, between frames; what it plays,
-reports or checks counts as the last frame's). Scripts: `InputScript::load(path)` or its other name
+reports or checks counts as the last frame's),
+`change_sound_file("examples/mygame/assets/step.wav")` (it changed on
+disk: heard from the next step, kept in the recording) and
+`save_sounds(&script)` (copies the sounds a recording names into
+`out/sound-store/`). Scripts: `InputScript::load(path)` or its other name
 `InputScript::from_file(path)`; `InputScript::parse(text)` or
 `InputScript::from_json(text)`; `script.save(path)`.
 

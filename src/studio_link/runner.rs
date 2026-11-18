@@ -304,7 +304,17 @@ pub(crate) fn run<G: Game>(
     // Build mode's "As it starts": frozen pictures show scenes as their
     // files have them.
     let mut as_it_starts = false;
+    // When the sound files were last looked at.
+    let mut sounds_looked = Instant::now();
     let why = loop {
+        // The sound files the game plays, twice a second: one changed on
+        // disk is heard from the coming update on, as in a window.
+        if sounds_looked.elapsed() >= Duration::from_millis(500) {
+            sounds_looked = Instant::now();
+            for line in sim.pick_up_sound_files() {
+                println!("duckforge: {line}");
+            }
+        }
         // In its own window the game keeps its own time, one turn of the
         // window's loop after another, listening in between.
         #[cfg(feature = "window")]
@@ -449,6 +459,24 @@ pub(crate) fn run<G: Game>(
                 }
             }
             ToGame::Overlay { debug } => sim.set_debug_overlay(debug),
+            // (A sound file has no text: it's read from disk.)
+            ToGame::File { path, .. } if crate::sound_files::is_sound_file(&path) => {
+                // A sound file (the Studio saw it change in the game's
+                // assets): heard from the coming update on. One still
+                // being written is looked at again with the others below,
+                // so it counts as taken: the game needn't start again.
+                match sim.change_sound_file(&path) {
+                    Ok(Some(frame)) => {
+                        println!("duckforge: {path} changed; plays from frame {frame}")
+                    }
+                    Ok(None) => {}
+                    Err(problem) => println!("duckforge: {problem}"),
+                }
+                link.send(&ToStudio::Changed {
+                    path,
+                    reloaded: true,
+                })?;
+            }
             ToGame::File { path, text } => {
                 let reloaded = sim.change_file(&path, &text);
                 link.send(&ToStudio::Changed { path, reloaded })?;
@@ -467,7 +495,15 @@ pub(crate) fn run<G: Game>(
             ToGame::PlaySound { name } => sounds.play(&name, &speaker),
             ToGame::Ask { id, what } => {
                 let text = match what.as_str() {
-                    "recording" => sim.recording().to_json(),
+                    "recording" => {
+                        // The Studio saves it: the sounds it heard go to
+                        // the store, so a replay hears the same.
+                        let recording = sim.recording();
+                        if let Err(problem) = sim.save_sounds(&recording) {
+                            println!("duckforge: {problem}");
+                        }
+                        recording.to_json()
+                    }
                     "tunes" => tunes_json(&sim),
                     "sounds" => sounds.to_json(),
                     "files" => serde_json::Value::from(sim.files_read()).to_string(),
@@ -575,12 +611,23 @@ mod tests {
 
     impl Studio {
         fn start() -> (Studio, Hello) {
-            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-            let address = listener.local_addr().unwrap().to_string();
             let hopper = Hopper::default();
             let goodbye = hopper.said_goodbye.clone();
+            let (mut studio, hello) = Studio::start_with(move || hopper);
+            studio.goodbye = goodbye;
+            (studio, hello)
+        }
+
+        /// Starts the game `make` makes, on its own thread, as a game's
+        /// `main` would: what it loads is noted on the thread it runs on.
+        fn start_with<G: Game + 'static>(
+            make: impl FnOnce() -> G + Send + 'static,
+        ) -> (Studio, Hello) {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap().to_string();
+            let goodbye = std::sync::Arc::default();
             let game = std::thread::spawn(move || {
-                run(config(), hopper, &Options::default(), &address).map_err(|e| e.to_string())
+                run(config(), make(), &Options::default(), &address).map_err(|e| e.to_string())
             });
             let (stream, _) = listener.accept().unwrap();
             let mut studio = Studio {
@@ -757,6 +804,75 @@ mod tests {
         assert_eq!((caught_up.tick, caught_up.frame), (9, 42));
         assert_eq!(caught_up.pixels, wanted.pixels, "back where it was");
         second.stop();
+    }
+
+    #[test]
+    fn a_changed_sound_file_from_the_studio_is_heard_and_recorded() {
+        let folder = crate::test_folder::TestFolder::new("studio-sound-file");
+        let path = folder.join("step.wav");
+        let name = crate::files::name_of(&path);
+        let bytes = |count: usize| crate::sound::wav_bytes((0..count).map(|i| i as i16), count);
+        std::fs::write(&path, bytes(300)).unwrap();
+        struct Steps(crate::sound::Wav);
+        impl Game for Steps {
+            fn update(&mut self, ctx: &mut Context) {
+                ctx.play_wav(&self.0);
+                ctx.report("seconds", self.0.seconds());
+            }
+            fn draw(&self, canvas: &mut Canvas) {
+                canvas.clear(Color::BLACK);
+            }
+        }
+        let (loaded, store) = (path.clone(), folder.join("store"));
+        let (mut studio, _) = Studio::start_with(move || {
+            // The sound store for this test, on the game's thread.
+            crate::sound_files::use_store(&store);
+            Steps(crate::sound::Wav::load(&loaded).unwrap())
+        });
+        studio.tick(5, &[]);
+
+        // Saved again (in Duck Echo, say): the Studio sees it change in
+        // the game's assets and sends its `file` message, with no text.
+        let partial = folder.join("step.partial");
+        std::fs::write(&partial, bytes(4410)).unwrap();
+        std::fs::rename(&partial, &path).unwrap();
+        ToGame::File {
+            path: name.clone(),
+            text: String::new(),
+        }
+        .write(&mut studio.writer)
+        .unwrap();
+        loop {
+            if let ToStudio::Changed { path, reloaded } = studio.hear() {
+                assert_eq!((path.as_str(), reloaded), (name.as_str(), true));
+                break;
+            }
+        }
+        studio.tick(1, &[]);
+        let recording = studio.recording();
+        assert_eq!(
+            recording.expect.unwrap()["seconds"],
+            crate::report::ReportValue::from(0.1_f32),
+            "the new length"
+        );
+        let change = recording.changes.last().unwrap();
+        assert_eq!(change.frame, 6);
+        assert!(
+            matches!(&change.change, crate::script::Change::SoundFile { path, sha256 }
+                if *path == name && sha256.starts_with("sha256:")),
+            "{change:?}"
+        );
+        assert_eq!(recording.sounds.len(), 1, "and its first version");
+        // Asked for its recording, the game put both versions in the
+        // sound store.
+        let crate::script::Change::SoundFile { sha256: new, .. } = &change.change else {
+            unreachable!()
+        };
+        for hash in recording.sounds.values().chain([new]) {
+            let hex = hash.strip_prefix("sha256:").unwrap();
+            assert!(folder.join(format!("store/{hex}.wav")).is_file(), "{hash}");
+        }
+        studio.stop();
     }
 
     #[test]

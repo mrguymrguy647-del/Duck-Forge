@@ -5944,3 +5944,126 @@ read as Duck Mold reported them; the version goes by distance and by
 scale; a far version stands as the model does, through a pose and a
 walk; `draw_mesh` draws what `mesh_for` gives, also after `mesh_mut`;
 a general glTF reader draws only the model itself.
+
+# Duck Echo's Phase 3, step 5: sound files that change while a game runs
+
+A `.wav` a game plays can change while it runs (sent again from Duck
+Echo, say), and the game hears the new sound from the next update, with
+no change to its code. A recording keeps which version it heard when, so
+a replay's `audio.wav` comes out the same, byte for byte. The plan is
+Duck Echo's `docs/phase3-design.md` (sections 4 and 8, step 5).
+
+## What was built
+
+- **A table of sound files** (`src/sound_files.rs`, beside `files.rs`):
+  for each file a game loaded, its name (as `files.rs` names files), the
+  samples it hears now, and the SHA-256 of the file they came from.
+- **`Wav` reads its samples from the table** each time it's played,
+  through a small shared slot the table swaps. `Wav`'s public functions
+  are the same (`load`, `name`, `seconds`, `is_stereo`), so no game
+  changed. `seconds()` gives the new length after a change.
+- **Noticing a change.** In a window, `pick_up_edits` (twice a second)
+  also looks at the sound files: first only the size and the modified
+  time, and when those change, it reads the file, checks it's whole and
+  decodes, and works out its hash. Duck Forge Studio's `file` message for
+  a `.wav` comes to the same place (`Simulation::change_sound_file`), and
+  the Studio's link also looks twice a second, so a file the Studio
+  caught half-written is tried again.
+- **The swap is between two updates**, where text files are reloaded: a
+  sound played from that frame on uses the new samples; a one-shot
+  already playing finishes with the old ones (they're shared, so they
+  stay alive until it ends); a loop switches at its next wrap. The
+  terminal says `duckforge: examples/duck_craft/assets/step.wav changed;
+  plays from frame 913`.
+- **Recordings** have `"sounds"` (each file's SHA-256 on frame 1) and
+  `"sound_file"` events in the events list, where the other changes are
+  (`{"frame": 913, "sound_file": "...", "sha256": "sha256:4a71..."}`).
+  Saving a recording (F10 or `--record` in a window, the Studio asking
+  for it, `--accept`, or `sim.save_sounds(&script)`) copies the versions
+  it names into `out/sound-store/<sha256>.wav`.
+- **A replay** asks for each version by its hash: this run's own copy,
+  else the store, else the file on disk if it's the same version. If
+  none has it, it plays today's file and warns: `... differs from the
+  recording and the sound store doesn't have the recorded one; the game
+  plays out the same, audio.wav will not`. The window prints replay
+  warnings now as they come.
+
+## Decisions made on the way
+
+- **The table belongs to the thread that loaded the sound**, like
+  `files.rs`. `cargo test` runs tests side by side on threads of one
+  program, and many of them play Duck Craft's sounds: one table for the
+  whole program would let one test's replay change another test's
+  sounds. A game runs on the thread its `main` made it on, so this is
+  never a limit for a real game; a test that makes a game on one thread
+  and runs it on another hears its sounds but not their changes.
+- **While a game runs, loading a file again gives the version the run
+  has now**, not what's on disk. Otherwise a sound could change without
+  being noticed and recorded, and a replay would differ. The table
+  forgets a file when the run ends and no `Wav` holds it any more, so the
+  next game reads the disk again (and tests that write a file and load
+  it, outside a run, read the disk every time, as before).
+- **A slot shared by every copy of a `Wav`**, rather than a lookup by
+  name on each play: a cloned `Wav`, or one a scene keeps, hears the
+  change too, and playing stays as cheap as before (one lock, one shared
+  pointer copied).
+- **Only a whole file is taken.** The WAV reader plays what's there of a
+  file shorter than its header says, which is right for a file saved
+  oddly, but would cut a sound short while it's still being written. So
+  a changed file must have all the sound its `data` header promises. A
+  file that doesn't decode yet keeps the old sound, isn't noted as seen,
+  and is read again next time. Its problem is said once for each size
+  and time it has, not twice a second.
+- **A loop's wrap is worked out exactly.** A played loop keeps a list of
+  versions, each with the sample in `audio.wav` it starts at: the change
+  lands where the coming update begins, and the new version starts at
+  the first wrap at or after it, from its own beginning. Two changes
+  before one wrap: the newer one waits for it instead. The speakers do
+  the same with a `NextRound` command (in a window, sound is never
+  sample-exact anyway; headless it is).
+- **The store is written when a recording is saved, not when a sound
+  loads.** Every window run can record (F10), and a game sent to a
+  friend is the same program: writing on every load would make an
+  `out/sound-store` folder on every player's computer. So the table keeps
+  each version's file bytes in memory until the run ends (half the size
+  of its samples again, for 16-bit files), and saving a recording writes
+  the ones it names. Each store file is written beside it and renamed
+  into place, so it's always whole.
+- **SHA-256, written out in `sound_files.rs`** (about 80 lines), checked
+  against the standard's own examples. The headless build's crates are
+  counted (`tests/dependencies.rs`), and a hash crate would add to every
+  clean build for one small function. Nothing secret depends on it: it
+  only names versions of a file. The same hash Duck Echo writes in its
+  facts files (`"file_sha256"`), so the two programs name a version the
+  same way.
+- **No `reload` for a sound.** A sound changing doesn't change the
+  game's state, so the game isn't asked. The Studio is told the change
+  was taken even when the file isn't whole yet (it's tried again), so it
+  doesn't ask for the game to start again.
+- **The Studio no longer records a `.wav` as a text change.** It used to
+  send a changed asset with its text (empty, for a sound) and keep that
+  as a `"file"` change; now the game keeps the sound change itself, with
+  the hash. Pictures are as before: a replay draws today's pictures.
+- **Old recordings replay as before.** `"sounds"` and `"sound_file"` are
+  new and optional; a recording without them plays the files as they are.
+
+## How it is tested
+
+In `src/sound_files.rs`: SHA-256 against the standard's examples; a game
+with a step every 10 frames and a looping theme, both files changed
+between updates 39 and 40 (one through `change_sound_file`, one through
+the Studio's `change_file`): plays before frame 40 use the old step, from
+frame 40 the new; the recording has both first versions and both changes
+on frame 40, and reads back the same; saving it writes four versions to
+the store (and none the second time); the files are changed again, and
+the replay's `audio.wav` is the same bytes as the live run's; without the
+store, the replay warns and still ends the same. A loop changed on frame
+40 (sample 28,665) plays the old sound to its wrap at sample 29,000, then
+the new one from its start; two changes before a wrap keep the newer. A
+file written in place and caught half-way isn't taken (said once), nor
+one with no sound yet, and is taken once whole. In `src/speaker.rs`: a
+loop told its next round finishes the old one first. In the Studio
+link's tests: a game started on its own thread hears a `.wav` the
+Studio says changed, its recording keeps the change on the right frame,
+and both versions are in the store. Every example game and every
+recorded playthrough passes frame for frame, as before.
