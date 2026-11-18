@@ -25,6 +25,9 @@ description = "A small robot, assembled from parts by their sockets."
 # Every part gets a hit shape fitted to it, so a game can tell which part
 # was hit: a box for a box, a capsule for a cylinder, a ball for a ball.
 colliders = "parts"
+# And two simpler versions a game draws when the robot is far off (14.6 m
+# and 36.6 m: 8 and 20 times its height). `duck-mold render --far 2`.
+lods = "auto"
 
 [palette]
 steel = "#8A939B"
@@ -293,10 +296,15 @@ antenna = [0, 0, -8]
 #   duck-mold edit examples/robot.toml add-animation jump --starter jump
 #
 # and fitted to the robot: in the crouch its feet are turned back as far
-# as its legs are turned, so they stay flat (as in its walk), and the
-# body sinks 2.5 cm, not the starter's 3, so the feet never dig in.
+# as its legs are turned, so they stay flat (as in its walk). Then
+#
+#   duck-mold edit examples/robot.toml fit-ground jump
+#
+# stood the crouch exactly on the ground, and added the keys `jump_2` and
+# `jump_3` on the way down and back up, where the smooth curve between
+# the keys sank the feet 1 cm into the ground.
 [poses.jump_crouch]
-body = { move = [0, -0.025, 0] }
+body = { move = [0, -0.0422, 0] }
 left_leg = [-25, 0, 0]
 right_leg = [-25, 0, 0]
 left_arm = [-40, 0, 0]
@@ -311,6 +319,24 @@ left_leg = [10, 0, 0]
 right_leg = [10, 0, 0]
 left_arm = [160, 0, 0]
 right_arm = [160, 0, 0]
+
+[poses.jump_2]
+body = { move = [0, -0.0068, 0] }
+left_arm = [-16, 0, 0]
+right_arm = [-16, 0, 0]
+left_leg = [-10, 0, 0]
+"left_leg/foot" = [10, 0, 0]
+right_leg = [-10, 0, 0]
+"right_leg/foot" = [10, 0, 0]
+
+[poses.jump_3]
+body = { move = [0, -0.0068, 0] }
+left_arm = [-16, 0, 0]
+right_arm = [-16, 0, 0]
+left_leg = [-10, 0, 0]
+"left_leg/foot" = [10, 0, 0]
+right_leg = [-10, 0, 0]
+"right_leg/foot" = [10, 0, 0]
 
 # An animation goes through poses, each reached at a time (in seconds).
 # One that loops ends on the pose it starts with.
@@ -348,8 +374,10 @@ keys = [
 [animations.jump]
 keys = [
   { at = 0, pose = "rest" },
+  { at = 0.13, pose = "jump_2" },
   { at = 0.3, pose = "jump_crouch", event = "takeoff" },
   { at = 0.65, pose = "jump_up" },
   { at = 1, pose = "jump_crouch", event = "land" },
+  { at = 1.17, pose = "jump_3" },
   { at = 1.3, pose = "rest" },
 ]

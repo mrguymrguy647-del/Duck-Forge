@@ -344,7 +344,9 @@ impl Game for RobotClick {
                 canvas.fill_circle(centre, radius, DUST.lerp(FLOOR_LIGHT, part));
             }
         }
-        canvas.draw_mesh(self.robot.mesh(), &self.place(), &self.camera);
+        // Far off it would draw a simpler version (its recipe has `lods`);
+        // here it is always close, so this is the robot itself.
+        self.robot.draw_mesh(canvas, &self.place(), &self.camera);
         if let Some((point, _)) = self
             .camera
             .project(self.position + vec3(0.0, 0.9, 0.0), canvas)

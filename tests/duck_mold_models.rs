@@ -889,7 +889,9 @@ fn an_animated_model_names_its_animations_and_poses() -> Result<(), LoadError> {
             "breathe_in",
             "breathe_out",
             "jump_crouch",
-            "jump_up"
+            "jump_up",
+            "jump_2",
+            "jump_3"
         ]
     );
     // Duck Mold's report on the model names the same ones.

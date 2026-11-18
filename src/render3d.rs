@@ -1031,11 +1031,13 @@ impl Mesh {
         }
     }
 
-    /// A ball around every corner: the one around its
-    /// [`bounds`](Mesh::bounds) box (a little bigger than the tightest,
-    /// but found in one quick pass). Used to skip meshes that are off
-    /// screen.
-    pub(crate) fn bounding_ball(&self) -> (Vec3, f32) {
+    /// A ball around every corner, as its middle and radius: the one
+    /// around its [`bounds`](Mesh::bounds) box (a little bigger than the
+    /// tightest, but found in one quick pass). Used to skip meshes that
+    /// are off screen. A mesh that is drawn many times without changing
+    /// can keep it and pass it to
+    /// [`draw_mesh_within`](Canvas::draw_mesh_within).
+    pub fn bounding_ball(&self) -> (Vec3, f32) {
         let (low, high) = self.bounds();
         ((low + high) * 0.5, (high - low).length() * 0.5)
     }
@@ -1234,7 +1236,26 @@ impl Canvas {
     /// lets a type's methods be spread over several files in the same crate.)
     pub fn draw_mesh(&mut self, mesh: &Mesh, transform: &Transform, camera: &Camera3D) {
         self.drawing_in_view = false;
-        self.draw_mesh_from(mesh, transform, camera, Color::WHITE);
+        self.draw_mesh_from(mesh, transform, camera, Color::WHITE, None);
+    }
+
+    /// Draws `mesh` like [`draw_mesh`](Canvas::draw_mesh), with the ball
+    /// around it already known: its
+    /// [`bounding_ball`](Mesh::bounding_ball), kept from when the mesh
+    /// last changed. `draw_mesh` works the ball out from every corner on
+    /// every draw; a big mesh drawn every frame saves that. A ball that
+    /// is too small can hide a mesh that is on screen, so keep it up to
+    /// date. ([`AnimatedModel::draw_mesh`](crate::glb::AnimatedModel::draw_mesh)
+    /// does this for you.)
+    pub fn draw_mesh_within(
+        &mut self,
+        mesh: &Mesh,
+        transform: &Transform,
+        camera: &Camera3D,
+        ball: (Vec3, f32),
+    ) {
+        self.drawing_in_view = false;
+        self.draw_mesh_from(mesh, transform, camera, Color::WHITE, Some(ball));
     }
 
     /// Draws `mesh` like [`draw_mesh`](Canvas::draw_mesh), with every colour
@@ -1257,7 +1278,7 @@ impl Canvas {
     ) {
         self.drawing_in_view = false;
         if tint.a > 0 {
-            self.draw_mesh_from(mesh, transform, camera, tint);
+            self.draw_mesh_from(mesh, transform, camera, tint, None);
         }
     }
 
@@ -1280,7 +1301,7 @@ impl Canvas {
         if self.effects.on() {
             // The lit renderer puts it back in the world, where the lamps
             // and the sun light it as they light the world.
-            self.queue_mesh(mesh, transform, camera, Color::WHITE, true);
+            self.queue_mesh(mesh, transform, camera, Color::WHITE, true, None);
             return;
         }
         // A camera at the middle of the world, looking along +z: view
@@ -1300,22 +1321,24 @@ impl Canvas {
             ..world_light
         };
         self.set_lighting(in_view);
-        self.draw_mesh_from(mesh, transform, &view, Color::WHITE);
+        self.draw_mesh_from(mesh, transform, &view, Color::WHITE, None);
         self.set_lighting(world_light);
     }
 
-    /// Draws a mesh on whichever renderer this canvas uses.
+    /// Draws a mesh on whichever renderer this canvas uses. `ball` is
+    /// the mesh's bounding ball when the caller already knows it.
     fn draw_mesh_from(
         &mut self,
         mesh: &Mesh,
         transform: &Transform,
         camera: &Camera3D,
         tint: Color,
+        ball: Option<(Vec3, f32)>,
     ) {
         if self.effects.on() {
             // Lamps, shadows, glow or smooth edges: the lit renderer (see
             // frame3d.rs), which draws the whole frame at once.
-            self.queue_mesh(mesh, transform, camera, tint, false);
+            self.queue_mesh(mesh, transform, camera, tint, false, ball);
             return;
         }
         #[cfg(feature = "gpu")]
@@ -1326,7 +1349,7 @@ impl Canvas {
         // Otherwise, draw it right here on the CPU. First, a quick look:
         // if a ball around the whole mesh is off screen, so is every
         // triangle (frustum culling).
-        let (center, radius) = mesh.bounding_ball();
+        let (center, radius) = ball.unwrap_or_else(|| mesh.bounding_ball());
         let (width, height) = (self.width() as f32, self.height() as f32);
         if !camera.might_see(
             transform.apply(center),
@@ -1438,10 +1461,11 @@ impl Canvas {
         camera: &Camera3D,
         tint: Color,
         in_view: bool,
+        ball: Option<(Vec3, f32)>,
     ) {
         if !in_view && self.effects.shadows.is_none() {
             // Off screen, and it can't cast a shadow onto the screen.
-            let (center, radius) = mesh.bounding_ball();
+            let (center, radius) = ball.unwrap_or_else(|| mesh.bounding_ball());
             let (width, height) = (self.width() as f32, self.height() as f32);
             if !camera.might_see(
                 transform.apply(center),

@@ -539,6 +539,18 @@ at rest (round its triangles if it has none), its bottom's middle at
 block. A part with no hit shape (an antenna's tip) doesn't make it
 taller, and `.with_mass`, `.with_friction` and the rest work on it as on
 any body.
+**Far-away versions.** A Duck Mold model whose recipe says `lods =
+"auto"` carries two simpler versions of itself: rounder shapes with
+fewer sides, no bevels, the smallest parts left out. Draw it with
+`robot.draw_mesh(canvas, &place, &camera)` instead of
+`canvas.draw_mesh(robot.mesh(), &place, &camera)`, and the version is
+picked by how far the camera is: the robot itself up to 14.6 m, Far 1
+to 36.6 m, Far 2 beyond (Duck Mold's `inspect` says the distances).
+Every version moves with the model; hit shapes and sockets are the
+same in all of them. `robot.mesh_for(&place, &camera)` is the mesh it
+would draw, and `robot.version_at(&place, &camera)` which one (0, 1 or
+2).
+
 [examples/robot_click/](examples/robot_click/main.rs) is the robot
 walking round, its footsteps making a sound and a puff of dust, a click
 naming the part it found, which flashes, and a wall in its way that its

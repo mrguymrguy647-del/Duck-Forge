@@ -203,6 +203,9 @@ impl GltfModel {
             }
             stack.extend(&nodes[n].children);
         }
+        // Only what the scene holds is drawn: a mesh on a node outside it
+        // (a far-away version that `MSFT_lod` names, say) is left out.
+        parts.retain(|part| seen[part.node]);
 
         let mut animations = Vec::new();
         for (a, animation) in list(&gltf["animations"]).iter().enumerate() {

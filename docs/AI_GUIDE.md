@@ -1697,6 +1697,30 @@ or the prelude):
   would bounce on the floor). `robot.model().hit_box()` is that box, as
   its lowest and highest corners.
 
+**Far-away versions (LODs).** A model whose recipe has `lods = "auto"`
+(Duck Mold's `inspect` shows a `far versions` line) carries two simpler
+versions: Far 1 from 8 times its largest side, Far 2 from 20 times (14.6
+m and 36.6 m for the robot).
+
+- `robot.draw_mesh(canvas, &place, &camera)` draws the right one for the
+  camera's distance. Use it in `draw()` in place of
+  `canvas.draw_mesh(robot.mesh(), &place, &camera)`; it also skips
+  working out the mesh's bounding ball every draw.
+- The distance is from the camera to `place.position`, divided by
+  `place`'s largest scale: a model drawn twice as big changes version
+  twice as far away.
+- `robot.version_at(&place, &camera)`: 0 (itself), 1 or 2.
+  `robot.mesh_for(&place, &camera)`: that version's mesh, posed as the
+  model stands. Its parts' triangle ranges are
+  `robot.model().far[n - 1].model.parts`.
+- `robot.far_versions()` is 0 for a model without them; then
+  `draw_mesh` is the same as before.
+- Hit shapes, sockets, events and `physics_body` are the model's own in
+  every version. `robot.mesh()` and `mesh_mut()` are the model itself:
+  recolouring with `mesh_mut` doesn't reach the far versions.
+- `canvas.draw_mesh_within(&mesh, &place, &camera, ball)` draws any mesh
+  with its `mesh.bounding_ball()` kept from when it last changed.
+
 `examples/robot_click/` is hit shapes and events in one small game: the
 robot walks round, each `footstep` event plays a sound and leaves a
 puff at the foot that lands (the further forward of its two

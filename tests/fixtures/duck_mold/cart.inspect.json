@@ -591,14 +591,16 @@
     "capsules": 0
   },
   "poses": [
-    "roll_round"
+    "roll_round",
+    "roll_2",
+    "roll_3"
   ],
   "animations": [
     {
       "name": "roll",
       "length": 1.0,
       "loops": true,
-      "keys": 2
+      "keys": 4
     }
   ],
   "warnings": [],

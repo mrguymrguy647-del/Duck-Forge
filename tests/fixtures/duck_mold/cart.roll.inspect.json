@@ -1,6 +1,6 @@
 {
   "ok": true,
-  "summary": "cart, \"roll\": 1 s, 2 keys, loops, sinks 0.003 into the ground at 0.033 s, nothing floating, nothing overlapping, no limits broken",
+  "summary": "cart, \"roll\": 1 s, 4 keys, loops, sinks 0.002 into the ground at 0.033 s, and is 0.002 above the ground at 0.5 s, nothing floating, nothing overlapping, no limits broken",
   "source": "examples/cart.toml",
   "name": "cart",
   "animation": "roll",
@@ -15,12 +15,23 @@
     },
     {
       "key": 2,
+      "at": 0.05,
+      "pose": "roll_2"
+    },
+    {
+      "key": 3,
+      "at": 0.95,
+      "pose": "roll_3"
+    },
+    {
+      "key": 4,
       "at": 1.0,
       "pose": "roll_round"
     }
   ],
   "frames": 31,
   "moves": [
+    "bed",
     "wheel_front_left",
     "wheel_front_right",
     "wheel_back_left",
@@ -28,10 +39,10 @@
   ],
   "ground": {
     "stays_on_ground": false,
-    "lowest_y": -0.003121,
+    "lowest_y": -0.001787,
     "lowest_at": 0.03333333333333333,
-    "highest_y": 0.0,
-    "highest_at": 0.0
+    "highest_y": 0.002,
+    "highest_at": 0.5
   },
   "floating": [],
   "overlapping": [],

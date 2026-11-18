@@ -105,14 +105,17 @@ use std::io;
 use std::ops::Range;
 use std::path::Path;
 
+use crate::canvas::Canvas;
 use crate::color::Color;
 use crate::error::LoadError;
 use crate::math::{Vec3, vec3};
-use crate::render3d::Mesh;
+use crate::render3d::{Camera3D, Mesh, Transform};
 
-// ==== Duck Mold's .glb reader, version 7 ====================================
+// ==== Duck Mold's .glb reader, version 8 ====================================
 //
-// Version 6: the model's hit shapes (colliders), in `colliders`: a box, a
+// Version 8: a model's far-away versions (glTF's `MSFT_lod`), in `far`:
+// the same model with fewer triangles, for drawing it far off. Version 7:
+// the events on an animation's keys. Version 6: the model's hit shapes (colliders), in `colliders`: a box, a
 // ball or a capsule for each part that has one, at rest, each carried by
 // its part's join ([`GlbHitShape::moved`]). Version 5: the model's animations and named poses, in `animations` and
 // `poses`, and what it takes to play them: where an animation has every
@@ -177,6 +180,25 @@ pub struct GlbModel {
     /// rest. Empty for a model with none, and for files from before
     /// version 6.
     pub colliders: Vec<GlbCollider>,
+    /// The model's far-away versions, nearest first: the same model,
+    /// with the same parts, joins, sockets, animations and hit shapes,
+    /// and fewer triangles. A game draws one when the model is further
+    /// away than its `distance`. Empty for a model with none, and for
+    /// files from before version 8.
+    pub far: Vec<GlbFar>,
+}
+
+/// One far-away version of a model.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GlbFar {
+    /// From how far away it is drawn, about in metres: from the camera
+    /// to the model's zero point.
+    pub distance: f32,
+    /// The model as this version has it. Only its `vertices`,
+    /// `triangles`, the triangle ranges of its `parts` and `assemblies`,
+    /// and the vertex ranges of its `joins` differ from the full model;
+    /// its own `far` is empty. A small part can have no triangles in it.
+    pub model: GlbModel,
 }
 
 /// One hit shape of the model.
@@ -1226,7 +1248,7 @@ pub fn read_duck_mold_glb(bytes: &[u8]) -> Result<GlbModel, String> {
         });
     }
 
-    Ok(GlbModel {
+    let mut model = GlbModel {
         name: extras["name"].as_str().unwrap_or("model").to_owned(),
         vertices,
         triangles,
@@ -1238,7 +1260,110 @@ pub fn read_duck_mold_glb(bytes: &[u8]) -> Result<GlbModel, String> {
         animations,
         poses,
         colliders,
-    })
+        far: Vec::new(),
+    };
+
+    // ---- The far-away versions: the distances in `lods`, and for each
+    // part with triangles, in its object's `MSFT_lod`, one object for
+    // each version, outside the tree, with that part's simpler triangles
+    // measured from the same pivot (or none, for a part left out).
+    let distances = extras["lods"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    if !distances.is_empty() {
+        if !tree {
+            return Err("far-away versions are only read from a file laid out as a tree".into());
+        }
+        let mut node_of_join = vec![0usize; model.joins.len()];
+        for (node, join) in join_of_node.iter().enumerate() {
+            if let Some(join) = join {
+                node_of_join[*join] = node;
+            }
+        }
+        let mut nearer = 0.0f32;
+        let mut far = Vec::new();
+        for (version, distance) in distances.iter().enumerate() {
+            let distance = distance
+                .as_f64()
+                .map(|distance| distance as f32)
+                .filter(|distance| distance.is_finite() && *distance > nearer)
+                .ok_or(
+                    "the far-away versions' distances aren't numbers, each further than the last",
+                )?;
+            nearer = distance;
+            let mut vertices: Vec<[f32; 3]> = Vec::new();
+            let mut triangles: Vec<GlbTriangle> = Vec::new();
+            // For each object: its first corner and how many it has.
+            let mut corners: Vec<(usize, usize)> = vec![(0, 0); pivots.len()];
+            let mut parts = model.parts.clone();
+            for (entry, part) in extras["parts"]
+                .as_array()
+                .map(Vec::as_slice)
+                .unwrap_or_default()
+                .iter()
+                .zip(parts.iter_mut())
+            {
+                // Checked above, with the full model.
+                let node = entry["node"].as_u64().unwrap_or_default() as usize;
+                let first_vertex = vertices.len();
+                let before = triangles.len();
+                if gltf["nodes"][node]["mesh"].is_u64() {
+                    let instead = gltf["nodes"][node]["extensions"]["MSFT_lod"]["ids"][version]
+                        .as_u64()
+                        .and_then(|id| usize::try_from(id).ok())
+                        .filter(|id| *id < pivots.len() && !walk.contains(id))
+                        .ok_or_else(|| {
+                            format!(
+                                "the part \"{}\" has no object for far-away version {}",
+                                part.name,
+                                version + 1
+                            )
+                        })?;
+                    if let Some(mesh) = gltf["nodes"][instead]["mesh"].as_u64() {
+                        add_lump(
+                            &gltf,
+                            bin,
+                            &gltf["meshes"][mesh as usize]["primitives"][0],
+                            pivots[node],
+                            &mut vertices,
+                            &mut triangles,
+                        )?;
+                    }
+                }
+                corners[node] = (first_vertex, vertices.len() - first_vertex);
+                part.first_triangle = before;
+                part.triangles = triangles.len() - before;
+            }
+            let mut assemblies = model.assemblies.clone();
+            for assembly in &mut assemblies {
+                let inside = format!("{}/", assembly.name);
+                let mine: Vec<&GlbPart> = parts
+                    .iter()
+                    .filter(|part| part.name.starts_with(&inside))
+                    .collect();
+                assembly.first_triangle = mine.first().map_or(0, |part| part.first_triangle);
+                assembly.triangles = mine.iter().map(|part| part.triangles).sum();
+            }
+            let mut joins = model.joins.clone();
+            for (join, node) in joins.iter_mut().zip(&node_of_join) {
+                (join.first_vertex, join.vertices) = corners[*node];
+            }
+            far.push(GlbFar {
+                distance,
+                model: GlbModel {
+                    vertices,
+                    triangles,
+                    parts,
+                    assemblies,
+                    joins,
+                    ..model.clone()
+                },
+            });
+        }
+        model.far = far;
+    }
+    Ok(model)
 }
 
 /// Reads one lump of triangles (the whole model's in a file from before
@@ -1422,7 +1547,7 @@ fn srgb(linear: f32) -> u8 {
     (curved * 255.0).round().clamp(0.0, 255.0) as u8
 }
 
-// ==== end of Duck Mold's .glb reader, version 7 =============================
+// ==== end of Duck Mold's .glb reader, version 8 =============================
 
 // ---- Duck Forge's side: files, meshes and parts ------------------------------
 
@@ -1552,6 +1677,12 @@ const BLEND: f32 = 0.15;
 /// # }
 /// ```
 ///
+/// A model with far-away versions (`lods` in its recipe) is drawn with
+/// fewer triangles when it is far off, if it is drawn with
+/// [`draw_mesh`](AnimatedModel::draw_mesh) instead:
+/// `robot.draw_mesh(canvas, &place, &camera)`. Every version moves with
+/// the model.
+///
 /// An animation only turns and moves the model's parts about their
 /// joins: it doesn't move the model along the ground. A walk is played
 /// in place, and the game moves the `Transform` it draws the model with.
@@ -1581,6 +1712,21 @@ pub struct AnimatedModel {
     complained: Vec<String>,
     /// The events passed during the last update.
     events: Vec<AnimationEvent>,
+    /// The ball around `mesh` as it stands now, for drawing; `None` after
+    /// `mesh_mut`, which can move its corners.
+    ball: Option<(Vec3, f32)>,
+    /// The far-away versions, nearest first, standing as the model does.
+    far: Vec<FarMesh>,
+}
+
+/// One far-away version of an [`AnimatedModel`].
+#[derive(Debug, Clone)]
+struct FarMesh {
+    /// From how far away it is drawn.
+    distance: f32,
+    model: GlbModel,
+    mesh: Mesh,
+    ball: (Vec3, f32),
 }
 
 /// What an [`AnimatedModel`] is doing.
@@ -1636,8 +1782,24 @@ impl AnimatedModel {
     /// The same, from a model that is already loaded.
     pub fn new(model: GlbModel) -> AnimatedModel {
         let joins = model.joins.len();
+        let mesh = model.to_mesh();
+        let far = model
+            .far
+            .iter()
+            .map(|far| {
+                let mesh = far.model.to_mesh();
+                FarMesh {
+                    distance: far.distance,
+                    ball: mesh.bounding_ball(),
+                    mesh,
+                    model: far.model.clone(),
+                }
+            })
+            .collect();
         AnimatedModel {
-            mesh: model.to_mesh(),
+            ball: Some(mesh.bounding_ball()),
+            far,
+            mesh,
             places: vec![GlbPlace::REST; joins],
             stands: vec![None; joins],
             doing: Doing::Rest,
@@ -1961,9 +2123,65 @@ impl AnimatedModel {
     }
 
     /// The same, to change: recolour a part, make it glow. (Its corner
-    /// points are set again whenever the model moves.)
+    /// points are set again whenever the model moves.) This is the full
+    /// model: its far-away versions are drawn as they were loaded.
     pub fn mesh_mut(&mut self) -> &mut Mesh {
+        self.ball = None;
         &mut self.mesh
+    }
+
+    /// How many far-away versions the model has: 0, or 2 for a model
+    /// made with `lods` in its recipe.
+    pub fn far_versions(&self) -> usize {
+        self.far.len()
+    }
+
+    /// Which version a camera sees at this place: 0 for the model
+    /// itself, 1 or 2 for a far-away version. It goes by how far the
+    /// camera is from the model's zero point (`place.position`), divided
+    /// by how much `place` scales it up: a model drawn twice as big
+    /// changes version twice as far away.
+    pub fn version_at(&self, place: &Transform, camera: &Camera3D) -> usize {
+        let scale = place.largest_scale();
+        if scale <= 0.0 {
+            return 0;
+        }
+        let distance = (camera.position - place.position).length() / scale;
+        self.far
+            .iter()
+            .take_while(|far| distance >= far.distance)
+            .count()
+    }
+
+    /// The mesh to draw for a camera at this place: the model as it
+    /// stands now, or the far-away version [`version_at`] picks, standing
+    /// the same way. Its parts' triangle ranges are that version's own:
+    /// [`model`](AnimatedModel::model)`.far[n - 1].model.parts`.
+    ///
+    /// [`version_at`]: AnimatedModel::version_at
+    pub fn mesh_for(&self, place: &Transform, camera: &Camera3D) -> &Mesh {
+        match self.version_at(place, camera) {
+            0 => &self.mesh,
+            version => &self.far[version - 1].mesh,
+        }
+    }
+
+    /// Draws the model as [`mesh_for`](AnimatedModel::mesh_for) gives it:
+    /// `robot.draw_mesh(canvas, &place, &camera)`, in place of
+    /// `canvas.draw_mesh(robot.mesh(), &place, &camera)`. It also skips
+    /// working out the ball around the mesh on every draw
+    /// ([`Canvas::draw_mesh_within`]).
+    pub fn draw_mesh(&self, canvas: &mut Canvas, place: &Transform, camera: &Camera3D) {
+        match self.version_at(place, camera) {
+            0 => match self.ball {
+                Some(ball) => canvas.draw_mesh_within(&self.mesh, place, camera, ball),
+                None => canvas.draw_mesh(&self.mesh, place, camera),
+            },
+            version => {
+                let far = &self.far[version - 1];
+                canvas.draw_mesh_within(&far.mesh, place, camera, far.ball);
+            }
+        }
     }
 
     /// The name of the animation that is playing, stopped or finished;
@@ -2071,6 +2289,14 @@ impl AnimatedModel {
         self.stands = self.model.stands(&stood);
         for (vertex, [x, y, z]) in self.mesh.vertices.iter_mut().zip(self.model.posed(&stood)) {
             *vertex = vec3(x, y, z);
+        }
+        self.ball = Some(self.mesh.bounding_ball());
+        // The far-away versions stand the same way.
+        for far in &mut self.far {
+            for (vertex, [x, y, z]) in far.mesh.vertices.iter_mut().zip(far.model.posed(&stood)) {
+                *vertex = vec3(x, y, z);
+            }
+            far.ball = far.mesh.bounding_ball();
         }
         self.places = stood;
     }
