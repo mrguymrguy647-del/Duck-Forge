@@ -819,7 +819,7 @@ fn a_new_file_says_what_every_part_turns_about_and_hangs_from() -> Result<(), Lo
 fn a_file_from_a_newer_duck_mold_says_to_update_duck_forge() {
     let folder = TestFolder::new("duck-mold-newer");
     let newer = with_json(&crate_bytes(), |json| {
-        let changed = json.replacen("\"version\":1,\"name\"", "\"version\":2,\"name\"", 1);
+        let changed = json.replacen("\"version\":1,\"name\"", "\"version\":3,\"name\"", 1);
         assert_ne!(changed, json, "the version was found");
         changed
     });

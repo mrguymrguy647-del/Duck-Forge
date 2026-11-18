@@ -1,0 +1,147 @@
+{
+  "ok": true,
+  "summary": "plank_crate: 1.00 x 1.00 x 1.00 m, 12 triangles, 1 part, 1 colour, rests on the ground, nothing floating, nothing overlapping",
+  "source": "examples/plank_crate.toml",
+  "name": "plank_crate",
+  "size": [
+    1.0,
+    1.0,
+    1.0
+  ],
+  "bounds": {
+    "min": [
+      -0.5,
+      0.0,
+      -0.5
+    ],
+    "max": [
+      0.5,
+      1.0,
+      0.5
+    ]
+  },
+  "triangles": 12,
+  "vertices": 24,
+  "ground": {
+    "rests_on_ground": true,
+    "lowest_y": 0.0
+  },
+  "palette": [
+    {
+      "name": "wood",
+      "hex": "#B07A3F",
+      "triangles": 12
+    }
+  ],
+  "parts": [
+    {
+      "name": "box",
+      "kind": "box",
+      "triangles": 12,
+      "size": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bounds": {
+        "min": [
+          -0.5,
+          0.0,
+          -0.5
+        ],
+        "max": [
+          0.5,
+          1.0,
+          0.5
+        ]
+      },
+      "colors": [
+        "wood"
+      ],
+      "attached_to": null,
+      "parts": []
+    }
+  ],
+  "floating": [],
+  "overlapping": [],
+  "images": {
+    "sheet": [
+      128,
+      64
+    ],
+    "files": [
+      {
+        "file": "examples/textures/planks.png",
+        "width": 32,
+        "height": 32,
+        "solid": true,
+        "on": [
+          {
+            "part": "box",
+            "face": "left",
+            "metres": [
+              1.0,
+              1.0
+            ],
+            "pixels_per_metre": 32.0
+          },
+          {
+            "part": "box",
+            "face": "right",
+            "metres": [
+              1.0,
+              1.0
+            ],
+            "pixels_per_metre": 32.0
+          },
+          {
+            "part": "box",
+            "face": "front",
+            "metres": [
+              1.0,
+              1.0
+            ],
+            "pixels_per_metre": 32.0
+          },
+          {
+            "part": "box",
+            "face": "back",
+            "metres": [
+              1.0,
+              1.0
+            ],
+            "pixels_per_metre": 32.0
+          }
+        ]
+      },
+      {
+        "file": "examples/textures/lid.png",
+        "width": 32,
+        "height": 32,
+        "solid": true,
+        "on": [
+          {
+            "part": "box",
+            "face": "top",
+            "metres": [
+              1.0,
+              1.0
+            ],
+            "pixels_per_metre": 32.0
+          },
+          {
+            "part": "box",
+            "face": "bottom",
+            "metres": [
+              1.0,
+              1.0
+            ],
+            "pixels_per_metre": 32.0
+          }
+        ]
+      }
+    ]
+  },
+  "warnings": [],
+  "errors": []
+}

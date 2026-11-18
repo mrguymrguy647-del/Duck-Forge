@@ -5944,3 +5944,44 @@ read as Duck Mold reported them; the version goes by distance and by
 scale; a far version stands as the model does, through a pose and a
 walk; `draw_mesh` draws what `mesh_for` gives, also after `mesh_mut`;
 a general glTF reader draws only the model itself.
+
+# Duck Mold's Phase 7b, step 2: images on models
+
+A Duck Mold recipe can put a picture on a part or on one face of it,
+and the model comes into a game with it.
+
+- **Nothing new is drawn.** A `Mesh` already had one `texture` and a
+  place on it for each triangle (`uvs`), drawn with the nearest pixel
+  and multiplied by the triangle's colour. Duck Mold writes its files to
+  fit: all of a model's images on one picture (a PNG inside the `.glb`),
+  so a model is still one mesh and one draw.
+- **The reader (version 9, the same code in both repositories)** gives
+  `GlbModel::picture`, the PNG's bytes as they are in the file, and
+  `GlbTriangle::on_picture`, each triangle's three places on it. It
+  still uses only the standard library and `serde_json`: turning the
+  bytes into pixels is `Sprite::from_png_bytes`, below the markers, with
+  the PNG library the engine already had. No new dependency.
+- **A file with images says layout 2**, and readers from before refuse
+  it with the sentence they always had for a newer file. Far-away
+  versions were added without a new number because an old reader drew
+  them right by passing over them; passing over images would draw every
+  painted face white, with nothing to say why.
+- **An image is already laid over its colour in the file.** Where a
+  recipe's image is see-through, the part's palette colour shows. glTF
+  can't say that, so Duck Mold paints it into the picture, and a
+  triangle with an image is white. Every glTF program then shows the
+  model the same way, and Duck Forge needs no rule of its own for it.
+- **A triangle without an image has no place on the picture** in the
+  mesh (`uvs` holds `None`), so it is drawn as a plain triangle, as
+  before. In the file its corners point at a white pixel, for other
+  glTF programs; the reader turns that back into "no image".
+- **`GlbModel::load` reads the picture once to check it**, so a damaged
+  one is a `LoadError` with a sentence and `to_mesh` never has to fail.
+  `AnimatedModel` reads it once and every version's mesh shares it.
+
+Tests (`tests/duck_mold_images.rs`), on Duck Mold's golden
+`plank_crate.glb`: it loads with its picture, the size Duck Mold
+reported; the planks are upright on all four sides and the lid is on
+top; from 1.6 m to 40 m no pixel has a colour that wasn't painted; two
+stored pictures; an animated model keeps its images; a model without
+images has none; a damaged picture is one sentence.

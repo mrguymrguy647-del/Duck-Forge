@@ -551,6 +551,17 @@ same in all of them. `robot.mesh_for(&place, &camera)` is the mesh it
 would draw, and `robot.version_at(&place, &camera)` which one (0, 1 or
 2).
 
+**Images.** A Duck Mold recipe can put a picture on a part, or on one
+face of it (`images = { front = "textures/face.png" }`): a face painted
+in Duck Quill, a label, wood planks. Such a model loads and draws with
+the same lines as any other. Its mesh comes with its picture
+(`mesh.texture`) and each triangle's place on it (`mesh.uvs`), and the
+picture's pixels stay sharp however near the camera is. A triangle with
+an image is white underneath, so the image shows as it was painted;
+recolouring a part (`mesh.triangles[part.range()]`) tints its images.
+A file with images needs this Duck Forge or a newer one: an older one
+says "update Duck Forge" instead of drawing its faces white.
+
 [examples/robot_click/](examples/robot_click/main.rs) is the robot
 walking round, its footsteps making a sound and a puff of dust, a click
 naming the part it found, which flashes, and a wall in its way that its
@@ -1094,18 +1105,4 @@ On a computer with one (in PowerShell or cmd, in the project folder):
 | `src/glb.rs`      | Models made with Duck Mold: `Mesh::load_glb` and `GlbModel` read their `.glb` files |
 | `src/gpu.rs`      | The GPU renderer: wgpu setup, mesh cache, instancing, reading the picture back |
 | `src/gpu.wgsl`    | The shaders: the small programs that run on the graphics card       |
-| `src/physics.rs`  | `PhysicsWorld` and `Body`: collisions and an impulse solver, for `Vec2` or `Vec3` |
-| `src/input.rs`    | Keyboard and mouse: held, just pressed, just released               |
-| `src/math.rs`     | `Vec2`, `Rect`, `Vec3`, `Mat4`, the `Vector` trait that makes physics generic, and the collision helpers |
-| `src/font.rs`     | A built-in 3-pixel-wide font: every printable ASCII character        |
-| `src/color.rs`    | Colors with alpha, and see-through blending                         |
-| `src/rng.rs`      | A tiny xorshift random number generator                             |
-| `examples/`       | `hello`, `shapes`, `template`, `starter_topdown`, `starter_shooter`, `scene_demo`, `pollen_run`, `breakout`, `dodge`, `duckling_parade`, `door_short`, `door_show_3d`, `physics`, `world3d`, `stress3d`, `turntable`, `robot_walk` and `robot_click` |
-| `tools/write_ids.rs` | Writes the ids into a scene file made by hand: `cargo run --example write_ids -- FILE` |
-| `Start Duck Forge Studio.bat` | Builds Duck Forge Studio from this folder and opens it, with a double-click |
-| `tools/Run tests (for developers).bat` | Runs every test on Windows with a double-click: the engine's both ways, then the Studio's |
-| `tools/rust_check.bat` | Used by both: checks that Rust is installed, and offers the official page if not |
-
-Only `src/window.rs` knows winit and softbuffer exist, so the window
-library could be swapped out by rewriting one file. (It was: the engine
-started on minifb, and moved to winit when Duck Craft needed pointer lock.)
+| `src/physics.rs`  | `PhysicsWorld` and `Body`: collisions and an impul

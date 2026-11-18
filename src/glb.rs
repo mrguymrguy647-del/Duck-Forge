@@ -108,11 +108,16 @@ use std::path::Path;
 use crate::canvas::Canvas;
 use crate::color::Color;
 use crate::error::LoadError;
-use crate::math::{Vec3, vec3};
+use crate::math::{Vec3, vec2, vec3};
 use crate::render3d::{Camera3D, Mesh, Transform};
+use crate::sprite::Sprite;
 
-// ==== Duck Mold's .glb reader, version 8 ====================================
+// ==== Duck Mold's .glb reader, version 9 ====================================
 //
+// Version 9: a model's images. A file with images holds them all on one
+// picture, a PNG inside the file ([`GlbModel::picture`]), and says where
+// each triangle's corners are on it ([`GlbTriangle::on_picture`]). Such a
+// file says it is laid out as version 2, which readers from before refuse.
 // Version 8: a model's far-away versions (glTF's `MSFT_lod`), in `far`:
 // the same model with fewer triangles, for drawing it far off. Version 7:
 // the events on an animation's keys. Version 6: the model's hit shapes (colliders), in `colliders`: a box, a
@@ -186,6 +191,23 @@ pub struct GlbModel {
     /// away than its `distance`. Empty for a model with none, and for
     /// files from before version 8.
     pub far: Vec<GlbFar>,
+    /// The model's images, all on one picture. `None` for a model
+    /// without images, for files from before version 9, and in a
+    /// far-away version, which shows the model's own picture.
+    pub picture: Option<GlbPicture>,
+}
+
+/// The one picture a model's images are on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GlbPicture {
+    /// The picture, as the bytes of a PNG file, exactly as they are in
+    /// the `.glb`. Every pixel of it is solid. It is to be drawn with
+    /// sharp pixels: the nearest pixel, never a blend of neighbours.
+    pub png: Vec<u8>,
+    /// How many pixels wide it is.
+    pub width: u32,
+    /// How many pixels high it is.
+    pub height: u32,
 }
 
 /// One far-away version of a model.
@@ -630,14 +652,23 @@ impl GlbModel {
 }
 
 /// One triangle: three places in `vertices`, clockwise seen from the
-/// front, and its colour.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// front, its colour, and where it is on the model's picture if it has
+/// an image.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GlbTriangle {
     /// The three corners.
     pub corners: [usize; 3],
     /// Red, green and blue, 0 to 255: one of the palette's colours, or
-    /// the grey `180, 180, 180` of a face nobody coloured.
+    /// the grey `180, 180, 180` of a face nobody coloured. White, for a
+    /// triangle with an image: the picture shows as it was painted.
     pub color: [u8; 3],
+    /// For a triangle with an image: where each of its three corners is
+    /// on the model's picture ([`GlbModel::picture`]), in the order of
+    /// `corners`. Each is how far across from the picture's left edge
+    /// (0) to its right (1), and how far down from its top (0) to its
+    /// bottom (1). `None` for a triangle without an image: it is its
+    /// plain colour.
+    pub on_picture: Option<[[f32; 2]; 3]>,
 }
 
 /// One palette colour.
@@ -716,9 +747,11 @@ pub fn read_duck_mold_glb(bytes: &[u8]) -> Result<GlbModel, String> {
     // tree of objects, one for every part, each with its own triangles,
     // measured from the point the part turns about.
     let extras = &gltf["extras"]["duck_mold"];
-    let tree = match extras["version"].as_i64() {
+    // Version 2 is version 1 with images.
+    let layout = extras["version"].as_i64();
+    let tree = match layout {
         Some(0) => false,
-        Some(1) => true,
+        Some(1 | 2) => true,
         Some(_) => {
             return Err(
                 "this .glb was written by a newer Duck Mold than this reader knows: update Duck Forge"
@@ -731,6 +764,61 @@ pub fn read_duck_mold_glb(bytes: &[u8]) -> Result<GlbModel, String> {
             );
         }
     };
+
+    // ---- The images (version 2): one picture inside the file, and the
+    // place on it that is plain white. Every corner of a triangle without
+    // an image is written at exactly that place.
+    let mut picture = None;
+    let mut plain_at = None;
+    if layout == Some(2) {
+        let images = &extras["images"];
+        let pair = |field: &str| match images[field].as_array().map(Vec::as_slice) {
+            Some([a, b]) => a.as_f64().zip(b.as_f64()),
+            _ => None,
+        };
+        let (Some((width, height)), Some((across, down))) = (pair("sheet"), pair("plain_at"))
+        else {
+            return Err("this .glb says it has images, but not where they are".into());
+        };
+        if !(1.0..=65536.0).contains(&width) || !(1.0..=65536.0).contains(&height) {
+            return Err("the picture of the model's images has no sensible size".into());
+        }
+        plain_at = Some([across as f32, down as f32]);
+        // Which picture the material shows, and where its bytes are.
+        let shown = &gltf["materials"][0]["pbrMetallicRoughness"]["baseColorTexture"]["index"];
+        let source = match shown.as_u64() {
+            Some(texture) => &gltf["textures"][texture as usize]["source"],
+            None => return Err("this .glb says it has images, but holds no picture".into()),
+        };
+        let image = match source.as_u64() {
+            Some(image) => &gltf["images"][image as usize],
+            None => return Err("this .glb says it has images, but holds no picture".into()),
+        };
+        let Some(view) = image["bufferView"].as_u64() else {
+            return Err(
+                "the picture of the model's images isn't inside the file, where Duck Mold puts it"
+                    .into(),
+            );
+        };
+        let view = &gltf["bufferViews"][view as usize];
+        let png = view["byteOffset"]
+            .as_u64()
+            .unwrap_or(0)
+            .checked_add(view["byteLength"].as_u64().unwrap_or(0))
+            .and_then(|end| {
+                let start = usize::try_from(view["byteOffset"].as_u64().unwrap_or(0)).ok()?;
+                bin.get(start..usize::try_from(end).ok()?)
+            })
+            .ok_or("the picture of the model's images runs past the end of the file")?;
+        if !png.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
+            return Err("the picture of the model's images isn't a PNG".into());
+        }
+        picture = Some(GlbPicture {
+            png: png.to_vec(),
+            width: width as u32,
+            height: height as u32,
+        });
+    }
 
     // ---- The tree: which object hangs from which, and where each is.
     // An object's place is its own shift added to those of everything it
@@ -849,6 +937,7 @@ pub fn read_duck_mold_glb(bytes: &[u8]) -> Result<GlbModel, String> {
                             bin,
                             &gltf["meshes"][mesh as usize]["primitives"][0],
                             pivots[node],
+                            plain_at,
                             &mut vertices,
                             &mut triangles,
                         )?;
@@ -887,6 +976,7 @@ pub fn read_duck_mold_glb(bytes: &[u8]) -> Result<GlbModel, String> {
             bin,
             &gltf["meshes"][0]["primitives"][0],
             [0.0; 3],
+            plain_at,
             &mut vertices,
             &mut triangles,
         )?;
@@ -1261,6 +1351,9 @@ pub fn read_duck_mold_glb(bytes: &[u8]) -> Result<GlbModel, String> {
         poses,
         colliders,
         far: Vec::new(),
+        // (Given at the very end, so that the far-away versions, which
+        // are copies of the model, don't each hold the picture again.)
+        picture: None,
     };
 
     // ---- The far-away versions: the distances in `lods`, and for each
@@ -1326,6 +1419,7 @@ pub fn read_duck_mold_glb(bytes: &[u8]) -> Result<GlbModel, String> {
                             bin,
                             &gltf["meshes"][mesh as usize]["primitives"][0],
                             pivots[node],
+                            plain_at,
                             &mut vertices,
                             &mut triangles,
                         )?;
@@ -1363,17 +1457,21 @@ pub fn read_duck_mold_glb(bytes: &[u8]) -> Result<GlbModel, String> {
         }
         model.far = far;
     }
+    model.picture = picture;
     Ok(model)
 }
 
 /// Reads one lump of triangles (the whole model's in a file from before
 /// version 4, one part's in a tree) and adds its points and triangles to
-/// the model's. `from` is where its points are measured from.
+/// the model's. `from` is where its points are measured from. In a file
+/// with images, `plain_at` is the place on the picture where a corner
+/// without an image is written.
 fn add_lump(
     gltf: &serde_json::Value,
     bin: &[u8],
     primitive: &serde_json::Value,
     from: [f64; 3],
+    plain_at: Option<[f32; 2]>,
     vertices: &mut Vec<[f32; 3]>,
     triangles: &mut Vec<GlbTriangle>,
 ) -> Result<(), String> {
@@ -1395,6 +1493,25 @@ fn add_lump(
     if colors.len() != positions.len() || indices.len() % 12 != 0 {
         return Err("the lists of positions, colours and triangles don't match".into());
     }
+    // In a file with images, where each corner is on the picture.
+    let on_picture = match plain_at {
+        Some(_) => {
+            let places = numbers(
+                gltf,
+                bin,
+                &primitive["attributes"]["TEXCOORD_0"],
+                "VEC2",
+                5126,
+            )?;
+            if places.len() != corner_count * 8 {
+                return Err(
+                    "the lists of positions and of places on the picture don't match".into(),
+                );
+            }
+            Some(places)
+        }
+        None => None,
+    };
     let mut vertex_of_corner: Vec<usize> = Vec::with_capacity(corner_count);
     let mut seen: HashMap<[u32; 3], usize> = HashMap::new();
     for corner in 0..corner_count {
@@ -1422,6 +1539,25 @@ fn add_lump(
                 triangles.len()
             ));
         }
+        // The same swap of the second and third corner as `corners`.
+        let mut placed = None;
+        if let (Some(places), Some(plain)) = (on_picture, plain_at) {
+            let at = |corner: usize| [f32_at(places, corner * 2), f32_at(places, corner * 2 + 1)];
+            let three = [at(a), at(c), at(b)];
+            if three.iter().any(|place| *place != plain) {
+                if three
+                    .iter()
+                    .flatten()
+                    .any(|number| !(0.0..=1.0).contains(number))
+                {
+                    return Err(format!(
+                        "triangle {} has a corner that is off the picture",
+                        triangles.len()
+                    ));
+                }
+                placed = Some(three);
+            }
+        }
         triangles.push(GlbTriangle {
             corners: [
                 vertex_of_corner[a],
@@ -1433,6 +1569,7 @@ fn add_lump(
                 srgb(f32_at(colors, a * 3 + 1)),
                 srgb(f32_at(colors, a * 3 + 2)),
             ],
+            on_picture: placed,
         });
     }
     Ok(())
@@ -1498,6 +1635,7 @@ fn numbers<'a>(
     let per: usize = match kind {
         "VEC4" => 16,
         "VEC3" => 12,
+        "VEC2" => 8,
         _ => 4,
     };
     let count = accessor["count"]
@@ -1547,7 +1685,7 @@ fn srgb(linear: f32) -> u8 {
     (curved * 255.0).round().clamp(0.0, 255.0) as u8
 }
 
-// ==== end of Duck Mold's .glb reader, version 8 =============================
+// ==== end of Duck Mold's .glb reader, version 9 =============================
 
 // ---- Duck Forge's side: files, meshes and parts ------------------------------
 
@@ -1560,7 +1698,7 @@ impl GlbModel {
         let path = path.as_ref();
         let bytes = std::fs::read(path)
             .map_err(|error| crate::sprite::missing_file_error(path, "model", &error))?;
-        read_duck_mold_glb(&bytes).map_err(|reason| {
+        let not_a_model = |reason: String| {
             LoadError::new(
                 io::ErrorKind::InvalidData,
                 format!(
@@ -1570,21 +1708,69 @@ impl GlbModel {
                     path.display()
                 ),
             )
-        })
+        };
+        let model = read_duck_mold_glb(&bytes).map_err(not_a_model)?;
+        // A model with images: its picture must be one that can be drawn,
+        // so that nothing later has to say it can't.
+        if let Some(picture) = &model.picture {
+            Sprite::from_png_bytes(&picture.png).map_err(|reason| {
+                not_a_model(format!("the picture of its images can't be read: {reason}"))
+            })?;
+        }
+        Ok(model)
+    }
+
+    /// The one picture all of the model's images are on, ready to draw
+    /// with: what [`to_mesh`](GlbModel::to_mesh) gives the mesh as its
+    /// texture. `None` for a model without images.
+    pub fn picture_sprite(&self) -> Option<Sprite> {
+        let picture = self.picture.as_ref()?;
+        Sprite::from_png_bytes(&picture.png).ok()
     }
 
     /// The model as a [`Mesh`], ready to draw: its points, and its
     /// triangles with their colours, in the file's order (so a part's
     /// [`range`](GlbPart::range) picks out its triangles in the mesh too).
+    ///
+    /// A model with images (a picture painted on a part, or on one face
+    /// of it) comes with them: the mesh's `texture` is the model's one
+    /// picture, and each triangle with an image has its place on it in
+    /// `uvs`. Such a triangle is white, so the image shows as it was
+    /// painted; recolouring it tints the image. Drawing is the same
+    /// `canvas.draw_mesh(...)` either way, and the image's pixels stay
+    /// sharp however near the camera is.
     pub fn to_mesh(&self) -> Mesh {
+        self.mesh_with(self.picture_sprite().as_ref())
+    }
+
+    /// [`to_mesh`](GlbModel::to_mesh), with the picture already read:
+    /// a far-away version's triangles are on the model's own picture.
+    fn mesh_with(&self, picture: Option<&Sprite>) -> Mesh {
         let mut mesh = Mesh::new();
         for &[x, y, z] in &self.vertices {
             mesh.add_vertex(vec3(x, y, z));
         }
+        let mut any = false;
         for triangle in &self.triangles {
             let [a, b, c] = triangle.corners;
             let [red, green, blue] = triangle.color;
-            mesh.add_triangle(a, b, c, Color::rgb(red, green, blue));
+            let color = Color::rgb(red, green, blue);
+            match (triangle.on_picture, picture) {
+                (Some(on), Some(_)) => {
+                    any = true;
+                    mesh.add_triangle_uv(
+                        a,
+                        b,
+                        c,
+                        on.map(|[across, down]| vec2(across, down)),
+                        color,
+                    );
+                }
+                _ => mesh.add_triangle(a, b, c, color),
+            }
+        }
+        if any {
+            mesh.texture = picture.cloned();
         }
         mesh
     }
@@ -1782,12 +1968,15 @@ impl AnimatedModel {
     /// The same, from a model that is already loaded.
     pub fn new(model: GlbModel) -> AnimatedModel {
         let joins = model.joins.len();
-        let mesh = model.to_mesh();
+        // The model's images, read once: every version shows the same
+        // picture, and shares it.
+        let picture = model.picture_sprite();
+        let mesh = model.mesh_with(picture.as_ref());
         let far = model
             .far
             .iter()
             .map(|far| {
-                let mesh = far.model.to_mesh();
+                let mesh = far.model.mesh_with(picture.as_ref());
                 FarMesh {
                     distance: far.distance,
                     ball: mesh.bounding_ball(),

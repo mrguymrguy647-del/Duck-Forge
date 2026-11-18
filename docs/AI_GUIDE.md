@@ -1721,6 +1721,27 @@ m and 36.6 m for the robot).
 - `canvas.draw_mesh_within(&mesh, &place, &camera, ball)` draws any mesh
   with its `mesh.bounding_ball()` kept from when it last changed.
 
+**Images on a Duck Mold model.** A recipe's `image = "textures/planks.png"`
+(a whole part) or `images = { front = "textures/face.png" }` (one face)
+puts a PNG on it; the `.glb` holds all of a model's images on one
+picture. Nothing changes in the game's code:
+
+- `Mesh::load_glb`, `GlbModel::to_mesh` and `AnimatedModel` give a mesh
+  whose `texture` is that picture and whose `uvs` hold each triangle's
+  place on it (`None` for a triangle without an image). Draw it as
+  always; far-away versions show the same picture.
+- Pixels stay sharp squares, near and far, on the CPU and on the
+  graphics card.
+- A triangle with an image has the colour white: the image shows as it
+  was painted (already laid over the part's colour where the image was
+  see-through). Setting another colour on it tints the image.
+- `model.picture_sprite()` is the picture as a `Sprite`, and
+  `model.picture` its PNG bytes and size, if a game wants them.
+- Two meshes with different pictures can't be merged (`Mesh::merge`):
+  draw two models with images as two meshes.
+- A file with images says layout 2. A Duck Forge from before this
+  refuses it ("written by a newer Duck Mold ... update Duck Forge").
+
 `examples/robot_click/` is hit shapes and events in one small game: the
 robot walks round, each `footstep` event plays a sound and leaves a
 puff at the foot that lands (the further forward of its two

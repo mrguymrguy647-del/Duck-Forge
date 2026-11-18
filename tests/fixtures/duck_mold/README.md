@@ -26,6 +26,7 @@ its `tests/before-phase5/`.
 | `house.glb` | 120 | A door and two framed windows on its front (+z), a chimney on its left (-x) and a skylight on its roof; one assembly, its roof. |
 | `robot.glb` | 384 | 19 parts and four assemblies (its arms and legs); yellow eyes on its front (+z); 187 sockets; four animations and ten poses; two far-away versions (288 and 276 triangles). |
 | `snowman.glb` | 600 | Balls, cones and coal: parts joined on curved surfaces. |
+| `plank_crate.glb` | 12 | One box with **images** (reader version 9): planks on its four sides and a lid on its top and bottom, painted with Duck Quill, all on one 128 x 64 picture inside the file. |
 | `door.glb` | 60 | A frame and a door on a hinge; `open` (the handle turns, then the door swings 90 degrees towards the front). |
 | `cart.glb` | 436 | A bed on four wheels (four assemblies), one spoke each so the turning shows; `roll` loops. |
 | `gnome.glb` | 432 | The robot's six part names on another body: four assemblies (arms and legs); `walk` (the robot's), `wave` and `jump` (the starters'), each stood on the ground by Duck Mold's `fit-ground`; two far-away versions (228 and 216 triangles). |
@@ -92,3 +93,10 @@ duck-mold inspect examples/robot.toml --animation walk --json > robot.walk.inspe
 (the first two for `crate`, `table`, `tree`, `house`, `snowman`, `door`,
 `cart` and `gnome` too, the fourth for `gnome`, `door` and `cart`, and
 the last for each animation above).
+
+`plank_crate.glb` is the first model with **images** (reader version
+9): its recipe puts a PNG on every face. The file says layout 2, holds
+the images on one picture and says where every triangle is on it.
+`tests/duck_mold_images.rs` checks it against its `inspect.json` (the
+picture's size is `images.sheet`), draws it from every side, and
+compares two stored pictures (`pictures/plank_crate.*.png`).

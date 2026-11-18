@@ -1157,6 +1157,40 @@ mod tests {
         assert!(covered > 1500, "{covered} pixels");
     }
 
+    #[test]
+    fn a_duck_mold_model_with_images_on_the_gpu_matches_the_cpu() {
+        // A model with images is a mesh with a texture: the GPU must draw
+        // its picture where the CPU does, with the same sharp pixels.
+        let Some(mut gpu) = gpu_canvas(160, 120) else {
+            return;
+        };
+        let crate_ = crate::glb::read_duck_mold_glb(include_bytes!(
+            "../tests/fixtures/duck_mold/plank_crate.glb"
+        ))
+        .unwrap()
+        .to_mesh();
+        assert!(crate_.texture.is_some());
+        let mut cpu = Canvas::new(160, 120);
+        for canvas in [&mut gpu, &mut cpu] {
+            canvas.clear(Color::from_hex(0x20_30_40));
+            let camera = Camera3D::looking_at(vec3(1.1, 1.5, 1.9), vec3(0.0, 0.5, 0.0));
+            canvas.draw_mesh(&crate_, &Transform::at(Vec3::ZERO), &camera);
+        }
+        gpu.flush_3d();
+        // Where two of the picture's pixels meet, the two can pick
+        // different sides for a pixel of the screen: a little more is
+        // allowed than for plain colours.
+        let share = share_different(&gpu, &cpu);
+        assert!(share < 0.05, "{:.1}% of pixels differ", share * 100.0);
+        let background = Color::from_hex(0x20_30_40);
+        let covered = gpu
+            .pixels()
+            .iter()
+            .filter(|&&p| Color::from_hex(p) != background)
+            .count();
+        assert!(covered > 1500, "{covered} pixels");
+    }
+
     /// How many pixels of two pictures differ by more than 3 in any colour,
     /// as a share of all of them.
     fn share_different(a: &Canvas, b: &Canvas) -> f32 {
