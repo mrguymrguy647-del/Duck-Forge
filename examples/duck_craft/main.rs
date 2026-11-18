@@ -807,10 +807,12 @@ impl Art {
     }
 }
 
-/// Music and the sounds made from files (`audio/make_sounds.py`).
+/// Music and the sounds made from files. The day and night themes are
+/// OGG music from Duck Echo (`art/music_day.toml`, `art/music_night.toml`),
+/// decoded while they play; the rest are from `audio/make_sounds.py`.
 struct Sounds {
-    music_day: Wav,
-    music_night: Wav,
+    music_day: Music,
+    music_night: Music,
     music_title: Wav,
     groan: Wav,
     groan_far: Wav,
@@ -825,9 +827,10 @@ struct Sounds {
 impl Sounds {
     fn load() -> Result<Sounds, LoadError> {
         let wav = |name: &str| Wav::load(format!("{ASSETS}/{name}.wav"));
+        let music = |name: &str| Music::load(format!("{ASSETS}/{name}.ogg"));
         Ok(Sounds {
-            music_day: wav("music_day")?,
-            music_night: wav("music_night")?,
+            music_day: music("music_day")?,
+            music_night: music("music_night")?,
             music_title: wav("music_title")?,
             groan: wav("groan")?,
             groan_far: wav("groan_far")?,

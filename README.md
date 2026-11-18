@@ -281,6 +281,9 @@ Forge".
   A `.wav` that changes while the game runs (sent again from Duck Echo)
   is heard from the next update, a loop at its next wrap; recordings
   keep which version played when, so replays still sound the same.
+  Long music is OGG (`Music::load("assets/day.ogg")`, then
+  `ctx.play_loop(&day, 0.6)`): decoded while it plays, so 23 s of stereo
+  takes under 1 MB instead of 8, and it loops with no gap.
 - **Scenes:** a game's objects in a plain file, one per line
   (`examples/scene_demo/scenes/pond.json`): a name, a kind, a position,
   a picture, a turn, a scale, a layer, and settings of its own; a
@@ -1090,7 +1093,8 @@ On a computer with one (in PowerShell or cmd, in the project folder):
 | `src/sprite.rs`   | `Sprite` (from PNG, ASCII art or pixels), `Blit` options, `Animation` |
 | `src/camera.rs`   | `Camera2D`: position, zoom, smooth follow, screen shake            |
 | `src/sound.rs`    | The synthesizer (`Sound`, `Wave`), `.wav` files, mixing `audio.wav` |
-| `src/sound_files.rs` | The `.wav` files a game loaded: noticing one changed, swapping it in, the sound store for replays |
+| `src/sound_files.rs` | The `.wav` and `.ogg` files a game loaded: noticing one changed, swapping it in, the sound store for replays |
+| `src/music.rs`    | `Music`: OGG music decoded while it plays (a decoder thread in a window, the mixer headless) |
 | `src/speaker.rs`  | Playing sounds out loud in a window (only with the `audio` feature) |
 | `src/debug.rs`    | The debug overlay (F1, `--debug`)                                   |
 | `src/error.rs`    | `LoadError`: a missing or broken file, in one sentence              |

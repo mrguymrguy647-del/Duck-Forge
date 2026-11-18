@@ -9,16 +9,19 @@
 use std::collections::BTreeSet;
 use std::process::Command;
 
-/// The crates a headless build compiles today: duckforge, its four
-/// dependencies (png, gif, serde_json and ab_glyph, for TrueType and
-/// OpenType text), and theirs. (ab_glyph and ttf-parser added about 1.8 s
+/// The crates a headless build compiles today: duckforge, its five
+/// dependencies (png, gif, serde_json, ab_glyph for TrueType and OpenType
+/// text, and lewton for OGG music), and theirs. (ab_glyph and ttf-parser added about 1.8 s
 /// to a clean build of dodge, 18 s to 20 s: docs/decisions.md, "Lit 3D,
-/// fonts and video for shorts".)
+/// fonts and video for shorts". lewton, ogg, tinyvec and byteorder decode
+/// OGG music; about a second, within the difference between two runs:
+/// docs/decisions.md, "Duck Echo's Phase 3, step 6".)
 const HEADLESS_CRATES: &[&str] = &[
     "ab_glyph",
     "ab_glyph_rasterizer",
     "adler2",
     "bitflags",
+    "byteorder",
     "cfg-if",
     "color_quant",
     "crc32fast",
@@ -27,13 +30,16 @@ const HEADLESS_CRATES: &[&str] = &[
     "flate2",
     "gif",
     "itoa",
+    "lewton",
     "memchr",
     "miniz_oxide",
+    "ogg",
     "owned_ttf_parser",
     "png",
     "serde_core",
     "serde_json",
     "simd-adler32",
+    "tinyvec",
     "ttf-parser",
     "weezl",
     "zmij",

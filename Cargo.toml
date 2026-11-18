@@ -43,6 +43,11 @@ softbuffer = { version = "0.4", optional = true, default-features = false, featu
 gif = "0.14"
 png = "0.18"
 serde_json = "1"
+# Decodes OGG Vorbis music while it plays (see music.rs). Pure Rust, with
+# the small `ogg`, `tinyvec` and `byteorder` crates: nothing built from C,
+# nothing loaded when the game starts. Duck Echo checks its own OGG files
+# with the same decoder (docs/decisions.md, "Phase 3, step 6").
+lewton = "0.10"
 # Reads TrueType and OpenType fonts and turns their letters into pixels
 # (see font_file.rs). Pure Rust, on the CPU.
 ab_glyph = { version = "0.2", default-features = false, features = ["std"] }

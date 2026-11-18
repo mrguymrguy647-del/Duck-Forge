@@ -15,7 +15,7 @@ use crate::math::{Rect, Vec2};
 use crate::render3d::Renderer;
 use crate::report::ReportValue;
 use crate::rng::Rng;
-use crate::sound::{LoopCommand, LoopId, LoopSound, Sound, SoundRequest, Wav};
+use crate::sound::{LoopCommand, LoopId, LoopSound, OneShot, Sound, SoundRequest, Wav};
 use crate::tune::Tunes;
 
 /// What every game must provide. The engine calls `update` and `draw` once
@@ -645,8 +645,8 @@ impl Context {
     /// However many sounds play at once, the recorded mix (`audio.wav`)
     /// can't clip: a limiter turns it down where it would, and `log.json`
     /// warns that it did. (In a window, a softer limiter rounds off peaks.)
-    pub fn play_with(&mut self, sound: impl Into<LoopSound>, volume: f32, pan: f32) {
-        let LoopSound(request) = sound.into();
+    pub fn play_with(&mut self, sound: impl Into<OneShot>, volume: f32, pan: f32) {
+        let OneShot(request) = sound.into();
         self.sounds
             .push(request.panned(pan).louder(clean_volume(volume)));
     }
@@ -677,10 +677,13 @@ impl Context {
     }
 
     /// Starts a sound that repeats with no gap until you stop it: music, an
-    /// engine's hum, rain. `sound` is a `.wav` file (`&music`, loaded once
-    /// with [`Wav::load`](crate::sound::Wav::load); a Duck Echo loop
-    /// repeats seamlessly) or a synthesizer [`Sound`]. `volume` is 0.0
-    /// (silent) to 1.0 (as loud as the file), and more to make it louder.
+    /// engine's hum, rain. `sound` is a `.wav` file (`&hum`, loaded once
+    /// with [`Wav::load`](crate::sound::Wav::load)), music from an `.ogg`
+    /// file (`&music`, loaded with [`Music::load`](crate::music::Music::load),
+    /// decoded while it plays, so a long piece takes little memory), or a
+    /// synthesizer [`Sound`]. A Duck Echo loop repeats seamlessly. `volume`
+    /// is 0.0 (silent) to 1.0 (as loud as the file), and more to make it
+    /// louder.
     ///
     /// ```
     /// # use duckforge::prelude::*;
@@ -700,9 +703,9 @@ impl Context {
     pub fn play_loop(&mut self, sound: impl Into<LoopSound>, volume: f32) -> LoopId {
         let id = LoopId(self.next_loop);
         self.next_loop += 1;
-        let LoopSound(request) = sound.into();
+        let LoopSound(start) = sound.into();
         self.loop_commands
-            .push(LoopCommand::Start(id, request, clean_volume(volume)));
+            .push(LoopCommand::Start(id, start, clean_volume(volume)));
         id
     }
 

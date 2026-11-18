@@ -1063,6 +1063,18 @@ sounds: `let music: LoopId = ctx.play_loop(&w, 0.6);` (a `Wav`, or a
 `.volume_at(frame)` and `.is_playing()`). Headless runs mix loops into
 `audio.wav` and list them in `log.json` under `"loops"`.
 
+**Music from an `.ogg`** (OGG Vorbis at 44,100 Hz, mono or stereo, as Duck
+Echo's `render -o day.ogg` or Send to game writes it) takes a few hundred
+KB while it plays instead of a `Wav`'s 8 MB for 23 s of stereo:
+`let day = Music::load("examples/mygame/assets/day.ogg")?;` then
+`ctx.play_loop(&day, 0.6)` with `set_loop_volume` and `stop_loop` as for a
+`Wav` (also `day.seconds()`, `day.is_stereo()`, `day.name()`). It's
+decoded while it plays (in a window on its own thread, headless in the
+mixer, the same samples either way), cut to its exact length (Duck Echo's
+`DUCKECHO_FRAMES` comment), and loops with no gap. Music only loops: play
+short sounds as `.wav`. A scene's sound object may name an `.ogg` with
+`"loops": true`. A changed `.ogg` plays from the loop's next wrap.
+
 **A `.wav` that changes while the game runs** (sent again from Duck
 Echo, say) is heard from the next update on, with no code: a window
 looks at the game's sound files twice a second, and Duck Forge Studio
@@ -1949,7 +1961,8 @@ Plan around these. Don't spend time looking for them:
   behaviour; ready-made ones come later in Phase 5). 3D scene files are
   read and kept, not drawn.
 - One-off sounds can't be stopped or changed once started (loops can:
-  `play_loop`, `set_loop_volume`, `stop_loop`). No pitch changes while
+  `play_loop`, `set_loop_volume`, `stop_loop`). Music (`.ogg`) only
+  loops, at 44,100 Hz. No pitch changes while
   playing, and no crossfades beyond changing volumes yourself.
 - No moving pans: a one-off sound's pan is set when it starts, and loops
   play in the middle (or as their stereo file is).

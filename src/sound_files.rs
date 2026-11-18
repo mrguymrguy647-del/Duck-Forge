@@ -1,5 +1,6 @@
-//! The sound files a game plays (`.wav`), noted as it loads them, so they
-//! can change while the game runs. The sound side of [`files`](crate::files).
+//! The sound files a game plays (`.wav`, and `.ogg` music), noted as it
+//! loads them, so they can change while the game runs. The sound side of
+//! [`files`](crate::files).
 //!
 //! [`Wav::load`](crate::sound::Wav::load) loads through here. Each file
 //! gets one entry in a table: its name (as `files.rs` names files, with
@@ -22,7 +23,8 @@
 //!
 //! Every version taken is kept, with its file's bytes, until the run
 //! ends. When a recording is saved, the versions it names are written to
-//! the *sound store*, `out/sound-store/<sha256>.wav`, so a replay can hear
+//! the *sound store*, `out/sound-store/<sha256>.wav` (or `.ogg`), so a
+//! replay can hear
 //! exactly those bytes later, even after the file has changed again.
 //!
 //! Like `files.rs`, what's noted belongs to the thread that loaded it.
@@ -34,58 +36,75 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
-use crate::sound::Samples;
+use crate::music::OggData;
+use crate::sound::Audio;
 
 /// Where saved recordings keep their sounds, from the folder the game
 /// runs in. `out/` is left out of Git and of Duck Forge Studio's History.
 pub(crate) const STORE_FOLDER: &str = "out/sound-store";
 
-/// The shared place a [`Wav`](crate::sound::Wav) reads its samples from.
-/// The table swaps them when the file changes.
+/// The shared place a [`Wav`](crate::sound::Wav) or a
+/// [`Music`](crate::music::Music) reads its sound from. The table swaps it
+/// when the file changes.
 #[derive(Debug)]
 pub(crate) struct SoundSlot {
-    samples: Mutex<Samples>,
+    audio: Mutex<Audio>,
 }
 
 impl SoundSlot {
-    fn new(samples: Samples) -> Arc<SoundSlot> {
+    fn new(audio: Audio) -> Arc<SoundSlot> {
         Arc::new(SoundSlot {
-            samples: Mutex::new(samples),
+            audio: Mutex::new(audio),
         })
     }
 
-    /// The samples to play now. Cheap: they're shared, not copied.
-    pub(crate) fn samples(&self) -> Samples {
-        self.samples
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
+    /// The sound to play now. Cheap: it's shared, not copied.
+    pub(crate) fn audio(&self) -> Audio {
+        self.audio.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
-    fn set(&self, samples: Samples) {
-        *self.samples.lock().unwrap_or_else(|e| e.into_inner()) = samples;
+    fn set(&self, audio: Audio) {
+        *self.audio.lock().unwrap_or_else(|e| e.into_inner()) = audio;
     }
 }
 
+/// Whether `name` is an `.ogg` (music) rather than a `.wav`.
+fn is_ogg(name: &Path) -> bool {
+    name.extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("ogg"))
+}
+
 /// One version of a sound file: the file's bytes, their hash, and the
-/// samples decoded from them.
+/// sound in them: a `.wav`'s samples, decoded, or an `.ogg`'s music,
+/// checked, to decode while it plays.
 #[derive(Clone)]
 pub(crate) struct Version {
     /// `sha256:` and 64 hex digits, as a recording writes it.
     pub(crate) hash: String,
     bytes: Arc<[u8]>,
-    pub(crate) samples: Samples,
+    pub(crate) audio: Audio,
 }
 
 impl Version {
-    /// Decodes `bytes`. The error says what's wrong with the file.
-    fn from_bytes(bytes: Vec<u8>) -> Result<Version, String> {
-        let samples = crate::sound::decode_wav(&bytes)?;
-        Ok(Version {
-            hash: hash_of(&bytes),
-            bytes: bytes.into(),
-            samples,
-        })
+    /// Reads `bytes` as a `.wav` or an `.ogg`. The error says what's
+    /// wrong with the file.
+    fn from_bytes(bytes: Vec<u8>, ogg: bool) -> Result<Version, String> {
+        let hash = hash_of(&bytes);
+        let bytes: Arc<[u8]> = bytes.into();
+        let audio = if ogg {
+            Audio::Ogg(Arc::new(OggData::from_bytes(bytes.clone())?))
+        } else {
+            Audio::Samples(crate::sound::decode_wav(&bytes)?)
+        };
+        Ok(Version { hash, bytes, audio })
+    }
+
+    /// The file ending of its kind of file.
+    fn ending(&self) -> &'static str {
+        match self.audio {
+            Audio::Ogg(_) => "ogg",
+            Audio::Samples(_) => "wav",
+        }
     }
 }
 
@@ -140,11 +159,11 @@ pub(crate) enum LoadProblem {
     NotWav(String),
 }
 
-/// Is `name` a sound file the table looks after (a `.wav`)?
+/// Is `name` a sound file the table looks after (a `.wav` or an `.ogg`)?
 pub(crate) fn is_sound_file(name: &str) -> bool {
     Path::new(name)
         .extension()
-        .is_some_and(|e| e.eq_ignore_ascii_case("wav"))
+        .is_some_and(|e| e.eq_ignore_ascii_case("wav") || e.eq_ignore_ascii_case("ogg"))
 }
 
 /// Loads a sound file for a `Wav`, and notes it.
@@ -175,13 +194,13 @@ pub(crate) fn load(path: &Path) -> Result<Arc<SoundSlot>, LoadProblem> {
             // Loaded again with no game running: the file as it is now,
             // for every copy of it.
             Some(entry) => {
-                entry.slot.set(version.samples.clone());
+                entry.slot.set(version.audio.clone());
                 entry.now = version.hash.clone();
                 entry.seen = seen;
                 entry.slot.clone()
             }
             None => {
-                let slot = SoundSlot::new(version.samples.clone());
+                let slot = SoundSlot::new(version.audio.clone());
                 table.entries.insert(
                     name,
                     Entry {
@@ -207,7 +226,7 @@ fn read(path: &Path) -> Result<(Version, Option<Seen>), LoadProblem> {
     // read, the next look sees it changed and reads it again.
     let seen = seen_now(path);
     let bytes = std::fs::read(path).map_err(LoadProblem::Unreadable)?;
-    let version = Version::from_bytes(bytes).map_err(LoadProblem::NotWav)?;
+    let version = Version::from_bytes(bytes, is_ogg(path)).map_err(LoadProblem::NotWav)?;
     Ok((version, seen))
 }
 
@@ -215,12 +234,15 @@ fn read(path: &Path) -> Result<(Version, Option<Seen>), LoadProblem> {
 /// also be whole. The WAV reader plays what's there of a file that's
 /// shorter than its header says, which is right for a file that was
 /// saved oddly, but a file still being written would be swapped in cut
-/// short.
+/// short. (An `.ogg` is always checked page by page, so one still being
+/// written fails anyway.)
 fn read_whole(path: &Path) -> Result<(Version, Option<Seen>), LoadProblem> {
     let seen = seen_now(path);
     let bytes = std::fs::read(path).map_err(LoadProblem::Unreadable)?;
-    is_whole(&bytes).map_err(LoadProblem::NotWav)?;
-    let version = Version::from_bytes(bytes).map_err(LoadProblem::NotWav)?;
+    if !is_ogg(path) {
+        is_whole(&bytes).map_err(LoadProblem::NotWav)?;
+    }
+    let version = Version::from_bytes(bytes, is_ogg(path)).map_err(LoadProblem::NotWav)?;
     Ok((version, seen))
 }
 
@@ -351,7 +373,7 @@ pub(crate) fn swap(name: &str, version: Version) {
     TABLE.with(|table| {
         let mut table = table.borrow_mut();
         if let Some(entry) = table.entries.get_mut(name) {
-            entry.slot.set(version.samples.clone());
+            entry.slot.set(version.audio.clone());
             entry.now = version.hash.clone();
         }
         if table.given.contains_key(name) {
@@ -369,10 +391,11 @@ pub(crate) fn version_for(name: &str, path: &Path, hash: &str) -> Result<Version
     if let Some(version) = TABLE.with(|table| table.borrow().versions.get(hash).cloned()) {
         return Ok(version);
     }
-    let stored = store_path(hash).and_then(|file| std::fs::read(file).ok());
+    let ending = if is_ogg(path) { "ogg" } else { "wav" };
+    let stored = store_path(hash, ending).and_then(|file| std::fs::read(file).ok());
     if let Some(bytes) = stored
         && hash_of(&bytes) == hash
-        && let Ok(version) = Version::from_bytes(bytes)
+        && let Ok(version) = Version::from_bytes(bytes, is_ogg(path))
     {
         return Ok(version);
     }
@@ -474,20 +497,21 @@ pub(crate) fn save_to_store<'a>(
 ) -> Result<usize, String> {
     let mut written = 0;
     for hash in hashes {
-        let Some(path) = store_path(hash) else {
+        let Some(version) = TABLE.with(|table| table.borrow().versions.get(hash).cloned()) else {
+            continue; // not heard in this run: nothing to keep
+        };
+        let Some(path) = store_path(hash, version.ending()) else {
             continue; // not a hash this engine writes
         };
         if path.exists() {
             continue;
         }
-        let Some(version) = TABLE.with(|table| table.borrow().versions.get(hash).cloned()) else {
-            continue; // not heard in this run: nothing to keep
-        };
         let folder = path.parent().unwrap_or(Path::new("."));
         let cant = |error: io::Error| format!("couldn't save {}: {error}", path.display());
         std::fs::create_dir_all(folder).map_err(cant)?;
         let partial = path.with_extension(format!(
-            "wav.{}-{:?}.partial",
+            "{}.{}-{:?}.partial",
+            version.ending(),
             std::process::id(),
             std::thread::current().id()
         ));
@@ -504,8 +528,9 @@ pub(crate) fn save_to_store<'a>(
     Ok(written)
 }
 
-/// Where the store keeps the version `hash` (`sha256:` and 64 hex digits).
-fn store_path(hash: &str) -> Option<PathBuf> {
+/// Where the store keeps the version `hash` (`sha256:` and 64 hex
+/// digits) of a file ending `ending` (`wav` or `ogg`).
+fn store_path(hash: &str, ending: &str) -> Option<PathBuf> {
     let hex = hash.strip_prefix("sha256:")?;
     let plain = hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_hexdigit());
     if !plain {
@@ -514,7 +539,7 @@ fn store_path(hash: &str) -> Option<PathBuf> {
     let folder = TABLE
         .with(|table| table.borrow().store.clone())
         .unwrap_or_else(|| PathBuf::from(STORE_FOLDER));
-    Some(folder.join(format!("{}.wav", hex.to_ascii_lowercase())))
+    Some(folder.join(format!("{}.{ending}", hex.to_ascii_lowercase())))
 }
 
 /// Uses `folder` as the sound store on this thread (tests).
@@ -856,7 +881,7 @@ mod tests {
         // Update 40 begins at sample 39 x 735 = 28,665. The loop started at
         // sample 0 and goes round every 1,000, so its next wrap is 29,000.
         let looped = &sim.loops()[0];
-        let starts: Vec<(u64, usize)> = looped
+        let starts: Vec<(u64, u64)> = looped
             .versions
             .iter()
             .map(|(at, s)| (*at, s.frames()))
@@ -943,13 +968,13 @@ mod tests {
     fn only_plain_hashes_name_a_store_file() {
         let good = format!("sha256:{}", "ab".repeat(32));
         assert!(
-            store_path(&good)
+            store_path(&good, "wav")
                 .unwrap()
                 .ends_with(format!("{}.wav", "ab".repeat(32)))
         );
-        assert!(store_path("sha256:../../evil").is_none());
+        assert!(store_path("sha256:../../evil", "wav").is_none());
         assert!(
-            store_path(&"ab".repeat(32)).is_none(),
+            store_path(&"ab".repeat(32), "wav").is_none(),
             "the sha256: is part of it"
         );
     }

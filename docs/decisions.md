@@ -6067,3 +6067,127 @@ link's tests: a game started on its own thread hears a `.wav` the
 Studio says changed, its recording keeps the change on the right frame,
 and both versions are in the store. Every example game and every
 recorded playthrough passes frame for frame, as before.
+
+# Duck Echo's Phase 3, step 6: OGG music, decoded while it plays
+
+Long music can be an `.ogg` file: `Music::load("assets/day.ogg")`, then
+`ctx.play_loop(&day, 0.6)`, `set_loop_volume` and `stop_loop` as for a
+`Wav`. It's decoded a little at a time while it plays, so 23 seconds of
+stereo takes under 1 MB instead of 8. The plan is Duck Echo's
+`docs/phase3-design.md` (sections 5 and 8, step 6).
+
+## What was built
+
+- **`src/music.rs`**: `Music` (`load`, `name`, `seconds`, `is_stereo`);
+  `OggData`, which reads only the file's headers and checks it page by
+  page; `LoopReader`, which decodes, cuts the music to its exact length
+  and starts again at its first frame; and `MusicStream`, a decoder
+  thread with a ring buffer of half a second.
+- **In a window**, each playing piece of music has its own decoder
+  thread keeping the ring buffer filled. The speakers' sound thread only
+  copies from it. **Headless**, the mixer decodes the music itself, in
+  step with the frames, with no thread. Both use the same `LoopReader`,
+  so both give the same samples.
+- **Changes** to an `.ogg` go through step 5's table of sound files and
+  its sound store: a playing loop switches at its next wrap, and a
+  replay hears the recorded version.
+- **Scenes**: a sound object may name an `.ogg`, with `"loops": true`.
+- **Duck Forge Studio** sends a changed `.ogg` as it does a `.wav`.
+- **Duck Craft's day and night themes are OGG music from Duck Echo**
+  (`duck_craft_day.toml` and `duck_craft_night.toml`, sent with Duck
+  Echo's Send to game, with their facts files and recipes in `art/`).
+  They replace the 64-second "Still Water" and "Nothing Waits" WAVs from
+  `audio/make_sounds.py`, as the design's step 9 planned; it's done now
+  so Duck Craft plays OGG themes. The title theme stays a WAV: Duck Echo
+  has no title song yet. Music isn't part of the game's state, so the
+  recorded playthroughs replay as before, and weren't recorded again.
+
+## Decisions made on the way
+
+- **lewton as the decoder.** It's pure Rust (about 6,400 lines), with
+  `ogg` (about 2,700), `tinyvec` and `byteorder`: nothing built from C,
+  so a game still builds with nothing but Rust, and nothing loaded when
+  it starts. MIT or Apache-2.0. It's the decoder Duck Echo checks its own
+  OGG files with, so a file Duck Echo passed plays the same here. The
+  others: `symphonia` decodes many formats, with many more crates, for
+  one we need; Xiph's `libvorbis` or `stb_vorbis` are C, which every game
+  would then need a C compiler to build. lewton is in the headless build
+  too, because agents work headless and `audio.wav` must have the music.
+  Measured on a clean headless build of dodge: 23.5 s and 26.0 s before
+  (two runs), 26.3 s after. About a second at most, and less than two
+  runs differ by; `tests/dependencies.rs` lists its four crates.
+- **The file is kept in memory, not read while it plays** (0.3 MB for a
+  Duck Craft theme). So neither the sound thread nor the decoder ever
+  reads a file, a file changing on disk can't break a playing loop, and
+  the table, the store and replays work as for a `.wav`.
+- **The exact length** comes from Duck Echo's `DUCKECHO_FRAMES` comment.
+  lewton gives a few hundred frames too many at the end of a short file
+  (Duck Echo's 0.84 s chime: 37,696 for 37,139), so the music is cut to
+  the comment. A file without it is cut to its last Ogg page's position,
+  which is what the Ogg format says the length is; for the day theme
+  both say 1,008,000.
+- **The wrap** starts a new decoder at the file's beginning: every time
+  through gives exactly the same samples (tested over three times), and
+  the last frame is followed straight away by the first.
+- **The ring buffer** has one writer (the decoder thread) and one reader
+  (the sound thread), and neither ever waits for the other. Each sample
+  is kept as the bits of an `f32` in an atomic number, and two counters
+  say how many have been written and read: no locks, and no `unsafe`
+  code. The decoder rests 5 ms when it's full. The first quarter second
+  is decoded before the thread starts, so music begins without a gap.
+  The sound thread copies through a small buffer of its own (it asks for
+  no memory), and if the decoder ever falls behind, that part is silent
+  and counted: the line the game prints when it closes says "the music's
+  decoder always kept up", or how many times it fell behind.
+- **The decoder thread is started before the speaker takes the lock**
+  the sound thread uses, so starting music never holds up the sound.
+- **Only 44,100 Hz.** Changing the rate while streaming would need a
+  resampler that works a part at a time; Duck Echo writes 44,100 Hz, and
+  a file at another rate is refused with a sentence saying so.
+- **A changed `.ogg` is checked page by page** (each page's checksum,
+  and the last one ending the stream), not decoded, so noticing it costs
+  the game's thread almost nothing, and a half-written file fails the
+  check. In a window, the decoder thread is up to half a second ahead,
+  so it switches at the next wrap it reaches, which can be one round
+  later than headless; headless the wrap is exact, as in step 5.
+- **Music only loops.** `ctx.play_with` takes its own type now (a `Wav`
+  or a `Sound`), so music can't be passed to it. A scene's sound object
+  with an `.ogg` that doesn't loop is one of the scene's problems, and
+  silent; `scene.play_sound` plays only `.wav` files.
+- **Memory, measured** (`tests/music_memory.rs`, its own test program
+  counting every allocation): the day theme takes 303 KB to load (the
+  file) and at most 656 KB more while it plays, 959 KB in all. The ring
+  buffer is 176 KB; most of the rest is lewton's tables for the file
+  (its codebooks), bigger than the design's guess of 0.35 MB. The same
+  music as a `Wav` is 8.06 MB. Duck Craft's two old themes were 11.3 MB
+  each (64 s at 16 kHz, kept at 44.1 kHz).
+- **The same on Windows and Linux.** lewton works out some of its tables
+  with the system's `sin` and `cos`, whose last digit could differ
+  between systems. A test pins the SHA-256 of the 16-bit `audio.wav` of
+  three times through the day theme, as Linux makes it, so GitHub's
+  Windows machine checks it on every run. If they ever differ, the plan
+  is to give lewton's tables Duck Forge's own fixed math rather than
+  accept it.
+- **A hidden `test_hooks` module** lets the memory test (its own
+  program, so it can count allocations) start a stream as a window does.
+  It's marked as not for games.
+
+## How it is tested
+
+In `src/music.rs`: the day theme loops three times in `audio.wav`, every
+sample equal to the file decoded at once and repeated, and the hash is
+Linux's; the decoder thread's samples equal the headless mixer's over
+those three times, bit for bit, and both equal the file repeated; volume
+changes and a stop land on their frames' samples; the chime is cut to
+its 37,139 frames and its second time through starts straight after; a
+stuck decoder thread leaves the reader with the first quarter second,
+then 10,000 reads come back at once with nothing; a slow one gives the
+reader nothing at times, and the music still comes out right; ten
+minutes of the night theme (26,460,000 frames) through a decoder thread,
+every frame right; an `.ogg` changed on frame 40 plays from the wrap at
+1,008,000 and a replay from the store gives the same `audio.wav`; files
+that can't be played say why (not an `.ogg`, missing, half written,
+damaged, not Ogg). In `tests/music_memory.rs`: under 1 MB. In the scene
+tests: an `.ogg` sound object loops, and one that doesn't loop is said.
+In `tests/cheat_sheet.rs`: `Music` as the guide shows it. Every example
+game and recorded playthrough passes as before.

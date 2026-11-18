@@ -410,16 +410,17 @@ impl Play {
     /// the game reads it again now. A frozen game draws its picture again,
     /// so the change shows at once. Kept in the session's recording.
     ///
-    /// A sound file (`.wav`) has no text: the game reads it from disk and
-    /// hears it from the coming update. The game keeps that change in its
-    /// own recording, with the file's SHA-256, so the Studio doesn't.
+    /// A sound file (`.wav`, or `.ogg` music) has no text: the game reads
+    /// it from disk and hears it from the coming update (a loop from its
+    /// next wrap). The game keeps that change in its own recording, with
+    /// the file's SHA-256, so the Studio doesn't.
     pub fn send_file(&mut self, name: &str, text: &str) {
         if self.hello.is_none() || !self.is_running() {
             return;
         }
         let sound = std::path::Path::new(name)
             .extension()
-            .is_some_and(|e| e.eq_ignore_ascii_case("wav"));
+            .is_some_and(|e| e.eq_ignore_ascii_case("wav") || e.eq_ignore_ascii_case("ogg"));
         if sound {
             self.send(&ToGame::File {
                 path: name.to_string(),

@@ -348,6 +348,37 @@ impl Game for Looper {
 }
 
 #[test]
+fn music_from_an_ogg() -> Result<(), LoadError> {
+    struct Theme(Music);
+    impl Game for Theme {
+        fn update(&mut self, ctx: &mut Context) {
+            if ctx.frame() == 1 {
+                let theme = ctx.play_loop(&self.0, 0.6);
+                ctx.set_loop_volume(theme, 0.3);
+            }
+        }
+        fn draw(&self, canvas: &mut Canvas) {
+            canvas.clear(Color::BLACK);
+        }
+    }
+    let folder = TestFolder::new("cheat-sheet-music");
+    let path = folder.join("day.ogg");
+    let file = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/examples/duck_craft/assets/music_day.ogg"
+    );
+    std::fs::write(&path, std::fs::read(file).unwrap()).unwrap();
+    let day = Music::load(&path)?;
+    assert_eq!((day.name(), day.is_stereo()), ("day", true));
+    assert!((day.seconds() - 22.857).abs() < 0.001);
+    let mut sim = Simulation::new(config(), Theme(day));
+    sim.run(2);
+    assert_eq!(sim.loops()[0].name, "day");
+    assert_eq!(sim.loops()[0].volume_at(2), 0.3);
+    Ok(())
+}
+
+#[test]
 fn looping_sounds() {
     let played = PlayTest::new(
         config(),

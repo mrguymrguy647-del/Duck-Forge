@@ -1,0 +1,21 @@
+{
+  "kind": "duck-echo-asset",
+  "version": 1,
+  "file": "music_night.ogg",
+  "duration_seconds": 22.857142857142858,
+  "frames": 1008000,
+  "sample_rate": 44100,
+  "channels": 2,
+  "loudness_lufs": -18.041359,
+  "loudness_method": "bs1770_gated",
+  "peak_dbfs": -4.681582,
+  "leading_silence_seconds": 0.0,
+  "hit_seconds": 0.014,
+  "loops": true,
+  "format": "ogg",
+  "quality": 4.0,
+  "seed": 0,
+  "recipe_hash": "sha256:d3918e006eaac2173ca4442d89b88aa10760f5da5ec747661179a66aabcf0d85",
+  "file_sha256": "sha256:55e4be5f46afac9c22ad3c4727cda1430c23d8261ea7749d2ec260f5a5675a5f",
+  "recipe": "art/music_night.toml"
+}

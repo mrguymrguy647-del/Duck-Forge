@@ -886,6 +886,60 @@ fn a_sound_object_plays_when_the_scene_starts_and_follows_its_file() {
     assert!(said.contains("so it's silent"), "{said}");
 }
 
+#[test]
+fn a_sound_object_plays_ogg_music_looping() {
+    use crate::simulation::Simulation;
+    let folder = game("scene-ogg");
+    let day = std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/duck_craft/assets/music_day.ogg"),
+    )
+    .unwrap();
+    std::fs::write(folder.join("assets/day.ogg"), &day).unwrap();
+    let (path, _) = one_scene(&folder);
+    std::fs::write(
+        &path,
+        r#"{"duckforge_scene": 1, "objects": [
+            {"id": 1, "name": "duck", "at": [20, 40], "picture": "assets/blue.png"},
+            {"id": 5, "name": "theme", "kind": "sound", "sound": "assets/day.ogg", "loops": true, "volume": 0.6}]}"#,
+    )
+    .unwrap();
+    let scene = Scene::load(&path).unwrap();
+    assert!(scene.problems().is_empty(), "{:?}", scene.problems());
+    let mut sim = Simulation::new(small_screen(), OneScene { scene });
+    sim.run(3);
+    let loops = sim.loops().to_vec();
+    assert_eq!(
+        (
+            loops[0].name.as_str(),
+            loops[0].start,
+            loops[0].volumes.clone()
+        ),
+        ("day", 1, vec![(1, 0.6)])
+    );
+    assert_eq!(
+        loops[0].versions[0].1.frames(),
+        1_008_000,
+        "the music, streamed"
+    );
+
+    // Music plays looping: one that doesn't loop is said, and silent.
+    let once = folder.file(
+        "scenes/once.json",
+        r#"{"duckforge_scene": 1, "objects": [
+            {"id": 5, "name": "theme", "kind": "sound", "sound": "assets/day.ogg"}]}"#,
+    );
+    let scene = Scene::load(&once).unwrap();
+    let said = scene.problems().join("\n");
+    assert!(
+        said.contains("\"theme\" has the music \"assets/day.ogg\", which plays looping")
+            && said.contains("\"loops\": true"),
+        "{said}"
+    );
+    let mut sim = Simulation::new(small_screen(), OneScene { scene });
+    sim.run(2);
+    assert!(sim.loops().is_empty() && sim.sounds().is_empty());
+}
+
 // ---- Scripts ----
 
 /// A script for the tests: it moves right at `speed`, counts its starts,

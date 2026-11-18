@@ -423,7 +423,11 @@ impl Wav {
 
     /// The samples it plays now.
     fn samples(&self) -> Samples {
-        self.slot.samples()
+        match self.slot.audio() {
+            Audio::Samples(samples) => samples,
+            // (A `.wav` file's version is always samples.)
+            Audio::Ogg(_) => Samples::mono(Vec::new()),
+        }
     }
 
     /// The name shown in logs and used by play tests: the file name
@@ -750,33 +754,116 @@ fn number_json(v: f32) -> String {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LoopId(pub(crate) u32);
 
+/// What [`Context::play_with`](crate::engine::Context::play_with) can play
+/// once: a `.wav` file (`&thud`) or a synthesizer [`Sound`]. You don't make
+/// one yourself; pass either straight to `play_with`.
+pub struct OneShot(pub(crate) SoundRequest);
+
+impl From<&Wav> for OneShot {
+    fn from(wav: &Wav) -> OneShot {
+        OneShot(SoundRequest::wav(wav))
+    }
+}
+
+impl From<&Sound> for OneShot {
+    fn from(sound: &Sound) -> OneShot {
+        OneShot(SoundRequest::synth(*sound))
+    }
+}
+
+impl From<Sound> for OneShot {
+    fn from(sound: Sound) -> OneShot {
+        OneShot(SoundRequest::synth(sound))
+    }
+}
+
+/// What a loop repeats: samples in memory (a `.wav` file or a synthesizer
+/// [`Sound`]), or music decoded while it plays (an `.ogg` file, see
+/// [`Music`](crate::music::Music)).
+#[derive(Debug, Clone)]
+pub(crate) enum Audio {
+    Samples(Samples),
+    Ogg(Arc<crate::music::OggData>),
+}
+
+impl Audio {
+    /// How many frames one time through has.
+    pub(crate) fn frames(&self) -> u64 {
+        match self {
+            Audio::Samples(samples) => samples.frames() as u64,
+            Audio::Ogg(ogg) => ogg.frames,
+        }
+    }
+
+    /// Whether it has a left and a right channel.
+    pub(crate) fn is_stereo(&self) -> bool {
+        match self {
+            Audio::Samples(samples) => samples.is_stereo(),
+            Audio::Ogg(ogg) => ogg.channels == 2,
+        }
+    }
+}
+
 /// What [`Context::play_loop`](crate::engine::Context::play_loop) can
-/// repeat: a `.wav` file (`&music`) or a synthesizer [`Sound`]. You don't
-/// make one yourself; pass either straight to `play_loop`.
-pub struct LoopSound(pub(crate) SoundRequest);
+/// repeat: a `.wav` file (`&wav`), music from an `.ogg` file (`&music`) or
+/// a synthesizer [`Sound`]. You don't make one yourself; pass any of them
+/// straight to `play_loop`.
+pub struct LoopSound(pub(crate) LoopStart);
+
+/// A loop as it starts: its name, where it came from, and what it repeats.
+#[derive(Debug, Clone)]
+pub(crate) struct LoopStart {
+    pub(crate) name: String,
+    pub(crate) source: SoundSource,
+    pub(crate) audio: Audio,
+}
+
+impl From<SoundRequest> for LoopStart {
+    fn from(request: SoundRequest) -> LoopStart {
+        LoopStart {
+            name: request.name,
+            source: request.source,
+            audio: Audio::Samples(request.samples),
+        }
+    }
+}
 
 impl From<&Wav> for LoopSound {
     fn from(wav: &Wav) -> LoopSound {
-        LoopSound(SoundRequest::wav(wav))
+        LoopSound(SoundRequest::wav(wav).into())
+    }
+}
+
+impl From<&crate::music::Music> for LoopSound {
+    fn from(music: &crate::music::Music) -> LoopSound {
+        let audio = match music.ogg() {
+            Some(ogg) => Audio::Ogg(ogg),
+            None => Audio::Samples(Samples::mono(Vec::new())),
+        };
+        LoopSound(LoopStart {
+            name: music.name().to_string(),
+            source: SoundSource::File(music.path().to_path_buf()),
+            audio,
+        })
     }
 }
 
 impl From<&Sound> for LoopSound {
     fn from(sound: &Sound) -> LoopSound {
-        LoopSound(SoundRequest::synth(*sound))
+        LoopSound(SoundRequest::synth(*sound).into())
     }
 }
 
 impl From<Sound> for LoopSound {
     fn from(sound: Sound) -> LoopSound {
-        LoopSound(SoundRequest::synth(sound))
+        LoopSound(SoundRequest::synth(sound).into())
     }
 }
 
 /// What the game asked a loop to do during an update.
 #[derive(Debug, Clone)]
 pub(crate) enum LoopCommand {
-    Start(LoopId, SoundRequest, f32),
+    Start(LoopId, LoopStart, f32),
     Volume(LoopId, f32),
     Stop(LoopId),
     /// Its file changed: play these samples from its next wrap (when it
@@ -786,7 +873,7 @@ pub(crate) enum LoopCommand {
         not(all(feature = "audio", any(feature = "window", feature = "studio"))),
         allow(dead_code)
     )]
-    NextRound(LoopId, Samples),
+    NextRound(LoopId, Audio),
 }
 
 /// One looping sound the game played: when it started and stopped, and
@@ -810,7 +897,7 @@ pub struct PlayedLoop {
     /// The sound it repeats, and the sample in `audio.wav` each version
     /// starts at: the first where the loop starts, then one more each time
     /// its file changed, starting at the wrap after the change.
-    pub(crate) versions: Vec<(u64, Samples)>,
+    pub(crate) versions: Vec<(u64, Audio)>,
     /// The samples in `audio.wav` where it starts and stops, and where
     /// each volume begins (the same order as `volumes`).
     pub(crate) start_sample: u64,
@@ -859,9 +946,9 @@ impl PlayedLoop {
     /// `sample`: the loop plays `samples` from its next wrap. If a version
     /// is already waiting for that wrap, this one takes its place. Returns
     /// the sample the new version starts at.
-    pub(crate) fn change_at_next_wrap(&mut self, sample: u64, samples: Samples) -> u64 {
+    pub(crate) fn change_at_next_wrap(&mut self, sample: u64, samples: Audio) -> u64 {
         let (from, playing) = self.versions.last().expect("a loop has a sound");
-        let (from, length) = (*from, playing.frames() as u64);
+        let (from, length) = (*from, playing.frames());
         if from >= sample {
             // Not reached yet: the newer sound waits for the same wrap.
             let last = self.versions.len() - 1;
@@ -887,33 +974,88 @@ impl PlayedLoop {
     /// no gap, from its start to its stop (or the end of the tracks), at
     /// each volume in turn. Each version of its sound starts from its own
     /// beginning, at the wrap it waited for.
+    ///
+    /// Music from an `.ogg` is decoded here, a part at a time, with the
+    /// same [`LoopReader`](crate::music::LoopReader) a window's decoder
+    /// thread uses.
     fn mix_into(&self, left: &mut [f32], right: &mut [f32]) {
         let end = self
             .stop_sample
             .unwrap_or(left.len() as u64)
             .min(left.len() as u64);
-        for (index, &volume) in self.volumes.iter().map(|(_, v)| v).enumerate() {
-            let from = self.volume_samples[index].max(self.start_sample);
-            let to = self
-                .volume_samples
-                .get(index + 1)
-                .copied()
-                .unwrap_or(end)
-                .min(end);
-            for (k, (version_from, samples)) in self.versions.iter().enumerate() {
-                let length = samples.frames() as u64;
-                let version_to = self.versions.get(k + 1).map_or(u64::MAX, |v| v.0);
-                if length == 0 {
-                    continue;
+        // The volume from each sample on: `(first sample, volume)`.
+        let volumes: Vec<(u64, f32)> = self
+            .volume_samples
+            .iter()
+            .zip(&self.volumes)
+            .map(|(&at, &(_, volume))| (at, volume))
+            .collect();
+        let mut part = vec![0.0f32; 2 * 4096];
+        for (k, (version_from, audio)) in self.versions.iter().enumerate() {
+            let from = (*version_from).max(self.start_sample);
+            let to = self.versions.get(k + 1).map_or(end, |v| v.0).min(end);
+            if from >= to || audio.frames() == 0 {
+                continue;
+            }
+            // Each version starts from its own beginning, at a wrap.
+            let mut volume_at = VolumeAt::new(&volumes);
+            match audio {
+                Audio::Samples(samples) => {
+                    let length = samples.frames() as u64;
+                    for at in from..to {
+                        let volume = volume_at.get(at);
+                        let (l, r) = samples.frame(((at - version_from) % length) as usize);
+                        left[at as usize] += l * volume;
+                        right[at as usize] += r * volume;
+                    }
                 }
-                for at in from.max(*version_from)..to.min(version_to) {
-                    let i = ((at - version_from) % length) as usize;
-                    let (l, r) = samples.frame(i);
-                    left[at as usize] += l * volume;
-                    right[at as usize] += r * volume;
+                Audio::Ogg(ogg) => {
+                    // (A version starts where its loop does, or at a
+                    // wrap: `from` is its own first frame.)
+                    let mut reader = crate::music::LoopReader::new(ogg.clone());
+                    let mut at = from;
+                    while at < to {
+                        let n = ((to - at) as usize).min(part.len() / 2);
+                        reader.fill(&mut part[..2 * n]);
+                        for (i, frame) in part[..2 * n].chunks_exact(2).enumerate() {
+                            let here = at + i as u64;
+                            let volume = volume_at.get(here);
+                            left[here as usize] += frame[0] * volume;
+                            right[here as usize] += frame[1] * volume;
+                        }
+                        at += n as u64;
+                    }
                 }
             }
         }
+    }
+}
+
+/// A loop's volume at each sample, for samples asked for in order.
+struct VolumeAt<'a> {
+    /// `(first sample, volume)`, in order.
+    volumes: &'a [(u64, f32)],
+    /// Which of them is in use.
+    index: usize,
+}
+
+impl<'a> VolumeAt<'a> {
+    fn new(volumes: &'a [(u64, f32)]) -> VolumeAt<'a> {
+        VolumeAt { volumes, index: 0 }
+    }
+
+    /// The volume at sample `at` (asked for in order, so it only moves on).
+    fn get(&mut self, at: u64) -> f32 {
+        while self
+            .volumes
+            .get(self.index + 1)
+            .is_some_and(|&(from, _)| from <= at)
+        {
+            self.index += 1;
+        }
+        self.volumes
+            .get(self.index)
+            .map_or(0.0, |&(_, volume)| volume)
     }
 }
 
@@ -1519,7 +1661,7 @@ mod tests {
             stop: stop.map(|_| 3),
             volumes: vec![(1, 1.0), (2, 0.5)],
             source: SoundSource::Synth(Sound::default()),
-            versions: vec![(1, Samples::mono(vec![0.1, 0.2, 0.3]))],
+            versions: vec![(1, Audio::Samples(Samples::mono(vec![0.1, 0.2, 0.3])))],
             start_sample: 1,
             stop_sample: stop,
             volume_samples: vec![1, 5],

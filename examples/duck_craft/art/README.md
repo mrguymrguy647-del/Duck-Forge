@@ -30,14 +30,18 @@ The digging, building, footstep, crafting, thud and quack sounds are made in cod
 
 | File | What |
 |---|---|
-| `music_day.wav` | "Still Water": slow felt piano over a soft pad, D minor, 64 s, loops with no seam |
-| `music_night.wav` | "Nothing Waits": a low drone, a minor second that comes and goes, wind, a far bell; 64 s |
 | `music_title.wav` | "The Island Doesn't Remember": a falling piano figure over the drone; 32 s |
 | `groan.wav`, `groan_far.wav` | a Hollow, near and far (the engine plays a file at one loudness, so distance is a second file) |
 | `hollow_hurt.wav`, `hollow_die.wav` | a Hollow hit, and coming apart into ash |
 | `sting.wav` | the Watcher, seen |
 | `heartbeat.wav` | one beat, looped when the duck is badly hurt |
 | `bell_dusk.wav`, `bell_dawn.wav` | nightfall and morning |
+
+The day and night themes are OGG music from Duck Echo, sent with its Send
+to game: `music_day.ogg` and `music_night.ogg` (22.86 s each, stereo,
+looping), each with its facts file (`.ogg.json`) and its recipe here
+(`music_day.toml`, `music_night.toml`). The game decodes them while they
+play, so they take a few hundred KB of memory instead of 22 MB.
 
 Run it in `examples/duck_craft`: `python3 audio/make_sounds.py` (about 40 s).
 The game fades the loops itself: the title's on the title screen, day and

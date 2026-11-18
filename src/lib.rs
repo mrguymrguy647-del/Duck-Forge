@@ -57,6 +57,7 @@ pub mod hits;
 pub mod input;
 pub mod lights;
 pub mod math;
+pub mod music;
 pub mod on_screen;
 pub mod physics;
 pub mod pictures;
@@ -102,6 +103,22 @@ pub use report::ReportValue;
 pub use script::{InputAction, InputEvent, InputScript};
 pub use simulation::Simulation;
 
+/// For the engine's own tests in `tests/` only, not for games: these can
+/// change at any time.
+#[doc(hidden)]
+pub mod test_hooks {
+    use crate::music::{Music, MusicStream};
+
+    /// Starts playing `music` the way a window does: a decoder thread
+    /// keeping its ring buffer filled. Gives a function that takes the
+    /// next frames, as the speakers' sound thread does (left and right
+    /// side by side; it returns how many frames it took).
+    pub fn music_stream(music: &Music) -> impl FnMut(&mut [f32]) -> usize + Send + use<> {
+        let stream = MusicStream::start(music.ogg().expect("music"));
+        move |out| stream.read(out)
+    }
+}
+
 /// Everything a game usually needs, importable in one line:
 /// `use duckforge::prelude::*;`
 pub mod prelude {
@@ -119,6 +136,7 @@ pub mod prelude {
         Hit, Rect, Vec2, Vec3, approach, circle_vs_circle, circle_vs_rect, remap, swept_aabb, vec2,
         vec3,
     };
+    pub use crate::music::Music;
     pub use crate::playtest::PlayTest;
     pub use crate::render3d::{Billboard, Camera3D, Fog, Lighting, Mesh, Renderer, Transform};
     pub use crate::report::ReportValue;

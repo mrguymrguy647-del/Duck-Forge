@@ -5,10 +5,6 @@ but sine waves, noise and arithmetic (Duck Echo isn't ready yet).
 
 writes into assets/:
 
-  music_day.wav    "Still Water": slow felt piano over a soft pad, D minor,
-                   64 s, loops with no seam
-  music_night.wav  "Nothing Waits": a low drone, a minor second that comes
-                   and goes, wind, a far bell; 64 s, loops
   music_title.wav  "The Island Doesn't Remember": a falling piano figure
                    over the drone; 32 s, loops
   groan.wav        a Hollow, somewhere near
@@ -416,8 +412,9 @@ def bell_dawn():
 def main():
     OUT.mkdir(exist_ok=True)
     print("music:")
-    write("music_day.wav", day_music(), MUSIC_RATE)
-    write("music_night.wav", night_music(), MUSIC_RATE)
+    # The day and night themes come from Duck Echo now, as OGG music
+    # (art/music_day.toml, art/music_night.toml); day_music() and
+    # night_music() are kept for the record.
     write("music_title.wav", title_music(), MUSIC_RATE)
     print("effects:")
     for name, make in [("groan", groan), ("groan_far", groan_far), ("hollow_hurt", hollow_hurt), ("hollow_die", hollow_die),

@@ -398,7 +398,7 @@ impl<G: Game> Simulation<G> {
                 stop: None,
                 volumes: vec![(frame, *volume)],
                 source: request.source.clone(),
-                versions: vec![(sample, request.samples.clone())],
+                versions: vec![(sample, request.audio.clone())],
                 start_sample: sample,
                 stop_sample: None,
                 volume_samples: vec![sample],
@@ -692,11 +692,11 @@ impl<G: Game> Simulation<G> {
             if crate::files::name_of(path) != name {
                 continue;
             }
-            looped.change_at_next_wrap(sample, version.samples.clone());
+            looped.change_at_next_wrap(sample, version.audio.clone());
             if !self.keep_sounds {
                 // In a window: the speakers switch at their next wrap.
                 self.loops_for_speaker
-                    .push(LoopCommand::NextRound(looped.id, version.samples.clone()));
+                    .push(LoopCommand::NextRound(looped.id, version.audio.clone()));
             }
         }
         crate::sound_files::swap(name, version);
