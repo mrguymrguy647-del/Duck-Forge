@@ -522,12 +522,27 @@ if ctx.input.was_mouse_pressed(MouseButton::Left) {
 | `robot.hits_ball(center, radius, &place)` | Every part a ball reaches, nearest first: an explosion, a hand reaching out. |
 | `robot.hit_shapes(&place)` | Every hit shape as it is now, in the world: to draw them while making a game. |
 
-A model whose recipe has no hit shapes is never hit. This isn't
-physics: a physics body is still what a character stands and bumps
-with; the hit shapes say which part was found.
+A model whose recipe has no hit shapes is never hit. The hit shapes say
+which part was found; for standing and bumping, the same shapes give a
+**physics body**:
+
+```rust
+let body = world.add(robot.model().physics_body(vec3(0.0, 0.0, 3.0))); // feet at (0, 0, 3)
+// each frame: set body.velocity, then
+world.step(dt);
+let place = Transform::at(robot.model().stands_at(world.get(body).unwrap()));
+```
+
+`physics_body(feet)` is a block round the hit shapes as the model stands
+at rest (round its triangles if it has none), its bottom's middle at
+`feet`; `stands_at(&body)` is where to draw the model so it fits the
+block. A part with no hit shape (an antenna's tip) doesn't make it
+taller, and `.with_mass`, `.with_friction` and the rest work on it as on
+any body.
 [examples/robot_click/](examples/robot_click/main.rs) is the robot
-walking round, its footsteps making a sound and a puff of dust, and a
-click naming the part it found, which flashes.
+walking round, its footsteps making a sound and a puff of dust, a click
+naming the part it found, which flashes, and a wall in its way that its
+body bumps into.
 
 ### With physics
 
