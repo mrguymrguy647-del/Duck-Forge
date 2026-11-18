@@ -1014,6 +1014,13 @@ fn models_from_duck_mold() -> Result<(), LoadError> {
         }
     }
     assert_eq!(steps, 1);
+    // A body for the physics: a block round the hit shapes at rest, its
+    // feet where it is put; and where to draw the model on it.
+    let mut world = duckforge::physics::PhysicsWorld::new(vec3(0.0, -9.8, 0.0));
+    let feet = vec3(0.0, 0.0, 3.0);
+    let body = world.add(walker.model().physics_body(feet));
+    let stands = walker.model().stands_at(world.get(body).unwrap());
+    assert!((stands.y - feet.y).abs() < 0.001);
     let _ = Ray::new(Vec3::ZERO, vec3(0.0, 0.0, -1.0));
     // Only Duck Mold's .glb files load this way; the message names the
     // reader for any other glTF file.

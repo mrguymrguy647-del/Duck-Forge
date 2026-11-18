@@ -1687,6 +1687,15 @@ or the prelude):
   were scaled by the largest of the three.
 - Not physics: use a physics `Body` for standing and bumping, the hit
   shapes for which part a bullet or a click found.
+- A physics body from them: `robot.model().physics_body(feet)` is a
+  `Body::block` round the hit shapes as the model stands at rest (round
+  its triangles if it has none), standing with the middle of its bottom
+  at `feet`. Add it to a `PhysicsWorld`, set its `velocity` each frame,
+  `world.step(dt)`, and draw the model at
+  `Transform::at(robot.model().stands_at(world.get(body).unwrap()))`.
+  It is the model at rest, not posed (a body changing size every step
+  would bounce on the floor). `robot.model().hit_box()` is that box, as
+  its lowest and highest corners.
 
 `examples/robot_click/` is hit shapes and events in one small game: the
 robot walks round, each `footstep` event plays a sound and leaves a

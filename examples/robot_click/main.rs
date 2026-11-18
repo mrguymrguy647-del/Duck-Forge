@@ -1,6 +1,7 @@
 //! A Duck Mold robot that a game can hear and touch: it walks round the
-//! floor, each footstep makes a sound and a puff of dust, and a click on
-//! it says which part was clicked, which flashes.
+//! floor, each footstep makes a sound and a puff of dust, a click on it
+//! says which part was clicked, which flashes, and it bumps into a wall
+//! in its way, stops, and goes round another way.
 //!
 //! Run it with:   cargo run --example robot_click
 //! Controls:      click the robot. Escape quits.
@@ -29,11 +30,23 @@
 //!       hit.part // "head", "left_arm/hand"
 //!   }
 //!   ```
+//!
+//! - **A body for physics**: the same hit shapes, as the robot stands at
+//!   rest, give it a block for Duck Forge's physics, so it stands on the
+//!   floor and can't walk through the wall:
+//!
+//!   ```ignore
+//!   let body = world.add(robot.model().physics_body(feet));
+//!   // each frame: set its speed, step the world, and draw it where it is
+//!   world.step(dt);
+//!   let place = Transform::at(robot.model().stands_at(world.get(body).unwrap()));
+//!   ```
 
 use std::f32::consts::{PI, TAU};
 
 use duckforge::LoadError;
 use duckforge::glb::AnimatedModel;
+use duckforge::physics::{Body, BodyId, PhysicsWorld};
 use duckforge::prelude::*;
 
 const ASSETS: &str = "examples/robot_click/assets";
@@ -45,6 +58,15 @@ const FLOOR_DARK: Color = Color::from_hex(0x3E_45_52);
 const FLASH: Color = Color::from_hex(0xFF_F0_9A);
 /// A puff of dust, when it is new.
 const DUST: Color = Color::from_hex(0xB8_B0_A0);
+/// The wall in its way.
+const WALL: Color = Color::from_hex(0x8A_6E_52);
+/// The wall's middle and size, in metres: across the side of its square
+/// from (1.5, 1) to (-1.5, 1).
+const WALL_AT: Vec3 = vec3(0.0, 0.4, 1.0);
+const WALL_SIZE: Vec3 = vec3(0.3, 0.8, 1.4);
+/// How long it pushes against something before it gives up and heads for
+/// the next corner, in seconds.
+const GIVE_UP: f32 = 0.8;
 
 /// How fast it walks, in metres a second: its walk takes two steps of
 /// about 40 cm in 0.8 seconds, so its feet don't slide.
@@ -95,6 +117,14 @@ struct RobotClick {
     /// The corner of `ROUND` it is walking to.
     heading_to: usize,
     puffs: Vec<Puff>,
+    /// The world its body is in: the floor, the wall and the robot.
+    world: PhysicsWorld<Vec3>,
+    body: BodyId,
+    wall: Mesh,
+    /// How long it has been stopped by something in its way.
+    blocked_for: f32,
+    /// How many times it has bumped into the wall.
+    bumps: u32,
     /// The part last clicked, and how long ago.
     clicked: Option<(String, f32)>,
     /// What the last click found, to show: a part's name, or that it
@@ -113,9 +143,26 @@ impl RobotClick {
             .iter()
             .map(|triangle| triangle.color)
             .collect();
+        // The floor (its top at y = 0), the wall, and the robot's body: a
+        // block round its hit shapes, standing on the floor where it starts.
+        let mut world = PhysicsWorld::new(vec3(0.0, -9.8, 0.0));
+        world.add(Body::block(vec3(0.0, -0.5, 0.0), vec3(12.0, 1.0, 12.0)).fixed());
+        world.add(Body::block(WALL_AT, WALL_SIZE).fixed());
+        let body = world.add(
+            robot
+                .model()
+                .physics_body(ROUND[3])
+                .with_friction(0.0)
+                .with_bounce(0.0),
+        );
         Ok(RobotClick {
             camera: Camera3D::looking_at(vec3(0.0, 3.0, 6.0), vec3(0.0, 0.6, -0.2)),
             robot,
+            world,
+            body,
+            wall: Mesh::cube(WALL),
+            blocked_for: 0.0,
+            bumps: 0,
             floor: Mesh::checkerboard(12, 1.0, FLOOR_LIGHT, FLOOR_DARK),
             colors,
             position: ROUND[3],
@@ -133,16 +180,42 @@ impl RobotClick {
         Transform::at(self.position).rotated(vec3(0.0, self.facing, 0.0))
     }
 
-    /// Walks on towards the next corner, turning to face it.
+    /// Walks on towards the next corner, turning to face it. Its body
+    /// moves in the physics world, so the wall stops it; stopped for a
+    /// moment, it heads for the next corner instead.
     fn walk(&mut self, dt: f32) {
-        let to = ROUND[self.heading_to] - self.position;
+        let mut to = ROUND[self.heading_to] - self.position;
+        to.y = 0.0;
         let far = to.length();
         if far < 0.05 {
             self.heading_to = (self.heading_to + 1) % ROUND.len();
             return;
         }
         let way = to * (1.0 / far);
-        self.position += way * (WALK_SPEED * dt).min(far);
+        let speed = WALK_SPEED.min(far / dt.max(1e-6));
+        if let Some(body) = self.world.get_mut(self.body) {
+            body.velocity.x = way.x * speed;
+            body.velocity.z = way.z * speed;
+        }
+        let before = self.position;
+        self.world.step(dt);
+        if let Some(body) = self.world.get(self.body) {
+            self.position = self.robot.model().stands_at(body);
+        }
+        // Did it get where it meant to?
+        let moved = vec3(self.position.x - before.x, 0.0, self.position.z - before.z).length();
+        if moved < speed * dt * 0.3 {
+            if self.blocked_for == 0.0 {
+                self.bumps += 1;
+            }
+            self.blocked_for += dt;
+            if self.blocked_for > GIVE_UP {
+                self.heading_to = (self.heading_to + 1) % ROUND.len();
+                self.blocked_for = 0.0;
+            }
+        } else {
+            self.blocked_for = 0.0;
+        }
         // Turn towards the way it goes, the short way round. (A positive
         // turn swings its front, +z, towards +x.)
         let wanted = way.x.atan2(way.z);
@@ -236,6 +309,7 @@ impl Game for RobotClick {
         ctx.report("x", self.position.x);
         ctx.report("z", self.position.z);
         ctx.report("footsteps", f64::from(self.footsteps));
+        ctx.report("bumps", f64::from(self.bumps));
         ctx.report("puffs", self.puffs.len() as f64);
         ctx.report(
             "clicked",
@@ -254,6 +328,11 @@ impl Game for RobotClick {
             ..Lighting::default()
         });
         canvas.draw_mesh(&self.floor, &Transform::default(), &self.camera);
+        canvas.draw_mesh(
+            &self.wall,
+            &Transform::at(WALL_AT).scaled(WALL_SIZE),
+            &self.camera,
+        );
         // The puffs: a disc on the ground that grows and fades into the
         // floor, drawn before the robot so its feet stand in them.
         for puff in &self.puffs {
@@ -277,7 +356,7 @@ impl Game for RobotClick {
         }
         canvas.draw_text(&self.said, vec2(4.0, 4.0), 1, Color::WHITE);
         canvas.draw_text(
-            "IT WALKS ROUND; EACH STEP MAKES A SOUND AND A PUFF",
+            "IT WALKS ROUND; EACH STEP MAKES A SOUND AND A PUFF; THE WALL STOPS IT",
             vec2(4.0, 12.0),
             1,
             Color::GRAY,
@@ -330,6 +409,50 @@ mod tests {
         sim.press_mouse(MouseButton::Left);
         sim.step();
         sim.release_mouse(MouseButton::Left);
+    }
+
+    #[test]
+    fn the_wall_stops_it_and_it_goes_round_another_way() {
+        let mut sim = simulation();
+        let wall_low = WALL_AT - WALL_SIZE * 0.5;
+        let wall_high = WALL_AT + WALL_SIZE * 0.5;
+        for _ in 0..600 {
+            sim.step();
+            let game = sim.game();
+            // Its body never goes into the wall.
+            let body = game.world.get(game.body).unwrap();
+            let duckforge::physics::Shape::Block { half_size } = body.shape else {
+                panic!("a block");
+            };
+            let (low, high) = (body.position - half_size, body.position + half_size);
+            let inside = (0..3).all(|axis| {
+                let get = |v: Vec3| [v.x, v.y, v.z][axis];
+                get(low) < get(wall_high) - 0.02 && get(high) > get(wall_low) + 0.02
+            });
+            assert!(!inside, "in the wall at {:?}", body.position);
+            // And it stands on the floor.
+            assert!(game.position.y.abs() < 0.02, "{:?}", game.position);
+        }
+        let game = sim.game();
+        assert!(game.bumps >= 1, "it met the wall");
+        // It went on: not still pushing against the wall.
+        assert!(game.blocked_for < GIVE_UP);
+    }
+
+    /// Saves a picture of it at the wall, for the docs, to the file
+    /// `ROBOT_CLICK_PICTURE` names. Run by hand.
+    #[test]
+    #[ignore = "run by hand, to make a picture for the docs"]
+    fn a_picture_at_the_wall() {
+        let Some(path) = std::env::var_os("ROBOT_CLICK_PICTURE") else {
+            return;
+        };
+        let mut sim = simulation();
+        while sim.game().bumps == 0 {
+            sim.step();
+        }
+        sim.run(20);
+        sim.picture().save_png(path).unwrap();
     }
 
     #[test]

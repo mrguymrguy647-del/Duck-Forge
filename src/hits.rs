@@ -33,8 +33,9 @@
 //! in every direction is fine; one stretched more one way than another
 //! is tested as if every size were scaled by the largest of the three.
 
-use crate::glb::{AnimatedModel, GlbHitShape};
+use crate::glb::{AnimatedModel, GlbHitShape, GlbModel};
 use crate::math::{Vec3, vec3};
+use crate::physics::Body;
 use crate::render3d::Transform;
 
 /// A ray: a starting point and a direction, going on for ever.
@@ -408,5 +409,96 @@ impl AnimatedModel {
             .collect();
         hits.sort_by(|one, other| one.distance.total_cmp(&other.distance));
         hits
+    }
+}
+
+// ---- a body for physics ---------------------------------------------------------
+
+impl GlbModel {
+    /// The box round every hit shape with the model at rest, as its
+    /// lowest corner and its highest; round the model's triangles if it
+    /// has no hit shapes. `None` for a model with neither.
+    pub fn hit_box(&self) -> Option<(Vec3, Vec3)> {
+        let mut low = vec3(f32::INFINITY, f32::INFINITY, f32::INFINITY);
+        let mut high = vec3(f32::NEG_INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY);
+        let mut take = |at: Vec3, reach: Vec3| {
+            low = vec3(
+                low.x.min(at.x - reach.x),
+                low.y.min(at.y - reach.y),
+                low.z.min(at.z - reach.z),
+            );
+            high = vec3(
+                high.x.max(at.x + reach.x),
+                high.y.max(at.y + reach.y),
+                high.z.max(at.z + reach.z),
+            );
+        };
+        for collider in &self.colliders {
+            match collider.shape {
+                GlbHitShape::Box { center, axes, half } => {
+                    // How far a turned box reaches along x, y and z.
+                    let reach = |axis: usize| {
+                        (0..3)
+                            .map(|along| (axes[along][axis] * half[along]).abs())
+                            .sum::<f32>()
+                    };
+                    take(v(center), vec3(reach(0), reach(1), reach(2)));
+                }
+                GlbHitShape::Sphere { center, radius } => {
+                    take(v(center), vec3(radius, radius, radius));
+                }
+                GlbHitShape::Capsule { a, b, radius } => {
+                    take(v(a), vec3(radius, radius, radius));
+                    take(v(b), vec3(radius, radius, radius));
+                }
+            }
+        }
+        if self.colliders.is_empty() {
+            for corner in &self.vertices {
+                take(v(*corner), Vec3::ZERO);
+            }
+        }
+        (low.x <= high.x).then_some((low, high))
+    }
+
+    /// A body for Duck Forge's physics: a block round the model's hit
+    /// shapes as it stands at rest (round its triangles if it has none),
+    /// standing with the middle of its bottom at `feet`. The block is the
+    /// model at rest, not posed: a body that changed size with every step
+    /// would bounce on the floor. A part with no hit shape (an antenna's
+    /// tip) doesn't make it taller. Use [`GlbModel::stands_at`] to know
+    /// where to draw the model on it.
+    ///
+    /// ```ignore
+    /// let body = world.add(robot.model().physics_body(vec3(0.0, 0.0, 3.0)));
+    /// world.step(dt);
+    /// let place = Transform::at(robot.model().stands_at(world.get(body).unwrap()));
+    /// ```
+    ///
+    /// It's a starting body: `.with_mass`, `.with_friction` and the rest
+    /// work on it as on any.
+    pub fn physics_body(&self, feet: Vec3) -> Body<Vec3> {
+        let (low, high) = self
+            .hit_box()
+            .unwrap_or((vec3(-0.5, 0.0, -0.5), vec3(0.5, 1.0, 0.5)));
+        let size = high - low;
+        Body::block(feet + vec3(0.0, size.y * 0.5, 0.0), size)
+    }
+
+    /// Where to draw the model so that it stands in `body` (one made by
+    /// [`GlbModel::physics_body`]): the point under the model's own zero,
+    /// for [`Transform::at`]. The block's middle across x and z is the hit
+    /// shapes' middle, so a character with one arm out isn't off-centre.
+    pub fn stands_at(&self, body: &Body<Vec3>) -> Vec3 {
+        let (low, high) = self
+            .hit_box()
+            .unwrap_or((vec3(-0.5, 0.0, -0.5), vec3(0.5, 1.0, 0.5)));
+        let middle = (low + high) * 0.5;
+        let half_height = (high.y - low.y) * 0.5;
+        vec3(
+            body.position.x - middle.x,
+            body.position.y - half_height - low.y,
+            body.position.z - middle.z,
+        )
     }
 }

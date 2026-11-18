@@ -5873,3 +5873,32 @@ square; a click on the head names `head` and only the head's triangles
 flash, then go back; clicks aimed at five parts while it walks name
 what a ray through the same pixel finds; a click beside it misses; the
 same clicks give the same game.
+
+# Duck Mold's Phase 7a, step 6: a physics body from the hit shapes
+
+`GlbModel::physics_body(feet)` gives a Duck Mold model a body for Duck
+Forge's physics in one call, and `GlbModel::stands_at(&body)` says where
+to draw the model on it.
+
+- **One block round the hit shapes at rest.** The physics has a ball
+  and a block that never turns; a capsule, or one body of several
+  shapes, would be new physics. A character's body is the box round its
+  hit shapes as it stands at rest, centred on them across x and z.
+- **At rest, not posed**: a body that changed size with every step of a
+  walk would bounce on the floor.
+- **The hit shapes, not the triangles**, so a part a recipe gives no hit
+  shape (the robot's antenna tip) doesn't make it taller. A model with no
+  hit shapes uses the box round its triangles.
+- **In `hits.rs`, not `glb.rs`**: `glb.rs` is the reader, the same code
+  as Duck Mold's copy, and this is Duck Forge's own use of what it reads.
+  No file format changes, so the reader's version doesn't.
+- **`hit_box()` is public too**, for a game that wants the box itself.
+
+`robot_click` gets a floor and a wall of blocks: the robot's body walks
+into the wall across its way, stops, and after a moment heads for the
+next corner. Its tests: the body is the hit shapes' box, standing on the
+feet, lower than the antenna's tip, and the model drawn where
+`stands_at` says fills it; a model with no hit shapes uses its own box;
+the robot walked at a wall stops with its side against it, standing on
+the floor; in `robot_click` its body never goes into the wall, it stands
+on the floor all the while, bumps the wall and goes on.
