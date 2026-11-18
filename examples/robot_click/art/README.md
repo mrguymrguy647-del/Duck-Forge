@@ -2,14 +2,14 @@
 
 The robot is a model made with Duck Mold (`duck-mold`), which builds 3D
 models from text recipes. `robot.toml` is its recipe (Duck Mold's own
-example, from its `claude/duck-mold-phase-6` branch); the file the game
+example, from its `claude/nifty-dirac-vt09ym` branch); the file the game
 loads is `../assets/robot.glb`.
 
 | Source | Makes | With (run in `examples/robot_click`) |
 |---|---|---|
-| `robot.toml` | `robot.glb`: 384 triangles, four animations, eight poses, 15 hit shapes, and footstep events on its walk | `duck-mold export art/robot.toml -o assets/robot.glb` |
+| `robot.toml` | `robot.glb`: 384 triangles, four animations, ten poses, 15 hit shapes, footstep events on its walk, and two far-away versions | `duck-mold export art/robot.toml -o assets/robot.glb` |
 
-Two lines of the recipe are for this game:
+Three lines of the recipe are for this game:
 
 - `colliders = "parts"` near the top gives every part a hit shape: a
   box, a ball or a capsule that moves with it. The head says
@@ -17,6 +17,11 @@ Two lines of the recipe are for this game:
   tip say `collider = "none"`, so a click there names the part behind.
   To see them: `duck-mold render art/robot.toml --colliders`, or the
   Hits switch in Duck Mold Studio.
+- `lods = "auto"` near the top gives it two simpler versions for when
+  it is far off (from 14.6 m and 36.6 m). The game draws it with
+  `robot.draw_mesh(...)`, which picks one by distance; in this game
+  the camera is always close, so it is always the robot itself. To see
+  them: `duck-mold render art/robot.toml --far 2`.
 - `event = "footstep"` on two keys of `[animations.walk]`: the moments
   a foot comes down. `duck-mold inspect art/robot.toml --animation walk`
   says when each is heard.

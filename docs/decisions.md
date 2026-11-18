@@ -5902,3 +5902,45 @@ feet, lower than the antenna's tip, and the model drawn where
 the robot walked at a wall stops with its side against it, standing on
 the floor; in `robot_click` its body never goes into the wall, it stands
 on the floor all the while, bumps the wall and goes on.
+
+# Duck Mold's Phase 7a, step 8: far-away versions
+
+A Duck Mold model whose recipe says `lods = "auto"` carries two simpler
+versions of itself, and `AnimatedModel` draws the one that suits the
+camera's distance.
+
+- **In the file, glTF's `MSFT_lod`**: each part's object names a far
+  object for each version, outside the scene, holding that part's
+  simpler triangles; the distances are in Duck Mold's corner (`lods`).
+  The reader (version 8, the same code in both repositories) reads them
+  into `GlbModel::far`: each the whole model again, with the same parts,
+  joins, sockets and hit shapes, and fewer triangles.
+- **The general glTF reader draws only the scene**, as glTF says. It
+  used to draw a mesh on any object, so the far objects of a Duck Mold
+  file came out at the middle of the world; now an object outside the
+  scene is left out.
+- **Picked by distance over scale**: from the camera to the model's zero
+  point, divided by the `Transform`'s largest scale, so a model drawn
+  twice as big changes version twice as far away.
+- **Every version moves with the model.** `draw_mesh` takes `&self`, so
+  a game calls it from `draw()`; to pose only the version drawn it would
+  need a lock inside `AnimatedModel` (which is plain data, shareable
+  between threads). The far versions have a half and a quarter of the
+  corners, so posing them too costs less than the model itself.
+  Drawing fewer triangles is where the time goes, and that is what the
+  far versions save.
+- **`mesh()` is still the model itself**, so a game that doesn't ask
+  draws as before; `mesh_mut` recolours only it.
+- **The bounding ball is kept (Duck Mold's speed item S4).**
+  `Canvas::draw_mesh_within(mesh, place, camera, ball)` draws with a
+  ball worked out once; `AnimatedModel` works its balls out when it
+  moves, not on every draw. The GPU path already kept one per mesh.
+  `Mesh::bounding_ball` is public for it.
+
+`robot_click`'s robot is the current one (its recipe has `lods`), drawn
+with `robot.draw_mesh`; its camera is close, so it is always the robot
+itself. Tests (`tests/duck_mold_far.rs`): the robot's far versions are
+read as Duck Mold reported them; the version goes by distance and by
+scale; a far version stands as the model does, through a pose and a
+walk; `draw_mesh` draws what `mesh_for` gives, also after `mesh_mut`;
+a general glTF reader draws only the model itself.

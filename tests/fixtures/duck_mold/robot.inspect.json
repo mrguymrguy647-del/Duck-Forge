@@ -827,6 +827,18 @@
     "right_eye",
     "antenna_tip"
   ],
+  "far_versions": [
+    {
+      "name": "Far 1",
+      "distance": 14.6,
+      "triangles": 288
+    },
+    {
+      "name": "Far 2",
+      "distance": 36.6,
+      "triangles": 276
+    }
+  ],
   "poses": [
     "step_left",
     "step_right",
@@ -835,7 +847,9 @@
     "breathe_in",
     "breathe_out",
     "jump_crouch",
-    "jump_up"
+    "jump_up",
+    "jump_2",
+    "jump_3"
   ],
   "animations": [
     {
@@ -860,7 +874,7 @@
       "name": "jump",
       "length": 1.3,
       "loops": false,
-      "keys": 5
+      "keys": 7
     }
   ],
   "warnings": [],
