@@ -5995,7 +5995,8 @@ once.
 - **No copy of Duck Mold.** Duck Mold's Studio is a library
   (`duck-mold-studio`) with a small program on top; the tab draws that
   library into the space under the tabs, with its "hosted" switch on (no
-  start page, nothing about other files, Export reads "Send to game").
+  The Studio's `Cargo.toml` names one release of Duck Mold, by its tag
+  (`v1.0.0`).
   The Studio's `Cargo.toml` names one commit of Duck Mold.
 - **The engine never uses Duck Mold.** Only the Studio does, so the
   engine builds and tests alone, as before, and its list of libraries
