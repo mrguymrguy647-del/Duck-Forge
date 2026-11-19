@@ -199,6 +199,9 @@ struct Voice {
     samples: Samples,
     gains: (f32, f32),
     at: usize,
+    /// Moments of silence before it starts (a sound played with
+    /// `play_landing` starts a little after its frame).
+    wait: usize,
 }
 
 /// One looping sound playing.
@@ -313,13 +316,17 @@ impl Voices {
         let frames = out.len() / 2;
         for voice in &mut self.playing {
             let (to_left, to_right) = voice.gains;
-            let end = (voice.at + frames).min(voice.samples.frames());
-            for (pair, i) in out.chunks_exact_mut(2).zip(voice.at..end) {
+            // Its wait first: it starts that far into this block, or not yet.
+            let skip = voice.wait.min(frames);
+            voice.wait -= skip;
+            let room = frames - skip;
+            let end = (voice.at + room).min(voice.samples.frames());
+            for (pair, i) in out.chunks_exact_mut(2).skip(skip).zip(voice.at..end) {
                 let (l, r) = voice.samples.frame(i);
                 pair[0] += l * to_left;
                 pair[1] += r * to_right;
             }
-            voice.at += frames;
+            voice.at += room;
         }
         self.playing
             .retain(|voice| voice.at < voice.samples.frames());
@@ -468,8 +475,8 @@ impl Speaker {
     }
 
     /// Starts playing `samples` (at [`SAMPLE_RATE`], mono or stereo) at
-    /// `pan` (-1 left, 0 both sides, 1 right).
-    pub(crate) fn play(&self, samples: Samples, pan: f32) {
+    /// `pan` (-1 left, 0 both sides, 1 right), after `wait` moments.
+    pub(crate) fn play(&self, samples: Samples, pan: f32, wait: usize) {
         // A panic on the sound thread can't happen while it holds the
         // lock (filling can't panic), but recover anyway rather than crash.
         let mut voices = self.voices.lock().unwrap_or_else(|e| e.into_inner());
@@ -480,6 +487,7 @@ impl Speaker {
             samples,
             gains: pan_gains(pan),
             at: 0,
+            wait,
         });
     }
 
@@ -751,6 +759,7 @@ mod backend {
                 samples: beep,
                 gains: (1.0, 1.0),
                 at: 0,
+                wait: 0,
             });
             // Wait until the sound thread has played the whole beep.
             for _ in 0..200 {
@@ -781,6 +790,7 @@ mod tests {
             samples,
             gains: pan_gains(pan),
             at: 0,
+            wait: 0,
         }
     }
 
@@ -947,6 +957,28 @@ mod tests {
         let mut out = [0.0; 14]; // seven moments
         voices.fill(&mut out);
         let want = [0.3, 0.4, 0.5, 0.6, 0.7, 0.5, 0.6];
+        for (got, want) in lefts(&out).iter().zip(want) {
+            assert!(close(*got, want), "{out:?}");
+        }
+    }
+
+    #[test]
+    fn a_sound_that_waits_starts_that_far_in() {
+        // A sound played with play_landing: 3 moments of silence first,
+        // across the end of one block into the next.
+        let mut voices = Voices::default();
+        voices.playing.push(Voice {
+            samples: Samples::mono(vec![0.1, 0.2, 0.3]),
+            gains: (1.0, 1.0),
+            at: 0,
+            wait: 3,
+        });
+        let mut out = [0.0; 4]; // two moments: still waiting
+        voices.fill(&mut out);
+        assert!(lefts(&out).iter().all(|&v| v == 0.0), "{out:?}");
+        let mut out = [0.0; 8]; // four moments: one more wait, then it plays
+        voices.fill(&mut out);
+        let want = [0.0, 0.1, 0.2, 0.3];
         for (got, want) in lefts(&out).iter().zip(want) {
             assert!(close(*got, want), "{out:?}");
         }

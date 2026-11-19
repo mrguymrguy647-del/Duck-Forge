@@ -71,6 +71,7 @@ mod sheet;
 pub mod simulation;
 pub mod sound;
 mod sound_files;
+pub mod sound_set;
 #[cfg(all(feature = "audio", any(feature = "window", feature = "studio")))]
 mod speaker;
 pub mod sprite;
@@ -145,6 +146,7 @@ pub mod prelude {
     pub use crate::script::InputScript;
     pub use crate::simulation::Simulation;
     pub use crate::sound::{LoopId, Sound, Wav, Wave};
+    pub use crate::sound_set::SoundSet;
     pub use crate::sprite::{Animation, Blit, Sprite};
     pub use crate::spritesheet::SpriteSheet;
     pub use crate::tilemap::{

@@ -198,6 +198,8 @@ pub(crate) fn run<G: Game>(
     let mut checks_reported = 0;
     // Replay warnings already printed (a sound missing from the store).
     let mut warnings_reported = 0;
+    // And warnings about how it plays its sounds (a facts file missing).
+    let mut sound_warnings_reported = 0;
 
     let frames = options.frames.unwrap_or(u64::MAX);
 
@@ -267,13 +269,17 @@ pub(crate) fn run<G: Game>(
             println!("duckforge: warning: {warning}");
         }
         warnings_reported = sim.replay_warnings().len();
+        for warning in &sim.sound_warnings()[sound_warnings_reported..] {
+            println!("duckforge: warning: {warning}");
+        }
+        sound_warnings_reported = sim.sound_warnings().len();
 
         // Sounds played during those updates go to the speakers.
         let sounds = sim.take_new_sounds();
         #[cfg(feature = "audio")]
         if let Some(speaker) = &speaker {
             for sound in sounds {
-                speaker.play(sound.samples, sound.pan);
+                speaker.play(sound.samples, sound.pan, sound.wait as usize);
             }
         }
         let loops = sim.take_new_loop_commands();

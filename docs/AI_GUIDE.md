@@ -502,7 +502,8 @@ Read it critically:
 If the game played anything, `log.json` has a `"sounds"` list, one line
 per sound with its frame and name (`ctx.beep` is `"beep"`, presets are
 `"coin"`, `"jump"`, `"hit"`, `"explosion"`, your own `Sound` uses its
-`name`, a `.wav` its file name):
+`name`, a `.wav` its file name, one of a set of variants the set's name
+with `"variant": 3`):
 
 ```json
 "sounds": [
@@ -513,7 +514,9 @@ per sound with its frame and name (`ctx.beep` is `"beep"`, presets are
 Line them up with `changes`: every hit should have a `"hit"` on the same
 frame; a sound every frame (a `play` inside an `if is_down` instead of
 `was_pressed`) shows up as hundreds of lines. `audio.wav` has them all
-mixed, starting at sample `(frame - 1) * 735` at 60 updates per second.
+mixed, starting at sample `(frame - 1) * 735` at 60 updates per second
+(one played with `play_landing` starts earlier, so its hit is on the
+frame it was told).
 With `--gif`, the run prints the `ffmpeg` command that joins `run.gif`
 and `audio.wav` into a video for a person.
 
@@ -1062,6 +1065,21 @@ sounds: `let music: LoopId = ctx.play_loop(&w, 0.6);` (a `Wav`, or a
 `sim.loops()` (each has `name`, `start`, `stop`, `volumes`,
 `.volume_at(frame)` and `.is_playing()`). Headless runs mix loops into
 `audio.wav` and list them in `log.json` under `"loops"`.
+
+**Variants and hits** (from Duck Echo, which writes them): a set of
+variants, `let steps = SoundSet::load("examples/mygame/assets/step.variants.json")?;`,
+plays one of them each time, `ctx.play_with(&steps, 0.8, 0.0)`, never the
+same twice in a row (`steps.name()`, `steps.len()`, `steps.variants()`).
+The choice uses `ctx.sound_rng`, made from the seed, so a replay picks
+the same ones and `ctx.rng` isn't touched. Each `.wav` Duck Echo makes has
+a facts file beside it (`thud.wav.json`): `thud.hit_seconds()` (when its
+hit lands) and `thud.loudness_lufs()`. When the game knows a hit is
+coming (a block lands in 6 frames), `ctx.play_landing(&thud, 6)` starts
+the sound early so its hit is on that frame's first sample;
+`ctx.play_on_hit(&thud)` is for a hit with no warning (it skips the
+lead-in). Without facts, or with ones out of date, it plays from the
+start now and `sim.sound_warnings()` (and the summary) says why, once.
+A scene's sound object may name a `.variants.json`.
 
 **Music from an `.ogg`** (OGG Vorbis at 44,100 Hz, mono or stereo, as Duck
 Echo's `render -o day.ogg` or Send to game writes it) takes a few hundred
@@ -2151,7 +2169,7 @@ and it's the usual:
 |---|---|---|
 | `id` | A whole number from 1, never used twice in the scene | the engine gives one (below) |
 | `name` | What the code asks for: `scene.find("duck")`. Several can share one | its kind |
-| `kind` | What it is. `picture`: drawn, does nothing. `tilemap`: a level on a grid (`"level": "level.txt"`, with its `level.legend.json` beside it, as in section 7). `background`: a picture that repeats and moves slower than the world (`"parallax": 0.2`, or `[0.5, 0.1]`; `"repeat_x"`, `"repeat_y"`). `sound`: plays when the scene starts (`"sound": "assets/music.wav"`, a `.wav`; `"loops": true` for music, `"volume"` 0 to 1 for a sound that loops); `"shown": false` stops it, and it stops when it's removed. Anything else is a name your code asks for: `scene.of_kind("coin")` | `picture` |
+| `kind` | What it is. `picture`: drawn, does nothing. `tilemap`: a level on a grid (`"level": "level.txt"`, with its `level.legend.json` beside it, as in section 7). `background`: a picture that repeats and moves slower than the world (`"parallax": 0.2`, or `[0.5, 0.1]`; `"repeat_x"`, `"repeat_y"`). `sound`: plays when the scene starts (`"sound": "assets/music.wav"`, a `.wav`, a Duck Echo set of variants `assets/step.variants.json` (one of them each time), or music, an `.ogg`, with `"loops": true`; `"loops": true` for music, `"volume"` 0 to 1 for a sound that loops); `"shown": false` stops it, and it stops when it's removed. Anything else is a name your code asks for: `scene.of_kind("coin")` | `picture` |
 | `at` | Where its anchor is, in pixels, y downwards | `[0, 0]` |
 | `anchor` | The point of it on `at`: `feet` (bottom middle), `middle`, `top_left`, `top`, `top_right`, `left`, `right`, `bottom_left`, `bottom_right` | `feet`, or a Duck Quill sheet's own pivot; `top_left` for a tile map or a background |
 | `turn` | Degrees clockwise, round its anchor (its box isn't turned) | 0 |

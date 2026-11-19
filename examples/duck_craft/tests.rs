@@ -131,6 +131,26 @@ fn walking_forward_goes_the_way_the_duck_faces() {
 }
 
 #[test]
+fn footsteps_are_duck_echos_variants_never_the_same_twice_running() {
+    let played = PlayTest::new(config(), arena(|_| {}))
+        .script(&hold(&["W"], 240))
+        .frames(240)
+        .run();
+    let variants: Vec<u32> = played
+        .sounds()
+        .iter()
+        .filter(|sound| sound.name == "step")
+        .map(|sound| sound.variant.expect("each step is a variant"))
+        .collect();
+    assert!(variants.len() >= 8, "{variants:?}");
+    assert!(
+        variants.windows(2).all(|two| two[0] != two[1]),
+        "{variants:?}"
+    );
+    assert!(variants.iter().all(|v| (1..=6).contains(v)), "{variants:?}");
+}
+
+#[test]
 fn a_jump_is_a_little_over_one_block_and_lands() {
     let mut sim = Simulation::new(config(), arena(|_| {}));
     sim.step();
@@ -2137,6 +2157,7 @@ fn saving_keeps_what_is_on_the_pointer_and_in_the_grid_and_falling_sand() {
         y: FLOOR as f32 + 4.3,
         speed: 2.0,
         block: Block::Sand,
+        heard: false,
     });
     let loaded = DuckCraft::from_bytes(game.art.clone(), &game.to_bytes()).unwrap();
     assert_eq!(loaded.count(Item::Gold), 10);

@@ -104,6 +104,11 @@ impl DuckCraft {
         if self.on_ground || self.in_water {
             if let (Some(top), true) = (self.vitals.fall_from, self.on_ground && !was_on_ground) {
                 let blocks = top - y;
+                // A drop of a block or more is heard: from its hit, as the
+                // feet meet the ground (no warning ahead of it).
+                if blocks >= 1.0 && !self.in_water {
+                    ctx.play_on_hit(&self.art.sounds.land);
+                }
                 if blocks > SAFE_FALL && !self.in_water {
                     let points = (blocks - SAFE_FALL).round() as u32;
                     self.hurt(ctx, points, "fell too far");

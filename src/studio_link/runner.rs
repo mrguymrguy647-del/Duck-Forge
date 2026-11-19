@@ -67,7 +67,7 @@ fn play_new_sounds<G: Game>(
     if let Some(speaker) = speaker {
         if one_shots {
             for sound in sounds {
-                speaker.play(sound.samples, sound.pan);
+                speaker.play(sound.samples, sound.pan, sound.wait as usize);
             }
         }
         for command in loops {
@@ -114,7 +114,7 @@ impl SoundBook {
     fn play(&self, name: &str, speaker: &Speaker) {
         #[cfg(feature = "audio")]
         if let (Some(sound), Some(speaker)) = (self.sounds.get(name), speaker) {
-            speaker.play(sound.samples.clone(), sound.pan);
+            speaker.play(sound.samples.clone(), sound.pan, 0);
         }
         #[cfg(not(feature = "audio"))]
         let _ = (name, speaker);

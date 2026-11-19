@@ -15,7 +15,9 @@ use crate::math::{Rect, Vec2};
 use crate::render3d::Renderer;
 use crate::report::ReportValue;
 use crate::rng::Rng;
-use crate::sound::{LoopCommand, LoopId, LoopSound, OneShot, Sound, SoundRequest, Wav};
+use crate::sound::{
+    LoopCommand, LoopId, LoopSound, OneShot, OneShotKind, SAMPLE_RATE, Sound, SoundRequest, Wav,
+};
 use crate::tune::Tunes;
 
 /// What every game must provide. The engine calls `update` and `draw` once
@@ -262,6 +264,12 @@ pub struct Context {
     /// A random number generator, seeded from [`Config::seed`], or
     /// differently on every run if that is `None`.
     pub rng: Rng,
+    /// The random numbers sounds use: which variant of a
+    /// [`SoundSet`](crate::sound_set::SoundSet) plays. Made from the same
+    /// seed as [`rng`](Context::rng), with a fixed number mixed in, so a
+    /// replay picks the same variants, and playing them never changes the
+    /// game's own random numbers (where something spawns, say).
+    pub sound_rng: Rng,
     dt: f32,
     /// Seconds since the start, as an `f64`: adding up small `f32` steps
     /// loses precision after an hour or so, and the clock would drift.
@@ -299,7 +307,14 @@ pub struct Context {
     run_mode: RunMode,
     /// Lines for Duck Forge Studio to show, not yet handed over.
     studio_notes: Vec<String>,
+    /// What to tell the game about how it plays its sounds, not yet handed
+    /// over, and the files already told about (each is said once).
+    sound_warnings: Vec<String>,
+    sounds_warned: HashSet<String>,
 }
+
+/// The number mixed into the seed for [`Context::sound_rng`].
+const SOUND_SEED: u32 = 0x5EED_50D5;
 
 /// A rule from [`Context::check`] that didn't hold.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -315,6 +330,7 @@ impl Context {
         Self {
             input: Input::new(),
             rng: Rng::new(seed),
+            sound_rng: Rng::new(seed ^ SOUND_SEED),
             dt: 0.0,
             time: 0.0,
             frame: 0,
@@ -336,6 +352,8 @@ impl Context {
             idle_ok: false,
             run_mode: RunMode::Headless,
             studio_notes: Vec::new(),
+            sound_warnings: Vec::new(),
+            sounds_warned: HashSet::new(),
         }
     }
 
@@ -629,10 +647,13 @@ impl Context {
     }
 
     /// Plays a sound once at its own volume and place: `sound` is a
-    /// synthesizer [`Sound`] or a `.wav` file (`&thud`), `volume` 0.0
-    /// (silent) to 1.0 (as it is), more to make it louder, and `pan` -1.0
-    /// (left) through 0.0 (both) to 1.0 (right). Like a loop's volume, but
-    /// for a sound played once: footsteps quieter than a scream.
+    /// synthesizer [`Sound`], a `.wav` file (`&thud`) or a set of variants
+    /// (`&steps`, a [`SoundSet`](crate::sound_set::SoundSet): one of them,
+    /// chosen with [`sound_rng`](Context::sound_rng), never the same one
+    /// twice in a row), `volume` 0.0 (silent) to 1.0 (as it is), more to
+    /// make it louder, and `pan` -1.0 (left) through 0.0 (both) to 1.0
+    /// (right). Like a loop's volume, but for a sound played once:
+    /// footsteps quieter than a scream.
     ///
     /// ```
     /// # use duckforge::prelude::*;
@@ -646,7 +667,18 @@ impl Context {
     /// can't clip: a limiter turns it down where it would, and `log.json`
     /// warns that it did. (In a window, a softer limiter rounds off peaks.)
     pub fn play_with(&mut self, sound: impl Into<OneShot>, volume: f32, pan: f32) {
-        let OneShot(request) = sound.into();
+        let OneShot(kind) = sound.into();
+        let request = match kind {
+            OneShotKind::Sound(request) => request,
+            // One of the set's variants, from the sound random numbers.
+            OneShotKind::Set(set) => {
+                let index = set.choose(&mut self.sound_rng);
+                let mut request = SoundRequest::wav(&set.variants()[index]);
+                request.name = set.name().to_string();
+                request.variant = Some(index as u32 + 1);
+                request
+            }
+        };
         self.sounds
             .push(request.panned(pan).louder(clean_volume(volume)));
     }
@@ -674,6 +706,89 @@ impl Context {
     /// file keeps its own left and right; the pan turns one side down.
     pub fn play_wav_panned(&mut self, wav: &Wav, pan: f32) {
         self.sounds.push(SoundRequest::wav(wav).panned(pan));
+    }
+
+    /// Plays a `.wav` so that its hit lands on a frame to come: the game
+    /// knows something will hit in `frames_ahead` frames (a block falling
+    /// will land in 6), and the sound starts early, so its loudest moment
+    /// is right at the start of that frame. If it's too late to start that
+    /// early, it starts now, part of the way in, so the hit still lands on
+    /// the frame. `frames_ahead` 0 is now: see
+    /// [`play_on_hit`](Context::play_on_hit).
+    ///
+    /// ```
+    /// # use duckforge::prelude::*;
+    /// # fn example(ctx: &mut Context, thud: &Wav, frames_to_land: u64) {
+    /// ctx.play_landing(thud, frames_to_land);
+    /// # }
+    /// ```
+    ///
+    /// Where the hit is in the sound comes from its facts file, which Duck Echo
+    /// writes beside every sound it makes (`thud.wav.json`). Without one,
+    /// or with one that's out of date (the sound changed after it), the
+    /// sound plays now, from its start, and a warning says why, once (in
+    /// the terminal, and in a headless run's summary).
+    ///
+    /// It all works in frames and samples, so headless runs and replays
+    /// are exact: in `audio.wav` the hit is on the frame's first sample.
+    pub fn play_landing(&mut self, wav: &Wav, frames_ahead: u64) {
+        let mut request = SoundRequest::wav(wav);
+        if let Some(hit) = self.hit_samples(wav, "play_landing") {
+            request.when = crate::sound::When::Landing { frames_ahead, hit };
+        }
+        self.sounds.push(request);
+    }
+
+    /// Plays a `.wav` from its hit, now: something hit with no warning, so
+    /// the sound skips what comes before its hit (from its facts file, as
+    /// for [`play_landing`](Context::play_landing)), and the hit is heard
+    /// at once. Without facts it plays from the start, with a warning.
+    pub fn play_on_hit(&mut self, wav: &Wav) {
+        let mut request = SoundRequest::wav(wav);
+        if let Some(hit) = self.hit_samples(wav, "play_on_hit") {
+            request.when = crate::sound::When::OnHit { hit };
+        }
+        self.sounds.push(request);
+    }
+
+    /// Where `wav`'s hit is, in samples from its start, from its facts
+    /// file. Says why not (once for each file) when there are none to use.
+    fn hit_samples(&mut self, wav: &Wav, asked: &str) -> Option<u64> {
+        use crate::sound_files::Facts;
+        let file = wav.file_name();
+        let why = match wav.facts() {
+            Facts::Known {
+                hit_seconds: Some(seconds),
+                ..
+            } => return Some((seconds.max(0.0) * SAMPLE_RATE as f64).round() as u64),
+            // A silent sound has no hit: it plays from its start, rightly.
+            Facts::Known {
+                hit_seconds: None, ..
+            } => return None,
+            Facts::Missing => format!(
+                "{file} has no facts file ({file}.json, which Duck Echo writes beside each \
+                 sound it makes), so {asked} can't tell when its hit lands: it plays from \
+                 its start, now. Send the sound from Duck Echo to get one"
+            ),
+            Facts::OutOfDate => format!(
+                "{file}.json is out of date (the sound changed after it was written), so \
+                 {asked} can't tell when its hit lands: it plays from its start, now. Send \
+                 the sound from Duck Echo again"
+            ),
+            Facts::Unreadable(problem) => format!(
+                "{file}.json can't be read ({problem}), so {asked} can't tell when its hit \
+                 lands: it plays from its start, now"
+            ),
+        };
+        if self.sounds_warned.insert(file) {
+            self.sound_warnings.push(why);
+        }
+        None
+    }
+
+    /// The sound warnings since last time.
+    pub(crate) fn take_sound_warnings(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.sound_warnings)
     }
 
     /// Starts a sound that repeats with no gap until you stop it: music, an

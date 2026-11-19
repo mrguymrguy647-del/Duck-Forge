@@ -6211,3 +6211,109 @@ damaged, not Ogg). In `tests/music_memory.rs`: under 1 MB. In the scene
 tests: an `.ogg` sound object loops, and one that doesn't loop is said.
 In `tests/cheat_sheet.rs`: `Music` as the guide shows it. Every example
 game and recorded playthrough passes as before.
+
+# Duck Echo's Phase 3, step 7: variants and facts
+
+Duck Echo makes several variants of a sound (eight footsteps, a little
+different each), with a list, and writes a *facts file* beside every
+sound: when its hit lands, how loud it is. Duck Forge now uses both. The
+plan is Duck Echo's `docs/phase3-design.md` (section 6, step 7).
+
+## What was built
+
+- **`SoundSet::load("assets/step.variants.json")`** (`src/sound_set.rs`)
+  reads Duck Echo's list and loads each `.wav` it names (each an ordinary
+  `Wav`, watched and swapped as in step 5). `ctx.play_with(&steps, 0.8,
+  0.0)` plays one of them. `log.json` names the set and the variant:
+  `{"frame": 40, "sound": "step", "file": ".../step_3.wav", "variant": 3}`,
+  and a play test reads it as `sound.variant`.
+- **`ctx.sound_rng`** chooses the variant: a second random generator,
+  made from the run's seed with a fixed number mixed in.
+- **Facts**: `wav.hit_seconds()` and `wav.loudness_lufs()` read
+  `thud.wav.json` (`None` without it). `ctx.play_landing(&thud,
+  frames_ahead)` starts the sound early so its hit lands at the start of
+  the frame that many frames on; if that's too soon, it starts now, part
+  of the way in. `ctx.play_on_hit(&thud)` starts now from the hit.
+- **A plain warning**, once for each file, when `play_landing` or
+  `play_on_hit` can't use the facts (none, out of date, or not JSON): the
+  sound plays from its start, now. `sim.sound_warnings()`; the window
+  prints them, and a headless run lists them with its warnings.
+- **Scenes**: a sound object may name a `.variants.json` (one variant each
+  time; a looping one loops one variant, chosen as it starts).
+- **Duck Craft**: its footsteps are six Duck Echo variants (`step`);
+  falling sand's thud is worked out a few frames ahead and started with
+  `play_landing`, so its hit is on the frame the sand lands (or
+  `play_on_hit`, if it lands too soon to be heard coming); and the duck
+  landing after a drop of a block or more plays `land` with
+  `play_on_hit`. All three are sent from Duck Echo's presets, with their
+  facts files and their recipes in `art/`. Their synthesizer sounds are
+  gone; the names (`step`, `thud`) are the same, so the game's tests and
+  playthroughs pass as before.
+
+## Decisions made on the way
+
+- **A second random generator, not `ctx.rng`.** A replay must pick the
+  same variants: anything made from the seed does, and recordings keep
+  the seed. But if variants took their numbers from `ctx.rng`, adding
+  footsteps to a game would change every random thing after them (where
+  a Hollow appears, a serve's angle) and break its recorded
+  playthroughs. `sound_rng` is the seed with a fixed number mixed in
+  (`0x5EED50D5`), so the two never share numbers. It's public, for a game
+  that wants its sounds' own randomness. A test plays variants and
+  checks the game's `ctx.rng` numbers are exactly the same as without.
+- **Never the same variant twice in a row**, as the design says: with
+  two or more, the choice is among the others (one number from
+  `sound_rng`, skipping the last one). The last one is kept in the set,
+  in a number shared by its clones (atomic, so a set stays safe to share
+  between threads).
+- **`play_landing` takes how many frames ahead**, as the design has it:
+  the game knows "this lands in 6 frames" (from a speed and a height),
+  not the frame number. Where things start is worked out in samples (the
+  hit lands on that frame's first sample of `audio.wav`), so headless
+  runs and replays are exact. In a window, the speakers hold the sound
+  back by the same number of samples (a new `wait` for each sound).
+- **Facts are checked against the sound.** Duck Echo's facts file names
+  the SHA-256 of the file it describes (`file_sha256`, step 3). A facts
+  file for another version (the sound changed after it) is out of date
+  and isn't trusted: its hit could be anywhere now. One without that
+  field (older Duck Echo) is taken as it is.
+- **Facts travel with the sound.** They're read with each version of the
+  sound (load, change, replay); the window's look also notices a facts
+  file written a moment after its sound, as Duck Echo writes them (not a
+  change for the recording: the sound is the same). The sound store keeps
+  each version's facts beside it (`<sha256>.wav.json`), and a replay uses
+  those first, so a replay starts its sounds at the same samples even if
+  the facts file on disk has gone or changed.
+- **Warnings only where facts are used.** Many sounds have no facts file
+  (the ones from `make_sounds.py`, say), and that's fine until a game asks
+  when their hit lands. So `play_landing` and `play_on_hit` warn, once
+  for each file; loading doesn't. `hit_seconds()` just says `None`.
+- **`play_with` takes its own small type** (from step 6), which can now
+  hold a set: the variant is chosen as it plays, with the game's
+  `sound_rng`, which a plain conversion couldn't reach.
+- **The list is read once.** Sending more variants means loading the set
+  again (starting the game again); each variant's sound is watched as
+  before. Only files beside the list are taken (no `../`).
+- **`loudness_lufs()`** is there for a game that levels its own sounds;
+  Duck Echo's are already at their kind's loudness, so Duck Craft doesn't.
+
+## How it is tested
+
+In `src/sound_set.rs`: a wrong list says where (the line, or the field,
+like `files[1] has no "file"`); 400 choices never repeat one twice in a
+row, play every variant, and are the same again from the same seed; a
+game playing a step every 4 frames and its headless replay hear the same
+steps and variants, and `log.json` names them, each the length of its
+variant; the game's own `ctx.rng` numbers are the same with and without
+the steps; a scene's `.variants.json` plays one. In `src/sound_files.rs`:
+a thud whose hit is at sample 1,234 played with `play_landing` 6 frames
+ahead has its hit on sample 11,025 (frame 16's first) in `audio.wav`;
+from too close, on frame 41's first sample, part of the way in; with
+`play_on_hit`, on frame 70's first; replayed after its facts file is
+gone, the same `audio.wav` from the store's facts; without facts, or with
+out-of-date ones, it plays from its start on its frame, and says so once;
+a facts file written after the sound is picked up. In `src/speaker.rs`:
+a sound with a wait starts that far in. In Duck Craft: footsteps are its
+six variants, never the same twice in a row. In `tests/cheat_sheet.rs`:
+the guide's calls. Every example game and recorded playthrough passes as
+before.

@@ -1,0 +1,20 @@
+{
+  "kind": "duck-echo-asset",
+  "version": 1,
+  "file": "land.wav",
+  "duration_seconds": 0.08063492063492063,
+  "frames": 3556,
+  "sample_rate": 44100,
+  "channels": 1,
+  "loudness_lufs": -19.940968,
+  "loudness_method": "k_weighted_ungated",
+  "peak_dbfs": -9.2,
+  "leading_silence_seconds": 0.00009070294784580499,
+  "hit_seconds": 0.004,
+  "loops": false,
+  "format": "wav",
+  "seed": 6,
+  "recipe_hash": "sha256:4bc4a7f922711a4ef8fdc9163f036237d1494a40fb97a8b400c0dc80e57558d3",
+  "file_sha256": "sha256:736ee22c624da91cf7e0b3a3a91163500cd4f89655c9df538ecc31ca9826e25d",
+  "recipe": "art/land.toml"
+}

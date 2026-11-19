@@ -283,7 +283,11 @@ Forge".
   keep which version played when, so replays still sound the same.
   Long music is OGG (`Music::load("assets/day.ogg")`, then
   `ctx.play_loop(&day, 0.6)`): decoded while it plays, so 23 s of stereo
-  takes under 1 MB instead of 8, and it loops with no gap.
+  takes under 1 MB instead of 8, and it loops with no gap. Duck Echo's
+  sets of variants (`SoundSet::load("assets/step.variants.json")`) play a
+  different footstep each time, the same ones in a replay; and its facts
+  files let `ctx.play_landing(&thud, 6)` start a sound early so its hit
+  lands on a frame.
 - **Scenes:** a game's objects in a plain file, one per line
   (`examples/scene_demo/scenes/pond.json`): a name, a kind, a position,
   a picture, a turn, a scale, a layer, and settings of its own; a
@@ -1094,6 +1098,7 @@ On a computer with one (in PowerShell or cmd, in the project folder):
 | `src/camera.rs`   | `Camera2D`: position, zoom, smooth follow, screen shake            |
 | `src/sound.rs`    | The synthesizer (`Sound`, `Wave`), `.wav` files, mixing `audio.wav` |
 | `src/sound_files.rs` | The `.wav` and `.ogg` files a game loaded: noticing one changed, swapping it in, the sound store for replays |
+| `src/sound_set.rs` | `SoundSet`: Duck Echo's variants of a sound, one played at a time from `ctx.sound_rng` |
 | `src/music.rs`    | `Music`: OGG music decoded while it plays (a decoder thread in a window, the mixer headless) |
 | `vendor/lewton/`  | Duck Forge's copy of the lewton OGG decoder, with fixed math so music decodes the same on every computer (`DUCKFORGE.md` lists the changes) |
 | `src/speaker.rs`  | Playing sounds out loud in a window (only with the `audio` feature) |

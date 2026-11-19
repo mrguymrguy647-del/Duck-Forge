@@ -49,12 +49,15 @@ pub(crate) const STORE_FOLDER: &str = "out/sound-store";
 #[derive(Debug)]
 pub(crate) struct SoundSlot {
     audio: Mutex<Audio>,
+    /// What its facts file says about the version playing now.
+    facts: Mutex<Facts>,
 }
 
 impl SoundSlot {
-    fn new(audio: Audio) -> Arc<SoundSlot> {
+    fn new(audio: Audio, facts: Facts) -> Arc<SoundSlot> {
         Arc::new(SoundSlot {
             audio: Mutex::new(audio),
+            facts: Mutex::new(facts),
         })
     }
 
@@ -63,9 +66,73 @@ impl SoundSlot {
         self.audio.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
-    fn set(&self, audio: Audio) {
-        *self.audio.lock().unwrap_or_else(|e| e.into_inner()) = audio;
+    /// What the facts file says about the sound playing now.
+    pub(crate) fn facts(&self) -> Facts {
+        self.facts.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
+
+    fn set(&self, audio: Audio, facts: Facts) {
+        *self.audio.lock().unwrap_or_else(|e| e.into_inner()) = audio;
+        self.set_facts(facts);
+    }
+
+    fn set_facts(&self, facts: Facts) {
+        *self.facts.lock().unwrap_or_else(|e| e.into_inner()) = facts;
+    }
+}
+
+/// What a sound file's *facts file* says: the JSON Duck Echo writes beside
+/// every sound it makes (`step.wav.json`), with when its hit lands and how
+/// loud it is. It names the SHA-256 of the file it's about, so a facts file
+/// left over from an older version of the sound is noticed.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Facts {
+    /// There's no facts file beside it.
+    Missing,
+    /// The facts file is about another version of the sound (the sound
+    /// changed after it was written).
+    OutOfDate,
+    /// The facts file isn't JSON: what's wrong.
+    Unreadable(String),
+    /// What it says.
+    Known {
+        /// When the sound's main hit lands, in seconds from its start
+        /// (`None` for a silent sound).
+        hit_seconds: Option<f64>,
+        /// How loud it is, in LUFS.
+        loudness_lufs: Option<f64>,
+    },
+}
+
+impl Facts {
+    /// What a facts file's text says about the version `hash` of a sound.
+    fn from_text(text: Option<&str>, hash: &str) -> Facts {
+        let Some(text) = text else {
+            return Facts::Missing;
+        };
+        let value: serde_json::Value = match serde_json::from_str(text) {
+            Ok(value) => value,
+            Err(error) => return Facts::Unreadable(error.to_string()),
+        };
+        let number = |key: &str| value.get(key).and_then(serde_json::Value::as_f64);
+        match value.get("file_sha256").and_then(serde_json::Value::as_str) {
+            // (A facts file from before Duck Echo named the file's SHA-256
+            // can't be checked: it's taken as it is.)
+            Some(about) if about != hash => Facts::OutOfDate,
+            _ => Facts::Known {
+                hit_seconds: number("hit_seconds"),
+                loudness_lufs: number("loudness_lufs"),
+            },
+        }
+    }
+}
+
+/// Where a sound file's facts file is: its name with `.json` added
+/// (`step.wav.json`).
+fn facts_path(path: &Path) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(".json");
+    PathBuf::from(name)
 }
 
 /// Whether `name` is an `.ogg` (music) rather than a `.wav`.
@@ -83,12 +150,20 @@ pub(crate) struct Version {
     pub(crate) hash: String,
     bytes: Arc<[u8]>,
     pub(crate) audio: Audio,
+    /// Its facts file's text, as it was read (kept with it in the store).
+    facts_text: Option<Arc<str>>,
+    /// What that says about this version.
+    pub(crate) facts: Facts,
 }
 
 impl Version {
-    /// Reads `bytes` as a `.wav` or an `.ogg`. The error says what's
-    /// wrong with the file.
-    fn from_bytes(bytes: Vec<u8>, ogg: bool) -> Result<Version, String> {
+    /// Reads `bytes` as a `.wav` or an `.ogg`, with its facts file's text
+    /// if it has one. The error says what's wrong with the file.
+    fn from_bytes(
+        bytes: Vec<u8>,
+        ogg: bool,
+        facts_text: Option<String>,
+    ) -> Result<Version, String> {
         let hash = hash_of(&bytes);
         let bytes: Arc<[u8]> = bytes.into();
         let audio = if ogg {
@@ -96,7 +171,21 @@ impl Version {
         } else {
             Audio::Samples(crate::sound::decode_wav(&bytes)?)
         };
-        Ok(Version { hash, bytes, audio })
+        let facts = Facts::from_text(facts_text.as_deref(), &hash);
+        Ok(Version {
+            hash,
+            bytes,
+            audio,
+            facts_text: facts_text.map(Arc::from),
+            facts,
+        })
+    }
+
+    /// The same version, with (new) facts file text.
+    fn with_facts(mut self, text: Option<String>) -> Version {
+        self.facts = Facts::from_text(text.as_deref(), &self.hash);
+        self.facts_text = text.map(Arc::from);
+        self
     }
 
     /// The file ending of its kind of file.
@@ -125,6 +214,9 @@ struct Entry {
     /// The size and time of a version that didn't decode, so the problem
     /// is said once, not twice a second.
     said_problem: Option<Seen>,
+    /// The facts file's size and time when last read (Duck Echo writes it
+    /// just after the sound, so it can change on its own).
+    facts_seen: Option<Seen>,
 }
 
 /// A file's size and modified time.
@@ -194,13 +286,14 @@ pub(crate) fn load(path: &Path) -> Result<Arc<SoundSlot>, LoadProblem> {
             // Loaded again with no game running: the file as it is now,
             // for every copy of it.
             Some(entry) => {
-                entry.slot.set(version.audio.clone());
+                entry.slot.set(version.audio.clone(), version.facts.clone());
                 entry.now = version.hash.clone();
                 entry.seen = seen;
+                entry.facts_seen = seen_now(&facts_path(path));
                 entry.slot.clone()
             }
             None => {
-                let slot = SoundSlot::new(version.audio.clone());
+                let slot = SoundSlot::new(version.audio.clone(), version.facts.clone());
                 table.entries.insert(
                     name,
                     Entry {
@@ -210,6 +303,7 @@ pub(crate) fn load(path: &Path) -> Result<Arc<SoundSlot>, LoadProblem> {
                         first: version.hash.clone(),
                         seen,
                         said_problem: None,
+                        facts_seen: seen_now(&facts_path(path)),
                     },
                 );
                 slot
@@ -226,7 +320,8 @@ fn read(path: &Path) -> Result<(Version, Option<Seen>), LoadProblem> {
     // read, the next look sees it changed and reads it again.
     let seen = seen_now(path);
     let bytes = std::fs::read(path).map_err(LoadProblem::Unreadable)?;
-    let version = Version::from_bytes(bytes, is_ogg(path)).map_err(LoadProblem::NotWav)?;
+    let facts = std::fs::read_to_string(facts_path(path)).ok();
+    let version = Version::from_bytes(bytes, is_ogg(path), facts).map_err(LoadProblem::NotWav)?;
     Ok((version, seen))
 }
 
@@ -242,7 +337,8 @@ fn read_whole(path: &Path) -> Result<(Version, Option<Seen>), LoadProblem> {
     if !is_ogg(path) {
         is_whole(&bytes).map_err(LoadProblem::NotWav)?;
     }
-    let version = Version::from_bytes(bytes, is_ogg(path)).map_err(LoadProblem::NotWav)?;
+    let facts = std::fs::read_to_string(facts_path(path)).ok();
+    let version = Version::from_bytes(bytes, is_ogg(path), facts).map_err(LoadProblem::NotWav)?;
     Ok((version, seen))
 }
 
@@ -307,7 +403,10 @@ pub(crate) fn changed_on_disk() -> (Vec<Changed>, Vec<String>) {
     for (name, path, seen) in looked_at {
         let now = seen_now(&path);
         if now.is_none() || now == seen {
-            continue; // missing for a moment (being replaced), or the same
+            // The same sound (or missing for a moment, being replaced):
+            // its facts file may have been written since.
+            refresh_facts(&name, &path);
+            continue;
         }
         match look_at(&name, &path) {
             Ok(Some(version)) => changed.push(Changed { name, version }),
@@ -345,7 +444,15 @@ fn look_at(name: &str, path: &Path) -> Result<Option<Version>, Option<String>> {
             let entry = table.entries.get_mut(name)?;
             entry.seen = seen;
             entry.said_problem = None;
-            (entry.now != version.hash).then_some(version)
+            entry.facts_seen = seen_now(&facts_path(path));
+            let same = entry.now == version.hash;
+            if same {
+                // The same sound, saved again: its facts may be new.
+                entry.slot.set_facts(version.facts.clone());
+                table.versions.insert(version.hash.clone(), version);
+                return None;
+            }
+            Some(version)
         })),
         Err(problem) => {
             let why = match problem {
@@ -367,13 +474,44 @@ fn look_at(name: &str, path: &Path) -> Result<Option<Version>, Option<String>> {
     }
 }
 
+/// Reads `name`'s facts file again if it changed on its own (Duck Echo
+/// writes it just after the sound). Only what the facts say changes, not
+/// the sound, so it's not a change for the recording.
+fn refresh_facts(name: &str, path: &Path) {
+    let facts_file = facts_path(path);
+    let now = seen_now(&facts_file);
+    let changed = TABLE.with(|table| {
+        let mut table = table.borrow_mut();
+        let entry = table.entries.get_mut(name)?;
+        (entry.facts_seen != now).then(|| {
+            entry.facts_seen = now;
+            entry.now.clone()
+        })
+    });
+    let Some(hash) = changed else {
+        return;
+    };
+    let text = std::fs::read_to_string(&facts_file).ok();
+    TABLE.with(|table| {
+        let mut table = table.borrow_mut();
+        let Some(version) = table.versions.remove(&hash) else {
+            return;
+        };
+        let version = version.with_facts(text);
+        if let Some(entry) = table.entries.get(name) {
+            entry.slot.set_facts(version.facts.clone());
+        }
+        table.versions.insert(hash, version);
+    });
+}
+
 /// From now on the game hears `version` for `name`: every `Wav` of it
 /// plays the new samples. A one-shot already playing keeps the old ones.
 pub(crate) fn swap(name: &str, version: Version) {
     TABLE.with(|table| {
         let mut table = table.borrow_mut();
         if let Some(entry) = table.entries.get_mut(name) {
-            entry.slot.set(version.audio.clone());
+            entry.slot.set(version.audio.clone(), version.facts.clone());
             entry.now = version.hash.clone();
         }
         if table.given.contains_key(name) {
@@ -388,14 +526,29 @@ pub(crate) fn swap(name: &str, version: Version) {
 /// version. Failing those, the file on disk as it is now, with a warning:
 /// the game plays out the same, but `audio.wav` won't.
 pub(crate) fn version_for(name: &str, path: &Path, hash: &str) -> Result<Version, LoadProblem> {
-    if let Some(version) = TABLE.with(|table| table.borrow().versions.get(hash).cloned()) {
-        return Ok(version);
-    }
     let ending = if is_ogg(path) { "ogg" } else { "wav" };
-    let stored = store_path(hash, ending).and_then(|file| std::fs::read(file).ok());
+    let store_file = store_path(hash, ending);
+    // Its facts as they were kept with it (what the recording heard),
+    // else as they are on disk now.
+    let stored_facts = store_file
+        .as_ref()
+        .and_then(|file| std::fs::read_to_string(facts_path(file)).ok());
+    if let Some(version) = TABLE.with(|table| table.borrow().versions.get(hash).cloned()) {
+        return Ok(match stored_facts {
+            Some(text) => version.with_facts(Some(text)),
+            None => version,
+        });
+    }
+    let stored = store_file
+        .as_ref()
+        .and_then(|file| std::fs::read(file).ok());
     if let Some(bytes) = stored
         && hash_of(&bytes) == hash
-        && let Ok(version) = Version::from_bytes(bytes, is_ogg(path))
+        && let Ok(version) = Version::from_bytes(
+            bytes,
+            is_ogg(path),
+            stored_facts.or_else(|| std::fs::read_to_string(facts_path(path)).ok()),
+        )
     {
         return Ok(version);
     }
@@ -414,7 +567,8 @@ pub(crate) fn version_for(name: &str, path: &Path, hash: &str) -> Result<Version
 
 /// A replay starts: from now on `name` gives the recorded version
 /// `hash`, and counts as the game's first version of it. Returns the
-/// version for a file already loaded, to swap in now (if it differs).
+/// version for a file already loaded, to swap in now (if it differs, or
+/// its facts do: the store keeps the facts the recording heard).
 pub(crate) fn start_with(sounds: &BTreeMap<String, String>) -> Vec<Changed> {
     let mut swaps = Vec::new();
     for (name, hash) in sounds {
@@ -423,10 +577,11 @@ pub(crate) fn start_with(sounds: &BTreeMap<String, String>) -> Vec<Changed> {
             table.given.insert(name.clone(), hash.clone());
             let entry = table.entries.get_mut(name)?;
             entry.first = hash.clone();
-            (entry.now != *hash).then(|| entry.path.clone())
+            Some((entry.path.clone(), entry.now.clone(), entry.slot.facts()))
         });
-        if let Some(path) = loaded {
+        if let Some((path, now, facts)) = loaded {
             match version_for(name, &path, hash) {
+                Ok(version) if version.hash == now && version.facts == facts => {}
                 Ok(version) => swaps.push(Changed {
                     name: name.clone(),
                     version,
@@ -503,29 +658,45 @@ pub(crate) fn save_to_store<'a>(
         let Some(path) = store_path(hash, version.ending()) else {
             continue; // not a hash this engine writes
         };
+        // Its facts beside it, so a replay starts sounds at the same
+        // moments (`play_landing`).
+        if let Some(text) = &version.facts_text {
+            let facts = facts_path(&path);
+            if !facts.exists() {
+                save_whole(&facts, text.as_bytes())?;
+            }
+        }
         if path.exists() {
             continue;
         }
-        let folder = path.parent().unwrap_or(Path::new("."));
-        let cant = |error: io::Error| format!("couldn't save {}: {error}", path.display());
-        std::fs::create_dir_all(folder).map_err(cant)?;
-        let partial = path.with_extension(format!(
-            "{}.{}-{:?}.partial",
-            version.ending(),
-            std::process::id(),
-            std::thread::current().id()
-        ));
-        std::fs::write(&partial, &version.bytes).map_err(cant)?;
-        if let Err(error) = std::fs::rename(&partial, &path) {
-            let _ = std::fs::remove_file(&partial);
-            // Another program put the same version there at the same moment.
-            if !path.exists() {
-                return Err(cant(error));
-            }
-        }
+        save_whole(&path, &version.bytes)?;
         written += 1;
     }
     Ok(written)
+}
+
+/// Writes `bytes` to `path` beside it first, then renames it into place,
+/// so the file is always whole.
+fn save_whole(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let folder = path.parent().unwrap_or(Path::new("."));
+    let cant = |error: io::Error| format!("couldn't save {}: {error}", path.display());
+    std::fs::create_dir_all(folder).map_err(cant)?;
+    let mut partial = path.as_os_str().to_owned();
+    partial.push(format!(
+        ".{}-{:?}.partial",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    let partial = PathBuf::from(partial);
+    std::fs::write(&partial, bytes).map_err(cant)?;
+    if let Err(error) = std::fs::rename(&partial, path) {
+        let _ = std::fs::remove_file(&partial);
+        // Another program put the same file there at the same moment.
+        if !path.exists() {
+            return Err(cant(error));
+        }
+    }
+    Ok(())
 }
 
 /// Where the store keeps the version `hash` (`sha256:` and 64 hex
@@ -962,6 +1133,167 @@ mod tests {
             1,
             "only the whole one is kept"
         );
+    }
+
+    /// A 2,000-sample thud: silence, a spike at sample 1,234 (its hit),
+    /// then silence. `facts` writes its facts file too.
+    fn thud(folder: &Path, facts: bool) -> PathBuf {
+        let bytes = wav(2000, |i| if i == 1234 { 30_000 } else { 0 });
+        let path = folder.join("thud.wav");
+        save(&path, &bytes);
+        if facts {
+            let text = format!(
+                "{{\"kind\": \"duck-echo-asset\", \"hit_seconds\": {}, \"loudness_lufs\": -18.5, \
+                 \"file_sha256\": \"{}\"}}",
+                1234.0 / 44_100.0,
+                hash_of(&bytes)
+            );
+            std::fs::write(folder.join("thud.wav.json"), text).unwrap();
+        }
+        path
+    }
+
+    /// Plays the thud landing 6 frames on (from frame 10), landing 1 frame
+    /// on (from frame 40: too soon to start early), and on its hit (frame
+    /// 70).
+    struct Boxes(Wav);
+
+    impl Game for Boxes {
+        fn update(&mut self, ctx: &mut Context) {
+            match ctx.frame() {
+                10 => ctx.play_landing(&self.0, 6),
+                40 => ctx.play_landing(&self.0, 1),
+                70 => ctx.play_on_hit(&self.0),
+                _ => {}
+            }
+        }
+        fn draw(&self, _: &mut crate::canvas::Canvas) {}
+    }
+
+    /// Where `audio.wav` has its loudest samples (its spikes), in order.
+    fn spikes(audio: &[u8]) -> Vec<usize> {
+        let samples = crate::sound::decode_wav(audio).unwrap();
+        (0..samples.frames())
+            .filter(|&i| samples.frame(i).0 > 0.5)
+            .collect()
+    }
+
+    #[test]
+    fn a_landing_hit_is_on_its_frame_to_the_sample() {
+        let folder = TestFolder::new("facts-landing");
+        use_store(&folder.join("store"));
+        let path = thud(&folder, true);
+        let wav = Wav::load(&path).unwrap();
+        assert_eq!(wav.hit_seconds(), Some((1234.0f64 / 44_100.0) as f32));
+        assert_eq!(wav.loudness_lufs(), Some(-18.5));
+
+        let mut sim = Simulation::new(config(), Boxes(wav));
+        sim.run(80);
+        assert!(
+            sim.sound_warnings().is_empty(),
+            "{:?}",
+            sim.sound_warnings()
+        );
+        let audio = mix_to_wav(sim.sounds(), sim.loops(), sim.sample_at(81)).bytes;
+        // Frame 16 begins at 15 x 735 = 11,025: the hit is that sample, the
+        // sound started 1,234 before, during frame 10 (begun at 6,615).
+        // Frame 41 begins at 29,400; from frame 40 (28,665) that's too
+        // soon to start 1,234 early, so it starts at 28,665, 499 in. And
+        // play_on_hit on frame 70: the hit is the frame's first sample.
+        assert_eq!(spikes(&audio), [11_025, 29_400, 50_715]);
+        assert_eq!(
+            sim.sounds()
+                .iter()
+                .map(|s| (s.frame, s.start))
+                .collect::<Vec<_>>(),
+            [(10, 11_025 - 1234), (40, 28_665), (70, 50_715)]
+        );
+
+        // Replayed after its facts file is gone: the store kept them, so
+        // the hits land on the same samples.
+        let recording = sim.recording();
+        assert_eq!(sim.save_sounds(&recording), Ok(1));
+        drop(sim);
+        std::fs::remove_file(folder.join("thud.wav.json")).unwrap();
+        let out = folder.join("out");
+        let replay = run_headless(
+            config(),
+            Boxes(Wav::load(&path).unwrap()),
+            &HeadlessOptions {
+                frames: 80,
+                out: Some(out.clone()),
+                inputs: Some(recording),
+                ..HeadlessOptions::default()
+            },
+        )
+        .unwrap();
+        assert!(
+            replay.sound_warnings().is_empty(),
+            "{:?}",
+            replay.sound_warnings()
+        );
+        assert!(std::fs::read(out.join("audio.wav")).unwrap() == audio);
+    }
+
+    #[test]
+    fn missing_or_out_of_date_facts_warn_and_the_sound_still_plays() {
+        let folder = TestFolder::new("facts-missing");
+        use_store(&folder.join("store"));
+        let path = thud(&folder, false);
+        let wav = Wav::load(&path).unwrap();
+        assert_eq!(wav.hit_seconds(), None);
+        let mut sim = Simulation::new(config(), Boxes(wav));
+        sim.run(80);
+        // Each plays from its start, on its frame (the spike 1,234 in).
+        let audio = mix_to_wav(sim.sounds(), sim.loops(), sim.sample_at(81)).bytes;
+        assert_eq!(spikes(&audio), [6615 + 1234, 28_665 + 1234, 50_715 + 1234]);
+        let name = crate::files::name_of(&path);
+        assert_eq!(
+            sim.sound_warnings().len(),
+            1,
+            "said once: {:?}",
+            sim.sound_warnings()
+        );
+        let said = &sim.sound_warnings()[0];
+        assert!(
+            said.contains(&format!("{name} has no facts file"))
+                && said.contains("play_landing")
+                && said.contains("plays from its start"),
+            "{said}"
+        );
+        drop(sim);
+
+        // Out of date: about another version of the sound.
+        let other = format!(
+            "{{\"hit_seconds\": 0.5, \"file_sha256\": \"sha256:{}\"}}",
+            "0".repeat(64)
+        );
+        std::fs::write(folder.join("thud.wav.json"), other).unwrap();
+        let wav = Wav::load(&path).unwrap();
+        assert_eq!(wav.hit_seconds(), None, "not trusted");
+        let mut sim = Simulation::new(config(), Boxes(wav));
+        sim.run(80);
+        assert_eq!(sim.sounds().len(), 3);
+        let said = sim.sound_warnings().join("\n");
+        assert!(
+            said.contains(&format!("{name}.json is out of date")),
+            "{said}"
+        );
+
+        // Written a moment after the sound (as Duck Echo does): the window's
+        // look takes the new facts, and play_landing uses them.
+        let bytes = std::fs::read(&path).unwrap();
+        let right = format!(
+            "{{\"hit_seconds\": {}, \"file_sha256\": \"{}\"}}",
+            1234.0 / 44_100.0,
+            hash_of(&bytes)
+        );
+        std::fs::write(folder.join("thud.wav.json"), right).unwrap();
+        assert!(
+            sim.pick_up_sound_files().is_empty(),
+            "not a change of sound"
+        );
+        assert!(sim.game().0.hit_seconds().is_some());
     }
 
     #[test]

@@ -83,6 +83,7 @@ use crate::error::LoadError;
 use crate::math::{Rect, Vec2, vec2};
 use crate::music::Music;
 use crate::sound::{LoopId, Wav};
+use crate::sound_set::SoundSet;
 use crate::sprite::Sprite;
 use crate::spritesheet::SpriteSheet;
 use crate::tilemap::{Contacts, LetterKind, TileMap};
@@ -105,23 +106,26 @@ enum Picture {
     Missing(String),
 }
 
-/// A sound file a scene plays: a `.wav`, or music from an `.ogg` (which
-/// plays looping).
+/// A sound file a scene plays: a `.wav`, a set of variants (a Duck Echo
+/// `.variants.json`, one of them each time), or music from an `.ogg`
+/// (which plays looping).
 #[derive(Debug, Clone)]
 enum SceneSound {
     Wav(Wav),
+    Set(SoundSet),
     Music(Music),
 }
 
 impl SceneSound {
-    /// Loads `path`: music if it's an `.ogg`, otherwise a `.wav`. The
-    /// error is the sentence the loader gave.
+    /// Loads `path`: music if it's an `.ogg`, a set if it's a
+    /// `.variants.json`, otherwise a `.wav`. The error is the sentence the
+    /// loader gave.
     fn load(path: &Path) -> Result<SceneSound, String> {
-        let is_music = path
-            .extension()
-            .is_some_and(|e| e.eq_ignore_ascii_case("ogg"));
-        if is_music {
+        let name = path.to_string_lossy().to_ascii_lowercase();
+        if name.ends_with(".ogg") {
             Music::load(path).map(SceneSound::Music)
+        } else if name.ends_with(".variants.json") {
+            SoundSet::load(path).map(SceneSound::Set)
         } else {
             Wav::load(path).map(SceneSound::Wav)
         }
@@ -621,8 +625,10 @@ impl Scene {
     /// Plays a sound file of the game's once: `scene.play_sound(ctx,
     /// "assets/jump.wav")`. It's loaded the first time and kept. One that
     /// can't be loaded is silent, and is one of the scene's
-    /// [`problems`](Scene::problems). (Music, an `.ogg`, plays looping, from
-    /// a sound object with `"loops": true`, not once from here.)
+    /// [`problems`](Scene::problems). A set of variants
+    /// (`"assets/step.variants.json"`) plays one of them. (Music, an `.ogg`,
+    /// plays looping, from a sound object with `"loops": true`, not once
+    /// from here.)
     pub fn play_sound(&mut self, ctx: &mut Context, file: &str) {
         if !self.sounds.contains_key(file) {
             let loaded = SceneSound::load(&self.folder.join(file));
@@ -632,8 +638,10 @@ impl Scene {
                 self.say_problems();
             }
         }
-        if let Some(Ok(SceneSound::Wav(wav))) = self.sounds.get(file) {
-            ctx.play_wav(wav);
+        match self.sounds.get(file) {
+            Some(Ok(SceneSound::Wav(wav))) => ctx.play_wav(wav),
+            Some(Ok(SceneSound::Set(set))) => ctx.play_with(set, 1.0, 0.0),
+            _ => {}
         }
     }
 
@@ -799,6 +807,15 @@ impl Scene {
                 (SceneSound::Wav(wav), false) => {
                     ctx.play_wav(wav);
                     None
+                }
+                (SceneSound::Set(set), false) => {
+                    ctx.play_with(set, 1.0, 0.0);
+                    None
+                }
+                // A looping set loops one variant, chosen as it starts.
+                (SceneSound::Set(set), true) => {
+                    let index = set.choose(&mut ctx.sound_rng);
+                    Some(ctx.play_loop(&set.variants()[index], volume))
                 }
                 (SceneSound::Music(music), true) => Some(ctx.play_loop(music, volume)),
                 // Music plays looping: one that doesn't loop is one of the

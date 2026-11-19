@@ -13,7 +13,7 @@ use crate::on_screen::{OnScreen, OnScreenCamera};
 use crate::render3d::Renderer;
 use crate::report::{FrameReport, ReportLog, ReportValue};
 use crate::script::{Change, ChangeEvent, InputAction, InputEvent, InputScript};
-use crate::sound::{LoopCommand, PlayedLoop, PlayedSound, SAMPLE_RATE};
+use crate::sound::{LoopCommand, PlayedLoop, PlayedSound, SAMPLE_RATE, When};
 
 /// Keys the engine itself uses in a window (FPS counter, recording,
 /// screenshots). They still reach the game, but aren't recorded, so a replay
@@ -94,6 +94,9 @@ pub struct Simulation<G> {
     reload_first: Vec<String>,
     /// What went wrong giving the game a replay's files, for the summary.
     replay_warnings: Vec<String>,
+    /// What the game should know about its sounds (a facts file missing
+    /// for `play_landing`, say), for the summary and the terminal.
+    sound_warnings: Vec<String>,
     _forget_given_files: ForgetGivenFiles,
     /// Where tile maps were drawn in the last picture.
     drawn_maps: Vec<crate::canvas::DrawnMap>,
@@ -222,6 +225,7 @@ impl<G: Game> Simulation<G> {
             script_changes_done: 0,
             reload_first: Vec::new(),
             replay_warnings: Vec::new(),
+            sound_warnings: Vec::new(),
             _forget_given_files: ForgetGivenFiles::new(),
             drawn_maps: Vec::new(),
             #[cfg(feature = "studio")]
@@ -371,16 +375,39 @@ impl<G: Game> Simulation<G> {
         self.reports.record(self.ctx.frame(), reported);
         let start = self.sample_at(self.ctx.frame());
         for request in self.ctx.take_sounds() {
+            // Where it starts in `audio.wav`, and how much of its start is
+            // skipped (worked out in samples, so headless runs and replays
+            // are exact).
+            let (begins, skip) = match request.when {
+                When::Now => (start, 0),
+                When::Landing { frames_ahead, hit } => {
+                    let lands = self.sample_at(self.ctx.frame() + frames_ahead);
+                    match lands.checked_sub(hit) {
+                        Some(early) if early >= start => (early, 0),
+                        // Too late to start early: now, part of the way in.
+                        _ => (start, hit - (lands - start)),
+                    }
+                }
+                When::OnHit { hit } => (start, hit),
+            };
+            let samples = if skip > 0 {
+                request.samples.skip(skip as usize)
+            } else {
+                request.samples
+            };
             self.sounds.push(PlayedSound {
                 frame: self.ctx.frame(),
                 name: request.name,
                 source: request.source,
-                samples: request.samples,
+                samples,
                 pan: request.pan,
                 volume: request.volume,
-                start,
+                start: begins,
+                wait: begins - start,
+                variant: request.variant,
             });
         }
+        self.sound_warnings.extend(self.ctx.take_sound_warnings());
         for command in self.ctx.take_loop_commands() {
             self.follow_loop_command(command, start);
         }
@@ -797,6 +824,14 @@ impl<G: Game> Simulation<G> {
     /// different when the script was recorded, in a game with no reload.
     pub fn replay_warnings(&self) -> &[String] {
         &self.replay_warnings
+    }
+
+    /// What the game should know about how it plays its sounds, like a
+    /// facts file that's missing or out of date for
+    /// [`play_landing`](Context::play_landing) (each said once). The window
+    /// prints them, and a headless run lists them with its warnings.
+    pub fn sound_warnings(&self) -> &[String] {
+        &self.sound_warnings
     }
 
     /// The names of the text files the game has read through the engine

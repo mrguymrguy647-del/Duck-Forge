@@ -348,6 +348,54 @@ impl Game for Looper {
 }
 
 #[test]
+fn variants_and_hits_from_duck_echo() -> Result<(), LoadError> {
+    // Duck Craft's own sounds from Duck Echo, copied: six footsteps with
+    // their list, and a thud with its facts file.
+    let folder = TestFolder::new("cheat-sheet-variants");
+    let assets = concat!(env!("CARGO_MANIFEST_DIR"), "/examples/duck_craft/assets");
+    for entry in std::fs::read_dir(assets).unwrap().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with("step") || name.starts_with("thud.wav") {
+            std::fs::write(folder.join(&name), std::fs::read(entry.path()).unwrap()).unwrap();
+        }
+    }
+    let steps = SoundSet::load(folder.join("step.variants.json"))?;
+    assert_eq!(
+        (steps.name(), steps.len(), steps.variants().len()),
+        ("step", 6, 6)
+    );
+    let thud = Wav::load(folder.join("thud.wav"))?;
+    assert_eq!(thud.hit_seconds(), Some(0.014));
+    assert!(thud.loudness_lufs().is_some());
+
+    struct Sandbox {
+        steps: SoundSet,
+        thud: Wav,
+    }
+    impl Game for Sandbox {
+        fn update(&mut self, ctx: &mut Context) {
+            match ctx.frame() {
+                1 | 2 => ctx.play_with(&self.steps, 0.8, 0.0),
+                3 => ctx.play_landing(&self.thud, 6), // lands on frame 9
+                4 => ctx.play_on_hit(&self.thud),
+                _ => {}
+            }
+            let _ = ctx.sound_rng.next_f32(); // the sounds' own numbers
+        }
+        fn draw(&self, canvas: &mut Canvas) {
+            canvas.clear(Color::BLACK);
+        }
+    }
+    let mut sim = Simulation::new(config(), Sandbox { steps, thud });
+    sim.run(10);
+    let sounds = sim.sounds();
+    assert_ne!(sounds[0].variant, sounds[1].variant, "never twice in a row");
+    assert_eq!(sounds[2].name, "thud");
+    assert!(sim.sound_warnings().is_empty(), "it has its facts");
+    Ok(())
+}
+
+#[test]
 fn music_from_an_ogg() -> Result<(), LoadError> {
     struct Theme(Music);
     impl Game for Theme {

@@ -40,7 +40,7 @@ use serde_json::Value;
 
 use crate::error::LoadError;
 use crate::report::ReportValue;
-use crate::sound_files::LoadProblem;
+use crate::sound_files::{Facts, LoadProblem};
 
 use crate::sprite::missing_file_error;
 
@@ -86,6 +86,17 @@ impl Samples {
             self.data.len() / 2
         } else {
             self.data.len()
+        }
+    }
+
+    /// The same sound without its first `frames` frames (none left if it's
+    /// shorter).
+    pub(crate) fn skip(&self, frames: usize) -> Samples {
+        let channels = if self.stereo { 2 } else { 1 };
+        let from = (frames * channels).min(self.data.len());
+        Samples {
+            data: self.data[from..].into(),
+            stereo: self.stereo,
         }
     }
 
@@ -446,6 +457,39 @@ impl Wav {
     pub fn is_stereo(&self) -> bool {
         self.samples().is_stereo()
     }
+
+    /// When the sound's main hit lands, in seconds from its start: from the
+    /// facts file Duck Echo writes beside each sound (`thud.wav.json`).
+    /// `None` without a facts file, with one that's out of date (the sound
+    /// changed after it), or for a silent sound.
+    /// [`Context::play_landing`](crate::engine::Context::play_landing) uses
+    /// it to start the sound early, so its hit lands on a frame.
+    pub fn hit_seconds(&self) -> Option<f32> {
+        match self.slot.facts() {
+            Facts::Known { hit_seconds, .. } => hit_seconds.map(|s| s as f32),
+            _ => None,
+        }
+    }
+
+    /// How loud the sound is, in LUFS, from its facts file (`None` without
+    /// one). Duck Echo's sounds are already at their kind's loudness, so
+    /// most games need nothing; this is for a game that levels its own.
+    pub fn loudness_lufs(&self) -> Option<f32> {
+        match self.slot.facts() {
+            Facts::Known { loudness_lufs, .. } => loudness_lufs.map(|l| l as f32),
+            _ => None,
+        }
+    }
+
+    /// What its facts file says (for the warnings of `play_landing`).
+    pub(crate) fn facts(&self) -> Facts {
+        self.slot.facts()
+    }
+
+    /// The file it was loaded from, as the engine names files.
+    pub(crate) fn file_name(&self) -> String {
+        crate::files::name_of(&self.path)
+    }
 }
 
 impl std::fmt::Debug for Wav {
@@ -636,6 +680,16 @@ pub struct PlayedSound {
     pub(crate) volume: f32,
     /// The sample it starts at in `audio.wav`.
     pub(crate) start: u64,
+    /// How many samples after its frame's start it starts (a sound played
+    /// with `play_landing` starts later than its frame), for the speakers.
+    #[cfg_attr(
+        not(all(feature = "audio", any(feature = "window", feature = "studio"))),
+        allow(dead_code)
+    )]
+    pub(crate) wait: u64,
+    /// Which variant of a [`SoundSet`](crate::sound_set::SoundSet) it is,
+    /// counting from 1 (`None` for a sound that isn't one of a set).
+    pub variant: Option<u32>,
 }
 
 /// Where a sound came from.
@@ -655,6 +709,25 @@ pub(crate) struct SoundRequest {
     pub(crate) pan: f32,
     /// 1.0 as it is (the samples are already this loud).
     pub(crate) volume: f32,
+    /// When it starts.
+    pub(crate) when: When,
+    /// Which variant of a sound set it is, counting from 1.
+    pub(crate) variant: Option<u32>,
+}
+
+/// When a sound starts, for one played by
+/// [`Context::play_landing`](crate::engine::Context::play_landing) or
+/// [`Context::play_on_hit`](crate::engine::Context::play_on_hit). `hit` is
+/// where its hit is, in samples from its start (from its facts file).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum When {
+    /// At the start of the frame it was played in, as usual.
+    Now,
+    /// Early, so its hit lands at the start of the frame `frames_ahead`
+    /// frames on; or, if that's too soon, now, part of the way in.
+    Landing { frames_ahead: u64, hit: u64 },
+    /// Now, from its hit (what comes before is skipped).
+    OnHit { hit: u64 },
 }
 
 impl SoundRequest {
@@ -665,6 +738,8 @@ impl SoundRequest {
             source: SoundSource::Synth(sound),
             pan: 0.0,
             volume: 1.0,
+            when: When::Now,
+            variant: None,
         }
     }
 
@@ -675,6 +750,8 @@ impl SoundRequest {
             samples: wav.samples(),
             pan: 0.0,
             volume: 1.0,
+            when: When::Now,
+            variant: None,
         }
     }
 
@@ -708,6 +785,9 @@ impl PlayedSound {
         };
         if self.volume != 1.0 {
             pan += &format!(", \"volume\": {}", number_json(self.volume));
+        }
+        if let Some(variant) = self.variant {
+            pan += &format!(", \"variant\": {variant}");
         }
         format!(
             "{{\"frame\": {}, \"sound\": {}{}{pan}}}",
@@ -755,25 +835,41 @@ fn number_json(v: f32) -> String {
 pub struct LoopId(pub(crate) u32);
 
 /// What [`Context::play_with`](crate::engine::Context::play_with) can play
-/// once: a `.wav` file (`&thud`) or a synthesizer [`Sound`]. You don't make
-/// one yourself; pass either straight to `play_with`.
-pub struct OneShot(pub(crate) SoundRequest);
+/// once: a `.wav` file (`&thud`), a set of variants (`&steps`, one of them
+/// chosen as it plays) or a synthesizer [`Sound`]. You don't make one
+/// yourself; pass any of them straight to `play_with`.
+pub struct OneShot(pub(crate) OneShotKind);
+
+/// What a [`OneShot`] holds.
+pub(crate) enum OneShotKind {
+    /// A sound already chosen.
+    Sound(SoundRequest),
+    /// A set to choose from as it plays (the choice needs the game's
+    /// `sound_rng`).
+    Set(crate::sound_set::SoundSet),
+}
 
 impl From<&Wav> for OneShot {
     fn from(wav: &Wav) -> OneShot {
-        OneShot(SoundRequest::wav(wav))
+        OneShot(OneShotKind::Sound(SoundRequest::wav(wav)))
+    }
+}
+
+impl From<&crate::sound_set::SoundSet> for OneShot {
+    fn from(set: &crate::sound_set::SoundSet) -> OneShot {
+        OneShot(OneShotKind::Set(set.clone()))
     }
 }
 
 impl From<&Sound> for OneShot {
     fn from(sound: &Sound) -> OneShot {
-        OneShot(SoundRequest::synth(*sound))
+        OneShot(OneShotKind::Sound(SoundRequest::synth(*sound)))
     }
 }
 
 impl From<Sound> for OneShot {
     fn from(sound: Sound) -> OneShot {
-        OneShot(SoundRequest::synth(sound))
+        OneShot(OneShotKind::Sound(SoundRequest::synth(sound)))
     }
 }
 
@@ -1511,6 +1607,8 @@ mod tests {
             pan,
             volume: 1.0,
             start: 0,
+            wait: 0,
+            variant: None,
         };
         // Mono and not panned: a mono file, as always.
         let mono = mix_to_wav(&[played(Samples::mono(vec![0.5; 4]), 0.0)], &[], 4).bytes;
@@ -1577,6 +1675,8 @@ mod tests {
             pan: 0.0,
             volume: 1.0,
             start,
+            wait: 0,
+            variant: None,
         }
     }
 
