@@ -299,4 +299,56 @@ fn pictures_of_the_tab() {
     screen.run_steps(4);
     let image = screen.render().unwrap();
     image.save(folder.join("model-tab.png")).unwrap();
+
+    // Pip, with its game running: the real example, built and played
+    // through the link, and its recipe open in a tab beside it. (Looked
+    // at only: nothing of the example's is changed.)
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../..")
+        .canonicalize()
+        .unwrap();
+    let studio = Studio::new(studio_core::settings::Settings {
+        games_folder: Some(root),
+        ..studio_core::settings::Settings::default()
+    });
+    let mut screen = harness(StudioApp::new(studio), true);
+    screen
+        .state_mut()
+        .studio
+        .run(Command::GameOpen {
+            name: String::from("pip_walk"),
+        })
+        .unwrap();
+    let playing = |screen: &Harness<'static, StudioApp>| {
+        screen.state().studio.play().map(|play| play.state.clone())
+            == Some(studio_core::play::PlayState::Playing)
+    };
+    let started = std::time::Instant::now();
+    while !playing(&screen) {
+        screen.step();
+        std::thread::sleep(std::time::Duration::from_millis(16));
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(900),
+            "the game didn't start: {:?}",
+            screen.state().studio.problem
+        );
+    }
+    // Pip walks towards the camera for a moment.
+    let press: Command =
+        serde_json::from_value(serde_json::json!({"do": "game.input", "press": "Down"})).unwrap();
+    screen.state_mut().studio.run(press).unwrap();
+    for _ in 0..30 {
+        screen.step();
+        std::thread::sleep(std::time::Duration::from_millis(16));
+    }
+    let image = screen.render().unwrap();
+    image.save(folder.join("pip-game-in-studio.png")).unwrap();
+    screen.state_mut().do_command(open("art/pip.toml"));
+    for _ in 0..12 {
+        screen.step();
+        std::thread::sleep(std::time::Duration::from_millis(16));
+    }
+    let image = screen.render().unwrap();
+    image.save(folder.join("pip-tab-in-studio.png")).unwrap();
+    let _ = screen.state_mut().studio.run(Command::GameStop);
 }

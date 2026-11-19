@@ -196,6 +196,8 @@ impl ModelTabs {
                 egui::Frame::popup(ui.style())
                     .inner_margin(4.0)
                     .show(ui, |ui| {
+                        // No wider than the picture itself.
+                        ui.set_max_width(wide);
                         ui.horizontal(|ui| {
                             ui.label(
                                 RichText::new(if running {

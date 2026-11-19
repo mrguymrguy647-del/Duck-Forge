@@ -939,8 +939,8 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 
 [[package]]
 name = "duck-mold-cli"
-version = "0.7.0"
-source = "git+https://github.com/mrguymrguy647-del/Duck-Mold?rev=26678068ed44f1bda575c0b251c7c16cdcbdca81#26678068ed44f1bda575c0b251c7c16cdcbdca81"
+version = "1.0.0"
+source = "git+https://github.com/mrguymrguy647-del/Duck-Mold?rev=1137d51672fda32ca8af189c8a6085d2664bb344#1137d51672fda32ca8af189c8a6085d2664bb344"
 dependencies = [
  "clap",
  "duck-mold-core",
@@ -951,8 +951,8 @@ dependencies = [
 
 [[package]]
 name = "duck-mold-core"
-version = "0.7.0"
-source = "git+https://github.com/mrguymrguy647-del/Duck-Mold?rev=26678068ed44f1bda575c0b251c7c16cdcbdca81#26678068ed44f1bda575c0b251c7c16cdcbdca81"
+version = "1.0.0"
+source = "git+https://github.com/mrguymrguy647-del/Duck-Mold?rev=1137d51672fda32ca8af189c8a6085d2664bb344#1137d51672fda32ca8af189c8a6085d2664bb344"
 dependencies = [
  "jpeg-decoder",
  "png",
@@ -963,8 +963,8 @@ dependencies = [
 
 [[package]]
 name = "duck-mold-studio"
-version = "0.7.0"
-source = "git+https://github.com/mrguymrguy647-del/Duck-Mold?rev=26678068ed44f1bda575c0b251c7c16cdcbdca81#26678068ed44f1bda575c0b251c7c16cdcbdca81"
+version = "1.0.0"
+source = "git+https://github.com/mrguymrguy647-del/Duck-Mold?rev=1137d51672fda32ca8af189c8a6085d2664bb344#1137d51672fda32ca8af189c8a6085d2664bb344"
 dependencies = [
  "dirs",
  "duck-mold-core",
@@ -975,8 +975,8 @@ dependencies = [
 
 [[package]]
 name = "duck-mold-view"
-version = "0.7.0"
-source = "git+https://github.com/mrguymrguy647-del/Duck-Mold?rev=26678068ed44f1bda575c0b251c7c16cdcbdca81#26678068ed44f1bda575c0b251c7c16cdcbdca81"
+version = "1.0.0"
+source = "git+https://github.com/mrguymrguy647-del/Duck-Mold?rev=1137d51672fda32ca8af189c8a6085d2664bb344#1137d51672fda32ca8af189c8a6085d2664bb344"
 dependencies = [
  "duck-mold-core",
  "duckforge 0.1.0 (git+https://github.com/mrguymrguy647-del/Duck-Forge?rev=57013dada0dfbb5167f1b009ebb8229cd65a5dbc)",
