@@ -32,15 +32,15 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Duck Mold, the 3D modeller. The Studio shows Duck Mold's own Studio in a
 # tab (the same code, as a library), runs its edits and exports models
-# into a game. Pinned to one commit, which moves only when the Studio wants
-# a newer Duck Mold. Duck Mold draws with the engine commit that *it*
+# into a game. Pinned to one release of Duck Mold (its tag), which moves
+# only when the Studio wants a newer Duck Mold. Duck Mold draws with the engine commit that *it*
 # names, not with the engine in the folder above: nothing of the engine
 # passes between the two, so a change to the engine can't break the tab.
 # (The engine itself never uses Duck Mold.)
-duck-mold-core = { git = "https://github.com/mrguymrguy647-del/Duck-Mold", rev = "1137d51672fda32ca8af189c8a6085d2664bb344" }
-duck-mold-view = { git = "https://github.com/mrguymrguy647-del/Duck-Mold", rev = "1137d51672fda32ca8af189c8a6085d2664bb344" }
-duck-mold-cli = { git = "https://github.com/mrguymrguy647-del/Duck-Mold", rev = "1137d51672fda32ca8af189c8a6085d2664bb344" }
-duck-mold-studio = { git = "https://github.com/mrguymrguy647-del/Duck-Mold", rev = "1137d51672fda32ca8af189c8a6085d2664bb344" }
+duck-mold-core = { git = "https://github.com/mrguymrguy647-del/Duck-Mold", tag = "v1.0.0" }
+duck-mold-view = { git = "https://github.com/mrguymrguy647-del/Duck-Mold", tag = "v1.0.0" }
+duck-mold-cli = { git = "https://github.com/mrguymrguy647-del/Duck-Mold", tag = "v1.0.0" }
+duck-mold-studio = { git = "https://github.com/mrguymrguy647-del/Duck-Mold", tag = "v1.0.0" }
 
 # While developing, still optimise the libraries we use (egui and friends
 # run at full speed) and the engine; our own code stays quick to recompile.
