@@ -6,7 +6,9 @@
 //! engine then knows which files matter:
 //!
 //! - in a window, it looks at them twice a second and, when one changes on
-//!   disk, calls the game's [`reload`](crate::engine::Game::reload) hook;
+//!   disk, calls the game's [`reload`](crate::engine::Game::reload) hook
+//!   (the same goes for the model files, `.glb`, a game loads: only that
+//!   they changed is noted, not their bytes);
 //! - Duck Forge Studio sends a changed file's new text over its link;
 //! - a recording keeps each file's text as it was on frame 1 (its
 //!   `"files"`), and every change on the frame it happened, so a replay
@@ -45,6 +47,50 @@ struct Files {
     last: BTreeMap<String, String>,
     /// What was last seen on disk for each file, to notice it changing.
     on_disk: BTreeMap<String, String>,
+    /// The model files (`.glb`) the game loaded, each with when it was
+    /// last changed and how big it was then, to notice it being saved
+    /// again.
+    models: BTreeMap<String, Option<(std::time::SystemTime, u64)>>,
+}
+
+/// When a file was last changed, and how big it is. `None` if it isn't
+/// there (it may be being saved).
+fn stamp(name: &str) -> Option<(std::time::SystemTime, u64)> {
+    let data = std::fs::metadata(name).ok()?;
+    Some((data.modified().ok()?, data.len()))
+}
+
+/// Notes a model file the game loaded, so that a window can tell the
+/// game when it is saved again (Duck Mold's Export while the game
+/// runs). Its bytes aren't kept: the game loads it again from disk.
+pub(crate) fn note_model(path: &Path) {
+    let name = name_of(path);
+    let seen = stamp(&name);
+    FILES.with(|files| {
+        files.borrow_mut().models.insert(name, seen);
+    });
+}
+
+/// The model files saved again since they were last looked at.
+#[cfg_attr(not(feature = "window"), allow(dead_code))] // only the window looks
+pub(crate) fn models_changed_on_disk() -> Vec<String> {
+    let seen: Vec<(String, Option<(std::time::SystemTime, u64)>)> =
+        FILES.with(|files| files.borrow().models.clone().into_iter().collect());
+    let mut changed = Vec::new();
+    for (name, before) in seen {
+        // A file being swapped in can be missing for a moment: it is
+        // looked at again next time.
+        let Some(now) = stamp(&name) else {
+            continue;
+        };
+        if Some(now) != before {
+            FILES.with(|files| {
+                files.borrow_mut().models.insert(name.clone(), Some(now));
+            });
+            changed.push(name);
+        }
+    }
+    changed
 }
 
 thread_local! {
@@ -196,6 +242,24 @@ pub(crate) fn forget_given() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_model_file_saved_again_is_noticed_once() {
+        let folder = crate::test_folder::TestFolder::new("files-models");
+        let path = folder.join("robot.glb");
+        std::fs::write(&path, b"one").unwrap();
+        note_model(&path);
+        assert!(models_changed_on_disk().is_empty(), "nothing changed yet");
+        // Saved again, bigger: noticed, and only once.
+        std::fs::write(&path, b"another").unwrap();
+        assert_eq!(models_changed_on_disk(), [name_of(&path)]);
+        assert!(models_changed_on_disk().is_empty());
+        // Gone for a moment while it is swapped in: not a change yet.
+        std::fs::remove_file(&path).unwrap();
+        assert!(models_changed_on_disk().is_empty());
+        std::fs::write(&path, b"back").unwrap();
+        assert_eq!(models_changed_on_disk(), [name_of(&path)]);
+    }
 
     #[test]
     fn a_file_is_noted_and_can_be_given_newer_text() {

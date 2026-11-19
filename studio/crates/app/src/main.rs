@@ -74,7 +74,9 @@ fn main() -> eframe::Result {
             ctx.set_theme(theme::from_name(settings.theme.as_deref()));
             theme::apply_brand(ctx);
             Ok(Box::new(
-                StudioApp::new(Studio::new(settings)).checking_for_updates(),
+                StudioApp::new(Studio::new(settings).keeping_duck_molds_undo())
+                    .checking_for_updates()
+                    .remembering_models(),
             ))
         }),
     )
@@ -122,7 +124,7 @@ fn run_file(file: Option<&String>) -> i32 {
             return 2;
         }
     };
-    let mut studio = Studio::new(Settings::load());
+    let mut studio = Studio::new(Settings::load()).keeping_duck_molds_undo();
     match run_script(&mut studio, &text) {
         Ok(said) => {
             for line in said {

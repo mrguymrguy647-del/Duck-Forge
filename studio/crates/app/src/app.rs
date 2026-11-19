@@ -16,6 +16,7 @@ use crate::files_panel::{self, FilesPanel};
 use crate::game_view::{self, GameTexture};
 use crate::home::{self, GameDialogChoice, HomeChoice, NewGame, NewGameChoice};
 use crate::keys::{self, Placement};
+use crate::model_tabs::ModelTabs;
 use crate::panels::{self, CheckChoice, ProblemChoice};
 use crate::pictures::Pictures;
 use crate::theme;
@@ -69,6 +70,8 @@ pub struct StudioApp {
     /// Is there a newer Studio? Only the real app checks (see
     /// [`StudioApp::checking_for_updates`]); tests never use the internet.
     pub update: UpdateState,
+    /// The game's 3D models, each in a tab that is Duck Mold's Studio.
+    pub models: ModelTabs,
 }
 
 impl StudioApp {
@@ -98,7 +101,25 @@ impl StudioApp {
             code_open: false,
             recipe_open: false,
             update: UpdateState::Off,
+            models: ModelTabs::default(),
         }
+    }
+
+    /// Keeps Duck Mold's own settings for the models' tabs (its Undo for
+    /// each recipe, kept on disk). Only the real app does: tests never
+    /// touch a person's settings.
+    pub fn remembering_models(mut self) -> StudioApp {
+        self.models.remembering = true;
+        self
+    }
+
+    /// The place, in the game's folder, of the model whose tab is in
+    /// front. `None` while the game itself is.
+    pub fn model_in_front(&self) -> Option<String> {
+        if self.studio.screen != Screen::Game {
+            return None;
+        }
+        self.studio.open.as_ref()?.models.front.clone()
     }
 
     /// Starts looking for a newer Studio, if Settings says to.
@@ -107,6 +128,13 @@ impl StudioApp {
             self.update = UpdateState::check();
         }
         self
+    }
+
+    /// Does a command as a click in the window would, and shows what it
+    /// said in the status bar: an edit to a model whose tab is open is
+    /// made by that tab.
+    pub fn do_command(&mut self, command: Command) {
+        self.run_and_say(command);
     }
 
     /// Does a command and shows what it said in the status bar.
@@ -139,7 +167,15 @@ impl StudioApp {
         if let Some(window) = opens {
             *window = true;
         }
-        let done = self.studio.run(command);
+        // An edit to a model whose tab is open is made by that tab's own
+        // Duck Mold Studio, so it is a step of the tab's Undo like any
+        // other (not a change from outside).
+        let done = match &command {
+            Command::ModelEdit { path, edit } if self.models.app(path).is_some() => {
+                self.edit_in_tab(path, edit)
+            }
+            _ => self.studio.run(command),
+        };
         if copying && done.is_ok() {
             // Onto Windows' clipboard too, as lines of a scene file, so
             // they can be pasted into a file in Notepad, or into another
@@ -151,6 +187,39 @@ impl StudioApp {
         if let Ok(said) = done {
             self.said = Some((said, Instant::now()));
         }
+    }
+
+    /// `model.edit` for a model whose tab is open: Duck Mold's edit, made
+    /// by the tab's own Studio.
+    fn edit_in_tab(&mut self, place: &str, words: &str) -> Result<String, Problem> {
+        let edits = studio_core::models::read_edit(words).inspect_err(|problem| {
+            self.studio.problem = Some(problem.clone());
+        })?;
+        let Some(studio) = self
+            .models
+            .app(place)
+            .and_then(duck_mold_studio::StudioApp::studio_mut)
+        else {
+            return self.studio.run(Command::ModelEdit {
+                path: place.to_string(),
+                edit: words.to_string(),
+            });
+        };
+        let mut said = Vec::new();
+        for edit in &edits {
+            match studio.apply(edit) {
+                Ok(done) => said.push(done),
+                Err(why) => {
+                    let problem = Problem::new(
+                        format!("Duck Mold didn't make the edit \"{words}\" to {place}: {why}."),
+                        "Nothing was changed. Fix the edit and run it again.",
+                    );
+                    self.studio.problem = Some(problem.clone());
+                    return Err(problem);
+                }
+            }
+        }
+        Ok(format!("{place}: {}", said.join(". ")))
     }
 
     /// Build mode's right side: Feel, Sounds and Pictures, or Files.
@@ -313,6 +382,11 @@ impl StudioApp {
             || self.scene.is_adding();
         // A text box (the Console's line, a name) has the keyboard.
         let typing = ctx.egui_wants_keyboard_input();
+        // A model's tab is in front: the keys are Duck Mold's there (Tab
+        // shapes a box, Ctrl+Z is Duck Mold's Undo), and none go to the
+        // game.
+        let in_model = self.model_in_front().is_some();
+        let dialog = dialog || in_model;
 
         // Tab is the Studio's own key on the game screen: Build and Play.
         if self.studio.screen == Screen::Game
@@ -739,6 +813,27 @@ impl StudioApp {
                 });
             });
         });
+        // The tabs: the game, and each model that is open. A model's tab
+        // is Duck Mold's Studio, in all the room under the tabs.
+        let models = self
+            .studio
+            .open
+            .as_ref()
+            .map(|open| open.models.clone())
+            .unwrap_or_default();
+        let game_folder = self
+            .studio
+            .open
+            .as_ref()
+            .and_then(|open| open.game.folder.clone());
+        self.models.follow(game_folder.as_deref(), &models);
+        for command in self.models.strip(ui, &models) {
+            self.run_and_say(command);
+        }
+        if let Some(place) = self.model_in_front() {
+            self.model_tab(ui, &place);
+            return;
+        }
         self.notes_strip(ui);
         self.status_bar(ui);
         self.console_panel(ui);
@@ -800,6 +895,48 @@ impl StudioApp {
         if let Some(text) = self.copied.take() {
             ui.ctx().copy_text(text);
         }
+    }
+
+    /// A model's tab, in front: Duck Mold's Studio, with a small picture
+    /// of the game in its corner.
+    fn model_tab(&mut self, ui: &mut egui::Ui, place: &str) {
+        // What Duck Forge's Studio last said still shows, in one line at
+        // the bottom (a model sent to the game, say).
+        self.status_bar(ui);
+        let sent = self.models.show(ui, place);
+        if let Some(file) = sent.last() {
+            let root = self
+                .studio
+                .open
+                .as_ref()
+                .and_then(|open| open.game.folder.clone())
+                .unwrap_or_default();
+            let shown = file
+                .strip_prefix(&root)
+                .unwrap_or(file)
+                .to_string_lossy()
+                .replace('\\', "/");
+            let size = std::fs::metadata(file).map_or(0, |data| data.len() as usize);
+            self.said = Some((
+                format!(
+                    "Sent {shown} to the game ({})",
+                    duck_mold_core::tools::size_in_words(size)
+                ),
+                Instant::now(),
+            ));
+        }
+        // The game, as it is now, to look at.
+        self.studio.wait_for_picture(studio_core::play::PATIENCE);
+        let picture = self.studio.play().and_then(|play| play.picture.clone());
+        let running = self.is_playing();
+        if self
+            .models
+            .game_picture(ui, place, &mut self.game_texture, picture.as_ref(), running)
+        {
+            self.run_and_say(Command::ModelShow { path: None });
+        }
+        // The game isn't being pointed at here.
+        self.placement = None;
     }
 
     /// Files dropped on a game's screen from File Explorer are copied into

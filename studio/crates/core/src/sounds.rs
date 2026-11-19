@@ -586,6 +586,17 @@ mod tests {
         );
         assert_eq!(recipe_of(&game, "assets/hum.wav"), None);
         assert!(is_recipe(&game.join("art/music_night.toml")), "a song");
+        // Duck Mold's model recipes are in art/ too: not sounds.
+        let pip = game.join("../pip_walk/art");
+        assert!(!is_recipe(&pip.join("pip.toml")));
+        assert!(!is_recipe(&pip.join("plank_crate.toml")));
+        // ...and a Duck Echo recipe isn't a model: Files doesn't open it
+        // in a Duck Mold tab.
+        let step = crate::game_files::tree(&game)
+            .into_iter()
+            .find(|entry| entry.path == "art/step.toml")
+            .unwrap();
+        assert_eq!(step.kind, crate::game_files::FileKind::Data);
         assert!(!is_recipe(&game.join("art/blocks.json")));
         let all = recipes(&game);
         assert_eq!(all.of_sound["assets/step_3.wav"], "art/step.toml");

@@ -812,10 +812,10 @@ nothing happens elsewhere). In `main`, before there's a `ctx`:
 
 **`Game`**: `update(ctx)` and `draw(canvas)` are required. Optional:
 `init(ctx)` (once, before the first update), `resize(ctx, width, height)`,
-`reload(ctx, file) -> bool` (a text file it read changed while it runs:
-its level, painted in Duck Forge Studio or edited by hand in a window;
-read it again and return `true`, or `false` if it can't without starting
-again; see the starters'), and `quit(ctx)`: runs once on every way out (the window's close button,
+`reload(ctx, file) -> bool` (a file it read changed while it runs: its
+level, painted in Duck Forge Studio or edited by hand in a window, or a
+Duck Mold model saved again; read it again and return `true`, or `false`
+if it can't without starting again; see the starters'), and `quit(ctx)`: runs once on every way out (the window's close button,
 `ctx.quit()`, `--frames`, the end of a headless run, the Studio stopping
 the game), which is the place to save. A test calls it with `sim.quit()`.
 
@@ -1776,6 +1776,54 @@ m and 36.6 m for the robot).
 - `canvas.draw_mesh_within(&mesh, &place, &camera, ball)` draws any mesh
   with its `mesh.bounding_ball()` kept from when it last changed.
 
+**Images on a Duck Mold model.** A recipe's `image = "textures/planks.png"`
+(a whole part) or `images = { front = "textures/face.png" }` (one face)
+puts a PNG on it; the `.glb` holds all of a model's images on one
+picture. Nothing changes in the game's code:
+
+- `Mesh::load_glb`, `GlbModel::to_mesh` and `AnimatedModel` give a mesh
+  whose `texture` is that picture and whose `uvs` hold each triangle's
+  place on it (`None` for a triangle without an image). Draw it as
+  always; far-away versions show the same picture.
+- Pixels stay sharp squares, near and far, on the CPU and on the
+  graphics card.
+- A triangle with an image has the colour white: the image shows as it
+  was painted (already laid over the part's colour where the image was
+  see-through). Setting another colour on it tints the image.
+- `model.picture_sprite()` is the picture as a `Sprite`, and
+  `model.picture` its PNG bytes and size, if a game wants them.
+- Two meshes with different pictures can't be merged (`Mesh::merge`):
+  draw two models with images as two meshes.
+- A file with images says layout 2. A Duck Forge from before this
+  refuses it ("written by a newer Duck Mold ... update Duck Forge").
+
+**A model saved again while the game runs.** One line in the game's
+`reload` takes it:
+
+```rust
+fn reload(&mut self, _ctx: &mut Context, file: &Path) -> bool {
+    self.robot.reload_if_changed(file)   // true if `file` is the robot's
+}
+```
+
+- `AnimatedModel::reload_if_changed(file)` loads the model's file again
+  if `file` is the one it was loaded from, and carries on: the same
+  animation at the same moment and speed (or the same pose), and the
+  turns the game gave its joins, each found again by name. An animation
+  or pose the new file hasn't got leaves it at rest. A file that can't
+  be read leaves the old model, with the reason on the terminal.
+  `robot.file()` is the file it was loaded from.
+- Who calls `reload`: Duck Forge Studio, the moment a model is sent to
+  the game ("Send to game" in a model's tab, or `model.send`); and a
+  game's own window, which looks twice a second at the `.glb` files it
+  loaded. So `duck-mold export` from a terminal, or Export in Duck
+  Mold's own Studio, shows in a running game as well.
+- A game with several models: `self.robot.reload_if_changed(file) ||
+  self.crate_.reload_if_changed(file)`. A plain `Mesh` from
+  `Mesh::load_glb` has no such function: load it again in `reload` if
+  `file` is its file.
+- `examples/robot_walk/` and `examples/robot_click/` have the line.
+
 `examples/robot_click/` is hit shapes and events in one small game: the
 robot walks round, each `footstep` event plays a sound and leaves a
 puff at the foot that lands (the further forward of its two
@@ -2041,7 +2089,9 @@ agent might meet:
   `files.select`, `files.open`, `files.play`, `files.add` (copy files in),
   `files.new_folder`, `files.rename` and `files.delete`, whose paths are
   inside the open game's folder (`{"do": "files.add", "files":
-  ["C:/Users/me/duck.png"], "to": "assets"}`). A script can say what must be
+  ["C:/Users/me/duck.png"], "to": "assets"}`). A game's 3D models have
+  `model.open`, `model.edit`, `model.send`, `model.close` and
+  `model.show` (see "3D models in the Studio" below). A script can say what must be
   true by now, and stops if it isn't:
   `{"expect": "check", "passed": false, "says": "can't win"}` (the last
   Check, and words in one of its lines); `{"shot": "a name"}` saves the
@@ -2049,6 +2099,44 @@ agent might meet:
   example (new game, painting, a plank moved under the duck in mid-jump,
   Feel, Check, a fix, a clip). Keys held when the game is frozen are let
   go when it carries on: press them again.
+- **3D models in the Studio.** A game's models are made with
+  [Duck Mold](https://github.com/mrguymrguy647-del/Duck-Mold): a model
+  is a recipe (a text file, `art/robot.toml`), and what the game loads
+  is the `.glb` Duck Mold writes from it (`assets/robot.glb`). A click
+  on either in the Files panel opens the recipe in a tab beside the
+  game, and the tab is Duck Mold's own Studio (its library, at the
+  commit `studio/Cargo.toml` names). You don't need the tab: the files
+  are the same ones `duck-mold` works on, and the commands below do the
+  same with no window.
+  - `{"do": "model.open", "path": "art/robot.toml"}` opens the tab (a
+    `.glb` opens the recipe it was made from: the one whose `export`
+    line names it, or one of the same name in `art/`; with no recipe it
+    is only looked at). `model.close` closes it; `model.show` brings it,
+    or without `path` the game, to the front. Open tabs are remembered
+    for each game.
+  - `{"do": "model.edit", "path": "art/robot.toml", "edit": "set head
+    --color red"}` is one Duck Mold edit, written as it follows
+    `duck-mold edit <recipe>` (Duck Mold's `docs/AI_GUIDE.md` lists
+    them). It changes only the lines it must, and is one step of Duck
+    Mold's Undo, the one kept on disk for each recipe: Ctrl+Z in the
+    tab, or in Duck Mold's own Studio later, takes it back. An edit
+    Duck Mold won't make is a problem that says why, and nothing is
+    written.
+  - `{"do": "model.send", "path": "art/robot.toml"}` is "Send to game":
+    it builds the recipe and writes the `.glb` where the recipe's
+    `export` line says (`export = "../assets/robot.glb"`), or into the
+    game's `assets` under the recipe's name if it has none. A recipe
+    with a mistake isn't sent: the game keeps the last model that
+    worked. In the tab the model is sent after every change by itself
+    ("Export after every change", in the tab's Model section).
+  - **A running game shows it at once**, mid-animation, if its `reload`
+    has the line `self.robot.reload_if_changed(file)` (section 9,
+    "A model saved again while the game runs"). Without the line the
+    Studio offers Restart, as for any file a game reads only at its
+    start.
+  - `duck-mold edit` and `duck-mold export` from a terminal do the same
+    to the same files; an open tab shows what they did within half a
+    second.
 - **Check and the bot**: a starter's `the_bot_can_still_win_on_the_level`
   test fails with a sentence Check shows as its line: "With the Feel
   values as they are now, the bot can't get from column 6, row 12 to the

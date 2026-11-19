@@ -156,6 +156,13 @@ impl Game for RobotWalk {
         ctx.report("seconds_in", self.robot.time());
     }
 
+    /// The robot's model was saved again while the game runs (changed in
+    /// Duck Mold and exported, or sent from Duck Forge Studio): take the
+    /// new one and carry on, mid-step.
+    fn reload(&mut self, _ctx: &mut Context, file: &std::path::Path) -> bool {
+        self.robot.reload_if_changed(file)
+    }
+
     fn draw(&self, canvas: &mut Canvas) {
         canvas.clear(SKY);
         // The sun comes from above, a little left, and from the camera's

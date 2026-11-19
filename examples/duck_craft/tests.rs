@@ -937,7 +937,11 @@ fn falling_sands_thud_is_heard_on_the_frame_it_lands_in_a_headless_run() {
         let at = thud.start_sample() + hit;
         assert_eq!(at % per_frame, 0, "the hit is on a frame's first sample");
         let lands = at / per_frame + 1;
-        assert!(lands > thud.frame, "started early: asked on {}, lands on {lands}", thud.frame);
+        assert!(
+            lands > thud.frame,
+            "started early: asked on {}, lands on {lands}",
+            thud.frame
+        );
         // And it's there in audio.wav: the thud's own sound matches the mix
         // best within a few samples of that one, looking half a frame
         // either way (the dirt's break sound plays over it). A low thud

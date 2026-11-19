@@ -346,6 +346,33 @@ pub enum Command {
         #[serde(default)]
         key: Option<String>,
     },
+    /// Open a 3D model in a tab: `{"do": "model.open", "path":
+    /// "art/robot.toml"}`. The tab is Duck Mold's own Studio. A recipe
+    /// (a Duck Mold `.toml` or `.json`) can be changed there; for a model
+    /// file (`assets/robot.glb`) the recipe it was made from is opened,
+    /// if the game has it, and otherwise the file is only looked at.
+    #[serde(rename = "model.open")]
+    ModelOpen { path: String },
+    /// One Duck Mold edit to a model's recipe, written as it follows
+    /// `duck-mold edit <recipe>`: `{"do": "model.edit", "path":
+    /// "art/robot.toml", "edit": "set head --color red"}`. One step of
+    /// Duck Mold's Undo.
+    #[serde(rename = "model.edit")]
+    ModelEdit { path: String, edit: String },
+    /// "Send to game": build a model's recipe and write its `.glb` where
+    /// its `export` line says, or into the game's assets. A game that is
+    /// running takes the new model at once.
+    #[serde(rename = "model.send")]
+    ModelSend { path: String },
+    /// Close a model's tab.
+    #[serde(rename = "model.close")]
+    ModelClose { path: String },
+    /// Bring a model's tab to the front, or, without `path`, the game.
+    #[serde(rename = "model.show")]
+    ModelShow {
+        #[serde(default)]
+        path: Option<String>,
+    },
     /// A new script: `{"do": "script.new", "name": "bee", "folder":
     /// "scripts"}` writes `scripts/bee.rs` from a beginner's skeleton, adds
     /// it to the game's `scripts.rs` (connecting `main.rs` the first time),
@@ -815,6 +842,31 @@ pub const COMMANDS: &[CommandInfo] = &[
         needs: "path: like assets/sign.png, or a script like scripts/bee.rs; at: like [128, 208] (optional); ids: objects to give it to (optional)",
     },
     CommandInfo {
+        name: "model.open",
+        title: "Open a 3D model in a tab (Duck Mold's Studio)",
+        needs: "path: a recipe like art/robot.toml, or a model like assets/robot.glb",
+    },
+    CommandInfo {
+        name: "model.edit",
+        title: "Make one Duck Mold edit to a model's recipe",
+        needs: "path: like art/robot.toml; edit: as it follows `duck-mold edit <recipe>`, like set head --color red",
+    },
+    CommandInfo {
+        name: "model.send",
+        title: "Send a model to the game (write its .glb)",
+        needs: "path: like art/robot.toml",
+    },
+    CommandInfo {
+        name: "model.close",
+        title: "Close a model's tab",
+        needs: "path: like art/robot.toml",
+    },
+    CommandInfo {
+        name: "model.show",
+        title: "Bring a model's tab to the front, or the game",
+        needs: "path: like art/robot.toml (none for the game)",
+    },
+    CommandInfo {
         name: "script.new",
         title: "Make a new script, and open it",
         needs: "name: like bee; folder: like scripts (optional: the game's own folder)",
@@ -981,6 +1033,8 @@ enum FirstSteps {
 /// The game that's open, and everything going on with it.
 pub struct OpenGame {
     pub game: Game,
+    /// The 3D models open in tabs beside the game.
+    pub models: crate::models::Models,
     /// The build in progress, or the last one.
     pub build: Option<Build>,
     /// The newest built copy, ready to play.
@@ -1160,6 +1214,11 @@ pub struct Studio {
     pub open: Option<OpenGame>,
     /// The last thing that went wrong with a command, for the app to show.
     pub problem: Option<Problem>,
+    /// Where Duck Mold keeps each recipe's Undo: its own settings folder,
+    /// so a model changed here can be undone in Duck Mold's own Studio and
+    /// the other way round. `None` keeps none (tests never touch a
+    /// person's settings).
+    pub duck_mold_undo: Option<PathBuf>,
     /// The keys and mouse buttons really held right now, as the app sees
     /// them. Play uses them when carrying on from a freeze: whatever the
     /// game still thinks is held but isn't, is let go, so nothing sticks.
@@ -1201,6 +1260,7 @@ impl Studio {
             making: None,
             open: None,
             problem: None,
+            duck_mold_undo: None,
             debug_overlay: false,
             keys_down: Vec::new(),
             recycle_bin: RecycleBin::System,
@@ -1283,6 +1343,117 @@ impl Studio {
     }
 
     /// The open game's own folder, for the Files panel's commands.
+    /// A model's file in the open game: the real path of `place`, which
+    /// must be there.
+    fn model_file(&mut self, place: &str) -> Result<(PathBuf, PathBuf, String), Problem> {
+        let folder = self.files_folder()?;
+        let place = place.trim().replace('\\', "/");
+        let real = game_files::resolve(&folder, &place)?;
+        if !real.is_file() {
+            return Err(no_such_file(&place));
+        }
+        Ok((folder, real, place))
+    }
+
+    /// Remembers which model tabs the open game has, for next time.
+    fn remember_model_tabs(&mut self) {
+        let Some(open) = &self.open else {
+            return;
+        };
+        let (name, tabs) = (open.game.name.clone(), open.models.tabs.clone());
+        if tabs.is_empty() {
+            self.settings.model_tabs.remove(&name);
+        } else {
+            self.settings.model_tabs.insert(name, tabs);
+        }
+        self.settings.save();
+    }
+
+    /// `model.open`: a tab for a recipe, or for a model file (the recipe
+    /// it was made from, if the game has it).
+    fn model_open(&mut self, path: &str) -> Result<String, Problem> {
+        let (folder, real, place) = self.model_file(path)?;
+        let (place, said) = match crate::models::kind_of(&real) {
+            Some(crate::models::Kind::Recipe) => (place.clone(), format!("Opened {place}")),
+            Some(crate::models::Kind::Model) => match crate::models::recipe_for(&folder, &place) {
+                Some(recipe) => {
+                    let said = format!("Opened {recipe}, the recipe {place} is made from");
+                    (recipe, said)
+                }
+                None => (
+                    place.clone(),
+                    format!("Opened {place} to look at: the game has no recipe for it to change"),
+                ),
+            },
+            None => {
+                return Err(Problem::new(
+                    format!("{place} isn't a 3D model."),
+                    "Open a Duck Mold recipe (a .toml or .json file with parts, like \
+                     art/robot.toml) or a model file (.glb, .gltf or .obj).",
+                ));
+            }
+        };
+        self.open_game()?.models.open(&place);
+        self.remember_model_tabs();
+        Ok(said)
+    }
+
+    /// `model.close`.
+    fn model_close(&mut self, path: &str) -> Result<String, Problem> {
+        let place = path.trim().replace('\\', "/");
+        if !self.open_game()?.models.close(&place) {
+            return Err(Problem::new(
+                format!("{place} isn't open in a tab."),
+                "Nothing to close.",
+            ));
+        }
+        self.remember_model_tabs();
+        Ok(format!("Closed {place}"))
+    }
+
+    /// `model.show`: a tab to the front, or the game.
+    fn model_show(&mut self, path: Option<String>) -> Result<String, Problem> {
+        let open = self.open_game()?;
+        match path.map(|path| path.trim().replace('\\', "/")) {
+            None => {
+                open.models.front = None;
+                Ok(String::from("Showing the game"))
+            }
+            Some(place) if open.models.tabs.contains(&place) => {
+                open.models.front = Some(place.clone());
+                Ok(format!("Showing {place}"))
+            }
+            Some(place) => Err(Problem::new(
+                format!("{place} isn't open in a tab."),
+                "Open it first: model.open.",
+            )),
+        }
+    }
+
+    /// `model.edit`: one Duck Mold edit, in Duck Mold's words.
+    fn model_edit(&mut self, path: &str, edit: &str) -> Result<String, Problem> {
+        let (_, real, place) = self.model_file(path)?;
+        let history = self.duck_mold_undo.clone();
+        let said = crate::models::edit(&real, &place, edit, history.as_deref())?;
+        Ok(format!("{place}: {said}"))
+    }
+
+    /// `model.send`: the model's `.glb`, written for the game. The
+    /// Studio's own look at the game's assets (every frame) tells a
+    /// running game.
+    fn model_send(&mut self, path: &str) -> Result<String, Problem> {
+        let (folder, real, place) = self.model_file(path)?;
+        let sent = crate::models::send(&folder, &real, &place)?;
+        let shown = sent
+            .file
+            .strip_prefix(&folder)
+            .unwrap_or(&sent.file)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let size = duck_mold_core::tools::size_in_words(sent.bytes);
+        Ok(format!("Sent {shown} to the game ({size})"))
+    }
+
     fn files_folder(&mut self) -> Result<PathBuf, Problem> {
         let game = &self.open_game()?.game;
         game.folder.clone().ok_or_else(|| {
@@ -1421,6 +1592,16 @@ impl Studio {
 
     fn rust(&self) -> Result<Rust, Problem> {
         self.rust.clone()
+    }
+
+    /// Keeps Duck Mold's Undo for each model's recipe where Duck Mold's
+    /// own Studio keeps it (Duck Mold's settings folder), so a model
+    /// changed here can be undone there and the other way round. The
+    /// real Studio does; tests keep their own.
+    pub fn keeping_duck_molds_undo(mut self) -> Studio {
+        self.duck_mold_undo =
+            duck_mold_view::quill::settings_folder().map(|folder| folder.join("undo"));
+        self
     }
 
     fn open_game(&mut self) -> Result<&mut OpenGame, Problem> {
@@ -1596,8 +1777,27 @@ impl Studio {
                 if history.snapshots().is_empty() {
                     let _ = history.take("When it was first opened in the Studio");
                 }
+                // The model tabs it had open last time, where the files
+                // are still there. The game itself is in front.
+                let models = crate::models::Models {
+                    tabs: self
+                        .settings
+                        .model_tabs
+                        .get(&game.name)
+                        .into_iter()
+                        .flatten()
+                        .filter(|place| {
+                            game_folder
+                                .as_ref()
+                                .is_some_and(|own| own.join(place.as_str()).is_file())
+                        })
+                        .cloned()
+                        .collect(),
+                    front: None,
+                };
                 self.open = Some(OpenGame {
                     check_result: check::load(&folder, &game.name),
+                    models,
                     game,
                     build: None,
                     program: None,
@@ -2033,6 +2233,11 @@ impl Studio {
                 set,
             } => self.object_add(kind, at, name, set),
             Command::FilesUse { path, at, ids, key } => self.files_use(path, at, ids, key),
+            Command::ModelOpen { path } => self.model_open(&path),
+            Command::ModelEdit { path, edit } => self.model_edit(&path, &edit),
+            Command::ModelSend { path } => self.model_send(&path),
+            Command::ModelClose { path } => self.model_close(&path),
+            Command::ModelShow { path } => self.model_show(path),
             Command::ScriptNew { name, folder } => self.script_new(name, folder),
             Command::ScriptRemove { ids } => self.script_remove(ids),
             Command::ScriptTurnIntoCode { ids, name } => self.script_turn_into_code(ids, name),
@@ -3206,6 +3411,11 @@ mod tests {
             r#"{"do": "files.rename", "path": "assets/duck.png", "to": "hero.png"}"#,
             r#"{"do": "files.delete", "path": "assets/old.png"}"#,
             r#"{"do": "files.use", "path": "assets/sign.png", "at": [128, 208]}"#,
+            r#"{"do": "model.open", "path": "art/robot.toml"}"#,
+            r#"{"do": "model.edit", "path": "art/robot.toml", "edit": "set head --color red"}"#,
+            r#"{"do": "model.send", "path": "art/robot.toml"}"#,
+            r#"{"do": "model.close", "path": "art/robot.toml"}"#,
+            r#"{"do": "model.show", "path": "art/robot.toml"}"#,
             r#"{"do": "script.new", "name": "bee", "folder": "scripts"}"#,
             r#"{"do": "script.remove", "ids": [4]}"#,
             r#"{"do": "script.turn_into_code", "ids": [5], "name": "duck"}"#,
@@ -3494,6 +3704,136 @@ mod tests {
             "{}",
             started.shown
         );
+    }
+
+    #[test]
+    fn model_commands_open_edit_send_and_close() {
+        let test = crate::test_folder::TestFolder::new("studio-models");
+        let root = small_games_folder(&test);
+        let game = root.join("examples/bee_maze");
+        std::fs::create_dir_all(game.join("art")).unwrap();
+        std::fs::write(game.join("art/crate.toml"), crate::models::tests::CRATE).unwrap();
+        let mut settings = test.settings();
+        settings.games_folder = Some(root.clone());
+        let mut studio = Studio::new(settings);
+        studio.rust = Err(Problem::new("No Rust in this test.", ""));
+        // Duck Mold's Undo is kept in a folder of the test's own.
+        studio.duck_mold_undo = Some(test.join("duck-mold/undo"));
+        let run = |studio: &mut Studio, json: &str| {
+            let command: Command = serde_json::from_str(json).unwrap();
+            studio.run(command)
+        };
+        let tabs = |studio: &Studio| studio.open.as_ref().unwrap().models.clone();
+        let open = r#"{"do": "model.open", "path": "art/crate.toml"}"#;
+        assert_eq!(run(&mut studio, open).unwrap_err().what, "No game is open.");
+        run(&mut studio, r#"{"do": "game.open", "name": "bee_maze"}"#).unwrap();
+
+        // A recipe opens in a tab, in front of the game.
+        assert_eq!(run(&mut studio, open).unwrap(), "Opened art/crate.toml");
+        assert_eq!(tabs(&studio).tabs, ["art/crate.toml"]);
+        assert_eq!(tabs(&studio).front.as_deref(), Some("art/crate.toml"));
+        // What isn't a model says so; nothing outside the game's folder.
+        let problem = run(&mut studio, r#"{"do": "model.open", "path": "main.rs"}"#).unwrap_err();
+        assert_eq!(problem.what, "main.rs isn't a 3D model.");
+        let problem = run(
+            &mut studio,
+            r#"{"do": "model.open", "path": "../dodge.rs"}"#,
+        )
+        .unwrap_err();
+        assert!(
+            problem.what.contains("isn't inside the game's folder"),
+            "{problem}"
+        );
+        let problem = run(
+            &mut studio,
+            r#"{"do": "model.open", "path": "art/gone.toml"}"#,
+        )
+        .unwrap_err();
+        assert_eq!(
+            problem.what,
+            "There's no art/gone.toml in the game's folder."
+        );
+
+        // An edit, in Duck Mold's words: only the line it must change.
+        let said = run(
+            &mut studio,
+            r#"{"do": "model.edit", "path": "art/crate.toml", "edit": "set box --color red"}"#,
+        )
+        .unwrap();
+        assert!(said.starts_with("art/crate.toml: "), "{said}");
+        assert_eq!(
+            std::fs::read_to_string(game.join("art/crate.toml")).unwrap(),
+            crate::models::tests::CRATE.replace("color = \"wood\"", "color = \"red\"")
+        );
+        let problem = run(
+            &mut studio,
+            r#"{"do": "model.edit", "path": "art/crate.toml", "edit": "set lid --color red"}"#,
+        )
+        .unwrap_err();
+        assert!(problem.what.contains("lid"), "{problem}");
+
+        // Sent to the game: its assets, where the game loads it from, and
+        // where the Studio's look at the assets finds it changed.
+        assert!(!game.join("assets/crate.glb").exists());
+        let said = run(
+            &mut studio,
+            r#"{"do": "model.send", "path": "art/crate.toml"}"#,
+        )
+        .unwrap();
+        assert!(
+            said.starts_with("Sent assets/crate.glb to the game ("),
+            "{said}"
+        );
+        let model = duckforge::glb::GlbModel::load(game.join("assets/crate.glb")).unwrap();
+        assert_eq!(model.triangles.len(), 12);
+        assert_ne!(
+            assets_now(Some(&game)),
+            studio.open.as_ref().unwrap().assets_seen,
+            "a running game would be told next frame"
+        );
+        // The model file opens its recipe's tab: the one already open.
+        assert_eq!(
+            run(
+                &mut studio,
+                r#"{"do": "model.open", "path": "assets/crate.glb"}"#
+            )
+            .unwrap(),
+            "Opened art/crate.toml, the recipe assets/crate.glb is made from"
+        );
+        assert_eq!(tabs(&studio).tabs, ["art/crate.toml"]);
+
+        // The game to the front, and the tab again.
+        assert_eq!(
+            run(&mut studio, r#"{"do": "model.show"}"#).unwrap(),
+            "Showing the game"
+        );
+        assert_eq!(tabs(&studio).front, None);
+        run(
+            &mut studio,
+            r#"{"do": "model.show", "path": "art/crate.toml"}"#,
+        )
+        .unwrap();
+        assert_eq!(tabs(&studio).front.as_deref(), Some("art/crate.toml"));
+
+        // The tabs are remembered for the game: open again next time,
+        // behind the game.
+        run(&mut studio, r#"{"do": "home.open"}"#).unwrap();
+        run(&mut studio, r#"{"do": "game.open", "name": "bee_maze"}"#).unwrap();
+        assert_eq!(tabs(&studio).tabs, ["art/crate.toml"]);
+        assert_eq!(tabs(&studio).front, None);
+        let saved = std::fs::read_to_string(test.join("settings.json")).unwrap();
+        assert!(saved.contains("art/crate.toml"), "{saved}");
+
+        // Closed, and not there next time.
+        let close = r#"{"do": "model.close", "path": "art/crate.toml"}"#;
+        assert_eq!(run(&mut studio, close).unwrap(), "Closed art/crate.toml");
+        assert_eq!(
+            run(&mut studio, close).unwrap_err().what,
+            "art/crate.toml isn't open in a tab."
+        );
+        assert!(tabs(&studio).tabs.is_empty());
+        let saved = std::fs::read_to_string(test.join("settings.json")).unwrap();
+        assert!(!saved.contains("art/crate.toml"), "{saved}");
     }
 
     #[test]

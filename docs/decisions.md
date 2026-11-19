@@ -6511,3 +6511,151 @@ sample of `audio.wav` a sound starts at.
 - **Screen tests check names.** `egui_kittest` fails a test whose
   widgets have no accessible name: give a box its label with
   `labelled_by`, which also lets tests find it by role.
+
+# Duck Mold's Phase 7b, step 2: images on models
+
+A Duck Mold recipe can put a picture on a part or on one face of it,
+and the model comes into a game with it.
+
+- **Nothing new is drawn.** A `Mesh` already had one `texture` and a
+  place on it for each triangle (`uvs`), drawn with the nearest pixel
+  and multiplied by the triangle's colour. Duck Mold writes its files to
+  fit: all of a model's images on one picture (a PNG inside the `.glb`),
+  so a model is still one mesh and one draw.
+- **The reader (version 9, the same code in both repositories)** gives
+  `GlbModel::picture`, the PNG's bytes as they are in the file, and
+  `GlbTriangle::on_picture`, each triangle's three places on it. It
+  still uses only the standard library and `serde_json`: turning the
+  bytes into pixels is `Sprite::from_png_bytes`, below the markers, with
+  the PNG library the engine already had. No new dependency.
+- **A file with images says layout 2**, and readers from before refuse
+  it with the sentence they always had for a newer file. Far-away
+  versions were added without a new number because an old reader drew
+  them right by passing over them; passing over images would draw every
+  painted face white, with nothing to say why.
+- **An image is already laid over its colour in the file.** Where a
+  recipe's image is see-through, the part's palette colour shows. glTF
+  can't say that, so Duck Mold paints it into the picture, and a
+  triangle with an image is white. Every glTF program then shows the
+  model the same way, and Duck Forge needs no rule of its own for it.
+- **A triangle without an image has no place on the picture** in the
+  mesh (`uvs` holds `None`), so it is drawn as a plain triangle, as
+  before. In the file its corners point at a white pixel, for other
+  glTF programs; the reader turns that back into "no image".
+- **`GlbModel::load` reads the picture once to check it**, so a damaged
+  one is a `LoadError` with a sentence and `to_mesh` never has to fail.
+  `AnimatedModel` reads it once and every version's mesh shares it.
+
+Tests (`tests/duck_mold_images.rs`), on Duck Mold's golden
+`plank_crate.glb`: it loads with its picture, the size Duck Mold
+reported; the planks are upright on all four sides and the lid is on
+top; from 1.6 m to 40 m no pixel has a colour that wasn't painted; two
+stored pictures; an animated model keeps its images; a model without
+images has none; a damaged picture is one sentence.
+
+# Duck Mold's Phase 7b, step 6: Duck Mold inside the Studio, and models that change while the game runs
+
+A game's 3D models open in tabs beside the game, and a tab is Duck
+Mold's own Studio. A model changed there shows in the running game at
+once.
+
+- **No copy of Duck Mold.** Duck Mold's Studio is a library
+  (`duck-mold-studio`) with a small program on top; the tab draws that
+  library into the space under the tabs, with its "hosted" switch on (no
+  start page, nothing about other files, Export reads "Send to game").
+  The Studio's `Cargo.toml` names one release of Duck Mold, by its tag
+  (`v1.0.0`).
+- **The engine never uses Duck Mold.** Only the Studio does, so the
+  engine builds and tests alone, as before, and its list of libraries
+  hasn't changed.
+- **Two copies of the engine's drawing code in the Studio's program.**
+  Inside the tab Duck Mold draws with the engine commit that *Duck Mold*
+  names, not the engine in the folder above. So a change to the engine
+  can't break the tab, and the tab's picture is exactly Duck Mold's own.
+  Nothing of the engine passes between the two: the tab is given a file
+  to open and says which `.glb` files it wrote. The cost is the
+  drawing code twice in `DuckForgeStudio.exe`; that part is small (no
+  window, no graphics card, no sound).
+- **One test keeps the two in step.** The Studio's tests send a model
+  with an image from the tab (written by the Duck Mold the Studio
+  names) and load it with the engine in the folder above. If Duck
+  Mold's writer ever gets ahead of this engine's reader, that test is
+  red before a person finds a model the game can't read.
+- **Which tabs are open is the core's to know**
+  (`studio_core::models::Models`), so `model.open`, `model.close` and
+  `model.show` work with no window, like every other command. The
+  window keeps one Duck Mold Studio for each.
+- **`model.edit` takes Duck Mold's own words** (`set head --color
+  red`), read by the same code as `duck-mold edit` (Duck Mold's
+  command-line crate is a small library too). With the tab open the
+  edit is made by the tab's Studio, so it is a step of its Undo like a
+  click; with no window, by a Duck Mold Studio opened for the moment,
+  with Duck Mold's Undo kept where Duck Mold keeps it. Either way the
+  step can be undone in Duck Mold's own Studio later.
+- **Undo belongs to the tab in front.** In a model's tab Ctrl+Z is Duck
+  Mold's; on the game's tab it is the Studio's own, which doesn't hold
+  model edits. The Studio's keys (Tab for Build and Play, F1, F12) and
+  the game's inputs are off while a model is in front.
+- **"Send to game" goes to the game's assets** when the recipe has no
+  `export` line of its own (`assets/<name>.glb`). The tab offers to
+  write the line, so that Duck Mold on its own exports there too.
+- **The game hears about a model the way it hears about a picture.**
+  The Studio already looked at the game's `assets` every frame and sent
+  each changed file's name over the link; a `.glb` is one more. The
+  game's `reload` gets the name and loads the file itself, so the bytes
+  never cross the link.
+- **`AnimatedModel::reload_if_changed(file)`** is the one line a game
+  adds. It finds what it was doing again by name in the new file (the
+  animation and its moment, the pose, the joins the game turned), so a
+  model changed mid-walk keeps walking. It returns `true` for its own
+  file even if the file can't be read (the old model stays, with the
+  reason printed): "start the game again" would be the wrong advice for
+  a half-finished recipe.
+- **A game's own window looks at the `.glb` files it loaded**, twice a
+  second, as it looks at its level files. Only that a file changed is
+  noted (its time and size), not its bytes: a model can be megabytes.
+  So Duck Mold's own Studio, or `duck-mold export`, updates a game that
+  isn't in the Studio at all.
+- **In a recording, a model change is a file change with no text.** A
+  replay calls `reload` on the same frame, and the game loads whatever
+  the file is then. A replay is the same only if the file is: the same
+  is already true of a picture changed while recording.
+- **A model file is a kind of its own in the Files panel** ("model"): a
+  `.glb`, `.gltf` or `.obj`, and a `.toml` or `.json` that reads as a
+  Duck Mold recipe (it has `parts`). The file is read to tell, and the
+  answer kept until the file changes, since the panel lists the folder
+  every frame.
+
+Tests: `tests/duck_mold_reload.rs` (the same file again changes
+nothing; a new model keeps the walk's moment and the head's turn; a
+model without the animation rests; a broken file leaves the old model;
+the game's `reload` hook), `studio_core`'s `models` tests and
+`model_commands_open_edit_send_and_close`, and
+`studio/crates/app/tests/models.rs` (the tab is Duck Mold's Studio; an
+edit is sent and undone; a `.glb` opens its recipe).
+
+# Duck Mold's Phase 7b, step 7: Pip, and the painted robot
+
+- **`examples/pip_walk/`** is one character made with all three Duck
+  apps: a face painted in Duck Quill (its script is in the game's `art`
+  folder), put together and animated in Duck Mold (`art/pip.toml`), and
+  walking here. The game is as small as `robot_walk`: the arrows walk
+  Pip, four plank crates are in the way (a circle against squares), and
+  `reload` takes a model saved again. The pictures on Pip and on the
+  crates need no code.
+- **Its recipes have `export` lines** (`../assets/pip.glb`), so the
+  example is also the place to try a model changing in a running game,
+  from Duck Mold's Studio, from a terminal, or from a tab in the Studio.
+  `art/README.md` says how.
+- **The robot in the test files is painted now** (Duck Mold's own robot
+  example got brows, a mouth and a label): `robot.glb` is a file with
+  images, far-away versions and animations at once, which is what
+  `the_painted_robot_keeps_its_face_and_label_near_and_far` tests. Its
+  stored pictures changed where the face or the label shows. Where a
+  test counted the robot's colours, a triangle with an image is white
+  in the mesh and is counted apart; the file from before the tree is
+  still compared with it, triangle for triangle, with those four
+  triangles given back their plain colour.
+- The robots in `examples/robot_walk`, `robot_click` and `turntable`
+  are their own copies (each has its recipe in its `art` folder) and
+  stay as they were.

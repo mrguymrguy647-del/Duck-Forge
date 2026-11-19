@@ -1152,6 +1152,12 @@ fn models_from_duck_mold() -> Result<(), LoadError> {
         }
     }
     assert_eq!(steps, 1);
+    // A model saved again while the game runs (the line a game's
+    // `reload` has): its own file is taken, mid-walk; another isn't.
+    let robot_file = models.join("robot.glb");
+    assert!(walking.reload_if_changed(&robot_file));
+    assert!(!walking.reload_if_changed(models.join("crate.glb")));
+    assert_eq!(walking.playing(), Some("walk"));
     // A body for the physics: a block round the hit shapes at rest, its
     // feet where it is put; and where to draw the model on it.
     let mut world = duckforge::physics::PhysicsWorld::new(vec3(0.0, -9.8, 0.0));

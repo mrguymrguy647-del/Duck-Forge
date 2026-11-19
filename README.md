@@ -72,6 +72,7 @@ cargo run --release --example duck_craft   # a Minecraft-style island: dig, buil
 cargo run --release --example stress3d   # thousands of spinning 3D shapes
 cargo run --example turntable  # a robot made in Duck Mold, slowly turning
 cargo run --example robot_walk # the same robot, moving: it idles, walks and waves
+cargo run --example pip_walk   # a character made with Duck Quill and Duck Mold, walking round a yard
 cargo run --example robot_click # it walks round; its footsteps sound; click it to see which part
 cargo run --example physics    # 2D physics sandbox: click to drop balls and boxes
 cargo run --example breakout   # the classic game
@@ -105,6 +106,7 @@ cargo run --no-default-features --example breakout -- --headless --frames 600 --
 | `stress3d` | 1–6 pick 500 to 20,000 objects · O toggles orbit/fly |
 | `turntable` | Space stops and starts it · Left/Right turn it by hand |
 | `robot_walk` | Arrows walk the robot about · Space makes it wave |
+| `pip_walk` | Arrows walk Pip round the crates |
 | `robot_click` | Click the robot: it says which part, which flashes |
 | `template` | Arrows or A/D run · Up, W or Space jumps · P pauses |
 | every game | **F1** debug overlay · **F3** shows the FPS · **F10** starts and stops recording · **F12** saves a screenshot (PNG) · Escape quits |
@@ -561,10 +563,44 @@ same in all of them. `robot.mesh_for(&place, &camera)` is the mesh it
 would draw, and `robot.version_at(&place, &camera)` which one (0, 1 or
 2).
 
+**Images.** A Duck Mold recipe can put a picture on a part, or on one
+face of it (`images = { front = "textures/face.png" }`): a face painted
+in Duck Quill, a label, wood planks. Such a model loads and draws with
+the same lines as any other. Its mesh comes with its picture
+(`mesh.texture`) and each triangle's place on it (`mesh.uvs`), and the
+picture's pixels stay sharp however near the camera is. A triangle with
+an image is white underneath, so the image shows as it was painted;
+recolouring a part (`mesh.triangles[part.range()]`) tints its images.
+A file with images needs this Duck Forge or a newer one: an older one
+says "update Duck Forge" instead of drawing its faces white.
+
+**Changing a model while the game runs.** Give the game's `reload` one
+line, and a model saved again shows in the running game at once, still
+mid-step:
+
+```rust
+fn reload(&mut self, _ctx: &mut Context, file: &Path) -> bool {
+    self.robot.reload_if_changed(file)
+}
+```
+
+It works from Duck Mold's own Studio (Export), from `duck-mold export`
+in a terminal, and from Duck Forge Studio, where a click on a model in
+the Files panel opens it in a tab that is Duck Mold's Studio: change
+the robot's arm there, and the robot walking in the game has the new
+arm when you let go of the mouse.
+
 [examples/robot_click/](examples/robot_click/main.rs) is the robot
 walking round, its footsteps making a sound and a puff of dust, a click
 naming the part it found, which flashes, and a wall in its way that its
 body bumps into.
+
+[examples/pip_walk/](examples/pip_walk/main.rs) is one character made
+with all three Duck apps: Pip's face was painted in Duck Quill, Pip was
+put together and animated in Duck Mold, and here Pip walks round a yard
+of plank crates. Its `art` folder has the recipes and the pictures, and
+[art/README.md](examples/pip_walk/art/README.md) says how each was made
+and how to change one while the game runs.
 
 ### With physics
 
@@ -1108,18 +1144,4 @@ On a computer with one (in PowerShell or cmd, in the project folder):
 | `src/glb.rs`      | Models made with Duck Mold: `Mesh::load_glb` and `GlbModel` read their `.glb` files |
 | `src/gpu.rs`      | The GPU renderer: wgpu setup, mesh cache, instancing, reading the picture back |
 | `src/gpu.wgsl`    | The shaders: the small programs that run on the graphics card       |
-| `src/physics.rs`  | `PhysicsWorld` and `Body`: collisions and an impulse solver, for `Vec2` or `Vec3` |
-| `src/input.rs`    | Keyboard and mouse: held, just pressed, just released               |
-| `src/math.rs`     | `Vec2`, `Rect`, `Vec3`, `Mat4`, the `Vector` trait that makes physics generic, and the collision helpers |
-| `src/font.rs`     | A built-in 3-pixel-wide font: every printable ASCII character        |
-| `src/color.rs`    | Colors with alpha, and see-through blending                         |
-| `src/rng.rs`      | A tiny xorshift random number generator                             |
-| `examples/`       | `hello`, `shapes`, `template`, `starter_topdown`, `starter_shooter`, `scene_demo`, `pollen_run`, `breakout`, `dodge`, `duckling_parade`, `door_short`, `door_show_3d`, `physics`, `world3d`, `stress3d`, `turntable`, `robot_walk` and `robot_click` |
-| `tools/write_ids.rs` | Writes the ids into a scene file made by hand: `cargo run --example write_ids -- FILE` |
-| `Start Duck Forge Studio.bat` | Builds Duck Forge Studio from this folder and opens it, with a double-click |
-| `tools/Run tests (for developers).bat` | Runs every test on Windows with a double-click: the engine's both ways, then the Studio's |
-| `tools/rust_check.bat` | Used by both: checks that Rust is installed, and offers the official page if not |
-
-Only `src/window.rs` knows winit and softbuffer exist, so the window
-library could be swapped out by rewriting one file. (It was: the engine
-started on minifb, and moved to winit when Duck Craft needed pointer lock.)
+| `src/physics.rs`  | `PhysicsWorld` and `Body`: collisions and an impul

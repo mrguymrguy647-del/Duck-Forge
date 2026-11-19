@@ -55,10 +55,16 @@ pub trait Game {
     /// never change it, and the compiler enforces that for us.
     fn draw(&self, canvas: &mut Canvas);
 
-    /// A text file the game read has changed (its level, edited in Duck
-    /// Forge Studio or by hand while the game runs): read it again and
-    /// carry on. `file` names it as the game did, with forward slashes
+    /// A file the game read has changed (its level, edited in Duck Forge
+    /// Studio or by hand while the game runs; or a model made in Duck
+    /// Mold, saved again): read it again and carry on. `file` names it
+    /// as the game did, with forward slashes
     /// (`examples/mygame/level.txt`).
+    ///
+    /// For a Duck Mold model the whole of it is one line:
+    /// `self.robot.reload_if_changed(file)`
+    /// ([`AnimatedModel::reload_if_changed`](crate::glb::AnimatedModel::reload_if_changed)),
+    /// and the model carries on mid-animation.
     ///
     /// Return `true` if the game took the change, `false` (what it does
     /// unless the game says otherwise) if it can't without starting again:

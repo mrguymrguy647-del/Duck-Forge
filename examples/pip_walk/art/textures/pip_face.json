@@ -1,0 +1,171 @@
+{
+  "format": "duckquill-script",
+  "version": 1,
+  "title": "Pip's face: 36 x 32",
+  "notes": "A Duck Quill script. Pip's hair, eyes, cheeks and smile, on a see-through picture: the head's own skin colour shows everywhere else. Made for the front of Pip's head, which is 0.36 by 0.32 metres: 100 pixels to the metre. Make the PNG with: quill render pip_face.json --transparent --out .",
+  "palette": {
+    "hair": "#5A3A22",
+    "eye": "#2B2230",
+    "glint": "#FFFFFF",
+    "cheek": "#F09A8A",
+    "mouth": "#8A3A32",
+    "brow": "#4A2E1A"
+  },
+  "commands": [
+    {
+      "cmd": "canvas",
+      "width": 36,
+      "height": 32,
+      "pixel": true
+    },
+    {
+      "cmd": "layer",
+      "name": "Hair"
+    },
+    {
+      "cmd": "rect",
+      "x": 0,
+      "y": 0,
+      "width": 36,
+      "height": 6,
+      "fill": "hair"
+    },
+    {
+      "cmd": "pixels",
+      "at": [
+        0,
+        6
+      ],
+      "colors": {
+        "h": "hair"
+      },
+      "rows": [
+        "hhhh.hhhhh..hhhh.hhh..hhhhh.hhhh.hhh",
+        "hh....hhh....hh...h....hhh...hh...hh",
+        "h......h................h..........h"
+      ]
+    },
+    {
+      "cmd": "rect",
+      "x": 0,
+      "y": 9,
+      "width": 2,
+      "height": 9,
+      "fill": "hair"
+    },
+    {
+      "cmd": "rect",
+      "x": 34,
+      "y": 9,
+      "width": 2,
+      "height": 9,
+      "fill": "hair"
+    },
+    {
+      "cmd": "layer",
+      "name": "Eyes"
+    },
+    {
+      "cmd": "rect",
+      "x": 9,
+      "y": 14,
+      "width": 4,
+      "height": 5,
+      "fill": "eye"
+    },
+    {
+      "cmd": "rect",
+      "x": 23,
+      "y": 14,
+      "width": 4,
+      "height": 5,
+      "fill": "eye"
+    },
+    {
+      "cmd": "pixels",
+      "at": [
+        10,
+        15
+      ],
+      "colors": {
+        "w": "glint"
+      },
+      "rows": [
+        "w"
+      ]
+    },
+    {
+      "cmd": "pixels",
+      "at": [
+        24,
+        15
+      ],
+      "colors": {
+        "w": "glint"
+      },
+      "rows": [
+        "w"
+      ]
+    },
+    {
+      "cmd": "pixels",
+      "at": [
+        8,
+        11
+      ],
+      "colors": {
+        "b": "brow"
+      },
+      "rows": [
+        "bbbbbb"
+      ]
+    },
+    {
+      "cmd": "pixels",
+      "at": [
+        22,
+        11
+      ],
+      "colors": {
+        "b": "brow"
+      },
+      "rows": [
+        "bbbbbb"
+      ]
+    },
+    {
+      "cmd": "layer",
+      "name": "Cheeks and smile"
+    },
+    {
+      "cmd": "rect",
+      "x": 5,
+      "y": 21,
+      "width": 4,
+      "height": 2,
+      "fill": "cheek"
+    },
+    {
+      "cmd": "rect",
+      "x": 27,
+      "y": 21,
+      "width": 4,
+      "height": 2,
+      "fill": "cheek"
+    },
+    {
+      "cmd": "pixels",
+      "at": [
+        13,
+        23
+      ],
+      "colors": {
+        "m": "mouth"
+      },
+      "rows": [
+        "m........m",
+        ".mmmmmmmm."
+      ]
+    }
+  ]
+}
