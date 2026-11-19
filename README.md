@@ -1095,6 +1095,7 @@ On a computer with one (in PowerShell or cmd, in the project folder):
 | `src/sound.rs`    | The synthesizer (`Sound`, `Wave`), `.wav` files, mixing `audio.wav` |
 | `src/sound_files.rs` | The `.wav` and `.ogg` files a game loaded: noticing one changed, swapping it in, the sound store for replays |
 | `src/music.rs`    | `Music`: OGG music decoded while it plays (a decoder thread in a window, the mixer headless) |
+| `vendor/lewton/`  | Duck Forge's copy of the lewton OGG decoder, with fixed math so music decodes the same on every computer (`DUCKFORGE.md` lists the changes) |
 | `src/speaker.rs`  | Playing sounds out loud in a window (only with the `audio` feature) |
 | `src/debug.rs`    | The debug overlay (F1, `--debug`)                                   |
 | `src/error.rs`    | `LoadError`: a missing or broken file, in one sentence              |

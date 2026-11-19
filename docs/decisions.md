@@ -6104,7 +6104,8 @@ stereo takes under 1 MB instead of 8. The plan is Duck Echo's
 
 ## Decisions made on the way
 
-- **lewton as the decoder.** It's pure Rust (about 6,400 lines), with
+- **lewton as the decoder** (Duck Forge's copy of it, see "The same on
+  Windows and Linux" below). It's pure Rust (about 6,400 lines), with
   `ogg` (about 2,700), `tinyvec` and `byteorder`: nothing built from C,
   so a game still builds with nothing but Rust, and nothing loaded when
   it starts. MIT or Apache-2.0. It's the decoder Duck Echo checks its own
@@ -6161,13 +6162,28 @@ stereo takes under 1 MB instead of 8. The plan is Duck Echo's
   (its codebooks), bigger than the design's guess of 0.35 MB. The same
   music as a `Wav` is 8.06 MB. Duck Craft's two old themes were 11.3 MB
   each (64 s at 16 kHz, kept at 44.1 kHz).
-- **The same on Windows and Linux.** lewton works out some of its tables
-  with the system's `sin` and `cos`, whose last digit could differ
-  between systems. A test pins the SHA-256 of the 16-bit `audio.wav` of
-  three times through the day theme, as Linux makes it, so GitHub's
-  Windows machine checks it on every run. If they ever differ, the plan
-  is to give lewton's tables Duck Forge's own fixed math rather than
-  accept it.
+- **The same on Windows and Linux: lewton's tables get Duck Forge's own
+  fixed math.** lewton works out the window that blends one block of
+  music into the next, and its transform's factors, with the system's
+  `sin` and `cos` (and floor type 0's with `atan`, `cos` and `exp`). A
+  test pins the SHA-256 of the 16-bit `audio.wav` of three times through
+  the day theme. On the first run, GitHub's Windows machine made a
+  different one from Linux: inside each machine everything agreed (the
+  music was the file repeated, the decoder thread matched the mixer), but
+  the decoded samples differed a little between the two. So Duck Forge
+  keeps its own copy of lewton 0.10.2 (`vendor/lewton`), where those are
+  worked out with fixed math: `sin`, `cos`, `exp` and `atan` done with
+  only adding, multiplying, dividing and `sqrt` in `f64` (fdlibm's
+  polynomials for `sin` and `cos`), which IEEE 754 makes exactly the same
+  everywhere, and an exact power of two where lewton used `exp2`. A test
+  checks they're within one step of the system's answers (as close as
+  the system is to the truth). The change is 41 lines in four of
+  lewton's files, listed in `vendor/lewton/DUCKFORGE.md`; the rest is as
+  it came (its own `rustfmt.toml` keeps `cargo fmt` off it, its 2016
+  code's warnings are off, and only its `ogg` feature is built). Not
+  accepted as "close enough": Duck Forge's rule is the same sound
+  everywhere, and replays' `audio.wav` must match between a Windows and
+  a Linux computer.
 - **A hidden `test_hooks` module** lets the memory test (its own
   program, so it can count allocations) start a stream as a window does.
   It's marked as not for games.
@@ -6175,8 +6191,10 @@ stereo takes under 1 MB instead of 8. The plan is Duck Echo's
 ## How it is tested
 
 In `src/music.rs`: the day theme loops three times in `audio.wav`, every
-sample equal to the file decoded at once and repeated, and the hash is
-Linux's; the decoder thread's samples equal the headless mixer's over
+sample equal to the file decoded at once and repeated, and its hash is
+the pinned one, on Linux and on Windows; lewton's fixed math is within
+one step of the system's `sin`, `cos`, `exp` and `atan`, and its powers
+of two are exact; the decoder thread's samples equal the headless mixer's over
 those three times, bit for bit, and both equal the file repeated; volume
 changes and a stop land on their frames' samples; the chime is cut to
 its 37,139 frames and its second time through starts straight after; a

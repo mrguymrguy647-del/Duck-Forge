@@ -713,11 +713,12 @@ mod tests {
     }
 
     /// The SHA-256 of the 16-bit `audio.wav` of three times through the
-    /// day theme, as Linux makes it. Windows must make the same: lewton
-    /// works out some tables with the system's `sin` and `cos`, which
-    /// could differ in their last digit between systems.
+    /// day theme. Windows and Linux must both make exactly this. (With
+    /// lewton's own tables, from the system's `sin` and `cos`, they didn't:
+    /// Duck Forge's copy of lewton works them out with fixed math now, see
+    /// vendor/lewton/DUCKFORGE.md.)
     const THREE_LOOPS_SHA256: &str =
-        "sha256:be959ef6ba5f09132b50f85901a1704f4da78dc97d44c7ffe6333788787ac8af";
+        "sha256:5c91256964ae39de719a4f0bef42ada4d4d1a5d3e221198c862e736c14d9318f";
 
     #[test]
     fn the_day_theme_loops_three_times_in_audio_wav_every_sample_the_file_repeated() {
@@ -756,8 +757,8 @@ mod tests {
         eprintln!("three times through the day theme: audio.wav is {hash}");
         assert_eq!(
             hash, THREE_LOOPS_SHA256,
-            "audio.wav differs from the one Linux makes: lewton's tables need Duck Forge's \
-             own fixed math (docs/decisions.md)"
+            "audio.wav differs from the one every computer must make: something in the \
+             decoder uses the system's maths library again (vendor/lewton/DUCKFORGE.md)"
         );
     }
 
@@ -1009,6 +1010,42 @@ mod tests {
             std::fs::read(out.join("audio.wav")).unwrap() == audio,
             "the same audio.wav"
         );
+    }
+
+    /// How many steps apart two `f32`s are (0: the same number).
+    fn steps_apart(a: f32, b: f32) -> u32 {
+        let key = |x: f32| {
+            let bits = x.to_bits() as i32;
+            if bits < 0 { i32::MIN - bits } else { bits }
+        };
+        key(a).abs_diff(key(b))
+    }
+
+    #[test]
+    fn lewtons_fixed_math_is_as_close_as_the_systems() {
+        use lewton::fixed_math;
+        // Every angle lewton's tables use, and more: from -2π to 2π.
+        let mut worst = 0;
+        for i in -100_000..=100_000 {
+            let x = i as f32 * (std::f32::consts::TAU / 100_000.0);
+            worst = worst.max(steps_apart(fixed_math::sin(x), x.sin()));
+            worst = worst.max(steps_apart(fixed_math::cos(x), x.cos()));
+        }
+        assert!(
+            worst <= 1,
+            "sin and cos are {worst} steps from the system's"
+        );
+        for i in 0..=20_000 {
+            let x = i as f32 * 0.01 - 100.0; // -100 to 100
+            assert!(steps_apart(fixed_math::exp(x), x.exp()) <= 1, "exp({x})");
+            let y = i as f32 * 2.0; // 0 to 40,000, as the bark scale asks
+            assert!(steps_apart(fixed_math::atan(y), y.atan()) <= 1, "atan({y})");
+        }
+        for k in -149..=127 {
+            assert_eq!(fixed_math::power_of_two(k), (k as f32).exp2(), "2^{k}");
+        }
+        assert_eq!(fixed_math::power_of_two(-150), 0.0);
+        assert_eq!(fixed_math::power_of_two(128), f32::INFINITY);
     }
 
     #[test]
