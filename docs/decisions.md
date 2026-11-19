@@ -6065,3 +6065,29 @@ the game's `reload` hook), `studio_core`'s `models` tests and
 `model_commands_open_edit_send_and_close`, and
 `studio/crates/app/tests/models.rs` (the tab is Duck Mold's Studio; an
 edit is sent and undone; a `.glb` opens its recipe).
+
+# Duck Mold's Phase 7b, step 7: Pip, and the painted robot
+
+- **`examples/pip_walk/`** is one character made with all three Duck
+  apps: a face painted in Duck Quill (its script is in the game's `art`
+  folder), put together and animated in Duck Mold (`art/pip.toml`), and
+  walking here. The game is as small as `robot_walk`: the arrows walk
+  Pip, four plank crates are in the way (a circle against squares), and
+  `reload` takes a model saved again. The pictures on Pip and on the
+  crates need no code.
+- **Its recipes have `export` lines** (`../assets/pip.glb`), so the
+  example is also the place to try a model changing in a running game,
+  from Duck Mold's Studio, from a terminal, or from a tab in the Studio.
+  `art/README.md` says how.
+- **The robot in the test files is painted now** (Duck Mold's own robot
+  example got brows, a mouth and a label): `robot.glb` is a file with
+  images, far-away versions and animations at once, which is what
+  `the_painted_robot_keeps_its_face_and_label_near_and_far` tests. Its
+  stored pictures changed where the face or the label shows. Where a
+  test counted the robot's colours, a triangle with an image is white
+  in the mesh and is counted apart; the file from before the tree is
+  still compared with it, triangle for triangle, with those four
+  triangles given back their plain colour.
+- The robots in `examples/robot_walk`, `robot_click` and `turntable`
+  are their own copies (each has its recipe in its `art` folder) and
+  stay as they were.

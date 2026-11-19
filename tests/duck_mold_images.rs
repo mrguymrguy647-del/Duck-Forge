@@ -163,7 +163,7 @@ fn a_model_with_images_loads_with_its_picture() -> Result<(), LoadError> {
 #[test]
 fn a_model_without_images_has_no_picture() -> Result<(), LoadError> {
     let (_folder, models) = fixtures("duck-mold-images-none");
-    for name in ["crate", "robot"] {
+    for name in ["crate", "gnome"] {
         let model = GlbModel::load(models.join(format!("{name}.glb")))?;
         assert!(model.picture.is_none(), "{name}");
         assert!(model.picture_sprite().is_none(), "{name}");
@@ -322,6 +322,69 @@ fn an_animated_model_keeps_its_images() -> Result<(), LoadError> {
     by_mesh.draw_mesh(crate_.mesh(), &place, &camera);
     assert!(by_model.pixels() == by_mesh.pixels());
     assert!(colours(&by_model).len() >= 3);
+    Ok(())
+}
+
+/// The robot's painted mouth: a dark frame round glowing teeth.
+const MOUTH_GLOW: Color = Color::rgb(0xFF, 0xE0, 0x8A);
+/// The paint of the label on its chest, "DM-1".
+const LABEL_EDGE: Color = Color::rgb(0x8E, 0x2A, 0x22);
+
+#[test]
+fn the_painted_robot_keeps_its_face_and_label_near_and_far() -> Result<(), LoadError> {
+    let (_folder, models) = fixtures("duck-mold-images-robot");
+    // The robot has a face painted on its head and a label on its chest
+    // panel, two images on one picture; and it moves, and has two
+    // far-away versions.
+    let model = GlbModel::load(models.join("robot.glb"))?;
+    let picture = model.picture.as_ref().expect("the robot has images");
+    assert_eq!((picture.width, picture.height), (64, 64));
+    // Four triangles show an image: the head's front and the panel's.
+    let pictured = |model: &GlbModel| {
+        model
+            .triangles
+            .iter()
+            .filter(|triangle| triangle.on_picture.is_some())
+            .count()
+    };
+    assert_eq!(pictured(&model), 4);
+    assert_eq!(model.far.len(), 2);
+    for far in &model.far {
+        assert_eq!(pictured(&far.model), 4, "a far-away version keeps them");
+    }
+
+    // Seen from the front, glowing: the mouth's glow and the label's
+    // edge are in the picture exactly as they were painted, close up
+    // and from far off, in the version drawn at each distance.
+    let robot = AnimatedModel::load(models.join("robot.glb"))?;
+    let place = Transform::at(Vec3::ZERO);
+    let mut versions = Vec::new();
+    for distance in [2.5_f32, 16.0, 40.0] {
+        let camera = Camera3D::looking_at(vec3(0.0, 1.0, distance), vec3(0.0, 1.0, 0.0));
+        versions.push(robot.version_at(&place, &camera));
+        let mesh = robot.mesh_for(&place, &camera).clone().glowing();
+        assert!(mesh.texture.is_some(), "at {distance} m");
+        // Close enough to count pixels, whichever version it is.
+        let near = Camera3D::looking_at(vec3(0.0, 1.0, 2.5), vec3(0.0, 1.0, 0.0));
+        let mut canvas = Canvas::new(240, 240);
+        canvas.clear(Color::BLACK);
+        canvas.draw_mesh(&mesh, &place, &near);
+        let seen = colours(&canvas);
+        let count = |colour: Color| {
+            seen.iter()
+                .find(|(known, _)| *known == colour)
+                .map_or(0, |(_, pixels)| *pixels)
+        };
+        assert!(
+            count(MOUTH_GLOW) > 20,
+            "the mouth, at {distance} m: {seen:?}"
+        );
+        assert!(
+            count(LABEL_EDGE) > 20,
+            "the label, at {distance} m: {seen:?}"
+        );
+    }
+    assert_eq!(versions, [0, 1, 2], "each distance drew its own version");
     Ok(())
 }
 

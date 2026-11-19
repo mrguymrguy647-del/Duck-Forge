@@ -168,5 +168,9 @@ name = "robot_click"
 test = true
 
 [[example]]
+name = "pip_walk"
+test = true
+
+[[example]]
 name = "night_cellar"
 test = true

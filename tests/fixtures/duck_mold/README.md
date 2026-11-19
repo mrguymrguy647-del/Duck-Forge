@@ -24,7 +24,7 @@ its `tests/before-phase5/`.
 | `table.glb` | 60 | A top and four legs. |
 | `tree.glb` | 70 | A trunk and three cones pushed into each other. |
 | `house.glb` | 120 | A door and two framed windows on its front (+z), a chimney on its left (-x) and a skylight on its roof; one assembly, its roof. |
-| `robot.glb` | 384 | 19 parts and four assemblies (its arms and legs); yellow eyes on its front (+z); 187 sockets; four animations and ten poses; two far-away versions (288 and 276 triangles). |
+| `robot.glb` | 384 | 19 parts and four assemblies (its arms and legs); yellow eyes on its front (+z); 187 sockets; four animations and ten poses; two far-away versions (288 and 276 triangles). Since Duck Mold 1.0 it is painted: brows and a mouth on the front of its head and the label "DM-1" on its chest panel, two **images** on one 64 x 64 picture, which its far-away versions show too. |
 | `snowman.glb` | 600 | Balls, cones and coal: parts joined on curved surfaces. |
 | `plank_crate.glb` | 12 | One box with **images** (reader version 9): planks on its four sides and a lid on its top and bottom, painted with Duck Quill, all on one 128 x 64 picture inside the file. |
 | `door.glb` | 60 | A frame and a door on a hinge; `open` (the handle turns, then the door swings 90 degrees towards the front). |

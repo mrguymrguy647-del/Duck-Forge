@@ -1,0 +1,30 @@
+# A crate with wood planks: the smallest recipe with images.
+#
+#   duck-mold inspect examples/plank_crate.toml
+#   duck-mold render examples/plank_crate.toml
+#
+# An image is a PNG file beside the recipe. `image` puts one on every
+# face of a part; `images` on single faces, by name. These two were
+# painted with Duck Quill: textures/planks.json and textures/lid.json
+# are the Duck Quill scripts, and textures/planks.quill and lid.quill
+# hold their layers, so "Paint in Duck Quill" carries on where they stop.
+
+version = 0
+name = "plank_crate"
+description = "A wooden crate with planks painted on its sides and a framed lid."
+export = "../assets/plank_crate.glb"
+
+[palette]
+wood = "#B07A3F"
+
+# One box, 1 metre each way. The planks are fitted to each side, upright
+# on the four round the crate; the top and the bottom have the lid. Each
+# image is 32 pixels wide, so every pixel is the same size on the crate:
+# 32 to the metre.
+[[parts]]
+name = "box"
+shape = "box"
+size = [1, 1, 1]
+color = "wood"
+image = "textures/planks.png"
+images = { top = "textures/lid.png", bottom = "textures/lid.png" }

@@ -839,6 +839,48 @@
       "triangles": 276
     }
   ],
+  "images": {
+    "sheet": [
+      64,
+      64
+    ],
+    "files": [
+      {
+        "file": "examples/textures/robot_label.png",
+        "width": 30,
+        "height": 20,
+        "solid": false,
+        "on": [
+          {
+            "part": "panel",
+            "face": "front",
+            "metres": [
+              0.3,
+              0.2
+            ],
+            "pixels_per_metre": 100.0
+          }
+        ]
+      },
+      {
+        "file": "examples/textures/robot_face.png",
+        "width": 42,
+        "height": 32,
+        "solid": false,
+        "on": [
+          {
+            "part": "head",
+            "face": "front",
+            "metres": [
+              0.42,
+              0.32
+            ],
+            "pixels_per_metre": 100.0
+          }
+        ]
+      }
+    ]
+  },
   "poses": [
     "step_left",
     "step_right",
