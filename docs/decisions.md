@@ -6237,7 +6237,8 @@ plan is Duck Echo's `docs/phase3-design.md` (section 6, step 7).
 - **A plain warning**, once for each file, when `play_landing` or
   `play_on_hit` can't use the facts (none, out of date, or not JSON): the
   sound plays from its start, now. `sim.sound_warnings()`; the window
-  prints them, and a headless run lists them with its warnings.
+  and Duck Forge Studio's console print them, and a headless run lists
+  them with its warnings.
 - **Scenes**: a sound object may name a `.variants.json` (one variant each
   time; a looping one loops one variant, chosen as it starts).
 - **Duck Craft**: its footsteps are six Duck Echo variants (`step`);

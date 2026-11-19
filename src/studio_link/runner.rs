@@ -63,6 +63,12 @@ fn play_new_sounds<G: Game>(
     for sound in &sounds {
         book.note(sound);
     }
+    // What the game should know about its sounds (a facts file missing
+    // for play_landing, say): in the Studio's console, as in a window.
+    for warning in &sim.sound_warnings()[book.warned..] {
+        println!("duckforge: warning: {warning}");
+    }
+    book.warned = sim.sound_warnings().len();
     #[cfg(feature = "audio")]
     if let Some(speaker) = speaker {
         if one_shots {
@@ -83,6 +89,8 @@ fn play_new_sounds<G: Game>(
 #[derive(Default)]
 struct SoundBook {
     sounds: std::collections::BTreeMap<String, crate::sound::PlayedSound>,
+    /// How many of the game's sound warnings have been printed.
+    warned: usize,
 }
 
 impl SoundBook {
