@@ -6183,7 +6183,9 @@ stereo takes under 1 MB instead of 8. The plan is Duck Echo's
   code's warnings are off, and only its `ogg` feature is built). Not
   accepted as "close enough": Duck Forge's rule is the same sound
   everywhere, and replays' `audio.wav` must match between a Windows and
-  a Linux computer.
+  a Linux computer. With the fixed math, GitHub's Windows machine makes
+  exactly Linux's `audio.wav` (the pinned SHA-256), five runs out of five,
+  with and without the default features.
 - **A hidden `test_hooks` module** lets the memory test (its own
   program, so it can count allocations) start a stream as a window does.
   It's marked as not for games.
