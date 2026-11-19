@@ -22,6 +22,8 @@ pub struct Settings {
     pub theme: Option<String>,
     /// Where Duck Quill is, once the Studio has been told.
     pub duck_quill: Option<PathBuf>,
+    /// Where Duck Echo Studio is, once the Studio has been told.
+    pub duck_echo: Option<PathBuf>,
     /// Show the Timing line under the game.
     pub show_timing: bool,
     /// Show the Console panel.
@@ -40,6 +42,7 @@ impl Default for Settings {
             games_folder: None,
             theme: None,
             duck_quill: None,
+            duck_echo: None,
             show_timing: false,
             show_console: false,
             build_parts: BTreeMap::new(),

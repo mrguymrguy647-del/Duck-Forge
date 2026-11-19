@@ -348,6 +348,13 @@ pub fn open_with_the_system(path: &Path) -> Result<(), Problem> {
 /// WAV files play in the Studio itself (on Windows); other sounds open in
 /// the program Windows uses for them.
 pub fn play_sound(path: &Path) -> Result<(), Problem> {
+    if path
+        .to_string_lossy()
+        .to_ascii_lowercase()
+        .ends_with(".variants.json")
+    {
+        return play_sound(&next_variant(path)?);
+    }
     let is_wav = path
         .extension()
         .is_some_and(|end| end.eq_ignore_ascii_case("wav"));
@@ -355,6 +362,29 @@ pub fn play_sound(path: &Path) -> Result<(), Problem> {
         return open_with_the_system(path);
     }
     play_wav(path)
+}
+
+/// The next sound of a Duck Echo set (`step.variants.json`): each Play
+/// plays the one after, so a person hears them all in turn.
+fn next_variant(list: &Path) -> Result<PathBuf, Problem> {
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let unreadable = || {
+        Problem::new(
+            format!("{} couldn't be read as a set of sounds.", list.display()),
+            "Send it from Duck Echo again: it writes the list and its sounds together.",
+        )
+    };
+    let text = std::fs::read_to_string(list).map_err(|_| unreadable())?;
+    let value: serde_json::Value = serde_json::from_str(&text).map_err(|_| unreadable())?;
+    let files: Vec<&str> = value["files"]
+        .as_array()
+        .map(|files| files.iter().filter_map(|f| f["file"].as_str()).collect())
+        .unwrap_or_default();
+    if files.is_empty() {
+        return Err(unreadable());
+    }
+    let index = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % files.len();
+    Ok(list.parent().unwrap_or(Path::new("")).join(files[index]))
 }
 
 #[cfg(windows)]

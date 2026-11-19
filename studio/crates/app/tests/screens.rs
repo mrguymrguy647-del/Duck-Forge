@@ -1638,7 +1638,10 @@ fn files_drag_into_the_scene_and_onto_the_inspectors_boxes() {
     );
     shots.harness.run_steps(3);
     shots.harness.get_by_label("Plays over and over (music)");
-    shots.harness.get_by_label("Volume");
+    // The Volume slider, named by its label.
+    shots
+        .harness
+        .get_by_role_and_label(egui::accesskit::Role::Slider, "Volume");
     shoot(&mut shots, "42-a-sound-in-the-scene");
 
     // coin.wav onto its Sound box: that setting gets the coin.
@@ -2127,4 +2130,195 @@ fn a_ready_made_behaviour_is_shown_and_turned_into_code() {
     );
     shots.run(Command::GameStop);
     let _ = std::fs::remove_dir(game.join("scripts"));
+}
+
+/// Copies a folder and everything in it.
+fn copy_folder(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap().flatten() {
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_folder(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), target).unwrap();
+        }
+    }
+}
+
+/// A games folder in `test` with a copy of the scene demo, given Duck
+/// Craft's footsteps (a Duck Echo set of 6), its day music (an .ogg) and
+/// their recipes. Returns the games folder and the game's folder.
+fn scene_demo_with_duck_echo_sounds(
+    test: &studio_core::test_folder::TestFolder,
+) -> (PathBuf, PathBuf) {
+    let root = test.join("Duck Forge");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"duckforge\"\n\n[[example]]\nname = \"scene_demo\"\ntest = true\n",
+    )
+    .unwrap();
+    let game = root.join("examples/scene_demo");
+    copy_folder(&duck_forge().join("examples/scene_demo"), &game);
+    let craft = duck_forge().join("examples/duck_craft");
+    std::fs::create_dir_all(game.join("art")).unwrap();
+    for name in ["art/step.toml", "art/music_day.toml"] {
+        std::fs::copy(craft.join(name), game.join(name)).unwrap();
+    }
+    for entry in std::fs::read_dir(craft.join("assets")).unwrap().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with("step") || name.starts_with("music_day.ogg") {
+            std::fs::copy(entry.path(), game.join("assets").join(&name)).unwrap();
+        }
+    }
+    (root, game)
+}
+
+#[test]
+fn the_inspector_lists_sets_and_music_with_their_facts_and_opens_duck_echo() {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    use studio_app::scene_panel::ScenePanel;
+    let test = studio_core::test_folder::TestFolder::new("screens-duck-echo");
+    let (root, _game) = scene_demo_with_duck_echo_sounds(&test);
+    let mut studio = Studio::new(Settings {
+        games_folder: Some(root.clone()),
+        ..test.settings()
+    });
+    studio.rust = Err(Problem::new("No Rust in this test.", ""));
+    // As on a computer without Duck Echo Studio.
+    studio.duck_echo_places = studio_core::sounds::Places {
+        windows: cfg!(windows),
+        ..studio_core::sounds::Places::default()
+    };
+    studio
+        .run(Command::GameOpen {
+            name: String::from("scene_demo"),
+        })
+        .unwrap();
+    // A frame of the Studio: it reads the game's scenes.
+    studio.update(Instant::now());
+    let set = serde_json::Map::from_iter([(
+        String::from("sound"),
+        serde_json::json!("assets/step.variants.json"),
+    )]);
+    studio
+        .run(Command::ObjectAdd {
+            kind: String::from("sound"),
+            at: None,
+            name: None,
+            set,
+        })
+        .unwrap();
+    assert_eq!(studio.open.as_ref().unwrap().selected.len(), 1);
+
+    let studio = Rc::new(RefCell::new(studio));
+    let commands = Rc::new(RefCell::new(Vec::new()));
+    let (shared, seen) = (studio.clone(), commands.clone());
+    let mut panel = ScenePanel::default();
+    let mut screen = egui_kittest::Harness::builder()
+        .with_size(egui::vec2(420.0, 900.0))
+        .build_ui(move |ui| {
+            let studio = shared.borrow();
+            let more = panel.inspector(ui, studio.open.as_ref().unwrap());
+            seen.borrow_mut().extend(more);
+        });
+    screen.run();
+    // The box shows the set as one entry, and the facts line is under it.
+    screen.get_by_value("assets/step (6 variants)");
+    screen.get_by_label(
+        "6 variants  0.05 s  -18.9 to -18.2 LUFS  hit at 0.004 to 0.007 s  plays once  from art/step.toml",
+    );
+    // Its list: the set, the music, no numbered steps.
+    screen.get_by_value("assets/step (6 variants)").click();
+    screen.run();
+    screen.get_by_label("assets/music_day.ogg (music)");
+    screen.get_by_label("assets/coin.wav");
+    assert!(screen.query_by_label("assets/step_1.wav").is_none());
+    screen.get_by_label("assets/music_day.ogg (music)").click();
+    screen.run();
+    let chose = commands.borrow().clone();
+    assert!(
+        chose
+            .iter()
+            .any(|c| matches!(c, Command::ObjectSet { set, .. }
+            if set.get("sound") == Some(&serde_json::json!("assets/music_day.ogg")))),
+        "{chose:?}"
+    );
+    commands.borrow_mut().clear();
+    screen.get_by_label("Open in Duck Echo").click();
+    screen.run();
+    let open = Command::AssetsOpenInDuckEcho {
+        file: String::from("assets/step.variants.json"),
+    };
+    assert_eq!(commands.borrow().as_slice(), std::slice::from_ref(&open));
+
+    // Duck Echo Studio isn't on this pretend computer: a plain message,
+    // with its download page.
+    let problem = studio.borrow_mut().run(open).unwrap_err();
+    assert_eq!(problem.what, "Where is Duck Echo Studio?");
+    assert_eq!(
+        studio.borrow().problem.as_ref(),
+        Some(&problem),
+        "kept, to show"
+    );
+    // As the Studio shows a problem: what, what to do, and the link.
+    let mut details = false;
+    let mut said = egui_kittest::Harness::new_ui(move |ui| {
+        studio_app::panels::problem(ui, "That didn't work", &problem, &["OK"], &mut details);
+    });
+    said.run();
+    said.get_by_label("Where is Duck Echo Studio?");
+    said.get_by_label_contains("download page");
+    said.get_by_label("Get Duck Echo Studio");
+}
+
+#[test]
+fn the_files_panel_shows_recipes_beside_their_sounds() {
+    use studio_app::files_panel::FilesPanel;
+    use studio_app::pictures::Pictures;
+    let test = studio_core::test_folder::TestFolder::new("screens-files-recipes");
+    let (_root, game) = scene_demo_with_duck_echo_sounds(&test);
+    let commands = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let seen = commands.clone();
+    let mut panel = FilesPanel::default();
+    let mut pictures = Pictures::default();
+    let picked = std::rc::Rc::new(std::cell::RefCell::new(None::<String>));
+    let pick = picked.clone();
+    let mut screen = egui_kittest::Harness::builder()
+        .with_size(egui::vec2(520.0, 1600.0))
+        .build_ui(move |ui| {
+            let selected = pick.borrow().clone();
+            let more = panel.show(ui, Some(&game), selected.as_deref(), &mut pictures, true);
+            seen.borrow_mut().extend(more);
+        });
+    screen.run();
+    // A recipe says what it makes; a sound says its recipe.
+    screen.get_by_label("makes assets/step (6 variants)");
+    screen.get_by_label("makes assets/music_day.ogg (music)");
+    assert_eq!(
+        screen.query_all_by_label("from art/step.toml").count(),
+        6 + 1
+    );
+    screen.get_by_label("from art/music_day.toml");
+    // A picked set: its facts, and Open in Duck Echo.
+    *picked.borrow_mut() = Some(String::from("assets/step.variants.json"));
+    screen.run();
+    screen.get_by_label(
+        "6 variants  0.05 s  -18.9 to -18.2 LUFS  hit at 0.004 to 0.007 s  plays once  from art/step.toml",
+    );
+    screen.get_by_label("Open in Duck Echo").click();
+    screen.run();
+    assert!(commands.borrow().contains(&Command::AssetsOpenInDuckEcho {
+        file: String::from("assets/step.variants.json")
+    }));
+    // A picked recipe opens itself.
+    commands.borrow_mut().clear();
+    *picked.borrow_mut() = Some(String::from("art/step.toml"));
+    screen.run();
+    screen.get_by_label("Open in Duck Echo").click();
+    screen.run();
+    assert!(commands.borrow().contains(&Command::AssetsOpenInDuckEcho {
+        file: String::from("art/step.toml")
+    }));
 }

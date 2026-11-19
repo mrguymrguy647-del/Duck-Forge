@@ -28,6 +28,7 @@ use crate::play::{AfterHello, Ending, Play, PlayState, Timing};
 use crate::problem::Problem;
 use crate::recycle::RecycleBin;
 use crate::settings::Settings;
+use crate::sounds;
 
 /// How the game's character jumps, from its tune values (`jump_speed`,
 /// `gravity`, `run_speed`), if it has all three: the starters' names.
@@ -269,6 +270,16 @@ pub enum Command {
     /// Open a picture (a tile sheet, a sprite sheet) in Duck Quill.
     #[serde(rename = "assets.open_in_quill")]
     AssetsOpenInQuill { file: PathBuf },
+    /// Open the Duck Echo recipe that made a sound (or the recipe itself,
+    /// `art/step.toml`) in Duck Echo Studio: `file` is a sound, music, a
+    /// set or a recipe in the game's folder. Changes nothing in the game:
+    /// Duck Echo writes the sound when the person presses Send to game.
+    #[serde(rename = "assets.open_in_duck_echo")]
+    AssetsOpenInDuckEcho { file: String },
+    /// Tell the Studio where Duck Echo Studio's program is (the Studio's
+    /// own settings, not the game).
+    #[serde(rename = "assets.choose_duck_echo")]
+    AssetsChooseDuckEcho { program: PathBuf },
     /// Have the game play one of its sounds again.
     #[serde(rename = "assets.play_sound")]
     AssetsPlaySound { name: String },
@@ -724,6 +735,16 @@ pub const COMMANDS: &[CommandInfo] = &[
         needs: "file: the picture",
     },
     CommandInfo {
+        name: "assets.open_in_duck_echo",
+        title: "Open a sound's recipe in Duck Echo Studio",
+        needs: "file: a sound, music, a set or a recipe, like assets/step.variants.json or art/step.toml",
+    },
+    CommandInfo {
+        name: "assets.choose_duck_echo",
+        title: "Say where Duck Echo Studio is",
+        needs: "program: DuckEchoStudio.exe, or the AppImage",
+    },
+    CommandInfo {
         name: "assets.play_sound",
         title: "Play one of the game's sounds",
         needs: "name, like jump",
@@ -1159,6 +1180,9 @@ pub struct Studio {
     /// Whether files are opened in their own programs (a new script in the
     /// code editor). Tests turn it off.
     pub opens_files: bool,
+    /// Where Duck Echo Studio is looked for: this computer's places
+    /// (tests give their own).
+    pub duck_echo_places: sounds::Places,
 }
 
 impl Studio {
@@ -1185,6 +1209,7 @@ impl Studio {
             clipboard: Vec::new(),
             pastes: 0,
             opens_files: true,
+            duck_echo_places: sounds::Places::here(),
         };
         studio.console.path = studio.rust.as_ref().ok().and_then(|rust| rust.path.clone());
         let wanted = studio.games_folder_to_use();
@@ -1875,6 +1900,41 @@ impl Studio {
                 self.console
                     .start("Duck Quill", &command, crate::console::Keep::Everything);
                 Ok(format!("Opened {} in Duck Quill", file.display()))
+            }
+            Command::AssetsOpenInDuckEcho { file } => {
+                let game = self.files_folder()?;
+                let place = file.replace('\\', "/");
+                if !game.join(&place).is_file() {
+                    return Err(no_such_file(&place));
+                }
+                let recipe = sounds::recipe_of(&game, &place).ok_or_else(|| {
+                    Problem::new(
+                        format!("No Duck Echo recipe made {place}."),
+                        "Only sounds made in Duck Echo open there: ones with a facts file naming \
+                         their recipe, or a recipe of the same name in art/.",
+                    )
+                })?;
+                let places = &self.duck_echo_places;
+                let program = sounds::find_duck_echo_in(self.settings.duck_echo.as_deref(), places)
+                    .ok_or_else(|| sounds::no_duck_echo(places))?;
+                let command = sounds::open_in_duck_echo(&program, &game, &recipe);
+                self.console.start(
+                    "Duck Echo Studio",
+                    &command,
+                    crate::console::Keep::Everything,
+                );
+                Ok(format!("Opened {recipe} in Duck Echo Studio"))
+            }
+            Command::AssetsChooseDuckEcho { program } => {
+                if !program.is_file() {
+                    return Err(Problem::new(
+                        format!("{} isn't a program.", program.display()),
+                        "Choose DuckEchoStudio.exe (Windows) or DuckEchoStudio.AppImage (Linux).",
+                    ));
+                }
+                self.settings.duck_echo = Some(program.clone());
+                self.settings.save();
+                Ok(format!("Duck Echo Studio is {}", program.display()))
             }
             Command::AssetsPlaySound { name } => {
                 let open = self.open_game()?;
@@ -3130,6 +3190,8 @@ mod tests {
             r#"{"do": "feel.preset", "name": "Floaty"}"#,
             r#"{"do": "feel.show_code", "name": "gravity"}"#,
             r#"{"do": "assets.open_in_quill", "file": "examples/template/assets/tiles.png"}"#,
+            r#"{"do": "assets.open_in_duck_echo", "file": "assets/step.variants.json"}"#,
+            r#"{"do": "assets.choose_duck_echo", "program": "C:/Programs/Duck Echo Studio/DuckEchoStudio.exe"}"#,
             r#"{"do": "assets.play_sound", "name": "jump"}"#,
             r#"{"do": "assets.show_recipe", "name": "music"}"#,
             r#"{"do": "edit.snapshot", "title": "Before a big change"}"#,
@@ -3343,6 +3405,95 @@ mod tests {
         )
         .unwrap_err();
         assert!(problem.what.contains("is one file (dodge.rs)"), "{problem}");
+    }
+
+    #[test]
+    fn a_sound_opens_its_recipe_in_duck_echo_or_says_where_to_get_it() {
+        let test = crate::test_folder::TestFolder::new("studio-duck-echo");
+        let root = small_games_folder(&test);
+        let game = root.join("examples/bee_maze");
+        for (name, text) in [
+            (
+                "art/step.toml",
+                "version = 0\nname = \"step\"\n[[layers]]\nkind = \"noise\"\n",
+            ),
+            (
+                "assets/step.variants.json",
+                r#"{"kind": "duck-echo-variants", "recipe": "art/step.toml", "files": [{"file": "step_1.wav"}]}"#,
+            ),
+            ("assets/step_1.wav", "RIFF"),
+            ("assets/hum.wav", "RIFF"),
+        ] {
+            std::fs::create_dir_all(game.join(name).parent().unwrap()).unwrap();
+            std::fs::write(game.join(name), text).unwrap();
+        }
+        let mut studio = Studio::new(test.settings());
+        studio.settings.games_folder = Some(root.clone());
+        studio.folder = Some(GamesFolder::open(root.clone()).unwrap());
+        studio.rust = Err(Problem::new("No Rust in this test.", ""));
+        // Nowhere to look: as on a computer without Duck Echo Studio.
+        studio.duck_echo_places = sounds::Places {
+            windows: cfg!(windows),
+            ..sounds::Places::default()
+        };
+        let run = |studio: &mut Studio, json: &str| {
+            let command: Command = serde_json::from_str(json).unwrap();
+            studio.run(command)
+        };
+        run(&mut studio, r#"{"do": "game.open", "name": "bee_maze"}"#).unwrap();
+        let missing = run(
+            &mut studio,
+            r#"{"do": "assets.open_in_duck_echo", "file": "assets/step.variants.json"}"#,
+        )
+        .unwrap_err();
+        assert_eq!(missing.what, "Where is Duck Echo Studio?");
+        assert!(missing.next.contains("download page"), "{missing}");
+        assert_eq!(
+            missing.link,
+            Some((
+                String::from("Get Duck Echo Studio"),
+                String::from(sounds::DUCK_ECHO_PAGE)
+            ))
+        );
+        let none = run(
+            &mut studio,
+            r#"{"do": "assets.open_in_duck_echo", "file": "assets/hum.wav"}"#,
+        )
+        .unwrap_err();
+        assert_eq!(none.what, "No Duck Echo recipe made assets/hum.wav.");
+        let gone = run(
+            &mut studio,
+            r#"{"do": "assets.choose_duck_echo", "program": "nowhere/DuckEchoStudio.exe"}"#,
+        )
+        .unwrap_err();
+        assert!(gone.what.contains("isn't a program"), "{gone}");
+
+        // Chosen: it's started with --open and the set's recipe.
+        let program = test.join("DuckEchoStudio");
+        std::fs::write(&program, "").unwrap();
+        let choose = serde_json::json!({"do": "assets.choose_duck_echo", "program": program});
+        run(&mut studio, &choose.to_string()).unwrap();
+        assert_eq!(
+            studio.settings.duck_echo.as_deref(),
+            Some(program.as_path())
+        );
+        let saved = std::fs::read_to_string(test.join("settings.json")).unwrap();
+        assert!(saved.contains("duck_echo"), "{saved}");
+        assert_eq!(
+            run(
+                &mut studio,
+                r#"{"do": "assets.open_in_duck_echo", "file": "assets/step.variants.json"}"#
+            )
+            .unwrap(),
+            "Opened art/step.toml in Duck Echo Studio"
+        );
+        let started = studio.console.entries().last().unwrap();
+        assert_eq!(started.title, "Duck Echo Studio");
+        assert!(
+            started.shown.ends_with(" --open art/step.toml"),
+            "{}",
+            started.shown
+        );
     }
 
     #[test]

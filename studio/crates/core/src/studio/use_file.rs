@@ -19,7 +19,7 @@ use crate::problem::Problem;
 pub enum Usable {
     /// A PNG, or a Duck Quill sheet (its `.json`): as the scene names it.
     Picture(String),
-    /// A `.wav`.
+    /// A `.wav`, `.ogg` music, or a Duck Echo set (`.variants.json`).
     Sound(String),
     /// A level: a `.txt` with a `.legend.json` beside it.
     Level(String),
@@ -41,6 +41,7 @@ pub fn usable(folder: &Path, place: &str) -> Result<Usable, Problem> {
                 Usable::Picture(place.to_string())
             })
         }
+        "json" if lower.ends_with(".variants.json") => Ok(Usable::Sound(place.to_string())),
         "json" if lower.ends_with(".legend.json") => Err(Problem::new(
             format!("{name} is a level's legend."),
             "Drag the level itself (the .txt beside it).",
@@ -54,10 +55,10 @@ pub fn usable(folder: &Path, place: &str) -> Result<Usable, Problem> {
                 "Drag a .png picture, a sheet's .json, a .wav sound or a level.",
             )),
         },
-        "wav" => Ok(Usable::Sound(place.to_string())),
-        "ogg" | "mp3" | "flac" => Err(Problem::new(
-            format!("{name} can't play in a game: games play .wav sounds."),
-            "Save it as a .wav (Duck Echo makes .wav sounds), then drag that in.",
+        "wav" | "ogg" => Ok(Usable::Sound(place.to_string())),
+        "mp3" | "flac" => Err(Problem::new(
+            format!("{name} can't play in a game: games play .wav sounds and .ogg music."),
+            "Save it as a .wav or an .ogg (Duck Echo makes both), then drag that in.",
         )),
         "gif" | "bmp" | "jpg" | "jpeg" => Err(Problem::new(
             format!("{name} can't be drawn in a game: games draw .png pictures."),
@@ -331,8 +332,18 @@ mod tests {
             usable(root, "level.txt"),
             Ok(Usable::Level("level.txt".into()))
         );
+        assert_eq!(
+            usable(root, "assets/music.ogg"),
+            Ok(Usable::Sound("assets/music.ogg".into())),
+            "music"
+        );
+        assert_eq!(
+            usable(root, "assets/step.variants.json"),
+            Ok(Usable::Sound("assets/step.variants.json".into())),
+            "a Duck Echo set"
+        );
         let said = |place: &str| usable(root, place).unwrap_err().what;
-        assert!(said("assets/music.ogg").contains(".wav"));
+        assert!(said("assets/music.mp3").contains(".ogg music"));
         assert!(said("notes.txt").contains("isn't a level"));
         assert!(said("level.legend.json").contains("legend"));
     }

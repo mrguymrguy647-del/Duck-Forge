@@ -6318,3 +6318,115 @@ a sound with a wait starts that far in. In Duck Craft: footsteps are its
 six variants, never the same twice in a row. In `tests/cheat_sheet.rs`:
 the guide's calls. Every example game and recorded playthrough passes as
 before.
+
+# Duck Echo's Phase 3, step 8: the Inspector, and Open in Duck Echo
+
+Duck Forge Studio now shows the sounds Duck Echo makes the way Duck Echo
+makes them, and opens their recipes in Duck Echo Studio. The plan is
+Duck Echo's `docs/phase3-design.md` (section 7, step 8).
+
+## What was built
+
+- **The Sound box** (a Sound object's, and a script setting of kind
+  sound) lists `.wav` sounds, `.ogg` music ("assets/music_day.ogg
+  (music)") and each Duck Echo set as one entry ("assets/step (6
+  variants)"); the numbered `.wav`s a set names are its, and aren't
+  listed one by one. Under it, a **facts line** from the facts file Duck
+  Echo writes beside each sound: `0.20 s  -16.0 LUFS  hit at 0.014 s
+  plays once  from art/thud.toml`; for a set, its count and ranges: `6
+  variants  0.05 s  -18.9 to -18.2 LUFS  hit at 0.004 to 0.007 s  plays
+  once  from art/step.toml`. The Add window's sound list is the same.
+- **Open in Duck Echo**, under the facts line when a recipe made the
+  sound, and in Files for a sound, a set or a recipe:
+  `assets.open_in_duck_echo` runs `DuckEchoStudio --open
+  <game>/art/step.toml` in the game's folder (the console shows it as
+  `DuckEchoStudio --open art/step.toml`).
+- **Finding Duck Echo Studio** (`studio_core::sounds`): the program chosen
+  in the Studio (`assets.choose_duck_echo`, kept in the Studio's settings),
+  then beside Duck Forge Studio (in its folder, or a "Duck Echo Studio"
+  folder beside it), then where it installs: Windows,
+  `%LOCALAPPDATA%\Programs\Duck Echo Studio\DuckEchoStudio.exe` (its
+  installer's own folder, for one person) or under Program Files; Linux,
+  `DuckEchoStudio.AppImage` (or `DuckEchoStudio`, `duck-echo-studio`) in
+  `~/Applications`, `~/.local/bin`, `~/bin`, `~/Downloads` or `~/Desktop`;
+  then the PATH. Not found: "Where is Duck Echo Studio?", what to do, and
+  a "Get Duck Echo Studio" button to its download page. An AppImage that's
+  there but not allowed to run yet is named, with how to allow it.
+- **Files** shows each sound's recipe beside it ("from art/thud.toml"),
+  each recipe's sounds ("makes assets/step (6 variants)"), calls a Duck
+  Echo recipe "recipe", and shows a picked sound's or set's facts line.
+- **`.ogg` and sets in scenes**: dropping one on the scene or a Sound box
+  (`files.use`) uses it, as the engine has played them since steps 6 and
+  7; Play on a set plays its sounds in turn. `.mp3` and `.flac` still say
+  to save a `.wav` or an `.ogg`.
+- The Sound, Volume and Name boxes are named by their labels, for screen
+  readers (and for the tests that look for them).
+
+## Decisions made on the way
+
+- **The recipe from the facts, then by name.** A facts file (or a set's
+  list) names its recipe (`"recipe": "art/step.toml"`, as question 1 of
+  the design recommends); without one, `art/<name>.toml` is used if it is
+  a Duck Echo recipe. A `.toml` is a recipe when its top lines have
+  `version` and it has `layers` (a sound) or `tempo` and `tracks` (a
+  song): a game's other `.toml` files (a `Cargo.toml`) aren't.
+- **Opening changes nothing**, so it isn't a step for Undo: Duck Echo
+  writes the sound when the person presses Send to game, and the game
+  (step 5) and the Inspector's facts (read again every 2 seconds) follow.
+  Choosing where Duck Echo Studio is changes the Studio's settings, not
+  the game, so it isn't one either. Choosing a sound in the Sound box is
+  `object.set`, a step for Undo as before.
+- **Where to look is a value the Studio keeps** (`duck_echo_places`), so
+  tests can be a computer without Duck Echo Studio whatever computer they
+  run on, and the command line is checked exactly on Windows and on
+  Linux (each runs its own case in CI).
+- **The facts aren't checked against the sound's SHA-256 here.** The
+  game does that before it uses them (step 7); the Studio only shows
+  them, and Duck Echo writes the sound and its facts together.
+
+## How it is tested
+
+In `studio/crates/core/src/sounds.rs`, on Duck Craft's own sounds: the
+list has "assets/step (6 variants)" and "assets/music_day.ogg (music)"
+and no `step_1.wav`; the facts lines are exactly as above; recipes are
+found from facts and by name, and a `Cargo.toml` isn't one; the places
+looked in on Windows and Linux; a program on the PATH is found and a
+chosen one comes first; the message without Duck Echo, on each system,
+and for an AppImage not allowed to run; the command line, exactly. In
+the Studio's own tests: `assets.open_in_duck_echo` says "Where is Duck
+Echo Studio?" with the download link, says when no recipe made a sound,
+and starts a chosen program with `--open art/step.toml`. In the screen
+tests: a copy of the scene demo with Duck Craft's footsteps and day music
+shows "assets/step (6 variants)" and its facts line in the Inspector,
+lists the music and not the numbered steps, sets the music, and Open in
+Duck Echo asks for the set's recipe and shows the plain message; Files
+shows "makes assets/step (6 variants)" and "from art/step.toml" beside
+the six steps and the set, and opens a set's or a recipe's.
+
+## Checklist for a person
+
+Windows, with Duck Echo Studio installed (its installer, for you only):
+
+1. Open Duck Forge Studio, then Duck Craft's folder in Files: `art/`
+   shows `step.toml` as a recipe that "makes assets/step (6 variants)";
+   `assets/step_3.wav` says "from art/step.toml".
+2. Open the scene demo, add a Sound object (Add, Sound) and pick
+   "assets/step (6 variants)" (after copying Duck Craft's `step*` files
+   into its `assets` and `art/step.toml` into its `art`): the facts line
+   shows under the box. Play plays the steps in turn.
+3. Press Open in Duck Echo: Duck Echo Studio opens `step.toml`, its title
+   naming the game. Change a value, Send to game: in two seconds the
+   facts line shows the new numbers, and the running game the new steps.
+4. Rename Duck Echo Studio's folder for a moment and press Open in Duck
+   Echo again: "Where is Duck Echo Studio?", with Get Duck Echo Studio
+   (it opens the download page) and Choose... in the Feel tab. Choose
+   `DuckEchoStudio.exe` where it now is: it opens again. Put the folder
+   back.
+
+Linux, with `DuckEchoStudio.AppImage` downloaded into `~/Applications`:
+
+1. to 3. as on Windows.
+4. Take away the AppImage's permission to run (Properties, Permissions):
+   Open in Duck Echo names the AppImage and says how to allow it; allow
+   it again and it opens. Move it to `~/Desktop`: still found. Move it
+   somewhere else entirely: Choose... finds it.

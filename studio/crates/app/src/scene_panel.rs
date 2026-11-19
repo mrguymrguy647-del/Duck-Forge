@@ -27,6 +27,7 @@ use crate::theme;
 use duckforge::scene::ready;
 use studio_core::game_files::FileKind;
 use studio_core::scripts::{ScriptsFile, SettingInfo};
+use studio_core::sounds::{self, SoundChoice};
 
 /// The first stroke number of this panel, well away from the ones paint
 /// strokes and Feel's sliders count up from: two edits join one Undo step
@@ -155,8 +156,13 @@ pub struct ScenePanel {
     pictures: Option<(PathBuf, Instant, Vec<String>)>,
     /// Sprite sheets' animation names, by file.
     animations: HashMap<PathBuf, Vec<String>>,
-    /// The game's sounds, like `pictures`.
-    sounds: Option<(PathBuf, Instant, Vec<String>)>,
+    /// The label of the next text box drawn (for screen readers and tests).
+    label_next: Option<egui::Id>,
+    /// The game's sounds, music and sets, like `pictures`.
+    sounds: Option<(PathBuf, Instant, Vec<SoundChoice>)>,
+    /// Each sound's facts line and recipe, read again every couple of
+    /// seconds (Duck Echo may send it again): by file, with when.
+    sound_facts: HashMap<(PathBuf, String), SoundFacts>,
     /// The game's `scripts.rs`, read again every second.
     scripts: Option<(PathBuf, Instant, ScriptsFile)>,
     /// The last nudge with the arrow keys: its stroke, when, and what it
@@ -174,6 +180,9 @@ pub struct ScenePanel {
     list_drag: Option<Vec<u64>>,
 }
 
+/// A sound's facts line and recipe, and when they were read.
+type SoundFacts = (Instant, Option<String>, Option<String>);
+
 impl Default for ScenePanel {
     fn default() -> ScenePanel {
         ScenePanel {
@@ -184,7 +193,9 @@ impl Default for ScenePanel {
             renaming: None,
             pictures: None,
             animations: HashMap::new(),
+            label_next: None,
             sounds: None,
+            sound_facts: HashMap::new(),
             scripts: None,
             nudge: None,
             adding: None,
@@ -1561,9 +1572,17 @@ impl ScenePanel {
             .as_deref()
             .map_or(Vec::new(), |folder| self.pictures_of(folder));
         let levels = folder.as_deref().map_or(Vec::new(), levels_in);
-        let sounds = folder
+        let sound_choices = folder
             .as_deref()
             .map_or(Vec::new(), |folder| self.sounds_of(folder));
+        let sounds: Vec<String> = sound_choices.iter().map(|c| c.path.clone()).collect();
+        // How a choice shows: a sound by its entry ("step (6 variants)").
+        let shown = |choice: &str| {
+            sound_choices
+                .iter()
+                .find(|c| c.path == choice)
+                .map_or_else(|| choice.to_string(), |c| c.label.clone())
+        };
         let mut keep = true;
         let modal = egui::Modal::new(egui::Id::unique("add an object")).show(ctx, |ui| {
             ui.set_width(600.0);
@@ -1696,7 +1715,7 @@ impl ScenePanel {
                 Some(Needs::Sound) => (
                     "Which sound",
                     &sounds,
-                    "This game has no sounds yet. Add a .wav file in Files first.",
+                    "This game has no sounds yet. Add a .wav or .ogg file in Files first, or send one from Duck Echo.",
                 ),
                 _ => ("", &pictures, ""),
             };
@@ -1708,12 +1727,12 @@ impl ScenePanel {
                     ui.horizontal(|ui| {
                         ui.label(words);
                         egui::ComboBox::from_id_salt("add which")
-                            .selected_text(adding.choice.clone().unwrap_or_default())
+                            .selected_text(adding.choice.as_deref().map(shown).unwrap_or_default())
                             .width(260.0)
                             .show_ui(ui, |ui| {
                                 for choice in choices {
                                     let chosen = adding.choice.as_deref() == Some(choice);
-                                    if ui.selectable_label(chosen, choice).clicked() {
+                                    if ui.selectable_label(chosen, shown(choice)).clicked() {
                                         adding.choice = Some(choice.clone());
                                     }
                                 }
@@ -1791,6 +1810,10 @@ impl ScenePanel {
             .as_ref()
             .is_none_or(|(have, of, _)| *have != id || of != key);
         let response = ui.add(egui::TextEdit::singleline(&mut text).desired_width(f32::INFINITY));
+        let response = match self.label_next.take() {
+            Some(label) => response.labelled_by(label),
+            None => response,
+        };
         if focus && fresh {
             response.request_focus();
             self.typing = Some((id, key.to_string(), text));
@@ -1836,25 +1859,41 @@ impl ScenePanel {
             .clone()
     }
 
-    /// The game's `.wav` sounds, as scene files name them, read again
-    /// every couple of seconds.
-    fn sounds_of(&mut self, folder: &Path) -> Vec<String> {
+    /// The game's sounds, `.ogg` music and Duck Echo sets, as scene files
+    /// name them, read again every couple of seconds (see
+    /// `studio_core::sounds`: a set stands for its numbered sounds).
+    fn sounds_of(&mut self, folder: &Path) -> Vec<SoundChoice> {
         let fresh = self
             .sounds
             .as_ref()
             .is_some_and(|(of, when, _)| of == folder && when.elapsed() < Duration::from_secs(2));
         if !fresh {
-            let mut found = Vec::new();
-            look_for(folder, folder, 0, &mut found, &|path: &Path| {
-                path.extension()
-                    .is_some_and(|e| e.eq_ignore_ascii_case("wav"))
-            });
-            found.sort();
+            let found = sounds::choices(folder);
             self.sounds = Some((folder.to_path_buf(), Instant::now(), found));
         }
         self.sounds
             .as_ref()
             .map_or(Vec::new(), |(_, _, sounds)| sounds.clone())
+    }
+
+    /// A sound's facts line (from the facts Duck Echo wrote beside it) and
+    /// the recipe that made it, read again every couple of seconds.
+    fn facts_of(&mut self, folder: &Path, sound: &str) -> (Option<String>, Option<String>) {
+        let key = (folder.to_path_buf(), sound.to_string());
+        let stale = self
+            .sound_facts
+            .get(&key)
+            .is_none_or(|(when, ..)| when.elapsed() >= Duration::from_secs(2));
+        if stale {
+            let line = sounds::facts(folder, sound)
+                .map(|facts| facts.line())
+                .filter(|line| !line.is_empty());
+            let recipe = sounds::recipe_of(folder, sound);
+            self.sound_facts
+                .insert(key.clone(), (Instant::now(), line, recipe));
+        }
+        let (_, line, recipe) = &self.sound_facts[&key];
+        (line.clone(), recipe.clone())
     }
 
     /// A Sound object's boxes: which sound (a sound from Files can be
@@ -1875,18 +1914,30 @@ impl ScenePanel {
             .as_deref()
             .map_or(Vec::new(), |folder| self.sounds_of(folder));
         let sound = start.text("sound").unwrap_or_default().to_string();
+        let shown = sounds
+            .iter()
+            .find(|choice| choice.path == sound)
+            .map_or_else(|| sound.clone(), |choice| choice.label.clone());
         ui.horizontal(|ui| {
-            ui.label("Sound");
+            let label = ui.label("Sound");
             let combo = egui::ComboBox::from_id_salt("sound")
-                .selected_text(if sound.is_empty() { "(none)" } else { &sound })
-                .width(150.0)
+                .selected_text(if sound.is_empty() { "(none)" } else { &shown })
+                .width(170.0)
                 .show_ui(ui, |ui| {
-                    for name in &sounds {
-                        if ui.selectable_label(*name == sound, name).clicked() && *name != sound {
-                            set(&mut commands, "sound", json!(name), None);
+                    for choice in &sounds {
+                        if ui
+                            .selectable_label(choice.path == sound, &choice.label)
+                            .clicked()
+                            && choice.path != sound
+                        {
+                            set(&mut commands, "sound", json!(choice.path), None);
                         }
                     }
                 });
+            let combo = egui::InnerResponse {
+                response: combo.response.labelled_by(label.id),
+                inner: combo.inner,
+            };
             take_drop(
                 &combo.response,
                 FileKind::Sound,
@@ -1904,6 +1955,26 @@ impl ScenePanel {
                 });
             }
         });
+        // What Duck Echo wrote about it, and the recipe that made it.
+        if let Some(folder) = open.game.folder.as_deref().filter(|_| !sound.is_empty()) {
+            let (line, recipe) = self.facts_of(folder, &sound);
+            if let Some(line) = line {
+                ui.label(RichText::new(line).small().weak());
+            }
+            if let Some(recipe) = recipe
+                && ui
+                    .button("Open in Duck Echo")
+                    .on_hover_text(format!(
+                        "Change {recipe} in Duck Echo Studio. Its Send to game brings the new \
+                         sound back, and the game plays it from the next update."
+                    ))
+                    .clicked()
+            {
+                commands.push(Command::AssetsOpenInDuckEcho {
+                    file: sound.clone(),
+                });
+            }
+        }
         let mut loops = start.flag("loops").unwrap_or(false);
         if ui
             .checkbox(&mut loops, "Plays over and over (music)")
@@ -1912,9 +1983,11 @@ impl ScenePanel {
             set(&mut commands, "loops", json!(loops), None);
         }
         ui.horizontal(|ui| {
-            ui.label("Volume");
+            let label = ui.label("Volume");
             let mut volume = start.number("volume").unwrap_or(1.0);
-            let response = ui.add(egui::Slider::new(&mut volume, 0.0..=1.0).fixed_decimals(2));
+            let response = ui
+                .add(egui::Slider::new(&mut volume, 0.0..=1.0).fixed_decimals(2))
+                .labelled_by(label.id);
             let stroke = self.stroke_of(&response);
             if response.changed() {
                 let value = number((f64::from(volume) * 100.0).round() / 100.0);
@@ -2383,17 +2456,31 @@ impl ScenePanel {
                 }
                 kind @ ("picture" | "sound") => {
                     let now = current.as_str().unwrap_or_default().to_string();
-                    let files = match (&folder, kind) {
-                        (Some(folder), "picture") => self.pictures_of(folder),
-                        (Some(folder), _) => self.sounds_of(folder),
+                    // (file, as the box shows it): a sound set as "step (6 variants)".
+                    let files: Vec<(String, String)> = match (&folder, kind) {
+                        (Some(folder), "picture") => self
+                            .pictures_of(folder)
+                            .into_iter()
+                            .map(|p| (p.clone(), p))
+                            .collect(),
+                        (Some(folder), _) => self
+                            .sounds_of(folder)
+                            .into_iter()
+                            .map(|c| (c.path, c.label))
+                            .collect(),
                         _ => Vec::new(),
                     };
+                    let shown = files
+                        .iter()
+                        .find(|(file, _)| *file == now)
+                        .map_or_else(|| now.clone(), |(_, label)| label.clone());
                     let combo = egui::ComboBox::from_id_salt((kind, name))
-                        .selected_text(if now.is_empty() { "(none)" } else { &now })
+                        .selected_text(if now.is_empty() { "(none)" } else { &shown })
                         .width(150.0)
                         .show_ui(ui, |ui| {
-                            for file in &files {
-                                if ui.selectable_label(*file == now, file).clicked() && *file != now
+                            for (file, label) in &files {
+                                if ui.selectable_label(*file == now, label).clicked()
+                                    && *file != now
                                 {
                                     give(json!(file), None);
                                 }
@@ -2777,7 +2864,8 @@ impl ScenePanel {
         let changed = now.filter(|now| !now.gone).map(|now| &now.now);
 
         ui.horizontal(|ui| {
-            ui.label("Name");
+            let label = ui.label("Name");
+            self.label_next = Some(label.id);
             if let TextBox::Done(Some(name)) = self.text_box(ui, id, "name", &start.name, false) {
                 commands.push(Command::ObjectRename { id, name });
             }

@@ -2112,13 +2112,29 @@ agent might meet:
   `turn` and `size`.
   `{"do": "files.use", "path": "assets/sign.png", "at": [128, 208]}` is a
   file dragged from Files into the scene: a `.png` or Duck Quill sheet
-  becomes a Picture there, named after the file; a `.wav` becomes a
-  `sound` object that loops (music); a level's `.txt` becomes a Tile map.
+  becomes a Picture there, named after the file; a `.wav`, an `.ogg` or
+  a Duck Echo set (`.variants.json`) becomes a `sound` object that loops
+  (music); a level's `.txt` becomes a Tile map.
   With `"ids": [4], "key": "picture"` (or `"sound"`) it's a file dropped
   on that box of the Inspector instead: those objects get it. A path
   outside the game's folder (`"C:/Users/me/flower.png"`) is copied into
-  `assets/` first, and stays there after Undo. Only `.png` pictures and
-  `.wav` sounds can be used; anything else says so.
+  `assets/` first, and stays there after Undo. Only `.png` pictures,
+  `.wav` and `.ogg` sounds and Duck Echo sets can be used; anything else
+  says so.
+  Sounds from Duck Echo: the Inspector's Sound box lists `.wav` sounds,
+  `.ogg` music ("assets/music_day.ogg (music)") and each set as one entry
+  ("assets/step (6 variants)"; its numbered `.wav`s aren't listed), with a
+  facts line under it from the facts Duck Echo wrote (`0.20 s  -16.0 LUFS
+  hit at 0.014 s  plays once  from art/thud.toml`). Files shows each
+  sound's recipe beside it and each recipe's sounds.
+  `{"do": "assets.open_in_duck_echo", "file": "assets/step.variants.json"}`
+  (a sound, music, a set, or the recipe `art/step.toml` itself) runs
+  `DuckEchoStudio --open <game>/art/step.toml`; Send to game there brings
+  the new sound back to the running game. Duck Echo Studio is found where
+  its installer puts it (Windows), as an AppImage in `~/Applications` and
+  the like (Linux), beside the Studio or on the PATH, or where
+  `{"do": "assets.choose_duck_echo", "program": "..."}` said; not found,
+  it says "Where is Duck Echo Studio?" with its download page.
   Scripts (section 14): `{"do": "script.new", "name": "bee", "folder":
   "scripts"}` writes `scripts/bee.rs` from the skeleton, adds it to the
   game's `scripts.rs` and opens it in the code editor (the game builds it
