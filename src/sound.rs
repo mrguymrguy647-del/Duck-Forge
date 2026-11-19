@@ -774,6 +774,15 @@ impl SoundRequest {
 }
 
 impl PlayedSound {
+    /// The sample of `audio.wav` it starts at (44,100 a second; update `n`
+    /// begins at sample `(n - 1) * 735` at 60 updates a second). A sound
+    /// played with [`play_landing`](crate::engine::Context::play_landing)
+    /// starts before its hit's frame, so its hit is on that frame's first
+    /// sample: `sound.start_sample() + hit` is a multiple of 735.
+    pub fn start_sample(&self) -> u64 {
+        self.start
+    }
+
     /// The sound's line in `log.json`: frame and name first, then its
     /// settings or its file, like
     /// `{"frame": 10, "sound": "coin", "wave": "square", "freq": 1050, ...}`.

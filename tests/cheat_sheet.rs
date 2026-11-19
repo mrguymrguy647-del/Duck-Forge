@@ -391,6 +391,8 @@ fn variants_and_hits_from_duck_echo() -> Result<(), LoadError> {
     let sounds = sim.sounds();
     assert_ne!(sounds[0].variant, sounds[1].variant, "never twice in a row");
     assert_eq!(sounds[2].name, "thud");
+    // Its hit (617 samples in) is on frame 9's first sample of audio.wav.
+    assert_eq!(sounds[2].start_sample() + 617, 8 * 735);
     assert!(sim.sound_warnings().is_empty(), "it has its facts");
     Ok(())
 }

@@ -52,6 +52,8 @@ Contents:
 12. [What the engine can't do yet](#12-what-the-engine-cant-do-yet)
 13. [Duck Forge Studio](#13-duck-forge-studio)
 14. [Scenes: a game's objects in a file](#14-scenes-a-games-objects-in-a-file)
+15. [Ready-made behaviours](#15-ready-made-behaviours)
+16. [Sound from Duck Echo, end to end](#16-sound-from-duck-echo-end-to-end)
 
 ---
 
@@ -1061,7 +1063,9 @@ sounds: `let music: LoopId = ctx.play_loop(&w, 0.6);` (a `Wav`, or a
 `LoopId` in your game (`Option<LoopId>`). Play sounds in `update` only
 (`draw` has no `ctx`). Checking: `sim.sounds()` (each has `frame` and
 `name`), `sim.sound_frames("coin")`, and in play tests
-`played.assert_sound("coin", frame, within_frames)`; loops with
+`played.assert_sound("coin", frame, within_frames)`; where a sound starts
+in `audio.wav` with `sound.start_sample()` (update `n` starts at sample
+`(n - 1) * 735` at 60 updates a second); loops with
 `sim.loops()` (each has `name`, `start`, `stop`, `volumes`,
 `.volume_at(frame)` and `.is_playing()`). Headless runs mix loops into
 `audio.wav` and list them in `log.json` under `"loops"`.
@@ -1974,10 +1978,9 @@ Plan around these. Don't spend time looking for them:
 
 - A turned sprite's collision box isn't turned (`draw_placed` and a
   scene object's `"turn"` are for looks).
-- Scenes: no objects inside objects, one kind per object, and no kinds
-  that act by themselves yet (the game's code gives objects their
-  behaviour; ready-made ones come later in Phase 5). 3D scene files are
-  read and kept, not drawn.
+- Scenes: no objects inside objects, and one kind per object (the
+  game's code gives objects their behaviour, or a ready-made one does:
+  section 15). 3D scene files are read and kept, not drawn.
 - One-off sounds can't be stopped or changed once started (loops can:
   `play_loop`, `set_loop_volume`, `stop_loop`). Music (`.ogg`) only
   loops, at 44,100 Hz. No pitch changes while
@@ -2372,3 +2375,77 @@ From the game's code: `scene.script::<PlatformerPlayer>(id)` (the type is
 `Simulation` and press keys (`src/scene/ready/tests/platformer_player.rs`
 and `examples/ready_made/tests.rs` show how). Its updates are part of
 `scene.update(ctx)`, in the order of ids, so replays are exact.
+
+## 16. Sound from Duck Echo, end to end
+
+Duck Echo makes a game's sounds and music from recipes (small TOML files
+of numbers, kept in the game's `art/`); Duck Forge plays them, checks
+them and keeps replays exact. Duck Craft (`examples/duck_craft`) uses all
+of it: OGG day and night themes, six footstep variants, a falling-sand
+thud started early so its hit lands on the frame the sand does, and a
+landing sound. Section 7 has each call; this is the whole loop.
+
+**What Duck Echo writes** (its Send to game, or `duck-echo render`):
+
+| File | What it is | Duck Forge loads it with |
+|---|---|---|
+| `assets/thud.wav` | a sound | `Wav::load` |
+| `assets/thud.wav.json` | its facts: length, loudness, `hit_seconds`, `loops`, the SHA-256 of the sound, and `"recipe": "art/thud.toml"` | read with the sound: `thud.hit_seconds()` |
+| `assets/step.variants.json` and `step_1.wav` ... | a set of variants, each with its facts | `SoundSet::load` |
+| `assets/music_day.ogg` (and `.ogg.json`) | music, which loops | `Music::load` |
+| `art/thud.toml` | the recipe | (Duck Echo and the Studio read it) |
+
+**The loop for a person**: Duck Forge Studio's Inspector (a Sound
+object) or Files shows the sound with its facts line; Open in Duck Echo
+opens its recipe; they change it and press Send to game; the running
+game hears the new sound from the next update (a window looks at its
+sound files twice a second, the Studio sends a change at once), and the
+facts line changes with it.
+
+**The loop for you, without a screen**:
+
+1. Make or change the sound with Duck Echo's command or MCP tools, into
+   the game's `assets/` (a recipe in `art/`).
+2. Load it once, at the start (`Wav::load`, `SoundSet::load`,
+   `Music::load`), keep it in your game, play it in `update`.
+3. Run headless and read what happened: `log.json`'s `"sounds"` gives
+   each sound's frame, name and file, and a set's `"variant"`;
+   `"loops"` gives each loop's file and its volume over time; the
+   summary says `sounds: step x4 ...` and any warning about facts.
+   `audio.wav` is the mix, the same bytes on every run of the same
+   playthrough, on Windows and Linux.
+4. Test it: `sim.sound_frames("thud")`, `sound.variant`,
+   `sound.start_sample()`; Duck Craft's
+   `falling_sands_thud_is_heard_on_the_frame_it_lands_in_a_headless_run`
+   finds the thud's own sound in `audio.wav` where the log says it is.
+
+**Lessons from building it** (read these before changing sound code):
+
+- **Decide game logic from frames, never from a sound's length or its
+  hit.** A sound can change while the game runs (sent again), and a
+  replay must play out the same whether or not its sounds did.
+  `seconds()` and `hit_seconds()` are for timing sounds, not for rules.
+- **Sound choices have their own random numbers.** `ctx.sound_rng`
+  picks variants; `ctx.rng` is the game's. Adding footsteps to a game
+  must not move where a monster appears, or every recorded playthrough
+  breaks. Use `sound_rng` for anything that only changes what's heard.
+- **Keep a sound's name when its file changes.** Duck Craft's `step` and
+  `thud` went from synthesizer sounds to Duck Echo files under the same
+  names, so its tests (`sound_frames("thud")`) and playthroughs passed
+  unchanged: no re-recording.
+- **A hit needs its facts.** `play_landing` and `play_on_hit` use the
+  facts file's `hit_seconds`; without it (or with one for an older
+  version of the sound) the sound plays from its start, and the summary
+  says so, once. A sound from elsewhere has no facts: play it with
+  `play_with`.
+- **Music only loops, and only `.ogg` is music.** Short sounds stay
+  `.wav`. A changed `.ogg` takes over at its loop's next wrap.
+- **Replays use the sounds they heard.** A recording keeps each sound's
+  SHA-256, and saving it copies those versions into `out/sound-store/`.
+  That folder isn't in git: on another computer a replay plays today's
+  sounds, says so, and still plays out the same (only `audio.wav`
+  differs). Re-record a playthrough only when the game itself changed.
+- **Two systems, one sound.** The OGG decoder runs Duck Forge's own fixed
+  math, so `audio.wav` is the same bytes on Windows and Linux; CI checks
+  it. Don't swap the decoder without that check.
+

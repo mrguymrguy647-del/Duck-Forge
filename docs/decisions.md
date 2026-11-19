@@ -6430,3 +6430,84 @@ Linux, with `DuckEchoStudio.AppImage` downloaded into `~/Applications`:
    Open in Duck Echo names the AppImage and says how to allow it; allow
    it again and it opens. Move it to `~/Desktop`: still found. Move it
    somewhere else entirely: Choose... finds it.
+
+# Duck Echo's Phase 3, step 9: Duck Craft end to end, and the docs
+
+The last step of Duck Echo's Phase 3 on Duck Forge's side: Duck Craft
+run start to finish with its new sounds, and the docs brought up to date
+for steps 5 to 8. The plan is Duck Echo's `docs/phase3-design.md`
+(section 8, step 9).
+
+## Duck Craft, start to finish
+
+Both recorded playthroughs, run headless (`--inputs
+playthroughs/duck_craft.json`, 797 frames; `duck_craft_night.json`,
+2,990 frames): every check passes and each ends exactly as recorded, so
+**neither was re-recorded**. Their sounds changed files in step 7, not
+names (`step`, `thud`), and footsteps take their numbers from
+`ctx.sound_rng`, not the game's `ctx.rng`, so nothing the game decides
+moved.
+
+- **Music**: `log.json`'s `"loops"` has `music_day` and `music_night`
+  from `assets/music_day.ogg` and `music_night.ogg`, fading in as the day
+  starts (frame 32 in the day run, 202 at night); `audio.wav` is stereo,
+  exactly as long as the run (13.28 s and 49.83 s), and louder once the
+  music is in.
+- **Footsteps**: `"variant"` 5, 3, 6, 2 (day) and 5, 3, 6, 2, 4, 5
+  (night): never the same twice in a row.
+- **Landing**: `land` on frame 689 of the day run, as the duck drops a
+  block, with `play_on_hit`.
+- **Falling sand**: neither playthrough digs under sand, so a new test,
+  `falling_sands_thud_is_heard_on_the_frame_it_lands_in_a_headless_run`,
+  does, headless with its `audio.wav` and `log.json`: the thud is asked
+  for a few frames early, its hit falls on the first sample of the frame
+  the sand lands on, `log.json` names it, and the thud's own sound is
+  found in `audio.wav` there.
+- **The same bytes again**: each playthrough's `audio.wav` is the same,
+  byte for byte, when run twice; CI runs the engine's tests on Windows,
+  where the music's decoded samples are pinned to Linux's.
+
+`PlayedSound::start_sample()` is new and public, for such tests: the
+sample of `audio.wav` a sound starts at.
+
+## The docs
+
+- AI_GUIDE.md section 16, "Sound from Duck Echo, end to end": what Duck
+  Echo writes, the loop for a person and for an agent, and the lessons
+  below in short.
+- [ROADMAP.md](ROADMAP.md), new: what's done, what's waiting on its own
+  branch, and what could come next.
+
+## Lessons for the next builder
+
+- **Design every sound feature around "a replay is exact".** Each step
+  had to answer it first: a changed sound (the SHA-256 in recordings, and
+  the store), variants (their own random numbers), music (the decoder's
+  bits on both systems), facts (kept with each version of the sound).
+  Answered late, it would have meant re-recording every playthrough.
+- **Check Windows and Linux early, on the bytes.** The OGG decoder used
+  the system's `sin` and `cos`, and its samples differed a little between
+  the two; it showed only because a test pins the SHA-256 of `audio.wav`
+  and CI runs it on both. The fix (fixed
+  math in a vendored `lewton`) was small because it was found in step 6,
+  not after.
+- **Keep names when files change.** Going from synthesizer sounds to
+  Duck Echo files under the same names left every test and playthrough
+  untouched.
+- **Separate what's heard from what happens.** `sound_rng`, and the rule
+  "decide game logic from frames, not sound lengths", keep a game's
+  behaviour the same whatever its sounds become.
+- **Sounds that overlap can't be told apart by matching.** Finding a low
+  thud in a mix by correlation is good to a few samples, not one, and a
+  sand pillar's three thuds a frame apart fool it entirely. Test exact
+  placement through `start_sample()` and frame boundaries, and use
+  correlation only to show the sound is there.
+- **The other tool's plan lives in its own repository.** Duck Echo's
+  `docs/phase3-design.md` is on its `claude/phase3-duck-forge-link`
+  branch; read it there (a read-only clone is enough).
+- **Mind the disk.** The engine's and the Studio's debug builds take
+  over 20 GB together; a cloud machine ran out mid-step. Delete one
+  `target/debug` before building the other's full tests.
+- **Screen tests check names.** `egui_kittest` fails a test whose
+  widgets have no accessible name: give a box its label with
+  `labelled_by`, which also lets tests find it by role.
