@@ -390,6 +390,19 @@ fn pick_up_edits<G: Game>(sim: &mut Simulation<G>) {
             );
         }
     }
+    // A model saved again (Duck Mold's Export): the game is told which
+    // file, and loads it again itself.
+    for name in crate::files::models_changed_on_disk() {
+        if sim.change_file(&name, "") {
+            println!("duckforge: {name} changed; the game loaded it again");
+        } else {
+            println!(
+                "duckforge: {name} changed, but this game only loads it when it starts: \
+                 start it again to see the change, or give its `reload` the line \
+                 `self.model.reload_if_changed(file)`"
+            );
+        }
+    }
 }
 
 /// Opens the game's window, or says why it couldn't.

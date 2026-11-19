@@ -1,0 +1,17 @@
+{
+  "duckforge_inputs": 1,
+  "seed": 1,
+  "updates_per_second": 60,
+  "frames": 420,
+  "expect": {"animation": "idle", "facing_degrees": 90.00001, "model": "pip", "steps": 22, "x": -0.050000623, "z": -0.07499991},
+  "events": [
+    {"frame": 20, "press": "Down"},
+    {"frame": 60, "release": "Down"},
+    {"frame": 70, "press": "Up"},
+    {"frame": 200, "release": "Up"},
+    {"frame": 210, "press": "Right"},
+    {"frame": 330, "release": "Right"},
+    {"frame": 340, "press": "Left"},
+    {"frame": 400, "release": "Left"}
+  ]
+}

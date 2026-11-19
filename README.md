@@ -72,6 +72,7 @@ cargo run --release --example duck_craft   # a Minecraft-style island: dig, buil
 cargo run --release --example stress3d   # thousands of spinning 3D shapes
 cargo run --example turntable  # a robot made in Duck Mold, slowly turning
 cargo run --example robot_walk # the same robot, moving: it idles, walks and waves
+cargo run --example pip_walk   # a character made with Duck Quill and Duck Mold, walking round a yard
 cargo run --example robot_click # it walks round; its footsteps sound; click it to see which part
 cargo run --example physics    # 2D physics sandbox: click to drop balls and boxes
 cargo run --example breakout   # the classic game
@@ -105,6 +106,7 @@ cargo run --no-default-features --example breakout -- --headless --frames 600 --
 | `stress3d` | 1–6 pick 500 to 20,000 objects · O toggles orbit/fly |
 | `turntable` | Space stops and starts it · Left/Right turn it by hand |
 | `robot_walk` | Arrows walk the robot about · Space makes it wave |
+| `pip_walk` | Arrows walk Pip round the crates |
 | `robot_click` | Click the robot: it says which part, which flashes |
 | `template` | Arrows or A/D run · Up, W or Space jumps · P pauses |
 | every game | **F1** debug overlay · **F3** shows the FPS · **F10** starts and stops recording · **F12** saves a screenshot (PNG) · Escape quits |
@@ -562,10 +564,33 @@ recolouring a part (`mesh.triangles[part.range()]`) tints its images.
 A file with images needs this Duck Forge or a newer one: an older one
 says "update Duck Forge" instead of drawing its faces white.
 
+**Changing a model while the game runs.** Give the game's `reload` one
+line, and a model saved again shows in the running game at once, still
+mid-step:
+
+```rust
+fn reload(&mut self, _ctx: &mut Context, file: &Path) -> bool {
+    self.robot.reload_if_changed(file)
+}
+```
+
+It works from Duck Mold's own Studio (Export), from `duck-mold export`
+in a terminal, and from Duck Forge Studio, where a click on a model in
+the Files panel opens it in a tab that is Duck Mold's Studio: change
+the robot's arm there, and the robot walking in the game has the new
+arm when you let go of the mouse.
+
 [examples/robot_click/](examples/robot_click/main.rs) is the robot
 walking round, its footsteps making a sound and a puff of dust, a click
 naming the part it found, which flashes, and a wall in its way that its
 body bumps into.
+
+[examples/pip_walk/](examples/pip_walk/main.rs) is one character made
+with all three Duck apps: Pip's face was painted in Duck Quill, Pip was
+put together and animated in Duck Mold, and here Pip walks round a yard
+of plank crates. Its `art` folder has the recipes and the pictures, and
+[art/README.md](examples/pip_walk/art/README.md) says how each was made
+and how to change one while the game runs.
 
 ### With physics
 

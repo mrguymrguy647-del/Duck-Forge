@@ -320,6 +320,13 @@ impl Game for RobotClick {
         ctx.report("said", self.said.as_str());
     }
 
+    /// The robot's model was saved again while the game runs (changed in
+    /// Duck Mold and exported, or sent from Duck Forge Studio): take the
+    /// new one and carry on, mid-step.
+    fn reload(&mut self, _ctx: &mut Context, file: &std::path::Path) -> bool {
+        self.robot.reload_if_changed(file)
+    }
+
     fn draw(&self, canvas: &mut Canvas) {
         canvas.clear(SKY);
         canvas.set_lighting(Lighting {

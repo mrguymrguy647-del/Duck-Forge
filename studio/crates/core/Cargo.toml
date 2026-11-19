@@ -9,6 +9,12 @@ rust-version.workspace = true
 duckforge.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# Duck Mold, with no window: a model's edits (with the same Undo as Duck
+# Mold's own Studio), its export into a game, and the words of an edit as
+# `duck-mold edit` takes them.
+duck-mold-core.workspace = true
+duck-mold-view.workspace = true
+duck-mold-cli.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 # Asks Windows where the person's Documents folder really is (OneDrive can

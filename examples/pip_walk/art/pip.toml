@@ -1,0 +1,271 @@
+# Pip, a small explorer: a character made with all three Duck apps.
+#
+#   duck-mold render examples/pip.toml
+#   duck-mold render examples/pip.toml --animation walk --view right
+#
+# - Its face is painted in Duck Quill: textures/pip_face.json is the
+#   script, textures/pip_face.png what it draws (hair, eyes, cheeks, a
+#   smile). The picture is see-through everywhere else, so the head's own
+#   skin colour shows through.
+# - It is put together and animated here, in Duck Mold: `idle` and `walk`
+#   at the end of the file, with a `footstep` on each step, a hit shape
+#   for every part, and two simpler versions for when it is far off.
+# - It walks in a Duck Forge game: examples/pip_walk there.
+#
+# A model faces forward (+z). `left` and `right` are Pip's own left and
+# right: its left arm is at -x.
+
+version = 0
+name = "pip"
+description = "Pip, a small explorer with a painted face, a backpack and a walk."
+export = "../assets/pip.glb"
+colliders = "parts"
+lods = "auto"
+
+[palette]
+skin   = "#F2C29A"
+hair   = "#5A3A22"
+jacket = "#3F7D5A"
+shorts = "#6B4A2B"
+boot   = "#3A2A1E"
+khaki  = "#C9A66B"
+band   = "#8A5A2B"
+pack   = "#B5562F"
+roll   = "#D9C8A0"
+
+# ---- parts defined once ------------------------------------------------------
+
+# An arm: a sleeve and a hand. It turns at the shoulder.
+[define.arm]
+color = "jacket"
+
+[define.arm.sockets]
+shoulder = { from = "sleeve.joint" }
+
+[[define.arm.parts]]
+name = "sleeve"
+shape = "box"
+size = [0.09, 0.2, 0.1]
+limits = "fixed"
+
+# On the side that touches the body, near the top.
+[define.arm.parts.sockets]
+joint = { on = "right", shift = [0, 0.6, 0] }
+
+[[define.arm.parts]]
+name = "hand"
+shape = "sphere"
+radius = 0.05
+segments = 6
+color = "skin"
+attach = "top"
+to = "sleeve.bottom"
+limits = "fixed"
+collider = "none"     # a hit on a hand names the arm
+
+# A leg: shorts and a boot that points forward.
+[define.leg]
+color = "shorts"
+
+[define.leg.sockets]
+hip = { from = "thigh.top" }
+
+[[define.leg.parts]]
+name = "thigh"
+shape = "box"
+size = [0.12, 0.17, 0.13]
+limits = "fixed"      # the whole leg turns at the hip
+
+[[define.leg.parts]]
+name = "boot"
+shape = "box"
+size = [0.13, 0.09, 0.2]
+color = "boot"
+attach = "ankle"
+to = "thigh.bottom"
+limits = { x = [-45, 45] }
+
+# Towards the back of the boot, so that the toes stick out in front.
+[define.leg.parts.sockets]
+ankle = { on = "top", shift = [0, 0, -0.35] }
+
+# ---- Pip ---------------------------------------------------------------------
+
+[[parts]]
+name = "body"
+shape = "box"
+size = [0.34, 0.34, 0.22]
+color = "jacket"
+
+[parts.sockets]
+neck      = { on = "top" }
+pack      = { on = "back", shift = [0, -0.3, 0] }
+left_arm  = { on = "left", shift = [0, 0.6, 0] }
+right_arm = { on = "right", shift = [0, 0.6, 0] }
+left_leg  = { on = "bottom", shift = [-0.45, 0, 0] }
+right_leg = { on = "bottom", shift = [0.45, 0, 0] }
+
+# The face is an image on the front of the head. The back of the head is
+# hair.
+[[parts]]
+name = "head"
+shape = "box"
+size = [0.36, 0.32, 0.32]
+color = "skin"
+colors = { back = "hair" }
+images = { front = "textures/pip_face.png" }
+attach = "bottom"
+to = "body.neck"
+# It nods (around x) and looks left and right (around y).
+limits = { x = [-30, 30], y = [-80, 80] }
+collider = "sphere"   # a ball round the head, rather than a box
+
+[parts.sockets]
+hat = { on = "top" }
+
+[[parts]]
+name = "hat_brim"
+shape = "cylinder"
+radius = 0.27
+height = 0.03
+segments = 12
+color = "khaki"
+attach = "bottom"
+to = "head.hat"
+limits = "fixed"
+collider = "none"
+
+[[parts]]
+name = "hat_band"
+shape = "cylinder"
+radius = 0.175
+height = 0.04
+segments = 12
+color = "band"
+attach = "bottom"
+to = "hat_brim.top"
+limits = "fixed"
+collider = "none"
+
+[[parts]]
+name = "hat_crown"
+shape = "cylinder"
+radius = 0.17
+height = 0.09
+segments = 12
+color = "khaki"
+attach = "bottom"
+to = "hat_band.top"
+limits = "fixed"
+collider = "none"
+
+[[parts]]
+name = "backpack"
+shape = "box"
+size = [0.26, 0.22, 0.13]
+color = "pack"
+attach = "front"
+to = "body.pack"
+limits = "fixed"
+
+# A rolled blanket on top of the pack, lying on its side.
+[[parts]]
+name = "bedroll"
+shape = "cylinder"
+radius = 0.05
+height = 0.3
+segments = 8
+color = "roll"
+attach = "front"
+to = "backpack.top"
+twist = 90
+limits = "fixed"
+collider = "none"
+
+# The arm's `shoulder` socket is on its right side, so the arm hangs at
+# the body's left.
+[[parts]]
+name = "left_arm"
+use = "arm"
+attach = "shoulder"
+to = "body.left_arm"
+limits = { x = [-90, 180], z = [-60, 60] }
+
+# The same arm, flipped.
+[[parts]]
+name = "right_arm"
+use = "arm"
+mirror = "x"
+attach = "shoulder"
+to = "body.right_arm"
+limits = { x = [-90, 180], z = [-60, 60] }
+
+[[parts]]
+name = "left_leg"
+use = "leg"
+attach = "hip"
+to = "body.left_leg"
+limits = { x = [-60, 60] }
+
+[[parts]]
+name = "right_leg"
+use = "leg"
+attach = "hip"
+to = "body.right_leg"
+limits = { x = [-60, 60] }
+
+# ---- how it moves --------------------------------------------------------------
+
+# A step with the left leg forward. Each boot is turned back as far as
+# its leg is turned, so it stays flat; the body sinks a little, which is
+# how much two slanted legs are shorter than two straight ones. The arms
+# swing against the legs, and the head bobs.
+[poses.step_left]
+body = { move = [0, -0.0228, 0] }
+left_leg = [30, 0, 0]
+"left_leg/boot" = [-30, 0, 0]
+right_leg = [-30, 0, 0]
+"right_leg/boot" = [30, 0, 0]
+left_arm = [-35, 0, 0]
+right_arm = [35, 0, 0]
+head = [3, 0, 0]
+
+[poses.step_right]
+body = { move = [0, -0.0228, 0] }
+right_leg = [30, 0, 0]
+"right_leg/boot" = [-30, 0, 0]
+left_leg = [-30, 0, 0]
+"left_leg/boot" = [30, 0, 0]
+right_arm = [-35, 0, 0]
+left_arm = [35, 0, 0]
+head = [3, 0, 0]
+
+# Standing: looking a little one way, the arms just off the body...
+[poses.look_left]
+head = [-3, -12, 0]
+left_arm = [0, 0, -5]
+right_arm = [0, 0, 5]
+
+# ...and the other.
+[poses.look_right]
+head = [2, 12, 0]
+
+[animations.idle]
+loop = true
+keys = [
+  { at = 0, pose = "look_left" },
+  { at = 1.2, pose = "look_right" },
+  { at = 2.4, pose = "look_left" },
+]
+
+# In place: a game moves Pip along the ground as it plays this. Each
+# `footstep` is a moment a game can hear (a sound, a puff of dust).
+[animations.walk]
+loop = true
+keys = [
+  { at = 0, pose = "step_left", event = "footstep" },
+  { at = 0.15, pose = "rest" },
+  { at = 0.3, pose = "step_right", event = "footstep" },
+  { at = 0.45, pose = "rest" },
+  { at = 0.6, pose = "step_left" },
+]

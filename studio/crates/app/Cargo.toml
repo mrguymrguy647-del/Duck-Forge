@@ -13,6 +13,11 @@ path = "src/main.rs"
 studio_core.workspace = true
 duckforge.workspace = true
 serde_json.workspace = true
+# Duck Mold's Studio, as a library: a model's tab is Duck Mold's own
+# screens, drawn into the space the tab gives them.
+duck-mold-studio.workspace = true
+duck-mold-view.workspace = true
+duck-mold-core.workspace = true
 # The window and everything in it: the same library as Duck Quill.
 eframe = "0.37"
 # The "choose a folder" dialog.

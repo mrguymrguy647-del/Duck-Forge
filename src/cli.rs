@@ -625,6 +625,9 @@ mod tests {
         "--objects",
         "--seconds",
         "--renderer",
+        // Duck Mold's, in the Studio's `model.edit` example: `set head
+        // --color red`.
+        "--color",
         // Duck Quill's, in `quill export ... --sheet --scale 2`.
         "--scale",
         // Duck Mold's, in `duck-mold inspect robot.toml --sockets`,

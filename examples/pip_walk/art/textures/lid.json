@@ -1,0 +1,35 @@
+{
+  "format": "duckquill-script",
+  "version": 1,
+  "title": "A crate's lid: 32 x 32",
+  "notes": "A Duck Quill script. Planks running front to back inside a darker frame, with a brace across. Make the PNG with: quill render lid.json --transparent --out .",
+  "palette": {
+    "wood": "#B07A3F",
+    "light": "#C4915A",
+    "frame": "#8A5A2B",
+    "gap": "#7A4E24",
+    "nail": "#4A3018"
+  },
+  "commands": [
+    { "cmd": "canvas", "width": 32, "height": 32, "pixel": true },
+    { "cmd": "layer", "name": "Planks" },
+    { "cmd": "rect", "x": 0, "y": 0, "width": 32, "height": 32, "fill": "wood" },
+    { "cmd": "rect", "x": 9, "y": 3, "width": 1, "height": 26, "fill": "gap" },
+    { "cmd": "rect", "x": 16, "y": 3, "width": 1, "height": 26, "fill": "gap" },
+    { "cmd": "rect", "x": 23, "y": 3, "width": 1, "height": 26, "fill": "gap" },
+    { "cmd": "rect", "x": 6, "y": 6, "width": 1, "height": 9, "fill": "light" },
+    { "cmd": "rect", "x": 13, "y": 17, "width": 1, "height": 8, "fill": "light" },
+    { "cmd": "rect", "x": 20, "y": 7, "width": 1, "height": 11, "fill": "light" },
+    { "cmd": "rect", "x": 27, "y": 15, "width": 1, "height": 9, "fill": "light" },
+    { "cmd": "layer", "name": "Frame" },
+    { "cmd": "rect", "x": 0, "y": 0, "width": 32, "height": 3, "fill": "frame" },
+    { "cmd": "rect", "x": 0, "y": 29, "width": 32, "height": 3, "fill": "frame" },
+    { "cmd": "rect", "x": 0, "y": 0, "width": 3, "height": 32, "fill": "frame" },
+    { "cmd": "rect", "x": 29, "y": 0, "width": 3, "height": 32, "fill": "frame" },
+    { "cmd": "rect", "x": 3, "y": 14, "width": 26, "height": 4, "fill": "frame" },
+    { "cmd": "layer", "name": "Nails" },
+    { "cmd": "pixels", "at": [1, 1], "colors": { "n": "nail" }, "rows": ["n............................n"] },
+    { "cmd": "pixels", "at": [1, 30], "colors": { "n": "nail" }, "rows": ["n............................n"] },
+    { "cmd": "pixels", "at": [5, 16], "colors": { "n": "nail" }, "rows": ["n......n......n......n"] }
+  ]
+}

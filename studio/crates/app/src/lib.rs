@@ -12,6 +12,7 @@ pub mod files_panel;
 pub mod game_view;
 pub mod home;
 pub mod keys;
+pub mod model_tabs;
 pub mod panels;
 pub mod pictures;
 pub mod scene_panel;

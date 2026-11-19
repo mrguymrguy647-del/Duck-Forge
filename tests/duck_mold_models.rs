@@ -99,27 +99,37 @@ fn every_model_loads_with_the_triangles_size_and_colours_duck_mold_reported()
 
         // Each palette colour paints as many triangles as the report says,
         // with exactly the palette's colour, and no other colour is used.
-        let mut counted = 0;
+        // A triangle with an image (the robot's face and label) is white
+        // in the mesh, so that its image shows as it was painted; the
+        // report counts it under the colour that is under the image.
+        let has_image = |at: usize| mesh.uvs.get(at).is_some_and(Option::is_some);
+        let pictured = (0..mesh.triangles.len())
+            .filter(|&at| has_image(at))
+            .count();
+        let (mut counted, mut reported) = (0, 0);
         for color in report["palette"].as_array().unwrap() {
             let wanted = hex(color["hex"].as_str().unwrap());
             let painted = mesh
                 .triangles
                 .iter()
-                .filter(|triangle| triangle.color == wanted)
+                .enumerate()
+                .filter(|(at, triangle)| !has_image(*at) && triangle.color == wanted)
                 .count();
-            assert_eq!(
-                painted as u64,
-                color["triangles"].as_u64().unwrap(),
-                "{name}: {}",
+            let said = color["triangles"].as_u64().unwrap() as usize;
+            assert!(
+                painted <= said && said - painted <= pictured,
+                "{name}: {} paints {painted}, and the report says {said}",
                 color["name"]
             );
             counted += painted;
+            reported += said;
         }
         assert_eq!(
-            counted,
+            counted + pictured,
             mesh.triangles.len(),
             "{name}: only palette colours"
         );
+        assert_eq!(reported, mesh.triangles.len(), "{name}");
     }
     Ok(())
 }
@@ -271,9 +281,11 @@ fn the_model_knows_its_name_palette_and_parts() -> Result<(), LoadError> {
     // The hands were red: the red that's left is the rest of the robot's
     // red (its chest panel and the tip of its antenna).
     let red = Color::from_hex(0xD0453A);
+    // (The front of the panel has the label's image on it, and a
+    // triangle with an image is white: two fewer.)
     assert_eq!(
         mesh.triangles.iter().filter(|t| t.color == red).count(),
-        84 - 24
+        84 - 24 - 2
     );
     // A whole arm in one go: its upper arm, elbow, forearm and hand.
     for triangle in &mut mesh.triangles[arm.range()] {
@@ -665,7 +677,11 @@ fn a_file_from_before_the_tree_loads_as_the_same_model_and_draws_the_same_pictur
         // part, added up on loading, so it can differ in its last digits.
         assert_eq!(old.triangles.len(), new.triangles.len(), "{name}");
         for (before, now) in old.triangles.iter().zip(&new.triangles) {
-            assert_eq!(before.color, now.color, "{name}");
+            // (The robot has since had a face and a label painted on:
+            // those four triangles are white now, under their image.)
+            if now.on_picture.is_none() {
+                assert_eq!(before.color, now.color, "{name}");
+            }
             for corner in 0..3 {
                 let (a, b) = (
                     old.vertices[before.corners[corner]],
@@ -700,7 +716,17 @@ fn a_file_from_before_the_tree_loads_as_the_same_model_and_draws_the_same_pictur
 
         // And the picture is the same, pixel for pixel, from the front
         // and from behind.
-        let (old, new) = (old.to_mesh(), new.to_mesh());
+        // (The robot without the face and label painted on it since:
+        // its four triangles with an image are given back the plain
+        // colour the old file has there.)
+        let (old, mut new) = (old.to_mesh(), new.to_mesh());
+        for at in 0..new.triangles.len() {
+            if new.uvs.get(at).is_some_and(Option::is_some) {
+                new.uvs[at] = None;
+                new.triangles[at].color = old.triangles[at].color;
+            }
+        }
+        new.texture = None;
         let (low, high) = new.bounds();
         let middle = (low + high) * 0.5;
         let away = (high - low).length() * 1.4;

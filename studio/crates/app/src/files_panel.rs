@@ -370,7 +370,8 @@ impl FilesPanel {
     }
 
     /// A click on a line: a folder opens or closes, a picture shows, a
-    /// sound plays, anything else opens in its own program.
+    /// sound plays, a 3D model opens in a tab, anything else opens in its
+    /// own program.
     fn clicked(&mut self, entry: &FileEntry) -> Vec<Command> {
         let select = Command::FilesSelect {
             path: Some(entry.path.clone()),
@@ -390,6 +391,14 @@ impl FilesPanel {
             FileKind::Sound => vec![
                 select,
                 Command::FilesPlay {
+                    path: entry.path.clone(),
+                },
+            ],
+            // A 3D model opens in a tab, in Duck Mold. (Its text is a
+            // right-click away: Open.)
+            FileKind::Model => vec![
+                select,
+                Command::ModelOpen {
                     path: entry.path.clone(),
                 },
             ],
@@ -624,6 +633,14 @@ mod tests {
         );
         let code = entry("bot.rs", FileKind::Code);
         assert!(matches!(panel.clicked(&code)[1], Command::FilesOpen { .. }));
+        // A 3D model opens in a tab.
+        let model = entry("art/robot.toml", FileKind::Model);
+        assert_eq!(
+            panel.clicked(&model)[1],
+            Command::ModelOpen {
+                path: String::from("art/robot.toml")
+            }
+        );
         let folder = entry("assets", FileKind::Folder);
         assert!(panel.is_open("assets"), "folders start open");
         panel.clicked(&folder);

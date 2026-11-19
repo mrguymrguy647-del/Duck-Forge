@@ -31,6 +31,9 @@ pub struct Settings {
     /// Look for a newer Duck Forge Studio when it starts (Settings, "Tell
     /// me about new versions"). On unless the person turns it off.
     pub check_for_updates: bool,
+    /// The 3D models each game had open in tabs, as places in its folder
+    /// (`art/robot.toml`), so they are open again next time.
+    pub model_tabs: BTreeMap<String, Vec<String>>,
 }
 
 impl Default for Settings {
@@ -44,6 +47,7 @@ impl Default for Settings {
             show_console: false,
             build_parts: BTreeMap::new(),
             check_for_updates: true,
+            model_tabs: BTreeMap::new(),
         }
     }
 }

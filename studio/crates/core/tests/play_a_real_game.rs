@@ -1853,3 +1853,107 @@ fn a_ready_made_behaviour_is_turned_into_code_plays_the_same_and_is_undone() {
     run_step(&mut studio, &Step::Do(Command::GameStop)).unwrap();
     let _ = std::fs::remove_dir(game.join("scripts"));
 }
+
+/// Puts a file's bytes back when the test is over.
+struct PutBackBytes {
+    path: PathBuf,
+    bytes: Vec<u8>,
+}
+
+impl Drop for PutBackBytes {
+    fn drop(&mut self) {
+        let _ = std::fs::write(&self.path, &self.bytes);
+    }
+}
+
+#[test]
+fn a_model_sent_to_a_running_game_is_taken_mid_walk() {
+    // The walking robot: its recipe is `art/robot.toml` (a Duck Mold
+    // recipe), and the game loads `assets/robot.glb`, with the line
+    // `self.robot.reload_if_changed(file)` in its `reload`.
+    let game = duck_forge().join("examples/robot_walk");
+    let recipe = game.join("art/robot.toml");
+    let model = game.join("assets/robot.glb");
+    let _recipe_back = PutBack {
+        text: std::fs::read_to_string(&recipe).unwrap(),
+        path: recipe.clone(),
+    };
+    let _model_back = PutBackBytes {
+        bytes: std::fs::read(&model).unwrap(),
+        path: model.clone(),
+    };
+    let mut studio = studio();
+    let say = |studio: &mut Studio, step: Step| {
+        run_step(studio, &step).unwrap_or_else(|problem| {
+            panic!("{problem}\n{}", problem.details);
+        })
+    };
+    say(
+        &mut studio,
+        Step::Do(Command::GameOpen {
+            name: String::from("robot_walk"),
+        }),
+    );
+    say(&mut studio, Step::Wait(Wait::Playing));
+    // Walking, for most of a second.
+    say(&mut studio, press("Right"));
+    say(&mut studio, Step::Wait(Wait::Frames { frames: 40 }));
+    // How red the picture is: the robot's own red is a few small parts.
+    let reds = |studio: &Studio| {
+        let picture = studio.play().unwrap().picture.clone().unwrap();
+        picture
+            .pixels
+            .iter()
+            .filter(|pixel| {
+                let (r, g, b) = (*pixel >> 16 & 0xFF, *pixel >> 8 & 0xFF, *pixel & 0xFF);
+                r > 120 && g < r / 2 && b < r / 2
+            })
+            .count()
+    };
+    let before = reds(&studio);
+    let frame_before = studio.play().unwrap().picture.as_ref().unwrap().frame;
+
+    // The model changed in Duck Mold's words, and sent: the robot's
+    // body and head are red now.
+    for part in ["body", "head"] {
+        say(
+            &mut studio,
+            Step::Do(Command::ModelEdit {
+                path: String::from("art/robot.toml"),
+                edit: format!("set {part} --color red"),
+            }),
+        );
+    }
+    let said = say(
+        &mut studio,
+        Step::Do(Command::ModelSend {
+            path: String::from("art/robot.toml"),
+        }),
+    );
+    assert!(
+        said.starts_with("Sent assets/robot.glb to the game ("),
+        "{said}"
+    );
+    // The game goes on: it wasn't started again, it is still playing,
+    // and it took the file (nothing to restart for).
+    say(&mut studio, Step::Wait(Wait::Frames { frames: 30 }));
+    let play = studio.play().unwrap();
+    assert_eq!(play.state, PlayState::Playing);
+    let picture = play.picture.clone().unwrap();
+    assert!(
+        picture.frame >= frame_before + 30,
+        "the same run carried on: frame {} after {frame_before}",
+        picture.frame
+    );
+    let after = reds(&studio);
+    assert!(
+        after > before + 200,
+        "the running robot is red now: {after} red pixels, {before} before"
+    );
+    assert!(
+        !studio.open.as_ref().unwrap().level_needs_restart,
+        "the game took the model without being started again"
+    );
+    say(&mut studio, release("Right"));
+    let _ = studio.run(Command::GameStop);
+}
