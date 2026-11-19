@@ -1698,6 +1698,9 @@ impl GlbModel {
         let path = path.as_ref();
         let bytes = std::fs::read(path)
             .map_err(|error| crate::sprite::missing_file_error(path, "model", &error))?;
+        // Noted, so that the game hears when the file is saved again
+        // while it runs (see `Game::reload`).
+        crate::files::note_model(path);
         let not_a_model = |reason: String| {
             LoadError::new(
                 io::ErrorKind::InvalidData,
@@ -1903,6 +1906,8 @@ pub struct AnimatedModel {
     ball: Option<(Vec3, f32)>,
     /// The far-away versions, nearest first, standing as the model does.
     far: Vec<FarMesh>,
+    /// The file it was loaded from, if it was loaded from one.
+    file: Option<std::path::PathBuf>,
 }
 
 /// One far-away version of an [`AnimatedModel`].
@@ -1962,7 +1967,121 @@ impl AnimatedModel {
     /// A missing file, or one that isn't a Duck Mold model, is a
     /// [`LoadError`]: one sentence saying what's wrong and what to do.
     pub fn load(path: impl AsRef<Path>) -> Result<AnimatedModel, LoadError> {
-        Ok(AnimatedModel::new(GlbModel::load(path)?))
+        let path = path.as_ref();
+        let mut model = AnimatedModel::new(GlbModel::load(path)?);
+        model.file = Some(path.to_path_buf());
+        Ok(model)
+    }
+
+    /// The file it was loaded from. `None` for a model made with
+    /// [`new`](AnimatedModel::new).
+    pub fn file(&self) -> Option<&Path> {
+        self.file.as_deref()
+    }
+
+    /// Takes the model's file again if `file` is the one it was loaded
+    /// from: for a model saved again while the game runs (Duck Mold's
+    /// Export, or "Send to game" in Duck Forge Studio). One line in the
+    /// game's [`reload`](crate::engine::Game::reload):
+    ///
+    /// ```no_run
+    /// # use duckforge::prelude::*;
+    /// # use duckforge::glb::AnimatedModel;
+    /// # use std::path::Path;
+    /// # struct MyGame { robot: AnimatedModel }
+    /// # impl Game for MyGame {
+    /// # fn update(&mut self, _: &mut Context) {}
+    /// # fn draw(&self, _: &mut Canvas) {}
+    /// fn reload(&mut self, _ctx: &mut Context, file: &Path) -> bool {
+    ///     self.robot.reload_if_changed(file)
+    /// }
+    /// # }
+    /// ```
+    ///
+    /// The model carries on as it was: the same animation at the same
+    /// moment and speed (or the same pose), and the same turns the game
+    /// gave its joins ([`turn`](AnimatedModel::turn)), each found again
+    /// by its name. An animation or pose the new file no longer has
+    /// leaves the model at rest; a join it no longer has is forgotten.
+    ///
+    /// Returns `true` if `file` is this model's file, `false` if it is
+    /// some other file. A file that can't be read (half saved, or not a
+    /// Duck Mold model any more) leaves the model as it was, with the
+    /// reason on the terminal, and still returns `true`: the game
+    /// needn't be started again for it.
+    pub fn reload_if_changed(&mut self, file: impl AsRef<Path>) -> bool {
+        let Some(mine) = self.file.clone() else {
+            return false;
+        };
+        if crate::files::name_of(&mine) != crate::files::name_of(file.as_ref()) {
+            return false;
+        }
+        match GlbModel::load(&mine) {
+            Ok(model) => self.take(model),
+            Err(error) => println!("duckforge: {error} The model stays as it was."),
+        }
+        true
+    }
+
+    /// Becomes `model`, carrying on with what it was doing.
+    fn take(&mut self, model: GlbModel) {
+        let mut next = AnimatedModel::new(model);
+        next.file = self.file.take();
+        next.speed = self.speed;
+        next.blend = self.blend;
+        next.stopped = self.stopped;
+        // What it was doing, found again by name.
+        next.doing = match &self.doing {
+            Doing::Rest => Doing::Rest,
+            Doing::Pose(pose) => {
+                let name = &self.model.poses[*pose].name;
+                next.model
+                    .poses
+                    .iter()
+                    .position(|pose| pose.name == *name)
+                    .map_or(Doing::Rest, Doing::Pose)
+            }
+            Doing::Playing {
+                animation,
+                time,
+                looping,
+                finished,
+                fresh,
+            } => {
+                let name = &self.model.animations[*animation].name;
+                match next
+                    .model
+                    .animations
+                    .iter()
+                    .position(|animation| animation.name == *name)
+                {
+                    Some(animation) => Doing::Playing {
+                        animation,
+                        // (An animation made shorter is held to its
+                        // new length.)
+                        time: time.min(next.model.animations[animation].length),
+                        looping: *looping,
+                        finished: *finished,
+                        fresh: *fresh,
+                    },
+                    None => Doing::Rest,
+                }
+            }
+        };
+        // The joins the game turned itself.
+        for (join, turned) in self.model.joins.iter().zip(&self.turned) {
+            if let Some(turn) = turned
+                && let Some(at) = next
+                    .model
+                    .joins
+                    .iter()
+                    .position(|known| known.name == join.name)
+            {
+                next.turned[at] = Some(*turn);
+            }
+        }
+        next.refresh();
+        *self = next;
     }
 
     /// The same, from a model that is already loaded.
@@ -2000,6 +2119,7 @@ impl AnimatedModel {
             complained: Vec::new(),
             events: Vec::new(),
             model,
+            file: None,
         }
     }
 

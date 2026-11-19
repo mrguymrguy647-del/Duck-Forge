@@ -29,6 +29,7 @@ pub mod game_files;
 pub mod history;
 pub mod level;
 pub mod manage;
+pub mod models;
 pub mod my_games;
 pub mod play;
 pub mod problem;

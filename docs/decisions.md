@@ -5985,3 +5985,83 @@ reported; the planks are upright on all four sides and the lid is on
 top; from 1.6 m to 40 m no pixel has a colour that wasn't painted; two
 stored pictures; an animated model keeps its images; a model without
 images has none; a damaged picture is one sentence.
+
+# Duck Mold's Phase 7b, step 6: Duck Mold inside the Studio, and models that change while the game runs
+
+A game's 3D models open in tabs beside the game, and a tab is Duck
+Mold's own Studio. A model changed there shows in the running game at
+once.
+
+- **No copy of Duck Mold.** Duck Mold's Studio is a library
+  (`duck-mold-studio`) with a small program on top; the tab draws that
+  library into the space under the tabs, with its "hosted" switch on (no
+  start page, nothing about other files, Export reads "Send to game").
+  The Studio's `Cargo.toml` names one commit of Duck Mold.
+- **The engine never uses Duck Mold.** Only the Studio does, so the
+  engine builds and tests alone, as before, and its list of libraries
+  hasn't changed.
+- **Two copies of the engine's drawing code in the Studio's program.**
+  Inside the tab Duck Mold draws with the engine commit that *Duck Mold*
+  names, not the engine in the folder above. So a change to the engine
+  can't break the tab, and the tab's picture is exactly Duck Mold's own.
+  Nothing of the engine passes between the two: the tab is given a file
+  to open and says which `.glb` files it wrote. The cost is the
+  drawing code twice in `DuckForgeStudio.exe`; that part is small (no
+  window, no graphics card, no sound).
+- **One test keeps the two in step.** The Studio's tests send a model
+  with an image from the tab (written by the Duck Mold the Studio
+  names) and load it with the engine in the folder above. If Duck
+  Mold's writer ever gets ahead of this engine's reader, that test is
+  red before a person finds a model the game can't read.
+- **Which tabs are open is the core's to know**
+  (`studio_core::models::Models`), so `model.open`, `model.close` and
+  `model.show` work with no window, like every other command. The
+  window keeps one Duck Mold Studio for each.
+- **`model.edit` takes Duck Mold's own words** (`set head --color
+  red`), read by the same code as `duck-mold edit` (Duck Mold's
+  command-line crate is a small library too). With the tab open the
+  edit is made by the tab's Studio, so it is a step of its Undo like a
+  click; with no window, by a Duck Mold Studio opened for the moment,
+  with Duck Mold's Undo kept where Duck Mold keeps it. Either way the
+  step can be undone in Duck Mold's own Studio later.
+- **Undo belongs to the tab in front.** In a model's tab Ctrl+Z is Duck
+  Mold's; on the game's tab it is the Studio's own, which doesn't hold
+  model edits. The Studio's keys (Tab for Build and Play, F1, F12) and
+  the game's inputs are off while a model is in front.
+- **"Send to game" goes to the game's assets** when the recipe has no
+  `export` line of its own (`assets/<name>.glb`). The tab offers to
+  write the line, so that Duck Mold on its own exports there too.
+- **The game hears about a model the way it hears about a picture.**
+  The Studio already looked at the game's `assets` every frame and sent
+  each changed file's name over the link; a `.glb` is one more. The
+  game's `reload` gets the name and loads the file itself, so the bytes
+  never cross the link.
+- **`AnimatedModel::reload_if_changed(file)`** is the one line a game
+  adds. It finds what it was doing again by name in the new file (the
+  animation and its moment, the pose, the joins the game turned), so a
+  model changed mid-walk keeps walking. It returns `true` for its own
+  file even if the file can't be read (the old model stays, with the
+  reason printed): "start the game again" would be the wrong advice for
+  a half-finished recipe.
+- **A game's own window looks at the `.glb` files it loaded**, twice a
+  second, as it looks at its level files. Only that a file changed is
+  noted (its time and size), not its bytes: a model can be megabytes.
+  So Duck Mold's own Studio, or `duck-mold export`, updates a game that
+  isn't in the Studio at all.
+- **In a recording, a model change is a file change with no text.** A
+  replay calls `reload` on the same frame, and the game loads whatever
+  the file is then. A replay is the same only if the file is: the same
+  is already true of a picture changed while recording.
+- **A model file is a kind of its own in the Files panel** ("model"): a
+  `.glb`, `.gltf` or `.obj`, and a `.toml` or `.json` that reads as a
+  Duck Mold recipe (it has `parts`). The file is read to tell, and the
+  answer kept until the file changes, since the panel lists the folder
+  every frame.
+
+Tests: `tests/duck_mold_reload.rs` (the same file again changes
+nothing; a new model keeps the walk's moment and the head's turn; a
+model without the animation rests; a broken file leaves the old model;
+the game's `reload` hook), `studio_core`'s `models` tests and
+`model_commands_open_edit_send_and_close`, and
+`studio/crates/app/tests/models.rs` (the tab is Duck Mold's Studio; an
+edit is sent and undone; a `.glb` opens its recipe).

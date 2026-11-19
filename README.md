@@ -562,6 +562,22 @@ recolouring a part (`mesh.triangles[part.range()]`) tints its images.
 A file with images needs this Duck Forge or a newer one: an older one
 says "update Duck Forge" instead of drawing its faces white.
 
+**Changing a model while the game runs.** Give the game's `reload` one
+line, and a model saved again shows in the running game at once, still
+mid-step:
+
+```rust
+fn reload(&mut self, _ctx: &mut Context, file: &Path) -> bool {
+    self.robot.reload_if_changed(file)
+}
+```
+
+It works from Duck Mold's own Studio (Export), from `duck-mold export`
+in a terminal, and from Duck Forge Studio, where a click on a model in
+the Files panel opens it in a tab that is Duck Mold's Studio: change
+the robot's arm there, and the robot walking in the game has the new
+arm when you let go of the mouse.
+
 [examples/robot_click/](examples/robot_click/main.rs) is the robot
 walking round, its footsteps making a sound and a puff of dust, a click
 naming the part it found, which flashes, and a wall in its way that its

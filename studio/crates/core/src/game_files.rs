@@ -28,6 +28,9 @@ pub enum FileKind {
     Level,
     /// Other text the game reads: JSON, TOML, plain text.
     Data,
+    /// A 3D model: a Duck Mold recipe (a `.toml` or `.json` with parts),
+    /// or a model file (`.glb`, `.gltf`, `.obj`). It opens in a tab.
+    Model,
     Other,
 }
 
@@ -49,6 +52,7 @@ impl FileKind {
                 }
             }
             "json" | "toml" | "md" | "csv" => FileKind::Data,
+            "glb" | "gltf" | "obj" => FileKind::Model,
             _ => FileKind::Other,
         }
     }
@@ -62,9 +66,47 @@ impl FileKind {
             FileKind::Sound => "sound",
             FileKind::Level => "level",
             FileKind::Data => "data",
+            FileKind::Model => "model",
             FileKind::Other => "file",
         }
     }
+}
+
+/// Whether a data file is a Duck Mold recipe. The file is read to tell,
+/// so the answer is kept until the file changes: the tree is made again
+/// every frame the Files panel shows.
+fn is_recipe(file: &Path, size: u64) -> bool {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::SystemTime;
+
+    type Known = HashMap<PathBuf, (Option<SystemTime>, u64, bool)>;
+    static KNOWN: OnceLock<Mutex<Known>> = OnceLock::new();
+
+    let lower = file.to_string_lossy().to_ascii_lowercase();
+    // (A recipe is small: nothing as big as a megabyte is read to see.)
+    if !(lower.ends_with(".toml") || lower.ends_with(".json")) || size > 1_000_000 {
+        return false;
+    }
+    let changed = std::fs::metadata(file)
+        .and_then(|data| data.modified())
+        .ok();
+    let known = KNOWN.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(known) = known.lock()
+        && let Some((when, bytes, answer)) = known.get(file)
+        && *when == changed
+        && *bytes == size
+    {
+        return *answer;
+    }
+    let answer = crate::models::kind_of(file) == Some(crate::models::Kind::Recipe);
+    if let Ok(mut known) = known.lock() {
+        if known.len() > 4096 {
+            known.clear();
+        }
+        known.insert(file.to_path_buf(), (changed, size, answer));
+    }
+    answer
 }
 
 /// One line of the tree.
@@ -118,9 +160,14 @@ fn add_folder(folder: &Path, prefix: &str, depth: usize, entries: &mut Vec<FileE
         add_folder(&folder.join(&name), &format!("{path}/"), depth + 1, entries);
     }
     for (name, size) in files {
+        let mut kind = FileKind::of(&name, &siblings);
+        // A `.toml` or `.json` file that is a Duck Mold recipe is a model.
+        if kind == FileKind::Data && is_recipe(&folder.join(&name), size) {
+            kind = FileKind::Model;
+        }
         entries.push(FileEntry {
             path: format!("{prefix}{name}"),
-            kind: FileKind::of(&name, &siblings),
+            kind,
             name,
             depth,
             size,
