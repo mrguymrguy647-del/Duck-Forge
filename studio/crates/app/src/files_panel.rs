@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 
 use eframe::egui::{self, RichText};
 use studio_core::game_files::{self, FileEntry, FileKind};
+use studio_core::sounds;
 use studio_core::studio::Command;
 
 use crate::pictures::Pictures;
@@ -56,6 +57,68 @@ pub struct FilesPanel {
     /// The game's scripts, by their files' places (`scripts/bee.rs`): they
     /// can be dragged onto objects. The app sets it before drawing.
     pub scripts: Vec<String>,
+    /// Which Duck Echo recipe made which sound, and how each sound shows
+    /// (a set as "step (6 variants)"): read again every couple of seconds.
+    echo: Option<(PathBuf, std::time::Instant, Echo)>,
+}
+
+/// The game's Duck Echo recipes and sounds, for the panel.
+#[derive(Default, Clone)]
+struct Echo {
+    recipes: sounds::Recipes,
+    labels: std::collections::BTreeMap<String, String>,
+    facts: std::collections::BTreeMap<String, String>,
+}
+
+impl Echo {
+    fn read(folder: &Path) -> Echo {
+        let recipes = sounds::recipes(folder);
+        let mut labels = std::collections::BTreeMap::new();
+        let mut facts = std::collections::BTreeMap::new();
+        for choice in sounds::choices(folder) {
+            if let Some(line) = sounds::facts(folder, &choice.path).map(|f| f.line()) {
+                facts.insert(choice.path.clone(), line);
+            }
+            labels.insert(choice.path, choice.label);
+        }
+        Echo {
+            recipes,
+            labels,
+            facts,
+        }
+    }
+
+    /// What's written beside a line of the tree: a sound's recipe, or
+    /// the sounds a recipe made.
+    fn beside(&self, path: &str) -> Option<String> {
+        if let Some(made) = self.recipes.sounds_of.get(path) {
+            let names: Vec<&str> = made
+                .iter()
+                .map(|sound| {
+                    self.labels
+                        .get(sound)
+                        .map_or(sound.as_str(), String::as_str)
+                })
+                .collect();
+            return Some(if names.is_empty() {
+                String::from("Duck Echo recipe")
+            } else {
+                format!("makes {}", names.join(", "))
+            });
+        }
+        self.recipes
+            .of_sound
+            .get(path)
+            .map(|recipe| format!("from {recipe}"))
+    }
+
+    /// The recipe to open for a file: itself, or the one that made it.
+    fn recipe<'a>(&'a self, path: &'a str) -> Option<&'a str> {
+        if self.recipes.sounds_of.contains_key(path) {
+            return Some(path);
+        }
+        self.recipes.of_sound.get(path).map(String::as_str)
+    }
 }
 
 /// A name being typed in the panel.
@@ -88,6 +151,21 @@ impl FilesPanel {
             return commands;
         };
         let entries = game_files::tree(folder);
+        let fresh = self.echo.as_ref().is_some_and(|(of, when, _)| {
+            of == folder && when.elapsed() < std::time::Duration::from_secs(2)
+        });
+        if !fresh {
+            self.echo = Some((
+                folder.to_path_buf(),
+                std::time::Instant::now(),
+                Echo::read(folder),
+            ));
+        }
+        let echo = self
+            .echo
+            .as_ref()
+            .map(|(_, _, echo)| echo.clone())
+            .unwrap_or_default();
         // Where new things go: the folder that's picked, or the folder of
         // the file that's picked, or the game's own folder.
         let target = target_folder(&entries, selected);
@@ -238,6 +316,14 @@ impl FilesPanel {
                         });
                         ui.close();
                     }
+                    if echo.recipe(&entry.path).is_some()
+                        && ui.button("Open in Duck Echo").clicked()
+                    {
+                        commands.push(Command::AssetsOpenInDuckEcho {
+                            file: entry.path.clone(),
+                        });
+                        ui.close();
+                    }
                     let is_main = entry.path == "main.rs";
                     if ui
                         .add_enabled(!is_main, egui::Button::new("Rename..."))
@@ -271,12 +357,19 @@ impl FilesPanel {
                 if response.clicked() {
                     commands.extend(self.clicked(entry));
                 }
+                let is_recipe = echo.recipes.sounds_of.contains_key(&entry.path);
                 let word = if is_script {
                     "script"
+                } else if is_recipe {
+                    "recipe"
                 } else {
                     entry.kind.word()
                 };
                 ui.label(RichText::new(word).small().weak());
+                // A sound's recipe beside it, and a recipe's sounds.
+                if let Some(beside) = echo.beside(&entry.path) {
+                    ui.label(RichText::new(beside).small().weak());
+                }
             });
         }
         if entries.is_empty() {
@@ -315,6 +408,10 @@ impl FilesPanel {
             } else if entry.kind != FileKind::Folder {
                 ui.label(RichText::new(size_words(entry.size)).small().weak());
             }
+            // What Duck Echo wrote about a sound or a set.
+            if let Some(line) = echo.facts.get(&entry.path) {
+                ui.label(RichText::new(line).small().weak());
+            }
             ui.horizontal_wrapped(|ui| {
                 if entry.kind == FileKind::Sound && ui.button("Play").clicked() {
                     commands.push(Command::FilesPlay {
@@ -329,6 +426,19 @@ impl FilesPanel {
                 {
                     commands.push(Command::FilesOpen {
                         path: entry.path.clone(),
+                    });
+                }
+                if let Some(recipe) = echo.recipe(&entry.path)
+                    && ui
+                        .button("Open in Duck Echo")
+                        .on_hover_text(format!(
+                            "Change {recipe} in Duck Echo Studio; its Send to game brings the \
+                             sound back"
+                        ))
+                        .clicked()
+                {
+                    commands.push(Command::AssetsOpenInDuckEcho {
+                        file: entry.path.clone(),
                     });
                 }
                 let is_main = entry.path == "main.rs";

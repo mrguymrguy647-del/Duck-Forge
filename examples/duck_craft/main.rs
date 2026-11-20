@@ -807,11 +807,21 @@ impl Art {
     }
 }
 
-/// Music and the sounds made from files (`audio/make_sounds.py`).
+/// Music and the sounds made from files. The day and night themes are
+/// OGG music from Duck Echo (`art/music_day.toml`, `art/music_night.toml`),
+/// decoded while they play; the rest are from `audio/make_sounds.py`.
 struct Sounds {
-    music_day: Wav,
-    music_night: Wav,
+    music_day: Music,
+    music_night: Music,
     music_title: Wav,
+    /// Footsteps: six variants from Duck Echo (`art/step.toml`), one each
+    /// step, never the same twice in a row.
+    step: SoundSet,
+    /// Sand landing (`art/thud.toml`), started early so its hit is on the
+    /// frame the sand lands.
+    thud: Wav,
+    /// The duck landing after a fall (`art/land.toml`).
+    land: Wav,
     groan: Wav,
     groan_far: Wav,
     hollow_hurt: Wav,
@@ -825,10 +835,14 @@ struct Sounds {
 impl Sounds {
     fn load() -> Result<Sounds, LoadError> {
         let wav = |name: &str| Wav::load(format!("{ASSETS}/{name}.wav"));
+        let music = |name: &str| Music::load(format!("{ASSETS}/{name}.ogg"));
         Ok(Sounds {
-            music_day: wav("music_day")?,
-            music_night: wav("music_night")?,
+            music_day: music("music_day")?,
+            music_night: music("music_night")?,
             music_title: wav("music_title")?,
+            step: SoundSet::load(format!("{ASSETS}/step.variants.json"))?,
+            thud: wav("thud")?,
+            land: wav("land")?,
             groan: wav("groan")?,
             groan_far: wav("groan_far")?,
             hollow_hurt: wav("hollow_hurt")?,
@@ -1210,7 +1224,13 @@ struct FallingBlock {
     y: f32,
     speed: f32,
     block: Block,
+    /// Its thud has been started, to land with it.
+    heard: bool,
 }
+
+/// How many frames ahead a falling block's landing is worked out, to start
+/// its thud early (Duck Echo's thud reaches its hit in under a frame).
+const THUD_AHEAD: u64 = 3;
 
 impl DuckCraft {
     /// Sand that has lost what held it up starts to fall (the sand above
@@ -1232,6 +1252,7 @@ impl DuckCraft {
                     y: y as f32,
                     speed: 0.0,
                     block,
+                    heard: false,
                 });
             }
         }
@@ -1278,16 +1299,40 @@ impl DuckCraft {
             } else {
                 self.world.set(x, y, z, falling.block);
             }
-            ctx.play(Sound {
-                name: "thud",
-                wave: Wave::Noise,
-                freq: 250.0,
-                ms: 90.0,
-                volume: 0.18,
-                decay: 70.0,
-                ..Default::default()
-            });
+            // Too close to the ground to be heard coming: from its hit, now.
+            if !falling.heard {
+                ctx.play_on_hit(&self.art.sounds.thud);
+            }
         }
+        // The thud of one about to land starts now, so its hit is on the
+        // frame it lands.
+        for i in 0..self.falling.len() {
+            let falling = self.falling[i];
+            if falling.heard {
+                continue;
+            }
+            if let Some(frames) = self.frames_to_land(&falling, dt, THUD_AHEAD) {
+                ctx.play_landing(&self.art.sounds.thud, frames);
+                self.falling[i].heard = true;
+            }
+        }
+    }
+
+    /// In how many frames `falling` lands, if it's within `most`: its fall
+    /// worked out ahead, frame by frame, the way `drop_falling` moves it.
+    fn frames_to_land(&self, falling: &FallingBlock, dt: f32, most: u64) -> Option<u64> {
+        let (mut y, mut speed) = (falling.y, falling.speed);
+        for frame in 1..=most {
+            speed = (speed + GRAVITY * dt).min(30.0);
+            let next = y - speed * dt;
+            let lands = (next.floor() as i32..=y.floor() as i32 - 1)
+                .any(|below| below < 0 || self.world.get(falling.x, below, falling.z).solid());
+            if lands {
+                return Some(frame);
+            }
+            y = next;
+        }
+        None
     }
 }
 
@@ -1728,15 +1773,7 @@ impl DuckCraft {
         let moving = self.velocity.x.abs() + self.velocity.z.abs() > 1.0;
         if self.on_ground && moving && self.step_wait <= 0.0 {
             self.step_wait = if running { 0.28 } else { 0.38 };
-            ctx.play(Sound {
-                name: "step",
-                wave: Wave::Noise,
-                freq: 380.0,
-                ms: 45.0,
-                volume: 0.09,
-                decay: 40.0,
-                ..Default::default()
-            });
+            ctx.play_with(&self.art.sounds.step, 0.3, 0.0);
         }
     }
 

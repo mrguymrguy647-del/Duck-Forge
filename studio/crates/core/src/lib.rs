@@ -38,6 +38,7 @@ pub mod scene_edit;
 pub mod script;
 pub mod scripts;
 pub mod settings;
+pub mod sounds;
 pub mod studio;
 #[doc(hidden)]
 pub mod test_folder;

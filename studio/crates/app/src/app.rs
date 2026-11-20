@@ -226,6 +226,7 @@ impl StudioApp {
     fn feel_panel(&mut self, ui: &mut egui::Ui) {
         let mut commands = Vec::new();
         let mut choose_quill = false;
+        let mut choose_echo = false;
         egui::Panel::right("feel")
             .default_size(270.0)
             .min_size(220.0)
@@ -309,6 +310,33 @@ impl StudioApp {
                             choose_quill = true;
                         }
                     });
+                    let echo = studio_core::sounds::find_duck_echo_in(
+                        self.studio.settings.duck_echo.as_deref(),
+                        &self.studio.duck_echo_places,
+                    );
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(
+                            RichText::new(match &echo {
+                                Some(_) => "Duck Echo Studio is ready.",
+                                None => "Duck Echo Studio isn't found yet.",
+                            })
+                            .weak(),
+                        );
+                        if ui
+                            .small_button("Choose...")
+                            .on_hover_text(if cfg!(windows) {
+                                "Where DuckEchoStudio.exe is"
+                            } else {
+                                "Where DuckEchoStudio.AppImage is"
+                            })
+                            .clicked()
+                        {
+                            choose_echo = true;
+                        }
+                        if echo.is_none() {
+                            ui.hyperlink_to("Get it", studio_core::sounds::DUCK_ECHO_PAGE);
+                        }
+                    });
                 });
             });
         if choose_quill
@@ -318,6 +346,13 @@ impl StudioApp {
         {
             self.studio.settings.duck_quill = Some(file);
             self.studio.settings.save();
+        }
+        if choose_echo
+            && let Some(program) = rfd::FileDialog::new()
+                .set_title("Where is Duck Echo Studio?")
+                .pick_file()
+        {
+            commands.push(Command::AssetsChooseDuckEcho { program });
         }
         for command in commands {
             self.run_and_say(command);

@@ -5945,6 +5945,573 @@ scale; a far version stands as the model does, through a pose and a
 walk; `draw_mesh` draws what `mesh_for` gives, also after `mesh_mut`;
 a general glTF reader draws only the model itself.
 
+# Duck Echo's Phase 3, step 5: sound files that change while a game runs
+
+A `.wav` a game plays can change while it runs (sent again from Duck
+Echo, say), and the game hears the new sound from the next update, with
+no change to its code. A recording keeps which version it heard when, so
+a replay's `audio.wav` comes out the same, byte for byte. The plan is
+Duck Echo's `docs/phase3-design.md` (sections 4 and 8, step 5).
+
+## What was built
+
+- **A table of sound files** (`src/sound_files.rs`, beside `files.rs`):
+  for each file a game loaded, its name (as `files.rs` names files), the
+  samples it hears now, and the SHA-256 of the file they came from.
+- **`Wav` reads its samples from the table** each time it's played,
+  through a small shared slot the table swaps. `Wav`'s public functions
+  are the same (`load`, `name`, `seconds`, `is_stereo`), so no game
+  changed. `seconds()` gives the new length after a change.
+- **Noticing a change.** In a window, `pick_up_edits` (twice a second)
+  also looks at the sound files: first only the size and the modified
+  time, and when those change, it reads the file, checks it's whole and
+  decodes, and works out its hash. Duck Forge Studio's `file` message for
+  a `.wav` comes to the same place (`Simulation::change_sound_file`), and
+  the Studio's link also looks twice a second, so a file the Studio
+  caught half-written is tried again.
+- **The swap is between two updates**, where text files are reloaded: a
+  sound played from that frame on uses the new samples; a one-shot
+  already playing finishes with the old ones (they're shared, so they
+  stay alive until it ends); a loop switches at its next wrap. The
+  terminal says `duckforge: examples/duck_craft/assets/step.wav changed;
+  plays from frame 913`.
+- **Recordings** have `"sounds"` (each file's SHA-256 on frame 1) and
+  `"sound_file"` events in the events list, where the other changes are
+  (`{"frame": 913, "sound_file": "...", "sha256": "sha256:4a71..."}`).
+  Saving a recording (F10 or `--record` in a window, the Studio asking
+  for it, `--accept`, or `sim.save_sounds(&script)`) copies the versions
+  it names into `out/sound-store/<sha256>.wav`.
+- **A replay** asks for each version by its hash: this run's own copy,
+  else the store, else the file on disk if it's the same version. If
+  none has it, it plays today's file and warns: `... differs from the
+  recording and the sound store doesn't have the recorded one; the game
+  plays out the same, audio.wav will not`. The window prints replay
+  warnings now as they come.
+
+## Decisions made on the way
+
+- **The table belongs to the thread that loaded the sound**, like
+  `files.rs`. `cargo test` runs tests side by side on threads of one
+  program, and many of them play Duck Craft's sounds: one table for the
+  whole program would let one test's replay change another test's
+  sounds. A game runs on the thread its `main` made it on, so this is
+  never a limit for a real game; a test that makes a game on one thread
+  and runs it on another hears its sounds but not their changes.
+- **While a game runs, loading a file again gives the version the run
+  has now**, not what's on disk. Otherwise a sound could change without
+  being noticed and recorded, and a replay would differ. The table
+  forgets a file when the run ends and no `Wav` holds it any more, so the
+  next game reads the disk again (and tests that write a file and load
+  it, outside a run, read the disk every time, as before).
+- **A slot shared by every copy of a `Wav`**, rather than a lookup by
+  name on each play: a cloned `Wav`, or one a scene keeps, hears the
+  change too, and playing stays as cheap as before (one lock, one shared
+  pointer copied).
+- **Only a whole file is taken.** The WAV reader plays what's there of a
+  file shorter than its header says, which is right for a file saved
+  oddly, but would cut a sound short while it's still being written. So
+  a changed file must have all the sound its `data` header promises. A
+  file that doesn't decode yet keeps the old sound, isn't noted as seen,
+  and is read again next time. Its problem is said once for each size
+  and time it has, not twice a second.
+- **A loop's wrap is worked out exactly.** A played loop keeps a list of
+  versions, each with the sample in `audio.wav` it starts at: the change
+  lands where the coming update begins, and the new version starts at
+  the first wrap at or after it, from its own beginning. Two changes
+  before one wrap: the newer one waits for it instead. The speakers do
+  the same with a `NextRound` command (in a window, sound is never
+  sample-exact anyway; headless it is).
+- **The store is written when a recording is saved, not when a sound
+  loads.** Every window run can record (F10), and a game sent to a
+  friend is the same program: writing on every load would make an
+  `out/sound-store` folder on every player's computer. So the table keeps
+  each version's file bytes in memory until the run ends (half the size
+  of its samples again, for 16-bit files), and saving a recording writes
+  the ones it names. Each store file is written beside it and renamed
+  into place, so it's always whole.
+- **SHA-256, written out in `sound_files.rs`** (about 80 lines), checked
+  against the standard's own examples. The headless build's crates are
+  counted (`tests/dependencies.rs`), and a hash crate would add to every
+  clean build for one small function. Nothing secret depends on it: it
+  only names versions of a file. The same hash Duck Echo writes in its
+  facts files (`"file_sha256"`), so the two programs name a version the
+  same way.
+- **No `reload` for a sound.** A sound changing doesn't change the
+  game's state, so the game isn't asked. The Studio is told the change
+  was taken even when the file isn't whole yet (it's tried again), so it
+  doesn't ask for the game to start again.
+- **The Studio no longer records a `.wav` as a text change.** It used to
+  send a changed asset with its text (empty, for a sound) and keep that
+  as a `"file"` change; now the game keeps the sound change itself, with
+  the hash. Pictures are as before: a replay draws today's pictures.
+- **Old recordings replay as before.** `"sounds"` and `"sound_file"` are
+  new and optional; a recording without them plays the files as they are.
+
+## How it is tested
+
+In `src/sound_files.rs`: SHA-256 against the standard's examples; a game
+with a step every 10 frames and a looping theme, both files changed
+between updates 39 and 40 (one through `change_sound_file`, one through
+the Studio's `change_file`): plays before frame 40 use the old step, from
+frame 40 the new; the recording has both first versions and both changes
+on frame 40, and reads back the same; saving it writes four versions to
+the store (and none the second time); the files are changed again, and
+the replay's `audio.wav` is the same bytes as the live run's; without the
+store, the replay warns and still ends the same. A loop changed on frame
+40 (sample 28,665) plays the old sound to its wrap at sample 29,000, then
+the new one from its start; two changes before a wrap keep the newer. A
+file written in place and caught half-way isn't taken (said once), nor
+one with no sound yet, and is taken once whole. In `src/speaker.rs`: a
+loop told its next round finishes the old one first. In the Studio
+link's tests: a game started on its own thread hears a `.wav` the
+Studio says changed, its recording keeps the change on the right frame,
+and both versions are in the store. Every example game and every
+recorded playthrough passes frame for frame, as before.
+
+# Duck Echo's Phase 3, step 6: OGG music, decoded while it plays
+
+Long music can be an `.ogg` file: `Music::load("assets/day.ogg")`, then
+`ctx.play_loop(&day, 0.6)`, `set_loop_volume` and `stop_loop` as for a
+`Wav`. It's decoded a little at a time while it plays, so 23 seconds of
+stereo takes under 1 MB instead of 8. The plan is Duck Echo's
+`docs/phase3-design.md` (sections 5 and 8, step 6).
+
+## What was built
+
+- **`src/music.rs`**: `Music` (`load`, `name`, `seconds`, `is_stereo`);
+  `OggData`, which reads only the file's headers and checks it page by
+  page; `LoopReader`, which decodes, cuts the music to its exact length
+  and starts again at its first frame; and `MusicStream`, a decoder
+  thread with a ring buffer of half a second.
+- **In a window**, each playing piece of music has its own decoder
+  thread keeping the ring buffer filled. The speakers' sound thread only
+  copies from it. **Headless**, the mixer decodes the music itself, in
+  step with the frames, with no thread. Both use the same `LoopReader`,
+  so both give the same samples.
+- **Changes** to an `.ogg` go through step 5's table of sound files and
+  its sound store: a playing loop switches at its next wrap, and a
+  replay hears the recorded version.
+- **Scenes**: a sound object may name an `.ogg`, with `"loops": true`.
+- **Duck Forge Studio** sends a changed `.ogg` as it does a `.wav`.
+- **Duck Craft's day and night themes are OGG music from Duck Echo**
+  (`duck_craft_day.toml` and `duck_craft_night.toml`, sent with Duck
+  Echo's Send to game, with their facts files and recipes in `art/`).
+  They replace the 64-second "Still Water" and "Nothing Waits" WAVs from
+  `audio/make_sounds.py`, as the design's step 9 planned; it's done now
+  so Duck Craft plays OGG themes. The title theme stays a WAV: Duck Echo
+  has no title song yet. Music isn't part of the game's state, so the
+  recorded playthroughs replay as before, and weren't recorded again.
+
+## Decisions made on the way
+
+- **lewton as the decoder** (Duck Forge's copy of it, see "The same on
+  Windows and Linux" below). It's pure Rust (about 6,400 lines), with
+  `ogg` (about 2,700), `tinyvec` and `byteorder`: nothing built from C,
+  so a game still builds with nothing but Rust, and nothing loaded when
+  it starts. MIT or Apache-2.0. It's the decoder Duck Echo checks its own
+  OGG files with, so a file Duck Echo passed plays the same here. The
+  others: `symphonia` decodes many formats, with many more crates, for
+  one we need; Xiph's `libvorbis` or `stb_vorbis` are C, which every game
+  would then need a C compiler to build. lewton is in the headless build
+  too, because agents work headless and `audio.wav` must have the music.
+  Measured on a clean headless build of dodge: 23.5 s and 26.0 s before
+  (two runs), 26.3 s after. About a second at most, and less than two
+  runs differ by; `tests/dependencies.rs` lists its four crates.
+- **The file is kept in memory, not read while it plays** (0.3 MB for a
+  Duck Craft theme). So neither the sound thread nor the decoder ever
+  reads a file, a file changing on disk can't break a playing loop, and
+  the table, the store and replays work as for a `.wav`.
+- **The exact length** comes from Duck Echo's `DUCKECHO_FRAMES` comment.
+  lewton gives a few hundred frames too many at the end of a short file
+  (Duck Echo's 0.84 s chime: 37,696 for 37,139), so the music is cut to
+  the comment. A file without it is cut to its last Ogg page's position,
+  which is what the Ogg format says the length is; for the day theme
+  both say 1,008,000.
+- **The wrap** starts a new decoder at the file's beginning: every time
+  through gives exactly the same samples (tested over three times), and
+  the last frame is followed straight away by the first.
+- **The ring buffer** has one writer (the decoder thread) and one reader
+  (the sound thread), and neither ever waits for the other. Each sample
+  is kept as the bits of an `f32` in an atomic number, and two counters
+  say how many have been written and read: no locks, and no `unsafe`
+  code. The decoder rests 5 ms when it's full. The first quarter second
+  is decoded before the thread starts, so music begins without a gap.
+  The sound thread copies through a small buffer of its own (it asks for
+  no memory), and if the decoder ever falls behind, that part is silent
+  and counted: the line the game prints when it closes says "the music's
+  decoder always kept up", or how many times it fell behind.
+- **The decoder thread is started before the speaker takes the lock**
+  the sound thread uses, so starting music never holds up the sound.
+- **Only 44,100 Hz.** Changing the rate while streaming would need a
+  resampler that works a part at a time; Duck Echo writes 44,100 Hz, and
+  a file at another rate is refused with a sentence saying so.
+- **A changed `.ogg` is checked page by page** (each page's checksum,
+  and the last one ending the stream), not decoded, so noticing it costs
+  the game's thread almost nothing, and a half-written file fails the
+  check. In a window, the decoder thread is up to half a second ahead,
+  so it switches at the next wrap it reaches, which can be one round
+  later than headless; headless the wrap is exact, as in step 5.
+- **Music only loops.** `ctx.play_with` takes its own type now (a `Wav`
+  or a `Sound`), so music can't be passed to it. A scene's sound object
+  with an `.ogg` that doesn't loop is one of the scene's problems, and
+  silent; `scene.play_sound` plays only `.wav` files.
+- **Memory, measured** (`tests/music_memory.rs`, its own test program
+  counting every allocation): the day theme takes 303 KB to load (the
+  file) and at most 656 KB more while it plays, 959 KB in all. The ring
+  buffer is 176 KB; most of the rest is lewton's tables for the file
+  (its codebooks), bigger than the design's guess of 0.35 MB. The same
+  music as a `Wav` is 8.06 MB. Duck Craft's two old themes were 11.3 MB
+  each (64 s at 16 kHz, kept at 44.1 kHz).
+- **The same on Windows and Linux: lewton's tables get Duck Forge's own
+  fixed math.** lewton works out the window that blends one block of
+  music into the next, and its transform's factors, with the system's
+  `sin` and `cos` (and floor type 0's with `atan`, `cos` and `exp`). A
+  test pins the SHA-256 of the 16-bit `audio.wav` of three times through
+  the day theme. On the first run, GitHub's Windows machine made a
+  different one from Linux: inside each machine everything agreed (the
+  music was the file repeated, the decoder thread matched the mixer), but
+  the decoded samples differed a little between the two. So Duck Forge
+  keeps its own copy of lewton 0.10.2 (`vendor/lewton`), where those are
+  worked out with fixed math: `sin`, `cos`, `exp` and `atan` done with
+  only adding, multiplying, dividing and `sqrt` in `f64` (fdlibm's
+  polynomials for `sin` and `cos`), which IEEE 754 makes exactly the same
+  everywhere, and an exact power of two where lewton used `exp2`. A test
+  checks they're within one step of the system's answers (as close as
+  the system is to the truth). The change is 41 lines in four of
+  lewton's files, listed in `vendor/lewton/DUCKFORGE.md`; the rest is as
+  it came (its own `rustfmt.toml` keeps `cargo fmt` off it, its 2016
+  code's warnings are off, and only its `ogg` feature is built). Not
+  accepted as "close enough": Duck Forge's rule is the same sound
+  everywhere, and replays' `audio.wav` must match between a Windows and
+  a Linux computer. With the fixed math, GitHub's Windows machine makes
+  exactly Linux's `audio.wav` (the pinned SHA-256), five runs out of five,
+  with and without the default features.
+- **A hidden `test_hooks` module** lets the memory test (its own
+  program, so it can count allocations) start a stream as a window does.
+  It's marked as not for games.
+
+## How it is tested
+
+In `src/music.rs`: the day theme loops three times in `audio.wav`, every
+sample equal to the file decoded at once and repeated, and its hash is
+the pinned one, on Linux and on Windows; lewton's fixed math is within
+one step of the system's `sin`, `cos`, `exp` and `atan`, and its powers
+of two are exact; the decoder thread's samples equal the headless mixer's over
+those three times, bit for bit, and both equal the file repeated; volume
+changes and a stop land on their frames' samples; the chime is cut to
+its 37,139 frames and its second time through starts straight after; a
+stuck decoder thread leaves the reader with the first quarter second,
+then 10,000 reads come back at once with nothing; a slow one gives the
+reader nothing at times, and the music still comes out right; ten
+minutes of the night theme (26,460,000 frames) through a decoder thread,
+every frame right; an `.ogg` changed on frame 40 plays from the wrap at
+1,008,000 and a replay from the store gives the same `audio.wav`; files
+that can't be played say why (not an `.ogg`, missing, half written,
+damaged, not Ogg). In `tests/music_memory.rs`: under 1 MB. In the scene
+tests: an `.ogg` sound object loops, and one that doesn't loop is said.
+In `tests/cheat_sheet.rs`: `Music` as the guide shows it. Every example
+game and recorded playthrough passes as before.
+
+# Duck Echo's Phase 3, step 7: variants and facts
+
+Duck Echo makes several variants of a sound (eight footsteps, a little
+different each), with a list, and writes a *facts file* beside every
+sound: when its hit lands, how loud it is. Duck Forge now uses both. The
+plan is Duck Echo's `docs/phase3-design.md` (section 6, step 7).
+
+## What was built
+
+- **`SoundSet::load("assets/step.variants.json")`** (`src/sound_set.rs`)
+  reads Duck Echo's list and loads each `.wav` it names (each an ordinary
+  `Wav`, watched and swapped as in step 5). `ctx.play_with(&steps, 0.8,
+  0.0)` plays one of them. `log.json` names the set and the variant:
+  `{"frame": 40, "sound": "step", "file": ".../step_3.wav", "variant": 3}`,
+  and a play test reads it as `sound.variant`.
+- **`ctx.sound_rng`** chooses the variant: a second random generator,
+  made from the run's seed with a fixed number mixed in.
+- **Facts**: `wav.hit_seconds()` and `wav.loudness_lufs()` read
+  `thud.wav.json` (`None` without it). `ctx.play_landing(&thud,
+  frames_ahead)` starts the sound early so its hit lands at the start of
+  the frame that many frames on; if that's too soon, it starts now, part
+  of the way in. `ctx.play_on_hit(&thud)` starts now from the hit.
+- **A plain warning**, once for each file, when `play_landing` or
+  `play_on_hit` can't use the facts (none, out of date, or not JSON): the
+  sound plays from its start, now. `sim.sound_warnings()`; the window
+  and Duck Forge Studio's console print them, and a headless run lists
+  them with its warnings.
+- **Scenes**: a sound object may name a `.variants.json` (one variant each
+  time; a looping one loops one variant, chosen as it starts).
+- **Duck Craft**: its footsteps are six Duck Echo variants (`step`);
+  falling sand's thud is worked out a few frames ahead and started with
+  `play_landing`, so its hit is on the frame the sand lands (or
+  `play_on_hit`, if it lands too soon to be heard coming); and the duck
+  landing after a drop of a block or more plays `land` with
+  `play_on_hit`. All three are sent from Duck Echo's presets, with their
+  facts files and their recipes in `art/`. Their synthesizer sounds are
+  gone; the names (`step`, `thud`) are the same, so the game's tests and
+  playthroughs pass as before.
+
+## Decisions made on the way
+
+- **A second random generator, not `ctx.rng`.** A replay must pick the
+  same variants: anything made from the seed does, and recordings keep
+  the seed. But if variants took their numbers from `ctx.rng`, adding
+  footsteps to a game would change every random thing after them (where
+  a Hollow appears, a serve's angle) and break its recorded
+  playthroughs. `sound_rng` is the seed with a fixed number mixed in
+  (`0x5EED50D5`), so the two never share numbers. It's public, for a game
+  that wants its sounds' own randomness. A test plays variants and
+  checks the game's `ctx.rng` numbers are exactly the same as without.
+- **Never the same variant twice in a row**, as the design says: with
+  two or more, the choice is among the others (one number from
+  `sound_rng`, skipping the last one). The last one is kept in the set,
+  in a number shared by its clones (atomic, so a set stays safe to share
+  between threads).
+- **`play_landing` takes how many frames ahead**, as the design has it:
+  the game knows "this lands in 6 frames" (from a speed and a height),
+  not the frame number. Where things start is worked out in samples (the
+  hit lands on that frame's first sample of `audio.wav`), so headless
+  runs and replays are exact. In a window, the speakers hold the sound
+  back by the same number of samples (a new `wait` for each sound).
+- **Facts are checked against the sound.** Duck Echo's facts file names
+  the SHA-256 of the file it describes (`file_sha256`, step 3). A facts
+  file for another version (the sound changed after it) is out of date
+  and isn't trusted: its hit could be anywhere now. One without that
+  field (older Duck Echo) is taken as it is.
+- **Facts travel with the sound.** They're read with each version of the
+  sound (load, change, replay); the window's look also notices a facts
+  file written a moment after its sound, as Duck Echo writes them (not a
+  change for the recording: the sound is the same). The sound store keeps
+  each version's facts beside it (`<sha256>.wav.json`), and a replay uses
+  those first, so a replay starts its sounds at the same samples even if
+  the facts file on disk has gone or changed.
+- **Warnings only where facts are used.** Many sounds have no facts file
+  (the ones from `make_sounds.py`, say), and that's fine until a game asks
+  when their hit lands. So `play_landing` and `play_on_hit` warn, once
+  for each file; loading doesn't. `hit_seconds()` just says `None`.
+- **`play_with` takes its own small type** (from step 6), which can now
+  hold a set: the variant is chosen as it plays, with the game's
+  `sound_rng`, which a plain conversion couldn't reach.
+- **The list is read once.** Sending more variants means loading the set
+  again (starting the game again); each variant's sound is watched as
+  before. Only files beside the list are taken (no `../`).
+- **`loudness_lufs()`** is there for a game that levels its own sounds;
+  Duck Echo's are already at their kind's loudness, so Duck Craft doesn't.
+
+## How it is tested
+
+In `src/sound_set.rs`: a wrong list says where (the line, or the field,
+like `files[1] has no "file"`); 400 choices never repeat one twice in a
+row, play every variant, and are the same again from the same seed; a
+game playing a step every 4 frames and its headless replay hear the same
+steps and variants, and `log.json` names them, each the length of its
+variant; the game's own `ctx.rng` numbers are the same with and without
+the steps; a scene's `.variants.json` plays one. In `src/sound_files.rs`:
+a thud whose hit is at sample 1,234 played with `play_landing` 6 frames
+ahead has its hit on sample 11,025 (frame 16's first) in `audio.wav`;
+from too close, on frame 41's first sample, part of the way in; with
+`play_on_hit`, on frame 70's first; replayed after its facts file is
+gone, the same `audio.wav` from the store's facts; without facts, or with
+out-of-date ones, it plays from its start on its frame, and says so once;
+a facts file written after the sound is picked up. In `src/speaker.rs`:
+a sound with a wait starts that far in. In Duck Craft: footsteps are its
+six variants, never the same twice in a row. In `tests/cheat_sheet.rs`:
+the guide's calls. Every example game and recorded playthrough passes as
+before.
+
+# Duck Echo's Phase 3, step 8: the Inspector, and Open in Duck Echo
+
+Duck Forge Studio now shows the sounds Duck Echo makes the way Duck Echo
+makes them, and opens their recipes in Duck Echo Studio. The plan is
+Duck Echo's `docs/phase3-design.md` (section 7, step 8).
+
+## What was built
+
+- **The Sound box** (a Sound object's, and a script setting of kind
+  sound) lists `.wav` sounds, `.ogg` music ("assets/music_day.ogg
+  (music)") and each Duck Echo set as one entry ("assets/step (6
+  variants)"); the numbered `.wav`s a set names are its, and aren't
+  listed one by one. Under it, a **facts line** from the facts file Duck
+  Echo writes beside each sound: `0.20 s  -16.0 LUFS  hit at 0.014 s
+  plays once  from art/thud.toml`; for a set, its count and ranges: `6
+  variants  0.05 s  -18.9 to -18.2 LUFS  hit at 0.004 to 0.007 s  plays
+  once  from art/step.toml`. The Add window's sound list is the same.
+- **Open in Duck Echo**, under the facts line when a recipe made the
+  sound, and in Files for a sound, a set or a recipe:
+  `assets.open_in_duck_echo` runs `DuckEchoStudio --open
+  <game>/art/step.toml` in the game's folder (the console shows it as
+  `DuckEchoStudio --open art/step.toml`).
+- **Finding Duck Echo Studio** (`studio_core::sounds`): the program chosen
+  in the Studio (`assets.choose_duck_echo`, kept in the Studio's settings),
+  then beside Duck Forge Studio (in its folder, or a "Duck Echo Studio"
+  folder beside it), then where it installs: Windows,
+  `%LOCALAPPDATA%\Programs\Duck Echo Studio\DuckEchoStudio.exe` (its
+  installer's own folder, for one person) or under Program Files; Linux,
+  `DuckEchoStudio.AppImage` (or `DuckEchoStudio`, `duck-echo-studio`) in
+  `~/Applications`, `~/.local/bin`, `~/bin`, `~/Downloads` or `~/Desktop`;
+  then the PATH. Not found: "Where is Duck Echo Studio?", what to do, and
+  a "Get Duck Echo Studio" button to its download page. An AppImage that's
+  there but not allowed to run yet is named, with how to allow it.
+- **Files** shows each sound's recipe beside it ("from art/thud.toml"),
+  each recipe's sounds ("makes assets/step (6 variants)"), calls a Duck
+  Echo recipe "recipe", and shows a picked sound's or set's facts line.
+- **`.ogg` and sets in scenes**: dropping one on the scene or a Sound box
+  (`files.use`) uses it, as the engine has played them since steps 6 and
+  7; Play on a set plays its sounds in turn. `.mp3` and `.flac` still say
+  to save a `.wav` or an `.ogg`.
+- The Sound, Volume and Name boxes are named by their labels, for screen
+  readers (and for the tests that look for them).
+
+## Decisions made on the way
+
+- **The recipe from the facts, then by name.** A facts file (or a set's
+  list) names its recipe (`"recipe": "art/step.toml"`, as question 1 of
+  the design recommends); without one, `art/<name>.toml` is used if it is
+  a Duck Echo recipe. A `.toml` is a recipe when its top lines have
+  `version` and it has `layers` (a sound) or `tempo` and `tracks` (a
+  song): a game's other `.toml` files (a `Cargo.toml`) aren't.
+- **Opening changes nothing**, so it isn't a step for Undo: Duck Echo
+  writes the sound when the person presses Send to game, and the game
+  (step 5) and the Inspector's facts (read again every 2 seconds) follow.
+  Choosing where Duck Echo Studio is changes the Studio's settings, not
+  the game, so it isn't one either. Choosing a sound in the Sound box is
+  `object.set`, a step for Undo as before.
+- **Where to look is a value the Studio keeps** (`duck_echo_places`), so
+  tests can be a computer without Duck Echo Studio whatever computer they
+  run on, and the command line is checked exactly on Windows and on
+  Linux (each runs its own case in CI).
+- **The facts aren't checked against the sound's SHA-256 here.** The
+  game does that before it uses them (step 7); the Studio only shows
+  them, and Duck Echo writes the sound and its facts together.
+
+## How it is tested
+
+In `studio/crates/core/src/sounds.rs`, on Duck Craft's own sounds: the
+list has "assets/step (6 variants)" and "assets/music_day.ogg (music)"
+and no `step_1.wav`; the facts lines are exactly as above; recipes are
+found from facts and by name, and a `Cargo.toml` isn't one; the places
+looked in on Windows and Linux; a program on the PATH is found and a
+chosen one comes first; the message without Duck Echo, on each system,
+and for an AppImage not allowed to run; the command line, exactly. In
+the Studio's own tests: `assets.open_in_duck_echo` says "Where is Duck
+Echo Studio?" with the download link, says when no recipe made a sound,
+and starts a chosen program with `--open art/step.toml`. In the screen
+tests: a copy of the scene demo with Duck Craft's footsteps and day music
+shows "assets/step (6 variants)" and its facts line in the Inspector,
+lists the music and not the numbered steps, sets the music, and Open in
+Duck Echo asks for the set's recipe and shows the plain message; Files
+shows "makes assets/step (6 variants)" and "from art/step.toml" beside
+the six steps and the set, and opens a set's or a recipe's.
+
+## Checklist for a person
+
+Windows, with Duck Echo Studio installed (its installer, for you only):
+
+1. Open Duck Forge Studio, then Duck Craft's folder in Files: `art/`
+   shows `step.toml` as a recipe that "makes assets/step (6 variants)";
+   `assets/step_3.wav` says "from art/step.toml".
+2. Open the scene demo, add a Sound object (Add, Sound) and pick
+   "assets/step (6 variants)" (after copying Duck Craft's `step*` files
+   into its `assets` and `art/step.toml` into its `art`): the facts line
+   shows under the box. Play plays the steps in turn.
+3. Press Open in Duck Echo: Duck Echo Studio opens `step.toml`, its title
+   naming the game. Change a value, Send to game: in two seconds the
+   facts line shows the new numbers, and the running game the new steps.
+4. Rename Duck Echo Studio's folder for a moment and press Open in Duck
+   Echo again: "Where is Duck Echo Studio?", with Get Duck Echo Studio
+   (it opens the download page) and Choose... in the Feel tab. Choose
+   `DuckEchoStudio.exe` where it now is: it opens again. Put the folder
+   back.
+
+Linux, with `DuckEchoStudio.AppImage` downloaded into `~/Applications`:
+
+1. to 3. as on Windows.
+4. Take away the AppImage's permission to run (Properties, Permissions):
+   Open in Duck Echo names the AppImage and says how to allow it; allow
+   it again and it opens. Move it to `~/Desktop`: still found. Move it
+   somewhere else entirely: Choose... finds it.
+
+# Duck Echo's Phase 3, step 9: Duck Craft end to end, and the docs
+
+The last step of Duck Echo's Phase 3 on Duck Forge's side: Duck Craft
+run start to finish with its new sounds, and the docs brought up to date
+for steps 5 to 8. The plan is Duck Echo's `docs/phase3-design.md`
+(section 8, step 9).
+
+## Duck Craft, start to finish
+
+Both recorded playthroughs, run headless (`--inputs
+playthroughs/duck_craft.json`, 797 frames; `duck_craft_night.json`,
+2,990 frames): every check passes and each ends exactly as recorded, so
+**neither was re-recorded**. Their sounds changed files in step 7, not
+names (`step`, `thud`), and footsteps take their numbers from
+`ctx.sound_rng`, not the game's `ctx.rng`, so nothing the game decides
+moved.
+
+- **Music**: `log.json`'s `"loops"` has `music_day` and `music_night`
+  from `assets/music_day.ogg` and `music_night.ogg`, fading in as the day
+  starts (frame 32 in the day run, 202 at night); `audio.wav` is stereo,
+  exactly as long as the run (13.28 s and 49.83 s), and louder once the
+  music is in.
+- **Footsteps**: `"variant"` 5, 3, 6, 2 (day) and 5, 3, 6, 2, 4, 5
+  (night): never the same twice in a row.
+- **Landing**: `land` on frame 689 of the day run, as the duck drops a
+  block, with `play_on_hit`.
+- **Falling sand**: neither playthrough digs under sand, so a new test,
+  `falling_sands_thud_is_heard_on_the_frame_it_lands_in_a_headless_run`,
+  does, headless with its `audio.wav` and `log.json`: the thud is asked
+  for a few frames early, its hit falls on the first sample of the frame
+  the sand lands on, `log.json` names it, and the thud's own sound is
+  found in `audio.wav` there.
+- **The same bytes again**: each playthrough's `audio.wav` is the same,
+  byte for byte, when run twice; CI runs the engine's tests on Windows,
+  where the music's decoded samples are pinned to Linux's.
+
+`PlayedSound::start_sample()` is new and public, for such tests: the
+sample of `audio.wav` a sound starts at.
+
+## The docs
+
+- AI_GUIDE.md section 16, "Sound from Duck Echo, end to end": what Duck
+  Echo writes, the loop for a person and for an agent, and the lessons
+  below in short.
+- [ROADMAP.md](ROADMAP.md), new: what's done, what's waiting on its own
+  branch, and what could come next.
+
+## Lessons for the next builder
+
+- **Design every sound feature around "a replay is exact".** Each step
+  had to answer it first: a changed sound (the SHA-256 in recordings, and
+  the store), variants (their own random numbers), music (the decoder's
+  bits on both systems), facts (kept with each version of the sound).
+  Answered late, it would have meant re-recording every playthrough.
+- **Check Windows and Linux early, on the bytes.** The OGG decoder used
+  the system's `sin` and `cos`, and its samples differed a little between
+  the two; it showed only because a test pins the SHA-256 of `audio.wav`
+  and CI runs it on both. The fix (fixed
+  math in a vendored `lewton`) was small because it was found in step 6,
+  not after.
+- **Keep names when files change.** Going from synthesizer sounds to
+  Duck Echo files under the same names left every test and playthrough
+  untouched.
+- **Separate what's heard from what happens.** `sound_rng`, and the rule
+  "decide game logic from frames, not sound lengths", keep a game's
+  behaviour the same whatever its sounds become.
+- **Sounds that overlap can't be told apart by matching.** Finding a low
+  thud in a mix by correlation is good to a few samples, not one, and a
+  sand pillar's three thuds a frame apart fool it entirely. Test exact
+  placement through `start_sample()` and frame boundaries, and use
+  correlation only to show the sound is there.
+- **The other tool's plan lives in its own repository.** Duck Echo's
+  `docs/phase3-design.md` is on its `claude/phase3-duck-forge-link`
+  branch; read it there (a read-only clone is enough).
+- **Mind the disk.** The engine's and the Studio's debug builds take
+  over 20 GB together; a cloud machine ran out mid-step. Delete one
+  `target/debug` before building the other's full tests.
+- **Screen tests check names.** `egui_kittest` fails a test whose
+  widgets have no accessible name: give a box its label with
+  `labelled_by`, which also lets tests find it by role.
+
 # Duck Mold's Phase 7b, step 2: images on models
 
 A Duck Mold recipe can put a picture on a part or on one face of it,

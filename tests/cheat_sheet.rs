@@ -348,6 +348,87 @@ impl Game for Looper {
 }
 
 #[test]
+fn variants_and_hits_from_duck_echo() -> Result<(), LoadError> {
+    // Duck Craft's own sounds from Duck Echo, copied: six footsteps with
+    // their list, and a thud with its facts file.
+    let folder = TestFolder::new("cheat-sheet-variants");
+    let assets = concat!(env!("CARGO_MANIFEST_DIR"), "/examples/duck_craft/assets");
+    for entry in std::fs::read_dir(assets).unwrap().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with("step") || name.starts_with("thud.wav") {
+            std::fs::write(folder.join(&name), std::fs::read(entry.path()).unwrap()).unwrap();
+        }
+    }
+    let steps = SoundSet::load(folder.join("step.variants.json"))?;
+    assert_eq!(
+        (steps.name(), steps.len(), steps.variants().len()),
+        ("step", 6, 6)
+    );
+    let thud = Wav::load(folder.join("thud.wav"))?;
+    assert_eq!(thud.hit_seconds(), Some(0.014));
+    assert!(thud.loudness_lufs().is_some());
+
+    struct Sandbox {
+        steps: SoundSet,
+        thud: Wav,
+    }
+    impl Game for Sandbox {
+        fn update(&mut self, ctx: &mut Context) {
+            match ctx.frame() {
+                1 | 2 => ctx.play_with(&self.steps, 0.8, 0.0),
+                3 => ctx.play_landing(&self.thud, 6), // lands on frame 9
+                4 => ctx.play_on_hit(&self.thud),
+                _ => {}
+            }
+            let _ = ctx.sound_rng.next_f32(); // the sounds' own numbers
+        }
+        fn draw(&self, canvas: &mut Canvas) {
+            canvas.clear(Color::BLACK);
+        }
+    }
+    let mut sim = Simulation::new(config(), Sandbox { steps, thud });
+    sim.run(10);
+    let sounds = sim.sounds();
+    assert_ne!(sounds[0].variant, sounds[1].variant, "never twice in a row");
+    assert_eq!(sounds[2].name, "thud");
+    // Its hit (617 samples in) is on frame 9's first sample of audio.wav.
+    assert_eq!(sounds[2].start_sample() + 617, 8 * 735);
+    assert!(sim.sound_warnings().is_empty(), "it has its facts");
+    Ok(())
+}
+
+#[test]
+fn music_from_an_ogg() -> Result<(), LoadError> {
+    struct Theme(Music);
+    impl Game for Theme {
+        fn update(&mut self, ctx: &mut Context) {
+            if ctx.frame() == 1 {
+                let theme = ctx.play_loop(&self.0, 0.6);
+                ctx.set_loop_volume(theme, 0.3);
+            }
+        }
+        fn draw(&self, canvas: &mut Canvas) {
+            canvas.clear(Color::BLACK);
+        }
+    }
+    let folder = TestFolder::new("cheat-sheet-music");
+    let path = folder.join("day.ogg");
+    let file = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/examples/duck_craft/assets/music_day.ogg"
+    );
+    std::fs::write(&path, std::fs::read(file).unwrap()).unwrap();
+    let day = Music::load(&path)?;
+    assert_eq!((day.name(), day.is_stereo()), ("day", true));
+    assert!((day.seconds() - 22.857).abs() < 0.001);
+    let mut sim = Simulation::new(config(), Theme(day));
+    sim.run(2);
+    assert_eq!(sim.loops()[0].name, "day");
+    assert_eq!(sim.loops()[0].volume_at(2), 0.3);
+    Ok(())
+}
+
+#[test]
 fn looping_sounds() {
     let played = PlayTest::new(
         config(),
@@ -366,6 +447,63 @@ fn looping_sounds() {
     assert_eq!(hum.volumes, [(1, 0.6), (10, 0.3)]);
     assert_eq!(hum.volume_at(15), 0.3);
     assert!(!hum.is_playing());
+}
+
+/// A 16-bit mono WAV file of `samples` at 44,100 a second.
+fn wav_file(samples: &[i16]) -> Vec<u8> {
+    let data = samples.len() as u32 * 2;
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"RIFF");
+    bytes.extend_from_slice(&(36 + data).to_le_bytes());
+    bytes.extend_from_slice(b"WAVEfmt ");
+    bytes.extend_from_slice(&16u32.to_le_bytes());
+    bytes.extend_from_slice(&1u16.to_le_bytes()); // plain PCM
+    bytes.extend_from_slice(&1u16.to_le_bytes()); // one channel
+    bytes.extend_from_slice(&44_100u32.to_le_bytes());
+    bytes.extend_from_slice(&88_200u32.to_le_bytes());
+    bytes.extend_from_slice(&2u16.to_le_bytes());
+    bytes.extend_from_slice(&16u16.to_le_bytes());
+    bytes.extend_from_slice(b"data");
+    bytes.extend_from_slice(&data.to_le_bytes());
+    for sample in samples {
+        bytes.extend_from_slice(&sample.to_le_bytes());
+    }
+    bytes
+}
+
+#[test]
+fn a_sound_file_that_changes_while_the_game_runs() {
+    struct Steps(Wav);
+    impl Game for Steps {
+        fn update(&mut self, ctx: &mut Context) {
+            ctx.play_wav(&self.0);
+        }
+        fn draw(&self, canvas: &mut Canvas) {
+            canvas.clear(Color::BLACK);
+        }
+    }
+    let folder = TestFolder::new("cheat-sheet-sound-file");
+    let step = folder.join("step.wav");
+    std::fs::write(&step, wav_file(&[1000; 441])).unwrap();
+    let mut sim = Simulation::new(config(), Steps(Wav::load(&step).unwrap()));
+    sim.run(10);
+    // Sent again from Duck Echo: heard from the next step on.
+    std::fs::write(&step, wav_file(&[2000; 882])).unwrap();
+    let name = step.to_string_lossy().replace('\\', "/");
+    assert_eq!(sim.change_sound_file(&name), Ok(Some(11)));
+    sim.step();
+    assert_eq!(sim.game().0.seconds(), 0.02);
+    assert_eq!(sim.recording().sounds.len(), 1, "its SHA-256 on frame 1");
+    drop(sim); // that run is over: the next one starts afresh
+    // A game with no sound files has nothing to put in the store.
+    let quiet = Simulation::new(
+        config(),
+        Looper {
+            music: None,
+            theme: None,
+        },
+    );
+    assert_eq!(quiet.save_sounds(&quiet.recording()), Ok(0));
 }
 
 #[test]

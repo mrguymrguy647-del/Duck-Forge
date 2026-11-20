@@ -131,6 +131,26 @@ fn walking_forward_goes_the_way_the_duck_faces() {
 }
 
 #[test]
+fn footsteps_are_duck_echos_variants_never_the_same_twice_running() {
+    let played = PlayTest::new(config(), arena(|_| {}))
+        .script(&hold(&["W"], 240))
+        .frames(240)
+        .run();
+    let variants: Vec<u32> = played
+        .sounds()
+        .iter()
+        .filter(|sound| sound.name == "step")
+        .map(|sound| sound.variant.expect("each step is a variant"))
+        .collect();
+    assert!(variants.len() >= 8, "{variants:?}");
+    assert!(
+        variants.windows(2).all(|two| two[0] != two[1]),
+        "{variants:?}"
+    );
+    assert!(variants.iter().all(|v| (1..=6).contains(v)), "{variants:?}");
+}
+
+#[test]
 fn a_jump_is_a_little_over_one_block_and_lands() {
     let mut sim = Simulation::new(config(), arena(|_| {}));
     sim.step();
@@ -858,6 +878,99 @@ fn sand_falls_when_the_block_under_it_is_dug() {
     assert_eq!(game.world.get(8, FLOOR + 4, 10), Block::Air);
     assert!(game.falling.is_empty());
     assert!(played.sound_frames("thud").len() >= 3);
+}
+
+/// The left channel (or the only one) of a 16-bit `.wav`, -1 to 1.
+fn wav_samples(path: &std::path::Path) -> Vec<f32> {
+    let bytes = std::fs::read(path).unwrap();
+    let channels = u16::from_le_bytes([bytes[22], bytes[23]]) as usize;
+    let data = bytes.windows(4).position(|w| w == b"data").unwrap() + 8;
+    bytes[data..]
+        .chunks_exact(2 * channels)
+        .map(|frame| i16::from_le_bytes([frame[0], frame[1]]) as f32 / 32768.0)
+        .collect()
+}
+
+#[test]
+fn falling_sands_thud_is_heard_on_the_frame_it_lands_in_a_headless_run() {
+    // Sand on dirt, the dirt dug out from under it: run headless with its
+    // audio.wav and log.json, as a person's run is. One block of sand, so
+    // its thud can be found in the mix on its own (a pillar's thuds are a
+    // frame apart and overlap).
+    let game = arena(|w| {
+        w.set(8, FLOOR + 1, 10, Block::Dirt);
+        w.set(8, FLOOR + 2, 10, Block::Sand);
+        w.set(8, FLOOR, 10, Block::Stone);
+    });
+    let out = std::env::temp_dir().join(format!("duck-craft-thud-{}", std::process::id()));
+    let script = InputScript::parse(
+        r#"{"events": [{"frame": 1, "press": "X"}, {"frame": 30, "release": "X"}]}"#,
+    )
+    .unwrap();
+    let options = duckforge::HeadlessOptions {
+        frames: 120,
+        out: Some(out.clone()),
+        inputs: Some(script),
+        ..duckforge::HeadlessOptions::default()
+    };
+    let sim = duckforge::run_headless(config(), game, &options).unwrap();
+    let hit_seconds = sim.game().art.sounds.thud.hit_seconds().unwrap();
+    let hit = (f64::from(hit_seconds) * 44_100.0).round() as u64;
+    let per_frame = 44_100 / 60;
+    let audio = wav_samples(&out.join("audio.wav"));
+    let own = wav_samples(std::path::Path::new("examples/duck_craft/assets/thud.wav"));
+    let log: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(out.join("log.json")).unwrap()).unwrap();
+    let _ = std::fs::remove_dir_all(&out);
+    let thuds: Vec<_> = sim.sounds().iter().filter(|s| s.name == "thud").collect();
+    assert_eq!(thuds.len(), 1, "the sand lands once");
+    let logged = log["sounds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|s| s["sound"] == "thud")
+        .count();
+    assert_eq!(logged, thuds.len(), "log.json names every thud");
+    for thud in thuds {
+        // Its hit is on the first sample of the frame the sand lands on,
+        // a few frames after it was asked for.
+        let at = thud.start_sample() + hit;
+        assert_eq!(at % per_frame, 0, "the hit is on a frame's first sample");
+        let lands = at / per_frame + 1;
+        assert!(
+            lands > thud.frame,
+            "started early: asked on {}, lands on {lands}",
+            thud.frame
+        );
+        // And it's there in audio.wav: the thud's own sound matches the mix
+        // best within a few samples of that one, looking half a frame
+        // either way (the dirt's break sound plays over it). A low thud
+        // matches itself shifted a sample or two almost as well, so this
+        // finds it to within 8 samples (0.2 ms); the engine's own tests
+        // check the exact sample.
+        let start = thud.start_sample() as i64;
+        let matching = |offset: i64| -> f64 {
+            let (mut both, mut mix) = (0.0f64, 0.0f64);
+            for (i, &t) in own.iter().enumerate() {
+                let m = audio
+                    .get((start + offset) as usize + i)
+                    .copied()
+                    .unwrap_or(0.0) as f64;
+                both += m * t as f64;
+                mix += m * m;
+            }
+            both / mix.sqrt().max(1e-9)
+        };
+        let half = per_frame as i64 / 2;
+        let best = (-half..=half)
+            .max_by(|a, b| matching(*a).total_cmp(&matching(*b)))
+            .unwrap();
+        assert!(
+            best.abs() <= 8,
+            "thud asked on frame {}: found {best} samples off",
+            thud.frame
+        );
+    }
 }
 
 #[test]
@@ -2137,6 +2250,7 @@ fn saving_keeps_what_is_on_the_pointer_and_in_the_grid_and_falling_sand() {
         y: FLOOR as f32 + 4.3,
         speed: 2.0,
         block: Block::Sand,
+        heard: false,
     });
     let loaded = DuckCraft::from_bytes(game.art.clone(), &game.to_bytes()).unwrap();
     assert_eq!(loaded.count(Item::Gold), 10);

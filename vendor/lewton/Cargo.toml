@@ -1,0 +1,25 @@
+# lewton 0.10.2 (https://github.com/RustAudio/lewton), MIT or Apache-2.0,
+# kept in Duck Forge with one change: its tables are worked out with Duck
+# Forge's own fixed math, so music decodes to the same bits on every
+# computer. See DUCKFORGE.md. Only what Duck Forge uses is built: the
+# `ogg` feature (no async, no C API, no examples).
+[package]
+name = "lewton"
+version = "0.10.2"
+authors = ["est31 <MTest31@outlook.com>"]
+description = "Pure Rust vorbis decoder (Duck Forge's copy, with fixed math)"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/RustAudio/lewton"
+edition = "2015"
+publish = false
+
+[lib]
+name = "lewton"
+
+[features]
+default = ["ogg"]
+
+[dependencies]
+byteorder = "1.0"
+tinyvec = { version = "1.0", features = ["alloc"] }
+ogg = { version = "0.8", optional = true }

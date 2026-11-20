@@ -22,7 +22,8 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::sound::{LoopCommand, LoopId, SAMPLE_RATE, Samples, pan_gains};
+use crate::music::MusicStream;
+use crate::sound::{Audio, LoopCommand, LoopId, LoopStart, SAMPLE_RATE, Samples, pan_gains};
 
 /// At most this many sounds play at once; a new one replaces the oldest.
 const MAX_VOICES: usize = 32;
@@ -98,6 +99,10 @@ struct Refills {
     /// The longest time between two refills.
     worst: Duration,
     warned: bool,
+    /// Whether any music (`.ogg`) played, and how many times its decoder
+    /// thread hadn't got a block ready in time (that part was silent).
+    music_played: bool,
+    music_short: u64,
 }
 
 impl Refills {
@@ -141,9 +146,15 @@ impl Refills {
             return None;
         }
         let plural = if self.late == 1 { "" } else { "s" };
+        let music = match (self.music_played, self.music_short) {
+            (false, _) => String::new(),
+            (true, 0) => String::from("; the music's decoder always kept up"),
+            (true, 1) => String::from("; the music's decoder fell behind once"),
+            (true, n) => format!("; the music's decoder fell behind {n} times"),
+        };
         Some(format!(
             "duckforge: sound: {} late refill{plural} in {} (one is due every {} ms; the longest \
-             wait was {} ms)",
+             wait was {} ms{music})",
             self.late,
             how_long(last.saturating_duration_since(first)),
             self.every.as_millis(),
@@ -188,15 +199,17 @@ struct Voice {
     samples: Samples,
     gains: (f32, f32),
     at: usize,
+    /// Moments of silence before it starts (a sound played with
+    /// `play_landing` starts a little after its frame).
+    wait: usize,
 }
 
 /// One looping sound playing.
 struct Loop {
     /// The loop's number, from its [`LoopId`](crate::sound::LoopId).
     id: u32,
-    samples: Samples,
-    /// How far through the samples we are.
-    at: usize,
+    /// What it plays.
+    sound: Looping,
     /// Its volume now...
     volume: f32,
     /// ...and the volume it's going to. A change glides from one to the
@@ -206,7 +219,53 @@ struct Loop {
     stopping: bool,
 }
 
+/// What a loop plays.
+enum Looping {
+    /// Samples in memory (a `.wav` or a synthesizer sound), and how far
+    /// through them it is. `next` is the sound to play from the next wrap
+    /// on, when its file changed.
+    Samples {
+        samples: Samples,
+        next: Option<Samples>,
+        at: usize,
+    },
+    /// Music from an `.ogg`, decoded on its own thread a little ahead; the
+    /// sound thread only takes what's ready.
+    Music(MusicStream),
+}
+
 impl Loop {
+    /// A loop starting at `volume`. Music starts its decoder thread here
+    /// (and decodes its first part), so the speaker does this before it
+    /// takes the lock the sound thread uses.
+    fn new(id: LoopId, start: LoopStart, volume: f32) -> Loop {
+        let sound = match start.audio {
+            Audio::Samples(samples) => Looping::Samples {
+                samples,
+                next: None,
+                at: 0,
+            },
+            Audio::Ogg(ogg) => Looping::Music(MusicStream::start(ogg)),
+        };
+        Loop {
+            id: id.0,
+            sound,
+            volume,
+            target: volume,
+            stopping: false,
+        }
+    }
+
+    /// How far through its samples it is (tests; music has no place
+    /// here: its decoder thread keeps that).
+    #[cfg(test)]
+    fn at(&self) -> usize {
+        match &self.sound {
+            Looping::Samples { at, .. } => *at,
+            Looping::Music(_) => 0,
+        }
+    }
+
     /// Is this the loop `id`, and still playing? (A stopping loop is
     /// fading out, so it takes no more changes.)
     fn is(&self, id: LoopId) -> bool {
@@ -257,31 +316,84 @@ impl Voices {
         let frames = out.len() / 2;
         for voice in &mut self.playing {
             let (to_left, to_right) = voice.gains;
-            let end = (voice.at + frames).min(voice.samples.frames());
-            for (pair, i) in out.chunks_exact_mut(2).zip(voice.at..end) {
+            // Its wait first: it starts that far into this block, or not yet.
+            let skip = voice.wait.min(frames);
+            voice.wait -= skip;
+            let room = frames - skip;
+            let end = (voice.at + room).min(voice.samples.frames());
+            for (pair, i) in out.chunks_exact_mut(2).skip(skip).zip(voice.at..end) {
                 let (l, r) = voice.samples.frame(i);
                 pair[0] += l * to_left;
                 pair[1] += r * to_right;
             }
-            voice.at += frames;
+            voice.at += room;
         }
         self.playing
             .retain(|voice| voice.at < voice.samples.frames());
         for looped in &mut self.loops {
-            let length = looped.samples.frames();
             let (from, to) = (looped.volume, looped.target);
             looped.volume = to;
-            if length == 0 || frames == 0 {
+            if frames == 0 {
                 continue;
             }
-            for (n, pair) in out.chunks_exact_mut(2).enumerate() {
-                // A straight line from the old volume to the new one,
-                // reaching it at the block's last moment.
-                let volume = from + (to - from) * (n + 1) as f32 / frames as f32;
-                let (l, r) = looped.samples.frame(looped.at);
-                pair[0] += l * volume;
-                pair[1] += r * volume;
-                looped.at = (looped.at + 1) % length; // round again, with no gap
+            // A straight line from the old volume to the new one, reaching
+            // it at the block's last moment.
+            let volume_at = |n: usize| from + (to - from) * (n + 1) as f32 / frames as f32;
+            match &mut looped.sound {
+                Looping::Samples { samples, next, at } => {
+                    if samples.frames() == 0 {
+                        // Silent: a new sound waiting starts straight away.
+                        if let Some(next) = next.take() {
+                            *samples = next;
+                            *at = 0;
+                        }
+                    }
+                    if samples.frames() == 0 {
+                        continue;
+                    }
+                    for (n, pair) in out.chunks_exact_mut(2).enumerate() {
+                        let volume = volume_at(n);
+                        let (l, r) = samples.frame(*at);
+                        pair[0] += l * volume;
+                        pair[1] += r * volume;
+                        *at += 1;
+                        if *at >= samples.frames() {
+                            // Round again, with no gap: with the new sound
+                            // if its file changed.
+                            *at = 0;
+                            if let Some(next) = next.take() {
+                                *samples = next;
+                                if samples.frames() == 0 {
+                                    break; // the new sound is silent
+                                }
+                            }
+                        }
+                    }
+                }
+                Looping::Music(stream) => {
+                    // Only what the decoder has ready: a few hundred
+                    // frames at a time, through a small buffer here (no
+                    // memory is asked for on the sound thread).
+                    self.refills.music_played = true;
+                    let mut part = [0.0f32; 512];
+                    let mut n = 0;
+                    while n < frames {
+                        let want = (frames - n).min(part.len() / 2);
+                        let got = stream.read(&mut part[..2 * want]);
+                        for (k, frame) in part[..2 * got].chunks_exact(2).enumerate() {
+                            let volume = volume_at(n + k);
+                            out[2 * (n + k)] += frame[0] * volume;
+                            out[2 * (n + k) + 1] += frame[1] * volume;
+                        }
+                        n += got;
+                        if got < want {
+                            // The decoder fell behind: the rest of this
+                            // block is silent for this music, and counted.
+                            self.refills.music_short += 1;
+                            break;
+                        }
+                    }
+                }
             }
         }
         // Stopped loops have now faded out.
@@ -295,16 +407,9 @@ impl Voices {
     /// takes effect over the next block.
     fn change_loop(&mut self, command: LoopCommand) {
         match command {
-            LoopCommand::Start(id, request, volume) => {
+            LoopCommand::Start(id, start, volume) => {
                 // A loop starts at its volume straight away.
-                self.loops.push(Loop {
-                    id: id.0,
-                    samples: request.samples,
-                    at: 0,
-                    volume,
-                    target: volume,
-                    stopping: false,
-                });
+                self.loops.push(Loop::new(id, start, volume));
             }
             LoopCommand::Volume(id, volume) => {
                 for looped in self.loops.iter_mut().filter(|l| l.is(id)) {
@@ -315,6 +420,19 @@ impl Voices {
                 for looped in self.loops.iter_mut().filter(|l| l.is(id)) {
                     looped.target = 0.0;
                     looped.stopping = true;
+                }
+            }
+            LoopCommand::NextRound(id, audio) => {
+                for looped in self.loops.iter_mut().filter(|l| l.is(id)) {
+                    match (&mut looped.sound, &audio) {
+                        (Looping::Samples { next, .. }, Audio::Samples(samples)) => {
+                            *next = Some(samples.clone());
+                        }
+                        // The decoder thread switches at its next wrap.
+                        (Looping::Music(stream), Audio::Ogg(ogg)) => stream.next_round(ogg.clone()),
+                        // (A file's kind never changes: its name says it.)
+                        _ => {}
+                    }
                 }
             }
         }
@@ -357,8 +475,8 @@ impl Speaker {
     }
 
     /// Starts playing `samples` (at [`SAMPLE_RATE`], mono or stereo) at
-    /// `pan` (-1 left, 0 both sides, 1 right).
-    pub(crate) fn play(&self, samples: Samples, pan: f32) {
+    /// `pan` (-1 left, 0 both sides, 1 right), after `wait` moments.
+    pub(crate) fn play(&self, samples: Samples, pan: f32, wait: usize) {
         // A panic on the sound thread can't happen while it holds the
         // lock (filling can't panic), but recover anyway rather than crash.
         let mut voices = self.voices.lock().unwrap_or_else(|e| e.into_inner());
@@ -369,6 +487,7 @@ impl Speaker {
             samples,
             gains: pan_gains(pan),
             at: 0,
+            wait,
         });
     }
 
@@ -382,10 +501,18 @@ impl Speaker {
 
     /// Starts, changes or stops a looping sound.
     pub(crate) fn change_loop(&self, command: LoopCommand) {
-        self.voices
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .change_loop(command);
+        // A new loop is made before taking the lock: music starts its
+        // decoder thread then, and the sound thread must never wait for
+        // that.
+        let new = match command {
+            LoopCommand::Start(id, start, volume) => Ok(Loop::new(id, start, volume)),
+            other => Err(other),
+        };
+        let mut voices = self.voices.lock().unwrap_or_else(|e| e.into_inner());
+        match new {
+            Ok(looped) => voices.loops.push(looped),
+            Err(command) => voices.change_loop(command),
+        }
     }
 }
 
@@ -632,6 +759,7 @@ mod backend {
                 samples: beep,
                 gains: (1.0, 1.0),
                 at: 0,
+                wait: 0,
             });
             // Wait until the sound thread has played the whole beep.
             for _ in 0..200 {
@@ -662,14 +790,18 @@ mod tests {
             samples,
             gains: pan_gains(pan),
             at: 0,
+            wait: 0,
         }
     }
 
     fn looping(id: u32, samples: Samples, volume: f32) -> Loop {
         Loop {
             id,
-            samples,
-            at: 0,
+            sound: Looping::Samples {
+                samples,
+                next: None,
+                at: 0,
+            },
             volume,
             target: volume,
             stopping: false,
@@ -807,6 +939,52 @@ mod tests {
     }
 
     #[test]
+    fn a_changed_loop_finishes_its_round_then_plays_the_new_sound() {
+        let mut voices = Voices::default();
+        let small = |values: &[f32]| Samples::mono(values.to_vec());
+        voices
+            .loops
+            .push(looping(5, small(&[0.1, 0.2, 0.3, 0.4]), 1.0));
+        let mut out = [0.0; 4]; // two moments
+        voices.fill(&mut out);
+        // Its file changed half-way round: the rest of the round is the
+        // old sound, then the new one from its start, and round again.
+        // (Quieter than 0.8, which the speakers' limiter rounds off.)
+        voices.change_loop(LoopCommand::NextRound(
+            LoopId(5),
+            Audio::Samples(small(&[0.5, 0.6, 0.7])),
+        ));
+        let mut out = [0.0; 14]; // seven moments
+        voices.fill(&mut out);
+        let want = [0.3, 0.4, 0.5, 0.6, 0.7, 0.5, 0.6];
+        for (got, want) in lefts(&out).iter().zip(want) {
+            assert!(close(*got, want), "{out:?}");
+        }
+    }
+
+    #[test]
+    fn a_sound_that_waits_starts_that_far_in() {
+        // A sound played with play_landing: 3 moments of silence first,
+        // across the end of one block into the next.
+        let mut voices = Voices::default();
+        voices.playing.push(Voice {
+            samples: Samples::mono(vec![0.1, 0.2, 0.3]),
+            gains: (1.0, 1.0),
+            at: 0,
+            wait: 3,
+        });
+        let mut out = [0.0; 4]; // two moments: still waiting
+        voices.fill(&mut out);
+        assert!(lefts(&out).iter().all(|&v| v == 0.0), "{out:?}");
+        let mut out = [0.0; 8]; // four moments: one more wait, then it plays
+        voices.fill(&mut out);
+        let want = [0.0, 0.1, 0.2, 0.3];
+        for (got, want) in lefts(&out).iter().zip(want) {
+            assert!(close(*got, want), "{out:?}");
+        }
+    }
+
+    #[test]
     fn a_stopped_loop_fades_out_then_goes() {
         let mut voices = Voices::default();
         voices.loops.push(looping(3, Samples::mono(vec![1.0]), 0.8));
@@ -871,17 +1049,17 @@ mod tests {
         for (got, want) in lefts(&out).iter().zip(want) {
             assert!(close(*got, want), "fades to silence: {out:?}");
         }
-        let at = voices.loops[0].at;
+        let at = voices.loops[0].at();
         voices.fill(&mut out);
         assert_eq!(out, [0.0; 8], "then silence");
-        assert_eq!(voices.loops[0].at, at, "and the loop waits where it was");
+        assert_eq!(voices.loops[0].at(), at, "and the loop waits where it was");
         voices.paused = false;
         voices.fill(&mut out);
         let want = [0.125, 0.25, 0.375, 0.5];
         for (got, want) in lefts(&out).iter().zip(want) {
             assert!(close(*got, want), "fades back in: {out:?}");
         }
-        assert_eq!(voices.loops[0].at, at + 4, "carrying on from there");
+        assert_eq!(voices.loops[0].at(), at + 4, "carrying on from there");
     }
 
     #[test]

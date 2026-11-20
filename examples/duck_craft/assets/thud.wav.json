@@ -1,0 +1,20 @@
+{
+  "kind": "duck-echo-asset",
+  "version": 1,
+  "file": "thud.wav",
+  "duration_seconds": 0.20120181405895693,
+  "frames": 8873,
+  "sample_rate": 44100,
+  "channels": 1,
+  "loudness_lufs": -15.998241,
+  "loudness_method": "k_weighted_ungated",
+  "peak_dbfs": -4.6000004,
+  "leading_silence_seconds": 0.00009070294784580499,
+  "hit_seconds": 0.014,
+  "loops": false,
+  "format": "wav",
+  "seed": 4,
+  "recipe_hash": "sha256:b4595586899eadf0152bf2b60165120765d399b636ad733f4b4dd0e7143fca4b",
+  "file_sha256": "sha256:7dc2349af4f4a0f7cf34db2d1f97797863afbf83fa21b8159d41d2824a0c68be",
+  "recipe": "art/thud.toml"
+}

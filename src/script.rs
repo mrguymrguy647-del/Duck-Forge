@@ -105,6 +105,13 @@ pub enum Change {
         id: u64,
         set: serde_json::Map<String, Value>,
     },
+    /// A sound file the game plays has a new sound: `{"frame": 913,
+    /// "sound_file": "examples/mygame/assets/step.wav", "sha256":
+    /// "sha256:4a71..."}`. The file itself isn't in the recording (it's
+    /// too big): a replay finds that version by its SHA-256 in the sound
+    /// store (`out/sound-store/`), or on disk if the file is still the
+    /// same. See [`Simulation::change_sound_file`](crate::Simulation::change_sound_file).
+    SoundFile { path: String, sha256: String },
 }
 
 /// A [`Change`], and the frame that sees it first.
@@ -140,6 +147,12 @@ pub struct InputScript {
     /// frame 1. A replay gives the game these, not what's on disk now.
     /// Empty in a script written before files were kept.
     pub files: BTreeMap<String, String>,
+    /// The sound files the game played (`.wav`), each with the SHA-256 of
+    /// the version it heard on frame 1, like `"sha256:9f2c..."`. A replay
+    /// plays these versions, from the sound store (`out/sound-store/`) or
+    /// from disk if the file is still the same. Empty in a script written
+    /// before sounds were kept: then a replay plays the files as they are.
+    pub sounds: BTreeMap<String, String>,
     /// Files and tune values changed while it played, in frame order. In
     /// the JSON they're in the `"events"` list with the inputs.
     pub changes: Vec<ChangeEvent>,
@@ -186,6 +199,7 @@ impl InputScript {
                 "expect",
                 "tune",
                 "files",
+                "sounds",
                 "events",
             ],
             "the script",
@@ -275,6 +289,24 @@ impl InputScript {
             }
         };
 
+        let sounds = match top.get("sounds") {
+            None | Some(Value::Null) => BTreeMap::new(),
+            Some(Value::Object(hashes)) => hashes
+                .iter()
+                .map(|(name, hash)| match hash.as_str() {
+                    Some(hash) => Ok((name.clone(), hash.to_string())),
+                    None => Err(format!(
+                        "\"sounds\": {name:?} must be the SHA-256 of its file, like \"sha256:9f2c...\""
+                    )),
+                })
+                .collect::<Result<_, _>>()?,
+            Some(_) => {
+                return Err(String::from(
+                    "\"sounds\" must be an object like {\"examples/mygame/assets/step.wav\": \"sha256:...\"}",
+                ));
+            }
+        };
+
         let Some(list) = top.get("events") else {
             return Err(String::from("the script has no \"events\" list"));
         };
@@ -285,7 +317,7 @@ impl InputScript {
         let mut changes = Vec::new();
         for (index, event) in list.iter().enumerate() {
             let place = |err: String| format!("event {} ({event}): {err}", index + 1);
-            if ["file", "tune", "object"]
+            if ["file", "tune", "object", "sound_file"]
                 .iter()
                 .any(|key| event.get(key).is_some())
             {
@@ -306,6 +338,7 @@ impl InputScript {
             expect,
             tune,
             files,
+            sounds,
             changes,
         })
     }
@@ -352,6 +385,20 @@ impl InputScript {
                 );
             }
             text += "\n  },\n";
+        }
+        if !self.sounds.is_empty() {
+            let hashes: Vec<String> = self
+                .sounds
+                .iter()
+                .map(|(name, hash)| {
+                    format!(
+                        "\n    {}: {}",
+                        Value::from(name.as_str()),
+                        Value::from(hash.as_str())
+                    )
+                })
+                .collect();
+            text += &format!("  \"sounds\": {{{}\n  }},\n", hashes.join(","));
         }
         // Inputs and changes in one list, by frame; on the same frame the
         // changes come first, as they're applied first.
@@ -515,6 +562,12 @@ pub(crate) fn change_json(change: &ChangeEvent) -> String {
             Value::from(file.as_str()),
             Value::Object(set.clone())
         ),
+        Change::SoundFile { path, sha256 } => format!(
+            "{{\"frame\": {}, \"sound_file\": {}, \"sha256\": {}}}",
+            change.frame,
+            Value::from(path.as_str()),
+            Value::from(sha256.as_str())
+        ),
     }
 }
 
@@ -529,7 +582,24 @@ pub(crate) fn parse_change(event: &Value) -> Result<ChangeEvent, String> {
     if frame == 0 {
         return Err(String::from("frames count from 1"));
     }
-    let change = if let Some(path) = fields.get("file") {
+    let change = if let Some(path) = fields.get("sound_file") {
+        check_keys(
+            fields,
+            &["frame", "sound_file", "sha256"],
+            "a sound file change",
+        )?;
+        let path = path
+            .as_str()
+            .ok_or("\"sound_file\" names the sound file, as text")?;
+        let sha256 = fields
+            .get("sha256")
+            .and_then(Value::as_str)
+            .ok_or("a sound file change needs the new file's \"sha256\"")?;
+        Change::SoundFile {
+            path: path.to_string(),
+            sha256: sha256.to_string(),
+        }
+    } else if let Some(path) = fields.get("file") {
         check_keys(fields, &["frame", "file", "text"], "a file change")?;
         let path = path.as_str().ok_or("\"file\" names the file, as text")?;
         let text = fields
@@ -817,6 +887,10 @@ mod tests {
         let script = InputScript {
             expect: None,
             tune: None,
+            sounds: BTreeMap::from([(
+                String::from("examples/mygame/assets/step.wav"),
+                format!("sha256:{}", "9f".repeat(32)),
+            )]),
             seed: Some(123_456),
             updates_per_second: Some(60),
             frames: Some(90),
@@ -854,9 +928,24 @@ mod tests {
                     frame: 6,
                     change: Change::Tune(BTreeMap::from([(String::from("jump_speed"), 380.5)])),
                 },
+                ChangeEvent {
+                    frame: 8,
+                    change: Change::SoundFile {
+                        path: String::from("examples/mygame/assets/step.wav"),
+                        sha256: format!("sha256:{}", "4a".repeat(32)),
+                    },
+                },
             ],
         };
         let json = script.to_json();
+        assert!(
+            json.contains("\"sounds\": {\n    \"examples/mygame/assets/step.wav\": \"sha256:9f9f"),
+            "{json}"
+        );
+        assert!(
+            json.contains("{\"frame\": 8, \"sound_file\": \"examples/mygame/assets/step.wav\", \"sha256\": \"sha256:4a4a"),
+            "{json}"
+        );
         assert!(
             json.contains(
                 "\n    {\"frame\": 6, \"tune\": {\"jump_speed\": 380.5}},\n    {\"frame\": 6, \"mouse_motion\""

@@ -1,0 +1,20 @@
+{
+  "kind": "duck-echo-asset",
+  "version": 1,
+  "file": "step_6.wav",
+  "duration_seconds": 0.05276643990929705,
+  "frames": 2327,
+  "sample_rate": 44100,
+  "channels": 1,
+  "loudness_lufs": -18.207146,
+  "loudness_method": "k_weighted_ungated",
+  "peak_dbfs": -6.8000298,
+  "leading_silence_seconds": 0.000045351473922902495,
+  "hit_seconds": 0.005,
+  "loops": false,
+  "format": "wav",
+  "seed": 6,
+  "recipe_hash": "sha256:ffb0fa549bc0d9c941f3983cadaf371bf4c3e61705e04bbd45fa65cb772b94e7",
+  "file_sha256": "sha256:2f4bedcf03b8ad390c2e1b56dc37011374720264a89f78ade7aba6910a19b1ab",
+  "recipe": "art/step.toml"
+}

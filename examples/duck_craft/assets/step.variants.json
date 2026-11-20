@@ -1,0 +1,68 @@
+{
+  "kind": "duck-echo-variants",
+  "version": 1,
+  "recipe": "art/step.toml",
+  "recipe_hash": "sha256:93e67d817b6d0775e1f056490b2fc3ea95d146efa7a8f52fd47b0bd9b459559a",
+  "pick": "random",
+  "seeds_matter": true,
+  "loudness_range_lufs": [
+    -18.906908,
+    -18.179947
+  ],
+  "files": [
+    {
+      "file": "step_1.wav",
+      "seed": 1,
+      "duration_seconds": 0.0509750566893424,
+      "loudness_lufs": -18.609045,
+      "peak_dbfs": -6.8000293,
+      "hit_seconds": 0.006,
+      "summary": "0.05 s, ~-18.6 LUFS, bright, sharp attack, noisy, no clipping, ends cleanly"
+    },
+    {
+      "file": "step_2.wav",
+      "seed": 2,
+      "duration_seconds": 0.05068027210884354,
+      "loudness_lufs": -18.63682,
+      "peak_dbfs": -6.8000298,
+      "hit_seconds": 0.007,
+      "summary": "0.05 s, ~-18.6 LUFS, bright, sharp attack, noisy, no clipping, ends cleanly"
+    },
+    {
+      "file": "step_3.wav",
+      "seed": 3,
+      "duration_seconds": 0.05015873015873016,
+      "loudness_lufs": -18.906908,
+      "peak_dbfs": -6.8000298,
+      "hit_seconds": 0.007,
+      "summary": "0.05 s, ~-18.9 LUFS, bright, sharp attack, noisy, no clipping, ends cleanly"
+    },
+    {
+      "file": "step_4.wav",
+      "seed": 4,
+      "duration_seconds": 0.052290249433106575,
+      "loudness_lufs": -18.19667,
+      "peak_dbfs": -6.8000298,
+      "hit_seconds": 0.005,
+      "summary": "0.05 s, ~-18.2 LUFS, bright, sharp attack, noisy, no clipping, ends cleanly"
+    },
+    {
+      "file": "step_5.wav",
+      "seed": 5,
+      "duration_seconds": 0.05476190476190476,
+      "loudness_lufs": -18.179947,
+      "peak_dbfs": -6.8000298,
+      "hit_seconds": 0.004,
+      "summary": "0.05 s, ~-18.2 LUFS, bright, sharp attack, noisy, no clipping, ends cleanly"
+    },
+    {
+      "file": "step_6.wav",
+      "seed": 6,
+      "duration_seconds": 0.05276643990929705,
+      "loudness_lufs": -18.207146,
+      "peak_dbfs": -6.8000298,
+      "hit_seconds": 0.005,
+      "summary": "0.05 s, ~-18.2 LUFS, bright, sharp attack, noisy, no clipping, ends cleanly"
+    }
+  ]
+}

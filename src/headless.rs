@@ -446,6 +446,7 @@ fn run_and_save<G: Game>(
     let mut warnings: Vec<String> = timestep_warning.into_iter().collect();
     warnings.extend(skipped_events_warning(options));
     warnings.extend(sim.replay_warnings().iter().cloned());
+    warnings.extend(sim.sound_warnings().iter().cloned());
     warnings.extend(on_screen::warnings(&scenes, width as f32, height as f32));
     if let Some((crop, zoom)) = close_up {
         save_png(
@@ -1028,6 +1029,8 @@ pub(crate) fn run_from_command_line<G: Game>(
             .collect();
         script.tune = (!tuned.is_empty()).then_some(tuned);
         script.save(path)?;
+        // The sounds it names, if the store doesn't have them yet.
+        sim.save_sounds(&script)?;
         let was = if summary.changed.is_empty() {
             String::new()
         } else {
